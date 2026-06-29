@@ -15,7 +15,17 @@ import { colors, spacing, radius, typography } from '../theme';
 export type Field =
   | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string }
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean }
-  | { key: string; label: string; type: 'lookup'; table: string; labelCol: string; required?: boolean };
+  | {
+      key: string;
+      label: string;
+      type: 'lookup';
+      table: string;
+      labelCol: string;
+      required?: boolean;
+      /** Si se define, el selector es buscable y permite crear una opción nueva
+       *  escribiendo su valor (se guarda en `createColumn` de la tabla). */
+      createColumn?: string;
+    };
 
 type Option = { label: string; value: string };
 
@@ -166,11 +176,18 @@ export function RecordForm({
                   {f.label}
                   {f.required ? ' *' : ''}
                 </Text>
-                {f.type === 'select' || f.type === 'lookup' ? (
-                  <ChipSelect
-                    options={f.type === 'select' ? f.options : lookups[f.key] ?? []}
+                {f.type === 'select' ? (
+                  <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+                ) : f.type === 'lookup' ? (
+                  <SearchSelect
+                    options={lookups[f.key] ?? []}
                     value={values[f.key]}
                     onChange={(v) => set(f.key, v)}
+                    table={f.table}
+                    createColumn={f.createColumn}
+                    onCreated={(opt) =>
+                      setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }))
+                    }
                   />
                 ) : (
                   <TextInput
@@ -214,6 +231,86 @@ export function RecordForm({
         </View>
       </View>
     </Modal>
+  );
+}
+
+/** Selector buscable con opción de crear una entrada nueva en el catálogo. */
+function SearchSelect({
+  options,
+  value,
+  onChange,
+  table,
+  createColumn,
+  onCreated,
+}: {
+  options: Option[];
+  value?: string;
+  onChange: (v: string) => void;
+  table: string;
+  createColumn?: string;
+  onCreated: (opt: Option) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const selected = options.find((o) => o.value === value);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const exactExists = options.some((o) => o.label.toLowerCase() === q);
+
+  const create = async () => {
+    if (!createColumn || !query.trim()) return;
+    setCreating(true);
+    const { data, error } = await supabase
+      .from(table)
+      .insert({ [createColumn]: query.trim() } as any)
+      .select()
+      .single();
+    setCreating(false);
+    if (error || !data) return;
+    const opt = { label: query.trim(), value: (data as any).id };
+    onCreated(opt);
+    onChange(opt.value);
+    setQuery('');
+  };
+
+  return (
+    <View style={{ gap: spacing.xs }}>
+      {selected ? (
+        <View style={styles.selectedRow}>
+          <Text style={{ color: colors.text, fontWeight: '600' }}>{selected.label}</Text>
+          <TouchableOpacity onPress={() => onChange('')}>
+            <Text style={{ color: colors.muted }}>cambiar ✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <TextInput
+            style={styles.input}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Buscar…"
+            placeholderTextColor={colors.muted}
+            autoCapitalize="characters"
+          />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {filtered.slice(0, 12).map((o) => (
+              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.chip}>
+                <Text style={{ color: colors.text, fontSize: 13 }}>{o.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {createColumn && query.trim() && !exactExists ? (
+            <TouchableOpacity onPress={create} disabled={creating} style={styles.createBtn}>
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>
+                {creating ? 'Agregando…' : `+ Agregar "${query.trim()}"`}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
+        </>
+      )}
+    </View>
   );
 }
 
@@ -279,6 +376,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  selectedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  createBtn: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    alignItems: 'center',
+  },
   error: { color: colors.danger, marginTop: spacing.sm },
   btn: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center' },
   btnGhost: { backgroundColor: colors.surfaceAlt },
