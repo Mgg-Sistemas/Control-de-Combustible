@@ -291,6 +291,21 @@ drop policy if exists profiles_admin_all on public.profiles;
 create policy profiles_admin_all on public.profiles for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
+-- Blindaje: un usuario puede editar su propio perfil (nombre) pero NO su rol.
+-- Solo un admin autenticado puede cambiar roles. auth.uid() null = contexto de
+-- servicio / Management API (permitido para administración interna).
+create or replace function public.guard_role_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.role is distinct from old.role and auth.uid() is not null and not public.is_admin() then
+    raise exception 'No autorizado para cambiar el rol de usuario';
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_guard_role on public.profiles;
+create trigger trg_guard_role before update on public.profiles
+  for each row execute function public.guard_role_change();
+
 -- Catálogos (tanks, vehicles, machinery): lectura todos; escritura staff
 do $$
 declare tbl text;
