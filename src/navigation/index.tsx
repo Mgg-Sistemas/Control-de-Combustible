@@ -11,11 +11,12 @@ import LoginScreen from '../screens/LoginScreen';
 import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
 import UsersScreen from '../screens/UsersScreen';
+import ReportsScreen from '../screens/ReportsScreen';
+import AuthorizationsScreen from '../screens/AuthorizationsScreen';
 import {
   TanksScreen,
   IntakesScreen,
   DispatchesScreen,
-  AuthorizationsScreen,
   VehiclesScreen,
   MachineryScreen,
   TransfersScreen,
@@ -45,6 +46,7 @@ function MoreStack() {
       <Stack.Screen name="Vehicles" component={VehiclesScreen} options={{ title: 'Vehículos' }} />
       <Stack.Screen name="Machinery" component={MachineryScreen} options={{ title: 'Maquinaria' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
+      <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
     </Stack.Navigator>
   );

@@ -63,6 +63,7 @@ export interface Authorization {
   asset_kind: AssetKind;
   vehicle_id: string | null;
   machinery_id: string | null;
+  tank_id: string | null;
   liters: number;
   reason: string | null;
   status: AuthorizationStatus;

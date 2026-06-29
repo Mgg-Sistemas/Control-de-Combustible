@@ -128,6 +128,7 @@ create table if not exists public.authorizations (
   asset_kind     asset_kind not null,
   vehicle_id     uuid references public.vehicles(id),
   machinery_id   uuid references public.machinery(id),
+  tank_id        uuid references public.tanks(id),
   liters         numeric(12,2) not null check (liters > 0),
   reason         text,
   status         authorization_status not null default 'pendiente',
@@ -343,6 +344,41 @@ create policy auth_resolve on public.authorizations for update to authenticated
 -- stock_movements: solo lectura desde el cliente (lo escriben los triggers)
 drop policy if exists mov_select on public.stock_movements;
 create policy mov_select on public.stock_movements for select to authenticated using (true);
+
+-- ============================================================================
+-- FLUJO DE AUTORIZACIONES (aprobar/rechazar) — solo admin/supervisor.
+-- Aprobar crea el despacho (descuenta stock vía trigger) de forma atómica.
+-- ============================================================================
+create or replace function public.approve_authorization(p_auth_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare a public.authorizations%rowtype;
+begin
+  if public.current_role() not in ('admin','supervisor') then
+    raise exception 'Solo un administrador o supervisor puede autorizar';
+  end if;
+  select * into a from public.authorizations where id = p_auth_id for update;
+  if not found then raise exception 'Autorización no encontrada'; end if;
+  if a.status <> 'pendiente' then raise exception 'La autorización ya fue resuelta'; end if;
+  if a.tank_id is null then raise exception 'La solicitud no tiene tanque de origen'; end if;
+
+  insert into public.dispatches (asset_kind, vehicle_id, machinery_id, liters, tank_id, authorization_id, created_by)
+  values (a.asset_kind, a.vehicle_id, a.machinery_id, a.liters, a.tank_id, a.id, auth.uid());
+
+  update public.authorizations
+    set status = 'aprobado', approved_by = auth.uid(), resolved_at = now()
+    where id = a.id;
+end $$;
+
+create or replace function public.reject_authorization(p_auth_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if public.current_role() not in ('admin','supervisor') then
+    raise exception 'Solo un administrador o supervisor puede rechazar';
+  end if;
+  update public.authorizations
+    set status = 'rechazado', approved_by = auth.uid(), resolved_at = now()
+    where id = p_auth_id and status = 'pendiente';
+end $$;
 
 -- ============================================================================
 -- FIN DEL ESQUEMA

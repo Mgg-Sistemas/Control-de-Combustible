@@ -17,7 +17,6 @@ import {
   Tank,
   FuelIntake,
   Dispatch,
-  Authorization,
   Vehicle,
   Machinery,
   Transfer,
@@ -137,39 +136,6 @@ export function DispatchesScreen() {
           {d.driver_operator ? <Row label="Conductor/Operador" value={d.driver_operator} /> : null}
           {d.odometer_km != null ? <Row label="Odómetro" value={`${d.odometer_km} km`} /> : null}
           {d.hourmeter_h != null ? <Row label="Horómetro" value={`${d.hourmeter_h} h`} /> : null}
-        </>
-      )}
-    />
-  );
-}
-
-const authTone = (s: Authorization['status']) =>
-  s === 'aprobado' ? 'success' : s === 'rechazado' ? 'danger' : 'warning';
-
-export function AuthorizationsScreen() {
-  return (
-    <ListScreen<Authorization>
-      title="Autorizaciones"
-      table="authorizations"
-      emptyTitle="Sin autorizaciones"
-      emptySubtitle="Las solicitudes de despacho aparecerán aquí."
-      formTitle="Nueva solicitud"
-      autoUserField="requested_by"
-      formFields={[
-        { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
-        { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-        { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', createColumn: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
-        { key: 'liters', label: 'Litros solicitados', type: 'number', required: true },
-        { key: 'reason', label: 'Motivo', type: 'text' },
-      ]}
-      renderItem={(a) => (
-        <>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <ItemTitle>{Number(a.liters).toLocaleString()} L</ItemTitle>
-            <Badge label={a.status} tone={authTone(a.status)} />
-          </View>
-          <Row label="Activo" value={a.asset_kind} />
-          {a.reason ? <Row label="Motivo" value={a.reason} /> : null}
         </>
       )}
     />

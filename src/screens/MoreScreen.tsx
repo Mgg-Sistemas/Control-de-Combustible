@@ -17,6 +17,7 @@ const items: { label: string; route: string; desc: string }[] = [
   { label: 'Vehículos', route: 'Vehicles', desc: 'Placas y flota' },
   { label: 'Maquinaria', route: 'Machinery', desc: 'Equipos y maquinaria' },
   { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques' },
+  { label: 'Reportes', route: 'Reports', desc: 'Consumo diario por rango de fechas (PDF)' },
 ];
 
 export default function MoreScreen({ navigation }: any) {
