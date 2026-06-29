@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radius, AppColors } from '../theme';
@@ -10,9 +10,10 @@ export default function BiometricLockScreen() {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  // Lanza el prompt de huella automáticamente al entrar.
+  // En nativo lanzamos el prompt automáticamente; en web WebAuthn requiere
+  // un gesto del usuario, así que esperamos a que toque "Desbloquear".
   useEffect(() => {
-    unlock();
+    if (Platform.OS !== 'web') unlock();
   }, []);
 
   return (

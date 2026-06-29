@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Text, TouchableOpacity, View, Switch, Alert, Platform } from 'react-native';
+import { Text, TouchableOpacity, View, Switch, Alert } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import {
   isBiometricSupported,
   isBiometricEnabled,
-  setBiometricEnabled,
-  authenticateBiometric,
+  enableBiometric,
+  disableBiometric,
 } from '../lib/biometric';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -34,14 +34,14 @@ export default function MoreScreen({ navigation }: any) {
 
   const toggleBio = async (value: boolean) => {
     if (value) {
-      // Exigir una verificación antes de activar.
-      const ok = await authenticateBiometric();
+      const ok = await enableBiometric();
       if (!ok) {
-        Alert.alert('Huella', 'No se pudo verificar la huella.');
+        Alert.alert('Biometría', 'No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.');
         return;
       }
+    } else {
+      await disableBiometric();
     }
-    await setBiometricEnabled(value);
     setBioOn(value);
   };
 
@@ -89,10 +89,8 @@ export default function MoreScreen({ navigation }: any) {
             <Text style={{ fontWeight: '700', color: colors.text }}>Iniciar sesión con huella</Text>
             <Text style={{ color: colors.muted, fontSize: 13 }}>
               {bioSupported
-                ? 'Pide tu huella al abrir la app.'
-                : Platform.OS === 'web'
-                ? 'Disponible solo en el teléfono (no en el navegador).'
-                : 'Tu dispositivo no tiene huella configurada.'}
+                ? 'Pide tu huella o Face ID al abrir la app.'
+                : 'Tu dispositivo no tiene huella o Face ID configurado.'}
             </Text>
           </View>
           <Switch value={bioOn} onValueChange={toggleBio} disabled={!bioSupported} />

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,14 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { isBiometricSupported, isBiometricEnabled } from '../lib/biometric';
 import { spacing, radius, AppColors, AppTypography } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 export default function LoginScreen() {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
-  const { signIn, signUp, unlock } = useAuth();
+  const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -25,13 +24,6 @@ export default function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [canBiometric, setCanBiometric] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      setCanBiometric((await isBiometricSupported()) && (await isBiometricEnabled()));
-    })();
-  }, []);
 
   const submit = async () => {
     setError(null);
@@ -95,12 +87,6 @@ export default function LoginScreen() {
             {loading ? 'Procesando…' : mode === 'login' ? 'Entrar' : 'Registrarme'}
           </Text>
         </TouchableOpacity>
-
-        {canBiometric && mode === 'login' ? (
-          <TouchableOpacity style={styles.bioButton} onPress={unlock}>
-            <Text style={styles.bioText}>👆 Entrar con huella</Text>
-          </TouchableOpacity>
-        ) : null}
 
         <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'signup' : 'login')}>
           <Text style={[typography.muted, { textAlign: 'center', marginTop: spacing.md }]}>
