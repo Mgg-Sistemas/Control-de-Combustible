@@ -269,6 +269,8 @@ function SearchSelect({
   const q = query.trim().toLowerCase();
   const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
   const exactExists = options.some((o) => o.label.toLowerCase() === q);
+  // El buscador solo aparece si hay muchas opciones o si se pueden crear nuevas.
+  const showSearch = !!createColumn || options.length > 8;
 
   const create = async () => {
     if (!createColumn || !query.trim()) return;
@@ -297,18 +299,22 @@ function SearchSelect({
         </View>
       ) : (
         <>
-          <TextInput
-            style={styles.input}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Buscar…"
-            placeholderTextColor={colors.muted}
-            autoCapitalize="characters"
-          />
-          <View style={{ gap: spacing.xs }}>
+          {showSearch ? (
+            <TextInput
+              style={styles.input}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Buscar…"
+              placeholderTextColor={colors.muted}
+              autoCapitalize="characters"
+            />
+          ) : null}
+          <View style={styles.grid}>
             {filtered.slice(0, 30).map((o) => (
-              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.optionRow}>
-                <Text style={{ color: colors.text, fontSize: 14 }}>{o.label}</Text>
+              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.gridBtn}>
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600', textAlign: 'center' }}>
+                  {o.label}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -341,19 +347,25 @@ function ChipSelect({
     return <Text style={typography.muted}>Sin opciones disponibles</Text>;
   }
   return (
-    <View style={{ gap: spacing.xs }}>
+    <View style={styles.grid}>
       {options.map((o) => {
         const active = value === o.value;
         return (
           <TouchableOpacity
             key={o.value}
             onPress={() => onChange(o.value)}
-            style={[styles.optionRow, active && styles.optionRowActive]}
+            style={[styles.gridBtn, active && styles.gridBtnActive]}
           >
-            <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14 }}>
+            <Text
+              style={{
+                color: active ? colors.primaryContrast : colors.text,
+                fontSize: 15,
+                fontWeight: '600',
+                textAlign: 'center',
+              }}
+            >
               {o.label}
             </Text>
-            {active ? <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>✓</Text> : null}
           </TouchableOpacity>
         );
       })}
@@ -403,6 +415,21 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   optionRowActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  gridBtn: {
+    flexGrow: 1,
+    flexBasis: 140,
+    minHeight: 56,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  gridBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   selectedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
