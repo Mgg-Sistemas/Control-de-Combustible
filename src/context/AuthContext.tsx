@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
+import { UserRole } from '../types/database';
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -12,6 +13,10 @@ type AuthState = {
   session: Session | null;
   loading: boolean;
   configured: boolean;
+  /** Rol del usuario autenticado (admin/supervisor/operador/conductor). */
+  role: UserRole | null;
+  /** IDs de usuarios conectados ahora mismo (Realtime Presence). */
+  onlineIds: string[];
   /** Bloqueado a la espera de huella (sesión existe pero no se ha desbloqueado). */
   locked: boolean;
   signIn: (firstName: string, lastName: string, password: string) => Promise<{ error?: string }>;
@@ -30,6 +35,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [locked, setLocked] = useState(false);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [onlineIds, setOnlineIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -50,6 +57,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Carga el rol y anuncia/observa presencia cuando hay sesión.
+  useEffect(() => {
+    if (!session?.user) {
+      setRole(null);
+      setOnlineIds([]);
+      return;
+    }
+    const uid = session.user.id;
+    let active = true;
+
+    supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', uid)
+      .single()
+      .then(({ data }) => {
+        if (active) setRole((data?.role as UserRole) ?? null);
+      });
+
+    // Realtime Presence: cada usuario logueado se anuncia en este canal.
+    const channel = supabase.channel('online-users', {
+      config: { presence: { key: uid } },
+    });
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        setOnlineIds(Object.keys(channel.presenceState()));
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          channel.track({ online_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
 
   const signIn: AuthState['signIn'] = async (firstName, lastName, password) => {
     const v = validateName(firstName, lastName);
@@ -105,6 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         loading,
         configured: isSupabaseConfigured,
+        role,
+        onlineIds,
         locked,
         signIn,
         signUp,

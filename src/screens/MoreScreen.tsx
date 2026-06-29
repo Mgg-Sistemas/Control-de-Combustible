@@ -19,7 +19,7 @@ const items: { label: string; route: string; desc: string }[] = [
 ];
 
 export default function MoreScreen({ navigation }: any) {
-  const { signOut, session, configured } = useAuth();
+  const { signOut, session, configured, role } = useAuth();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
 
@@ -55,6 +55,17 @@ export default function MoreScreen({ navigation }: any) {
           </Card>
         </TouchableOpacity>
       ))}
+
+      {role === 'admin' ? (
+        <TouchableOpacity onPress={() => navigation.navigate('Users')}>
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text }}>Usuarios</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>
+              Crear personas, ver conectados y asignar roles
+            </Text>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
 
       <SectionTitle>Seguridad</SectionTitle>
       <Card>

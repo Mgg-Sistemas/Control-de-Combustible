@@ -10,6 +10,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/LoginScreen';
 import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
+import UsersScreen from '../screens/UsersScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -52,6 +53,7 @@ function MoreStack() {
       <Stack.Screen name="Vehicles" component={VehiclesScreen} options={{ title: 'Vehículos' }} />
       <Stack.Screen name="Machinery" component={MachineryScreen} options={{ title: 'Maquinaria' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
+      <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
     </Stack.Navigator>
   );
 }
