@@ -98,6 +98,7 @@ export function ListScreen<T extends { id: string }>({
           fields={formFields}
           autoUserField={autoUserField}
           record={editing as any}
+          allowDelete={editable}
           onClose={() => setFormOpen(false)}
           onSaved={refetch}
         />

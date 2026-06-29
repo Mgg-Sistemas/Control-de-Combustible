@@ -34,6 +34,7 @@ export function RecordForm({
   fields,
   autoUserField,
   record,
+  allowDelete = false,
   onClose,
   onSaved,
 }: {
@@ -45,6 +46,8 @@ export function RecordForm({
   autoUserField?: string;
   /** Si se pasa un registro existente, el formulario edita (UPDATE) en vez de crear (INSERT). */
   record?: (Record<string, any> & { id: string }) | null;
+  /** Muestra el botón "Eliminar" cuando se está editando un registro. */
+  allowDelete?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -53,6 +56,8 @@ export function RecordForm({
   const [lookups, setLookups] = useState<Record<string, Option[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const dateDefaults = useMemo(() => {
     const o: Record<string, string> = {};
@@ -76,6 +81,7 @@ export function RecordForm({
       setValues({ ...dateDefaults });
     }
     setError(null);
+    setConfirmDelete(false);
     // Cargar opciones de los campos lookup
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
@@ -118,6 +124,30 @@ export function RecordForm({
     setSaving(false);
     if (error) {
       setError(error.message);
+      return;
+    }
+    onSaved();
+    onClose();
+  };
+
+  const remove = async () => {
+    if (!record) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setError(null);
+    setDeleting(true);
+    const { error } = await supabase.from(table).delete().eq('id', record.id);
+    setDeleting(false);
+    if (error) {
+      const fk = error.code === '23503' || error.message.toLowerCase().includes('foreign key');
+      setError(
+        fk
+          ? 'No se puede eliminar: tiene movimientos o registros asociados (ingresos, consumos o traslados).'
+          : error.message
+      );
+      setConfirmDelete(false);
       return;
     }
     onSaved();
@@ -169,6 +199,18 @@ export function RecordForm({
               </Text>
             </TouchableOpacity>
           </View>
+
+          {isEdit && allowDelete ? (
+            <TouchableOpacity style={styles.btnDelete} onPress={remove} disabled={deleting}>
+              <Text style={{ color: colors.danger, fontWeight: '700' }}>
+                {deleting
+                  ? 'Eliminando…'
+                  : confirmDelete
+                  ? '¿Confirmar eliminación? Toca de nuevo'
+                  : 'Eliminar'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -241,4 +283,12 @@ const styles = StyleSheet.create({
   btn: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center' },
   btnGhost: { backgroundColor: colors.surfaceAlt },
   btnPrimary: { backgroundColor: colors.primary },
+  btnDelete: {
+    marginTop: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.danger,
+  },
 });
