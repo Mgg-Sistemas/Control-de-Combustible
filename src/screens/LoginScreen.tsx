@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,26 +10,42 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { isBiometricSupported, isBiometricEnabled } from '../lib/biometric';
 import { colors, spacing, radius, typography } from '../theme';
 
 export default function LoginScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, unlock } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [canBiometric, setCanBiometric] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setCanBiometric((await isBiometricSupported()) && (await isBiometricEnabled()));
+    })();
+  }, []);
 
   const submit = async () => {
     setError(null);
+    setInfo(null);
     setLoading(true);
     const res =
       mode === 'login'
-        ? await signIn(email.trim(), password)
-        : await signUp(email.trim(), password, fullName.trim());
+        ? await signIn(firstName, lastName, password)
+        : await signUp(firstName, lastName, password);
     setLoading(false);
-    if (res.error) setError(res.error);
+    if (res.error) {
+      setError(res.error);
+    } else if (mode === 'signup') {
+      setInfo('Usuario creado. Ya puedes iniciar sesión.');
+      setMode('login');
+      setPassword('');
+    }
   };
 
   return (
@@ -40,26 +56,24 @@ export default function LoginScreen() {
       >
         <Text style={styles.brand}>Control de Combustible</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg }]}>
-          {mode === 'login' ? 'Inicia sesión para continuar' : 'Crea tu cuenta'}
+          {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
         </Text>
 
-        {mode === 'signup' && (
-          <TextInput
-            style={styles.input}
-            placeholder="Nombre completo"
-            placeholderTextColor={colors.muted}
-            value={fullName}
-            onChangeText={setFullName}
-          />
-        )}
         <TextInput
           style={styles.input}
-          placeholder="Correo"
+          placeholder="Nombre"
           placeholderTextColor={colors.muted}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
+          value={firstName}
+          onChangeText={setFirstName}
+          autoCapitalize="words"
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Apellido"
+          placeholderTextColor={colors.muted}
+          value={lastName}
+          onChangeText={setLastName}
+          autoCapitalize="words"
         />
         <TextInput
           style={styles.input}
@@ -71,12 +85,19 @@ export default function LoginScreen() {
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {info ? <Text style={styles.info}>{info}</Text> : null}
 
         <TouchableOpacity style={styles.button} onPress={submit} disabled={loading}>
           <Text style={styles.buttonText}>
             {loading ? 'Procesando…' : mode === 'login' ? 'Entrar' : 'Registrarme'}
           </Text>
         </TouchableOpacity>
+
+        {canBiometric && mode === 'login' ? (
+          <TouchableOpacity style={styles.bioButton} onPress={unlock}>
+            <Text style={styles.bioText}>👆 Entrar con huella</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'signup' : 'login')}>
           <Text style={[typography.muted, { textAlign: 'center', marginTop: spacing.md }]}>
@@ -111,5 +132,15 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   buttonText: { color: colors.primaryContrast, fontWeight: '700', fontSize: 16 },
+  bioButton: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    marginTop: spacing.sm,
+  },
+  bioText: { color: colors.primary, fontWeight: '700', fontSize: 16 },
   error: { color: colors.danger, marginBottom: spacing.sm },
+  info: { color: colors.success, marginBottom: spacing.sm },
 });

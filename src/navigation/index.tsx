@@ -8,6 +8,7 @@ import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/LoginScreen';
+import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
 import {
   TanksScreen,
@@ -95,12 +96,18 @@ function Tabs() {
 }
 
 export default function RootNavigator() {
-  const { session, configured } = useAuth();
+  const { session, configured, locked } = useAuth();
   // En modo demo (sin Supabase) o con sesión activa, mostramos la app.
   const showApp = !configured || !!session;
   return (
     <NavigationContainer theme={navTheme}>
-      {showApp ? <Tabs /> : <LoginScreen />}
+      {!showApp ? (
+        <LoginScreen />
+      ) : locked ? (
+        <BiometricLockScreen />
+      ) : (
+        <Tabs />
+      )}
     </NavigationContainer>
   );
 }

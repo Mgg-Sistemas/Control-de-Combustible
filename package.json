@@ -11,6 +11,7 @@
     "@supabase/supabase-js": "^2.108.2",
     "expo": "~56.0.12",
     "expo-constants": "~56.0.18",
+    "expo-local-authentication": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
