@@ -18,9 +18,11 @@ type Props<T> = {
   formFields?: Field[];
   formTitle?: string;
   autoUserField?: string;
+  /** Si es true, tocar una tarjeta abre el formulario en modo edición. */
+  editable?: boolean;
 };
 
-/** Pantalla genérica que lista filas de una tabla de Supabase y permite crear nuevas. */
+/** Pantalla genérica que lista filas de una tabla de Supabase y permite crear/editar. */
 export function ListScreen<T extends { id: string }>({
   title,
   table,
@@ -32,9 +34,20 @@ export function ListScreen<T extends { id: string }>({
   formFields,
   formTitle,
   autoUserField,
+  editable = false,
 }: Props<T>) {
   const { data, loading, refetch } = useTable<T>(table, { orderBy, select });
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<T | null>(null);
+
+  const openNew = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+  const openEdit = (item: T) => {
+    setEditing(item);
+    setFormOpen(true);
+  };
 
   return (
     <Screen>
@@ -49,7 +62,7 @@ export function ListScreen<T extends { id: string }>({
               paddingVertical: spacing.xs,
               borderRadius: radius.pill,
             }}
-            onPress={() => setFormOpen(true)}
+            onPress={openNew}
           >
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
           </TouchableOpacity>
@@ -61,16 +74,30 @@ export function ListScreen<T extends { id: string }>({
       ) : data.length === 0 ? (
         <EmptyState title={emptyTitle} subtitle={emptySubtitle} />
       ) : (
-        data.map((item) => <Card key={item.id}>{renderItem(item)}</Card>)
+        data.map((item) =>
+          editable && formFields ? (
+            <TouchableOpacity key={item.id} onPress={() => openEdit(item)} activeOpacity={0.7}>
+              <Card>
+                {renderItem(item)}
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+                  Toca para editar
+                </Text>
+              </Card>
+            </TouchableOpacity>
+          ) : (
+            <Card key={item.id}>{renderItem(item)}</Card>
+          )
+        )
       )}
 
       {formFields ? (
         <RecordForm
           visible={formOpen}
-          title={formTitle ?? `Nuevo: ${title}`}
+          title={editing ? `Editar: ${title}` : formTitle ?? `Nuevo: ${title}`}
           table={table}
           fields={formFields}
           autoUserField={autoUserField}
+          record={editing as any}
           onClose={() => setFormOpen(false)}
           onSaved={refetch}
         />

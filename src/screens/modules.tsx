@@ -36,6 +36,7 @@ export function TanksScreen() {
       title="Tanques"
       table="tanks"
       orderBy="name"
+      editable
       emptyTitle="Sin tanques"
       emptySubtitle="Registra tus depósitos de combustible."
       formTitle="Nuevo tanque"

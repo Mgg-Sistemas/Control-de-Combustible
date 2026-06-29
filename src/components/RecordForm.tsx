@@ -33,6 +33,7 @@ export function RecordForm({
   table,
   fields,
   autoUserField,
+  record,
   onClose,
   onSaved,
 }: {
@@ -42,9 +43,12 @@ export function RecordForm({
   fields: Field[];
   /** Columna que debe rellenarse con el id del usuario autenticado (p. ej. requested_by). */
   autoUserField?: string;
+  /** Si se pasa un registro existente, el formulario edita (UPDATE) en vez de crear (INSERT). */
+  record?: (Record<string, any> & { id: string }) | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const isEdit = !!record;
   const [values, setValues] = useState<Record<string, string>>({});
   const [lookups, setLookups] = useState<Record<string, Option[]>>({});
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +64,17 @@ export function RecordForm({
 
   useEffect(() => {
     if (!visible) return;
-    setValues({ ...dateDefaults });
+    if (record) {
+      // Modo edición: pre-rellenar con los valores existentes (como texto).
+      const pre: Record<string, string> = {};
+      fields.forEach((f) => {
+        const v = record[f.key];
+        if (v !== null && v !== undefined) pre[f.key] = String(v);
+      });
+      setValues(pre);
+    } else {
+      setValues({ ...dateDefaults });
+    }
     setError(null);
     // Cargar opciones de los campos lookup
     fields.forEach(async (f) => {
@@ -72,7 +86,7 @@ export function RecordForm({
         }));
       }
     });
-  }, [visible]);
+  }, [visible, record]);
 
   const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
 
@@ -92,13 +106,15 @@ export function RecordForm({
       payload[f.key] = f.type === 'number' ? Number(raw) : raw;
     });
 
-    if (autoUserField) {
+    if (autoUserField && !isEdit) {
       const { data } = await supabase.auth.getUser();
       if (data.user) payload[autoUserField] = data.user.id;
     }
 
     setSaving(true);
-    const { error } = await supabase.from(table).insert(payload);
+    const { error } = isEdit
+      ? await supabase.from(table).update(payload).eq('id', record!.id)
+      : await supabase.from(table).insert(payload);
     setSaving(false);
     if (error) {
       setError(error.message);
