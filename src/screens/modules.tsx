@@ -81,7 +81,7 @@ export function IntakesScreen() {
       formTitle="Nuevo ingreso"
       formFields={[
         { key: 'intake_date', label: 'Fecha', type: 'date', required: true },
-        { key: 'supplier', label: 'Proveedor', type: 'text' },
+        { key: 'supplier', label: 'Proveedor', type: 'text', defaultValue: 'PDVSA' },
         { key: 'fuel', label: 'Combustible', type: 'select', options: FUEL_OPTIONS, required: true },
         { key: 'liters', label: 'Litros', type: 'number', required: true },
         { key: 'unit_cost', label: 'Costo unitario', type: 'number' },

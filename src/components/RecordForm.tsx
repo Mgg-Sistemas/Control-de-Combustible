@@ -17,7 +17,7 @@ import { useTheme } from '../theme/ThemeContext';
 type ShowIf = (values: Record<string, string>) => boolean;
 
 export type Field =
-  | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf }
+  | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string }
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf }
   | {
       key: string;
@@ -76,10 +76,11 @@ export function RecordForm({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const dateDefaults = useMemo(() => {
+  const fieldDefaults = useMemo(() => {
     const o: Record<string, string> = {};
     fields.forEach((f) => {
       if (f.type === 'date') o[f.key] = todayISO();
+      if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue;
     });
     return o;
   }, [fields]);
@@ -95,7 +96,7 @@ export function RecordForm({
       });
       setValues(pre);
     } else {
-      setValues({ ...dateDefaults });
+      setValues({ ...fieldDefaults });
     }
     setError(null);
     setConfirmDelete(false);
