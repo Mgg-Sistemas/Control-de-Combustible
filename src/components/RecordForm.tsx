@@ -13,9 +13,12 @@ import { supabase } from '../lib/supabase';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
+/** Predicado opcional: el campo solo se muestra si devuelve true. */
+type ShowIf = (values: Record<string, string>) => boolean;
+
 export type Field =
-  | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string }
-  | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean }
+  | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf }
+  | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf }
   | {
       key: string;
       label: string;
@@ -26,6 +29,7 @@ export type Field =
       /** Si se define, el selector es buscable y permite crear una opción nueva
        *  escribiendo su valor (se guarda en `createColumn` de la tabla). */
       createColumn?: string;
+      showIf?: ShowIf;
     };
 
 type Option = { label: string; value: string };
@@ -109,17 +113,20 @@ export function RecordForm({
 
   const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
 
+  // Campos visibles según el estado actual (p. ej. vehículo vs maquinaria).
+  const visibleFields = fields.filter((f) => !f.showIf || f.showIf(values));
+
   const submit = async () => {
     setError(null);
-    // Validación de requeridos
-    for (const f of fields) {
+    // Validación de requeridos (solo campos visibles)
+    for (const f of visibleFields) {
       if (f.required && !values[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
       }
     }
     const payload: Record<string, any> = {};
-    fields.forEach((f) => {
+    visibleFields.forEach((f) => {
       const raw = values[f.key];
       if (raw === undefined || raw === '') return;
       payload[f.key] = f.type === 'number' ? Number(raw) : raw;
@@ -173,7 +180,7 @@ export function RecordForm({
         <View style={styles.sheet}>
           <Text style={[typography.title, { marginBottom: spacing.md }]}>{title}</Text>
           <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: spacing.sm }}>
-            {fields.map((f) => (
+            {visibleFields.map((f) => (
               <View key={f.key} style={{ gap: 4 }}>
                 <Text style={typography.muted}>
                   {f.label}
