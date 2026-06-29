@@ -305,10 +305,10 @@ function SearchSelect({
             placeholderTextColor={colors.muted}
             autoCapitalize="characters"
           />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-            {filtered.slice(0, 12).map((o) => (
-              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.chip}>
-                <Text style={{ color: colors.text, fontSize: 13 }}>{o.label}</Text>
+          <View style={{ gap: spacing.xs }}>
+            {filtered.slice(0, 30).map((o) => (
+              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.optionRow}>
+                <Text style={{ color: colors.text, fontSize: 14 }}>{o.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -341,18 +341,19 @@ function ChipSelect({
     return <Text style={typography.muted}>Sin opciones disponibles</Text>;
   }
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+    <View style={{ gap: spacing.xs }}>
       {options.map((o) => {
         const active = value === o.value;
         return (
           <TouchableOpacity
             key={o.value}
             onPress={() => onChange(o.value)}
-            style={[styles.chip, active && styles.chipActive]}
+            style={[styles.optionRow, active && styles.optionRowActive]}
           >
-            <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 13 }}>
+            <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14 }}>
               {o.label}
             </Text>
+            {active ? <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>✓</Text> : null}
           </TouchableOpacity>
         );
       })}
@@ -390,6 +391,18 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  optionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  optionRowActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   selectedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
