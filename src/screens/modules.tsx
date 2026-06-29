@@ -75,6 +75,7 @@ export function IntakesScreen() {
       title="Ingresos"
       table="fuel_intakes"
       orderBy="intake_date"
+      editable
       emptyTitle="Sin ingresos"
       emptySubtitle="Registra la recepción/compra de combustible."
       formTitle="Nuevo ingreso"
@@ -86,7 +87,6 @@ export function IntakesScreen() {
         { key: 'unit_cost', label: 'Costo unitario', type: 'number' },
         { key: 'total_cost', label: 'Costo total', type: 'number' },
         { key: 'tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
-        { key: 'invoice_no', label: 'Nº factura', type: 'text' },
       ]}
       renderItem={(i) => (
         <>
@@ -112,6 +112,7 @@ export function DispatchesScreen() {
       title="Consumos / Despachos"
       table="dispatches"
       orderBy="dispatch_date"
+      editable
       emptyTitle="Sin consumos"
       emptySubtitle="Registra los despachos a vehículos o maquinaria."
       formTitle="Nuevo consumo"
@@ -206,6 +207,7 @@ export function TransfersScreen() {
       title="Traslados"
       table="transfers"
       orderBy="transfer_date"
+      editable
       emptyTitle="Sin traslados"
       emptySubtitle="Registra movimientos de combustible entre tanques."
       formTitle="Nuevo traslado"

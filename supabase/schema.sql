@@ -220,48 +220,68 @@ left join public.stock_movements m on m.tank_id = t.id
 group by t.id;
 
 -- ---------- Triggers que alimentan el ledger ----------
+-- Manejan INSERT/UPDATE/DELETE: al editar o borrar un movimiento se
+-- recalculan los stock_movements para mantener el stock sincronizado.
 create or replace function public.mv_intake() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  insert into stock_movements(tank_id, movement, liters, source_table, source_id)
-  values (new.tank_id, 'ingreso', new.liters, 'fuel_intakes', new.id);
-  return new;
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='fuel_intakes' and source_id = OLD.id;
+  end if;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.tank_id, 'ingreso', NEW.liters, 'fuel_intakes', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
 end $$;
 drop trigger if exists trg_mv_intake on public.fuel_intakes;
-create trigger trg_mv_intake after insert on public.fuel_intakes
+create trigger trg_mv_intake after insert or update or delete on public.fuel_intakes
   for each row execute function public.mv_intake();
 
 create or replace function public.mv_dispatch() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare available numeric;
 begin
-  select current_l into available from tank_levels where id = new.tank_id;
-  if coalesce(available,0) < new.liters then
-    raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, new.liters;
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='dispatches' and source_id = OLD.id;
   end if;
-  insert into stock_movements(tank_id, movement, liters, source_table, source_id)
-  values (new.tank_id, 'consumo', -new.liters, 'dispatches', new.id);
-  return new;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    select current_l into available from tank_levels where id = NEW.tank_id;
+    if coalesce(available,0) < NEW.liters then
+      raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+    end if;
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
 end $$;
 drop trigger if exists trg_mv_dispatch on public.dispatches;
-create trigger trg_mv_dispatch after insert on public.dispatches
+create trigger trg_mv_dispatch after insert or update or delete on public.dispatches
   for each row execute function public.mv_dispatch();
 
 create or replace function public.mv_transfer() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare available numeric;
 begin
-  select current_l into available from tank_levels where id = new.from_tank_id;
-  if coalesce(available,0) < new.liters then
-    raise exception 'Stock insuficiente en el tanque origen (disponible %, solicitado %)', available, new.liters;
+  if (TG_OP in ('UPDATE','DELETE')) then
+    delete from stock_movements where source_table='transfers' and source_id = OLD.id;
   end if;
-  insert into stock_movements(tank_id, movement, liters, source_table, source_id)
-  values (new.from_tank_id, 'traslado_salida', -new.liters, 'transfers', new.id),
-         (new.to_tank_id,   'traslado_entrada', new.liters, 'transfers', new.id);
-  return new;
+  if (TG_OP in ('INSERT','UPDATE')) then
+    select current_l into available from tank_levels where id = NEW.from_tank_id;
+    if coalesce(available,0) < NEW.liters then
+      raise exception 'Stock insuficiente en el tanque origen (disponible %, solicitado %)', available, NEW.liters;
+    end if;
+    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+    values (NEW.from_tank_id, 'traslado_salida', -NEW.liters, 'transfers', NEW.id),
+           (NEW.to_tank_id,   'traslado_entrada', NEW.liters, 'transfers', NEW.id);
+  end if;
+  if (TG_OP = 'DELETE') then return OLD; end if;
+  return NEW;
 end $$;
 drop trigger if exists trg_mv_transfer on public.transfers;
-create trigger trg_mv_transfer after insert on public.transfers
+create trigger trg_mv_transfer after insert or update or delete on public.transfers
   for each row execute function public.mv_transfer();
 
 -- ============================================================================
@@ -344,6 +364,35 @@ create policy auth_resolve on public.authorizations for update to authenticated
 -- stock_movements: solo lectura desde el cliente (lo escriben los triggers)
 drop policy if exists mov_select on public.stock_movements;
 create policy mov_select on public.stock_movements for select to authenticated using (true);
+
+-- ============================================================================
+-- Nº DE FACTURA INCREMENTAL E INMUTABLE (fuel_intakes.invoice_no)
+-- ============================================================================
+create sequence if not exists public.fuel_invoice_seq;
+
+create or replace function public.set_invoice_no() returns trigger
+language plpgsql as $$
+begin
+  if new.invoice_no is null or btrim(new.invoice_no) = '' then
+    new.invoice_no := 'F-' || lpad(nextval('public.fuel_invoice_seq')::text, 5, '0');
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_invoice_no on public.fuel_intakes;
+create trigger trg_invoice_no before insert on public.fuel_intakes
+  for each row execute function public.set_invoice_no();
+
+create or replace function public.lock_invoice_no() returns trigger
+language plpgsql as $$
+begin
+  if new.invoice_no is distinct from old.invoice_no then
+    raise exception 'El número de factura no se puede modificar';
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_lock_invoice on public.fuel_intakes;
+create trigger trg_lock_invoice before update on public.fuel_intakes
+  for each row execute function public.lock_invoice_no();
 
 -- ============================================================================
 -- FLUJO DE AUTORIZACIONES (aprobar/rechazar) — solo admin/supervisor.
