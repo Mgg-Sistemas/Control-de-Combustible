@@ -417,7 +417,13 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   optionRowActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
   gridBtn: {
     flexGrow: 1,
     flexBasis: 90,
