@@ -4,7 +4,8 @@ import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../compo
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useTable } from '../hooks/useTable';
 import { TankLevel } from '../types/database';
-import { colors, spacing, radius } from '../theme';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
   if (pct === null) return 'warning';
@@ -14,6 +15,7 @@ function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
 }
 
 export default function DashboardScreen() {
+  const { colors } = useTheme();
   const { data: tanks, loading } = useTable<TankLevel>('tank_levels');
 
   const totalCapacity = tanks.reduce((s, t) => s + Number(t.capacity_l || 0), 0);

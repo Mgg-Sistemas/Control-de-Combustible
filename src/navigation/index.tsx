@@ -4,8 +4,8 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { colors } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../theme/ThemeContext';
 import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/LoginScreen';
 import BiometricLockScreen from '../screens/BiometricLockScreen';
@@ -24,28 +24,20 @@ import {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
-const navTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    background: colors.background,
-    card: colors.surface,
-    text: colors.text,
-    border: colors.border,
-    primary: colors.primary,
-  },
-};
-
-const screenHeader = {
-  headerStyle: { backgroundColor: colors.surface },
-  headerTitleStyle: { color: colors.text },
-  headerTintColor: colors.primary,
-};
-
 // Ícono simple basado en emoji (sin dependencias extra)
 const tabIcon = (emoji: string) => () => <Text style={{ fontSize: 18 }}>{emoji}</Text>;
 
+function useScreenHeader() {
+  const { colors } = useTheme();
+  return {
+    headerStyle: { backgroundColor: colors.surface },
+    headerTitleStyle: { color: colors.text },
+    headerTintColor: colors.primary,
+  };
+}
+
 function MoreStack() {
+  const screenHeader = useScreenHeader();
   return (
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'Más' }} />
@@ -59,6 +51,8 @@ function MoreStack() {
 }
 
 function Tabs() {
+  const { colors } = useTheme();
+  const screenHeader = useScreenHeader();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -99,6 +93,18 @@ function Tabs() {
 
 export default function RootNavigator() {
   const { session, configured, locked } = useAuth();
+  const { colors } = useTheme();
+  const navTheme = {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: colors.background,
+      card: colors.surface,
+      text: colors.text,
+      border: colors.border,
+      primary: colors.primary,
+    },
+  };
   // En modo demo (sin Supabase) o con sesión activa, mostramos la app.
   const showApp = !configured || !!session;
   return (

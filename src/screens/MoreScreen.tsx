@@ -9,7 +9,8 @@ import {
   setBiometricEnabled,
   authenticateBiometric,
 } from '../lib/biometric';
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 const items: { label: string; route: string; desc: string }[] = [
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones de despacho' },
@@ -20,6 +21,7 @@ const items: { label: string; route: string; desc: string }[] = [
 
 export default function MoreScreen({ navigation }: any) {
   const { signOut, session, configured, role } = useAuth();
+  const { colors, scheme, toggle } = useTheme();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
 
@@ -66,6 +68,19 @@ export default function MoreScreen({ navigation }: any) {
           </Card>
         </TouchableOpacity>
       ) : null}
+
+      <SectionTitle>Apariencia</SectionTitle>
+      <Card>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flex: 1, paddingRight: spacing.md }}>
+            <Text style={{ fontWeight: '700', color: colors.text }}>Modo oscuro</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>
+              {scheme === 'dark' ? 'Activado' : 'Desactivado'} · cambia el tema de la app
+            </Text>
+          </View>
+          <Switch value={scheme === 'dark'} onValueChange={toggle} />
+        </View>
+      </Card>
 
       <SectionTitle>Seguridad</SectionTitle>
       <Card>

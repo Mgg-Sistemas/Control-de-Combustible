@@ -4,7 +4,8 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from './ui';
 import { ConfigBanner } from './ConfigBanner';
 import { RecordForm, Field } from './RecordForm';
 import { useTable } from '../hooks/useTable';
-import { colors, spacing, radius } from '../theme';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 type Props<T> = {
   title: string;
@@ -36,6 +37,7 @@ export function ListScreen<T extends { id: string }>({
   autoUserField,
   editable = false,
 }: Props<T>) {
+  const { colors } = useTheme();
   const { data, loading, refetch } = useTable<T>(table, { orderBy, select });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);

@@ -10,7 +10,8 @@ import {
   Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { colors, spacing, radius, typography } from '../theme';
+import { spacing, radius, AppColors } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export type Field =
   | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string }
@@ -61,6 +62,8 @@ export function RecordForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const isEdit = !!record;
   const [values, setValues] = useState<Record<string, string>>({});
   const [lookups, setLookups] = useState<Record<string, Option[]>>({});
@@ -250,6 +253,8 @@ function SearchSelect({
   createColumn?: string;
   onCreated: (opt: Option) => void;
 }) {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
   const selected = options.find((o) => o.value === value);
@@ -323,6 +328,8 @@ function ChipSelect({
   value?: string;
   onChange: (v: string) => void;
 }) {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   if (options.length === 0) {
     return <Text style={typography.muted}>Sin opciones disponibles</Text>;
   }
@@ -346,7 +353,7 @@ function ChipSelect({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: AppColors) => StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',

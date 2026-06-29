@@ -3,7 +3,7 @@ import { View, Text } from 'react-native';
 import { ListScreen } from '../components/ListScreen';
 import { Field } from '../components/RecordForm';
 import { Badge } from '../components/ui';
-import { colors } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 const FUEL_OPTIONS = [
   { label: 'Diésel', value: 'diesel' },
@@ -23,12 +23,21 @@ import {
   Transfer,
 } from '../types/database';
 
-const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
-  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-    <Text style={{ color: colors.muted, fontSize: 13 }}>{label}</Text>
-    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{value}</Text>
-  </View>
-);
+const Row = ({ label, value }: { label: string; value: React.ReactNode }) => {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+      <Text style={{ color: colors.muted, fontSize: 13 }}>{label}</Text>
+      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{value}</Text>
+    </View>
+  );
+};
+
+/** Título de tarjeta que respeta el tema. */
+const ItemTitle = ({ children, size = 16 }: { children: React.ReactNode; size?: number }) => {
+  const { colors } = useTheme();
+  return <Text style={{ fontWeight: '700', color: colors.text, fontSize: size }}>{children}</Text>;
+};
 
 export function TanksScreen() {
   return (
@@ -49,7 +58,7 @@ export function TanksScreen() {
       renderItem={(t) => (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>{t.name}</Text>
+            <ItemTitle>{t.name}</ItemTitle>
             <Badge label={t.fuel} />
           </View>
           {t.location ? <Row label="Ubicación" value={t.location} /> : null}
@@ -83,9 +92,7 @@ export function IntakesScreen() {
       renderItem={(i) => (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>
-              {Number(i.liters).toLocaleString()} L
-            </Text>
+            <ItemTitle>{Number(i.liters).toLocaleString()} L</ItemTitle>
             <Badge label={i.fuel} />
           </View>
           <Row label="Fecha" value={i.intake_date} />
@@ -123,9 +130,7 @@ export function DispatchesScreen() {
       renderItem={(d) => (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>
-              {Number(d.liters).toLocaleString()} L
-            </Text>
+            <ItemTitle>{Number(d.liters).toLocaleString()} L</ItemTitle>
             <Badge label={d.asset_kind} />
           </View>
           <Row label="Fecha" value={d.dispatch_date} />
@@ -160,9 +165,7 @@ export function AuthorizationsScreen() {
       renderItem={(a) => (
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>
-              {Number(a.liters).toLocaleString()} L
-            </Text>
+            <ItemTitle>{Number(a.liters).toLocaleString()} L</ItemTitle>
             <Badge label={a.status} tone={authTone(a.status)} />
           </View>
           <Row label="Activo" value={a.asset_kind} />
@@ -192,7 +195,7 @@ export function VehiclesScreen() {
       ]}
       renderItem={(v) => (
         <>
-          <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{v.plate}</Text>
+          <ItemTitle>{v.plate}</ItemTitle>
           {v.brand || v.model ? (
             <Row label="Modelo" value={`${v.brand ?? ''} ${v.model ?? ''}`.trim()} />
           ) : null}
@@ -221,7 +224,7 @@ export function MachineryScreen() {
       ]}
       renderItem={(m) => (
         <>
-          <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{m.code}</Text>
+          <ItemTitle>{m.code}</ItemTitle>
           {m.description ? <Row label="Descripción" value={m.description} /> : null}
           {m.machinery_type ? <Row label="Tipo" value={m.machinery_type} /> : null}
           {m.expected_lph != null ? <Row label="Rendimiento" value={`${m.expected_lph} L/h`} /> : null}
@@ -249,9 +252,7 @@ export function TransfersScreen() {
       ]}
       renderItem={(t) => (
         <>
-          <Text style={{ fontWeight: '700', color: colors.text }}>
-            {Number(t.liters).toLocaleString()} L
-          </Text>
+          <ItemTitle>{Number(t.liters).toLocaleString()} L</ItemTitle>
           <Row label="Fecha" value={t.transfer_date} />
           {t.notes ? <Row label="Notas" value={t.notes} /> : null}
         </>

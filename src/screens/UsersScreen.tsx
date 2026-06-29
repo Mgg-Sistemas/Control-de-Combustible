@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -13,12 +13,15 @@ import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { Profile, UserRole } from '../types/database';
-import { colors, spacing, radius, typography } from '../theme';
+import { spacing, radius, AppColors } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'operador', 'conductor'];
 
 export default function UsersScreen() {
   const { role, onlineIds, session } = useAuth();
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: users, loading, refetch } = useTable<Profile>('profiles', { orderBy: 'full_name', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
 
@@ -133,6 +136,8 @@ function NewUserForm({
   const [role, setRole] = useState<UserRole>('conductor');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const reset = () => {
     setFirstName('');
@@ -197,7 +202,7 @@ function NewUserForm({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: AppColors) => StyleSheet.create({
   addBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.md,

@@ -8,7 +8,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, spacing, radius, typography } from '../theme';
+import { spacing, radius, AppColors } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export function Screen({
   children,
@@ -17,12 +18,13 @@ export function Screen({
   children: React.ReactNode;
   scroll?: boolean;
 }) {
+  const { colors } = useTheme();
   const Container: any = scroll ? ScrollView : View;
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <Container
-        style={styles.screen}
-        contentContainerStyle={scroll ? styles.scrollContent : undefined}
+        style={{ flex: 1, backgroundColor: colors.background }}
+        contentContainerStyle={scroll ? { padding: spacing.md, gap: spacing.md } : undefined}
       >
         {children}
       </Container>
@@ -37,11 +39,29 @@ export function Card({
   children: React.ReactNode;
   style?: ViewStyle;
 }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colors.surface,
+          borderRadius: radius.md,
+          padding: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          gap: spacing.xs,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <Text style={styles.sectionTitle}>{children}</Text>;
+  const { typography } = useTheme();
+  return <Text style={[typography.title, { marginBottom: spacing.xs }]}>{children}</Text>;
 }
 
 export function EmptyState({
@@ -51,6 +71,7 @@ export function EmptyState({
   title: string;
   subtitle?: string;
 }) {
+  const { typography } = useTheme();
   return (
     <Card style={{ alignItems: 'center', paddingVertical: spacing.xl }}>
       <Text style={typography.subtitle}>{title}</Text>
@@ -64,6 +85,7 @@ export function EmptyState({
 }
 
 export function Loading() {
+  const { colors } = useTheme();
   return (
     <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
       <ActivityIndicator color={colors.primary} />
@@ -78,6 +100,7 @@ export function Badge({
   label: string;
   tone?: 'success' | 'warning' | 'danger' | 'muted';
 }) {
+  const { colors } = useTheme();
   const toneColor =
     tone === 'success'
       ? colors.success
@@ -94,18 +117,6 @@ export function Badge({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  screen: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { padding: spacing.md, gap: spacing.md },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-  },
-  sectionTitle: { ...typography.title, marginBottom: spacing.xs },
   badge: {
     borderWidth: 1,
     borderRadius: radius.pill,
@@ -114,3 +125,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
 });
+
+// Reexport para componentes que construyen estilos por tema.
+export type { AppColors };

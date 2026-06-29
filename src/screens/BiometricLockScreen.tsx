@@ -1,11 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { colors, spacing, radius, typography } from '../theme';
+import { spacing, radius, AppColors } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function BiometricLockScreen() {
   const { unlock, signOut } = useAuth();
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   // Lanza el prompt de huella automáticamente al entrar.
   useEffect(() => {
@@ -33,7 +36,7 @@ export default function BiometricLockScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: AppColors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg },
   button: {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,9 +11,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import { isBiometricSupported, isBiometricEnabled } from '../lib/biometric';
-import { colors, spacing, radius, typography } from '../theme';
+import { spacing, radius, AppColors, AppTypography } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
 
 export default function LoginScreen() {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
   const { signIn, signUp, unlock } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [firstName, setFirstName] = useState('');
@@ -111,7 +114,7 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: AppColors, typography: AppTypography) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, justifyContent: 'center', padding: spacing.lg },
   brand: { ...typography.title, fontSize: 26 },
