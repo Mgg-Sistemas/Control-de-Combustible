@@ -264,7 +264,6 @@ function SearchSelect({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
-  const selected = options.find((o) => o.value === value);
 
   const q = query.trim().toLowerCase();
   const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
@@ -290,44 +289,47 @@ function SearchSelect({
 
   return (
     <View style={{ gap: spacing.xs }}>
-      {selected ? (
-        <View style={styles.selectedRow}>
-          <Text style={{ color: colors.text, fontWeight: '600' }}>{selected.label}</Text>
-          <TouchableOpacity onPress={() => onChange('')}>
-            <Text style={{ color: colors.muted }}>cambiar ✕</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <>
-          {showSearch ? (
-            <TextInput
-              style={styles.input}
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Buscar…"
-              placeholderTextColor={colors.muted}
-              autoCapitalize="characters"
-            />
-          ) : null}
-          <View style={styles.grid}>
-            {filtered.slice(0, 30).map((o) => (
-              <TouchableOpacity key={o.value} onPress={() => onChange(o.value)} style={styles.gridBtn}>
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600', textAlign: 'center' }}>
-                  {o.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {createColumn && query.trim() && !exactExists ? (
-            <TouchableOpacity onPress={create} disabled={creating} style={styles.createBtn}>
-              <Text style={{ color: colors.primary, fontWeight: '700' }}>
-                {creating ? 'Agregando…' : `+ Agregar "${query.trim()}"`}
+      {showSearch ? (
+        <TextInput
+          style={styles.input}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Buscar…"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="characters"
+        />
+      ) : null}
+      <View style={styles.grid}>
+        {filtered.slice(0, 30).map((o) => {
+          const active = o.value === value;
+          return (
+            <TouchableOpacity
+              key={o.value}
+              onPress={() => onChange(o.value)}
+              style={[styles.gridBtn, active && styles.gridBtnActive]}
+            >
+              <Text
+                style={{
+                  color: active ? colors.primaryContrast : colors.text,
+                  fontSize: 15,
+                  fontWeight: '600',
+                  textAlign: 'center',
+                }}
+              >
+                {o.label}
               </Text>
             </TouchableOpacity>
-          ) : null}
-          {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
-        </>
-      )}
+          );
+        })}
+      </View>
+      {createColumn && query.trim() && !exactExists ? (
+        <TouchableOpacity onPress={create} disabled={creating} style={styles.createBtn}>
+          <Text style={{ color: colors.primary, fontWeight: '700' }}>
+            {creating ? 'Agregando…' : `+ Agregar "${query.trim()}"`}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+      {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
     </View>
   );
 }
@@ -418,12 +420,13 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   gridBtn: {
     flexGrow: 1,
-    flexBasis: 140,
-    minHeight: 56,
+    flexBasis: 90,
+    minWidth: 90,
+    minHeight: 52,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.md,
