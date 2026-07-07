@@ -54,6 +54,58 @@ function isoDaysAgo(days: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
+function nowStamp(): string {
+  const d = new Date();
+  let h = d.getHours();
+  const ap = h < 12 ? 'a. m.' : 'p. m.';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mm = `${d.getMinutes()}`.padStart(2, '0');
+  const dd = `${d.getDate()}`.padStart(2, '0');
+  return `${dd} ${MESES[d.getMonth()]} ${d.getFullYear()}, ${`${h}`.padStart(2, '0')}:${mm} ${ap}`;
+}
+
+/** Estilos corporativos del PDF: azul oscuro (#1E3A5F) y gris. */
+const PDF_CSS = `
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#374151;padding:28px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1E3A5F;padding-bottom:14px}
+  .brand{display:flex;gap:14px;align-items:center}
+  .brand img{height:62px}
+  .doc-title{font-size:24px;font-weight:800;color:#1E3A5F;letter-spacing:.5px;margin:0}
+  .doc-sub{color:#6B7280;font-size:12px;margin-top:2px}
+  .emit{text-align:right;color:#6B7280;font-size:12px;white-space:nowrap}
+  .company{color:#374151;font-size:12px;margin:10px 0 14px;line-height:1.5}
+  .company b{color:#1E3A5F}
+  h2{font-size:14px;color:#1E3A5F;margin:18px 0 6px;border-left:4px solid #1E3A5F;padding-left:8px}
+  h3{font-size:13px;color:#1E3A5F;margin:12px 0 2px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+  th{background:#1E3A5F;color:#fff;text-align:left;padding:7px 8px;font-weight:600}
+  td{padding:6px 8px;border-bottom:1px solid #E5E7EB}
+  tbody tr:nth-child(even){background:#F4F6F8}
+  tfoot td{background:#E5E7EB;font-weight:700;color:#1E3A5F}
+  .muted{color:#6B7280;font-size:12px}
+  .summary{display:flex;gap:26px;margin:10px 0 4px}
+  .summary .k{color:#6B7280;font-size:11px}.summary b{display:block;font-size:20px;color:#1E3A5F}
+  .chart{display:flex;align-items:flex-end;gap:8px;height:170px;border-bottom:1px solid #E5E7EB;padding-bottom:4px;overflow-x:auto}
+  .col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+  .bar{width:26px;background:#1E3A5F;border-radius:4px 4px 0 0}
+  .lbl{font-size:10px;color:#6B7280;margin-top:4px}.val{font-size:10px;color:#374151}
+`;
+function pdfShell(title: string, sub: string, body: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${PDF_CSS}</style></head><body>
+    <div class="top">
+      <div class="brand"><img src="${LOGO_DATA_URI}"/>
+        <div><h1 class="doc-title">${title}</h1><div class="doc-sub">${sub}</div></div>
+      </div>
+      <div class="emit">Emitida: ${nowStamp()}</div>
+    </div>
+    <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}</div>
+    ${body}
+  </body></html>`;
+}
+
 function totalsBy<T extends string>(rows: Row[], key: (r: Row) => T): { label: T; liters: number }[] {
   const m = new Map<T, number>();
   rows.forEach((r) => m.set(key(r), (m.get(key(r)) ?? 0) + r.liters));
@@ -76,6 +128,7 @@ export default function ReportsScreen() {
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
+  const [showCompanyBtns, setShowCompanyBtns] = useState(false);
 
   const fleetByCompany = useMemo(() => {
     const m = new Map<string, FleetCompany>();
@@ -183,24 +236,11 @@ export default function ReportsScreen() {
             .join('')}<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td></tr>`
       )
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1C1C1E;padding:24px}
-      h1{font-size:20px;margin:0 0 4px}.muted{color:#6B7280;font-size:13px}
-      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
-      td,th{border:1px solid #D6D5D2;padding:6px}
-      th{background:#E5E5E5}
-      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
-      .header img{height:60px}
-    </style></head><body>
-      <div class="header"><img src="${LOGO_DATA_URI}"/>
-        <div><div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
-        <div class="muted">RIF ${COMPANY_RIF}</div></div></div>
-      <h1>Control de maquinaria — rondas por día y hora</h1>
-      <div class="muted">Del ${from} al ${to}</div>
-      <table><thead>${head}</thead><tbody>${body || '<tr><td colspan="7" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>
-    </body></html>`;
-    await exportPdf(html);
+    const content = `
+      <div class="muted">Rondas del ${from} al ${to}</div>
+      <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="7" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>`;
+    await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Rondas por día y hora', content));
   };
 
   const generateFleet = async () => {
@@ -246,8 +286,12 @@ export default function ReportsScreen() {
     setFleetPreview(true);
   };
 
-  const downloadFleetPdf = async () => {
-    const companyBlocks = fleetByCompany
+  const downloadFleetPdf = async (onlyCompany?: string) => {
+    const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
+    const generic = onlyCompany ? fleetGeneric.filter((i) => i.company === onlyCompany) : fleetGeneric;
+    const totalLiters = companies.reduce((s, c) => s + c.liters, 0);
+    const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
+    const companyBlocks = companies
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s) · ${c.liters.toLocaleString()} L</h3>` +
@@ -259,40 +303,27 @@ export default function ReportsScreen() {
             .join('')}</tbody></table>`
       )
       .join('');
-    const genericRows = fleetGeneric
+    const genericRows = generic
       .map(
         (i) =>
           `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.company}</td><td style="text-align:right">${i.liters.toLocaleString()} L</td></tr>`
       )
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1C1C1E;padding:24px}
-      h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:18px 0 6px} h3{font-size:14px}
-      .muted{color:#6B7280;font-size:13px}
-      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
-      td,th{border-bottom:1px solid #EAEAE8;padding:6px}th{background:#F0F0EE}
-      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
-      .header img{height:60px}
-      .summary{display:flex;gap:24px;margin:12px 0}.summary b{display:block;font-size:22px}
-    </style></head><body>
-      <div class="header"><img src="${LOGO_DATA_URI}"/>
-        <div><div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
-        <div class="muted">RIF ${COMPANY_RIF}</div></div></div>
-      <h1>Reporte de flota / inventario por empresa</h1>
+    const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Inventario por empresa';
+    const body = `
       <div class="muted">Consumo del ${from} al ${to}</div>
       <div class="summary">
-        <div><span class="muted">Equipos</span><b>${fleetItems.length}</b></div>
-        <div><span class="muted">Empresas</span><b>${fleetByCompany.length}</b></div>
-        <div><span class="muted">Consumo total</span><b>${fleetTotalLiters.toLocaleString()} L</b></div>
+        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
+        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
+        <div><span class="k">Consumo total</span><b>${totalLiters.toLocaleString()} L</b></div>
       </div>
       <h2>Por empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}
-      <h2>Genérico — todas las máquinas y sus totales</h2>
-      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Empresa</th><th style="text-align:right">Litros</th></tr></thead>
+      <h2>${onlyCompany ? 'Máquinas de la empresa y sus totales' : 'Genérico — todas las máquinas y sus totales'}</h2>
+      <table><thead><tr><th>Equipo</th><th>Descripción</th><th>Empresa</th><th style="text-align:right">Litros</th></tr></thead>
       <tbody>${genericRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${fleetTotalLiters.toLocaleString()} L</td></tr></tfoot></table>
-    </body></html>`;
-    await exportPdf(html);
+      <tfoot><tr><td colspan="3" style="text-align:right">TOTAL</td><td style="text-align:right">${totalLiters.toLocaleString()} L</td></tr></tfoot></table>`;
+    await exportPdf(pdfShell('REPORTE DE FLOTA', sub, body));
   };
 
   const setRange = (days: number) => {
@@ -319,39 +350,18 @@ export default function ReportsScreen() {
     const dayRows = byDay
       .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1C1C1E;padding:24px}
-      h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:18px 0 6px}
-      .muted{color:#6B7280;font-size:13px}
-      .summary{display:flex;gap:24px;margin:12px 0}.summary b{display:block;font-size:22px}
-      .chart{display:flex;align-items:flex-end;gap:8px;height:170px;border-bottom:1px solid #D6D5D2;padding-bottom:4px;overflow-x:auto}
-      .col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
-      .bar{width:26px;background:#3F3F46;border-radius:4px 4px 0 0}
-      .lbl{font-size:10px;color:#6B7280;margin-top:4px}.val{font-size:10px}
-      table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #EAEAE8;padding:6px}
-      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
-      .header img{height:60px}
-    </style></head><body>
-      <div class="header">
-        <img src="${LOGO_DATA_URI}"/>
-        <div>
-          <div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
-          <div class="muted">RIF ${COMPANY_RIF}</div>
-        </div>
-      </div>
-      <h1>Reporte de consumo de combustible</h1>
-      <div class="muted">Del ${from} al ${to}</div>
-      <div class="summary"><div><span class="muted">Total</span><b>${total.toLocaleString()} L</b></div>
-        <div><span class="muted">Despachos</span><b>${all.length}</b></div></div>
+    const body = `
+      <div class="muted">Consumo del ${from} al ${to}</div>
+      <div class="summary"><div><span class="k">Total</span><b>${total.toLocaleString()} L</b></div>
+        <div><span class="k">Despachos</span><b>${all.length}</b></div></div>
       <h2>Consumo por día</h2>
       <div class="chart">${dayBars || '<span class="muted">Sin datos</span>'}</div>
       <table><tbody>${dayRows}</tbody></table>
       <h2>Consumo por equipo / máquina</h2>
-      <table><thead><tr><th style="text-align:left">Equipo/Máquina</th><th style="text-align:right">Litros</th></tr></thead><tbody>${assetRows}</tbody></table>
+      <table><thead><tr><th>Equipo/Máquina</th><th style="text-align:right">Litros</th></tr></thead><tbody>${assetRows}</tbody></table>
       <h2>Consumo por empresa supervisora</h2>
-      ${companyBlocks || '<span class="muted">Sin datos</span>'}
-    </body></html>`;
-    await exportPdf(html);
+      ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
+    await exportPdf(pdfShell('REPORTE DE COMBUSTIBLE', 'Consumo de combustible', body));
   };
 
   return (
@@ -656,12 +666,42 @@ export default function ReportsScreen() {
             </View>
           </Card>
 
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+          <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf()}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ General</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.primary : colors.surfaceAlt }]}
+                onPress={() => setShowCompanyBtns((v) => !v)}
+              >
+                <Text style={{ color: showCompanyBtns ? colors.primaryContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
+              </TouchableOpacity>
+            </View>
+
+            {showCompanyBtns ? (
+              <View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  Toca una empresa para descargar su informe:
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {fleetByCompany.map((c) => (
+                    <TouchableOpacity
+                      key={c.company}
+                      onPress={() => downloadFleetPdf(c.company)}
+                      style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                    >
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                        {c.company} ({c.count})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setFleetPreview(false)}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadFleetPdf}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
             </TouchableOpacity>
           </View>
         </Screen>
