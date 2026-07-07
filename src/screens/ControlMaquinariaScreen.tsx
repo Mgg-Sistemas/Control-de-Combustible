@@ -30,6 +30,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineryId-roundNo
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
 
   const key = (mId: string, no: number) => `${mId}-${no}`;
 
@@ -68,6 +69,23 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setRounds((p) => ({ ...p, [key(m.id, no)]: data as MachineRound }));
   };
 
+  /** Cicla el estado de la ronda: gris (sin registro) → verde → rojo → gris. */
+  const cycleRound = async (m: Machinery, no: number) => {
+    const cur = rounds[key(m.id, no)];
+    if (cur?.status === 'parada') {
+      // Volver a gris: eliminar el registro de la ronda.
+      const { error } = await supabase.from('machine_rounds').delete().eq('id', cur.id);
+      if (error) return Alert.alert('Aviso', error.message);
+      setRounds((p) => {
+        const n = { ...p };
+        delete n[key(m.id, no)];
+        return n;
+      });
+      return;
+    }
+    await setRound(m, no, cur?.status === 'operativa' ? 'parada' : 'operativa');
+  };
+
   const setHours = async (m: Machinery, hours: string) => {
     const h = Number(hours.replace(',', '.')) || 0;
     // Guarda las horas de parada en la 1ª ronda del día (registro base).
@@ -88,6 +106,11 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setRounds((p) => ({ ...p, [key(m.id, 1)]: data as MachineRound }));
   };
 
+  const q = query.trim().toLowerCase();
+  const shown = !q
+    ? machines
+    : machines.filter((m) => m.code.toLowerCase().includes(q) || (m.serial ?? '').toLowerCase().includes(q));
+
   return (
     <Screen>
       <ConfigBanner />
@@ -107,7 +130,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             onChangeText={setDate}
             placeholder="AAAA-MM-DD"
             placeholderTextColor={colors.muted}
-            style={{ flex: 1, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontWeight: '700' }}
+            style={{ flex: 1, minWidth: 0, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontWeight: '700' }}
           />
           <TouchableOpacity
             onPress={() => setDate(shiftDay(date, 1))}
@@ -131,16 +154,24 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-          Cada máquina tiene sus 4 rondas. Toca una: verde = operativa, rojo = parada.
+          Cada máquina tiene sus 4 rondas. Toca una vez = ✓ operativa (verde), otra = ✕ parada (rojo), otra = gris (sin registro).
         </Text>
       </Card>
 
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="🔎 Buscar máquina por nombre o serial…"
+        placeholderTextColor={colors.muted}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
+      />
+
       {loading ? (
         <Loading />
-      ) : machines.length === 0 ? (
-        <EmptyState title="Sin maquinaria" subtitle="Agrega máquinas en Equipos." />
+      ) : shown.length === 0 ? (
+        <EmptyState title={query ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query ? 'Prueba con otra búsqueda.' : 'Agrega máquinas en Equipos.'} />
       ) : (
-        machines.map((m) => {
+        shown.map((m) => {
           const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
           return (
             <Card key={m.id}>
@@ -152,11 +183,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   const st = r?.status;
                   const bg = st === 'operativa' ? colors.success : st === 'parada' ? colors.danger : colors.surfaceAlt;
                   const fg = st ? '#fff' : colors.text;
-                  const next = st === 'operativa' ? 'parada' : 'operativa';
                   return (
                     <TouchableOpacity
                       key={no}
-                      onPress={() => setRound(m, no, next)}
+                      onPress={() => cycleRound(m, no)}
                       style={{
                         flexGrow: 1,
                         flexBasis: 70,
