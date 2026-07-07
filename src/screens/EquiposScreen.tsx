@@ -86,30 +86,66 @@ export default function EquiposScreen({ navigation }: any) {
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      Alert.alert('Lote vacío', 'Pega una máquina por línea (código, placa, serial).');
+      Alert.alert('Lote vacío', 'Pega un equipo por línea.');
       return;
     }
     setBatchBusy(true);
-    if (isVehicle) {
-      const payload = lines.map((l) => {
-        const [plate, brand, model] = l.split(/[,\t;]/).map((s) => s.trim());
-        return { plate, brand: brand || null, model: model || null };
-      });
-      const { error } = await supabase.from('vehicles').insert(payload);
+
+    // La clave única es la PLACA (vehículos) o el CÓDIGO (maquinaria).
+    // Se omiten duplicados dentro del lote y los que ya existen en la BD.
+    const table = isVehicle ? 'vehicles' : 'machinery';
+    const keyCol = isVehicle ? 'plate' : 'code';
+
+    // 1) Construir filas a partir de cada línea (separadores: coma, tab o ;)
+    type Row = { key: string; data: Record<string, any> };
+    const rows: Row[] = lines
+      .map((l) => {
+        const [a, b, c] = l.split(/[,\t;]/).map((s) => s.trim());
+        if (isVehicle) {
+          // placa, marca, modelo
+          const plate = a;
+          if (!plate) return null;
+          return { key: plate.toLowerCase(), data: { plate, brand: b || null, model: c || null } };
+        }
+        // nombre, placa, serial  →  código único = "nombre placa"
+        const name = a;
+        if (!name) return null;
+        const plate = b || null;
+        const code = (plate ? `${name} ${plate}` : name).trim();
+        return {
+          key: code.toLowerCase(),
+          data: { code, description: name, plate, serial: c || null, machinery_type: kind },
+        };
+      })
+      .filter(Boolean) as Row[];
+
+    // 2) Quitar duplicados dentro del mismo lote
+    const seen = new Set<string>();
+    const uniq = rows.filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true)));
+
+    // 3) Quitar los que ya existen en la BD
+    const keys = uniq.map((r) => r.data[keyCol]);
+    const { data: existing } = await supabase.from(table).select(keyCol).in(keyCol, keys);
+    const existingSet = new Set((existing ?? []).map((e: any) => String(e[keyCol]).toLowerCase()));
+    const toInsert = uniq.filter((r) => !existingSet.has(r.key));
+
+    if (toInsert.length === 0) {
       setBatchBusy(false);
-      if (error) return Alert.alert('Error', error.message);
-    } else {
-      const payload = lines.map((l) => {
-        const [code, plate, serial] = l.split(/[,\t;]/).map((s) => s.trim());
-        return { code, plate: plate || null, serial: serial || null, machinery_type: kind };
-      });
-      const { error } = await supabase.from('machinery').insert(payload);
-      setBatchBusy(false);
-      if (error) return Alert.alert('Error', error.message);
+      Alert.alert('Sin novedades', 'Todos los equipos del lote ya estaban registrados.');
+      return;
     }
+
+    const { error } = await supabase.from(table).insert(toInsert.map((r) => r.data));
+    setBatchBusy(false);
+    if (error) return Alert.alert('Error', error.message);
+
+    const omitted = rows.length - toInsert.length;
     setBatchText('');
     setBatchOpen(false);
-    Alert.alert('Listo', `Se agregaron ${lines.length} equipo(s).`);
+    Alert.alert(
+      'Lote cargado',
+      `Se agregaron ${toInsert.length} equipo(s).` + (omitted > 0 ? `\nOmitidos por duplicado: ${omitted}.` : '')
+    );
     refetch();
   };
 
