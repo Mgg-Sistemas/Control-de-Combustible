@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
-import { ROUND_TIMES, ROUND_LABELS } from './ControlMaquinariaScreen';
+import { ROUND_TIMES, ROUND_LABELS, SHIFT_HOURS, workedHours } from './ControlMaquinariaScreen';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -240,19 +240,20 @@ export default function ReportsScreen() {
   const downloadRoundsPdf = async () => {
     const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th>${ROUND_LABELS
       .map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`)
-      .join('')}<th>HORAS<br/>PARADA</th></tr>`;
+      .join('')}<th>HORAS<br/>PARADA</th><th>HORAS<br/>TRABAJADAS</th></tr>`;
     const body = roundRows
       .map(
         (r) =>
           `<tr><td>${r.round_date}</td><td>${r.machine}</td>${r.statuses
             .map((s) => `<td style="text-align:center;color:${cellColor(s)};font-weight:700">${cell(s)}</td>`)
-            .join('')}<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td></tr>`
+            .join('')}<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td>` +
+          `<td style="text-align:center;font-weight:700">${workedHours(r.hours_stopped)} h</td></tr>`
       )
       .join('');
     const content = `
-      <div class="muted">Rondas del ${from} al ${to}</div>
-      <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="7" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>`;
+      <div class="muted">Rondas del ${from} al ${to} · Turno de ${SHIFT_HOURS} h (07:00–19:00)</div>
+      <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="8" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro · Horas trabajadas = turno (${SHIFT_HOURS} h) − horas parada</p>`;
     await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Rondas por día y hora', content));
   };
 
@@ -583,6 +584,7 @@ export default function ReportsScreen() {
                   <Text key={t} style={[styles.th, { width: 56 }]}>{i + 1}ª{'\n'}{t}</Text>
                 ))}
                 <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}parada</Text>
+                <Text style={[styles.th, { width: 64 }]}>Horas{'\n'}trabaj.</Text>
               </View>
               {roundRows.length === 0 ? (
                 <Text style={{ color: colors.muted, padding: spacing.md }}>Sin datos en el rango.</Text>
@@ -595,6 +597,7 @@ export default function ReportsScreen() {
                       <Text key={i} style={[styles.td, { width: 56, textAlign: 'center', color: cellColor(s), fontWeight: '700' }]}>{cell(s)}</Text>
                     ))}
                     <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.hours_stopped || '—'}</Text>
+                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{workedHours(r.hours_stopped)} h</Text>
                   </View>
                 ))
               )}

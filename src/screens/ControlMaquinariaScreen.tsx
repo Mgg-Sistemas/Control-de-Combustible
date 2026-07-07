@@ -9,6 +9,9 @@ import { spacing, radius } from '../theme';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
+/** Horas del turno completo (07:00 → 19:00). Las horas trabajadas = turno − parada. */
+export const SHIFT_HOURS = 12;
+export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
 
 function todayISO(): string {
   const d = new Date();
@@ -217,6 +220,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   placeholderTextColor={colors.muted}
                   style={{ width: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlign: 'right' }}
                 />
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Turno {SHIFT_HOURS}h − parada {hours || 0}h</Text>
+                <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>
+                  Trabajadas: {workedHours(hours)} h
+                </Text>
               </View>
             </Card>
           );
