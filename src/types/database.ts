@@ -79,6 +79,18 @@ export interface MachineryLocation {
   recorded_at: string;
 }
 
+export interface MachineRound {
+  id: string;
+  machinery_id: string;
+  round_date: string;
+  round_no: number; // 1=07:00 2=11:00 3=15:00 4=19:00
+  status: 'operativa' | 'parada';
+  hours_stopped: number;
+  notes: string | null;
+  recorded_by: string | null;
+  created_at: string;
+}
+
 export interface Authorization {
   id: string;
   requested_by: string | null;

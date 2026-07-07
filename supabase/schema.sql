@@ -489,5 +489,29 @@ create trigger trg_one_fuel_per_day before insert on public.dispatches
 -- Nota: crear un bucket público de Storage llamado 'machinery' para las fotos.
 
 -- ============================================================================
+-- CONTROL DE MAQUINARIA POR RONDAS (turnos)
+-- 1ª 07:00 · 2ª 11:00 · 3ª 15:00 · 4ª 19:00 · + horas de parada
+-- ============================================================================
+create table if not exists public.machine_rounds (
+  id            uuid primary key default gen_random_uuid(),
+  machinery_id  uuid not null references public.machinery(id) on delete cascade,
+  round_date    date not null,
+  round_no      smallint not null check (round_no between 1 and 4),
+  status        text not null default 'operativa' check (status in ('operativa', 'parada')),
+  hours_stopped numeric(6,2) not null default 0 check (hours_stopped >= 0),
+  notes         text,
+  recorded_by   uuid references auth.users(id),
+  created_at    timestamptz default now(),
+  unique (machinery_id, round_date, round_no)
+);
+create index if not exists idx_mr_date on public.machine_rounds(round_date, machinery_id);
+
+alter table public.machine_rounds enable row level security;
+drop policy if exists mr_select on public.machine_rounds;
+create policy mr_select on public.machine_rounds for select to authenticated using (true);
+drop policy if exists mr_write on public.machine_rounds;
+create policy mr_write on public.machine_rounds for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

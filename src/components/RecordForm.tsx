@@ -48,6 +48,7 @@ export function RecordForm({
   table,
   fields,
   autoUserField,
+  fixedValues,
   record,
   allowDelete = false,
   onClose,
@@ -59,6 +60,8 @@ export function RecordForm({
   fields: Field[];
   /** Columna que debe rellenarse con el id del usuario autenticado (p. ej. requested_by). */
   autoUserField?: string;
+  /** Valores fijos que se guardan siempre (aunque no haya campo visible). P. ej. machinery_type. */
+  fixedValues?: Record<string, any>;
   /** Si se pasa un registro existente, el formulario edita (UPDATE) en vez de crear (INSERT). */
   record?: (Record<string, any> & { id: string }) | null;
   /** Muestra el botón "Eliminar" cuando se está editando un registro. */
@@ -132,6 +135,8 @@ export function RecordForm({
       if (raw === undefined || raw === '') return;
       payload[f.key] = f.type === 'number' ? Number(raw) : raw;
     });
+
+    if (fixedValues) Object.assign(payload, fixedValues);
 
     if (autoUserField && !isEdit) {
       const { data } = await supabase.auth.getUser();

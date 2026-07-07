@@ -13,13 +13,13 @@ import MoreScreen from '../screens/MoreScreen';
 import UsersScreen from '../screens/UsersScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import AuthorizationsScreen from '../screens/AuthorizationsScreen';
-import MachineryScreen from '../screens/MachineryScreen';
+import EquiposScreen from '../screens/EquiposScreen';
+import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import MapScreen from '../screens/MapScreen';
 import {
   TanksScreen,
   IntakesScreen,
   DispatchesScreen,
-  VehiclesScreen,
   TransfersScreen,
 } from '../screens/modules';
 
@@ -44,8 +44,8 @@ function MoreStack() {
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'Más' }} />
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
-      <Stack.Screen name="Vehicles" component={VehiclesScreen} options={{ title: 'Vehículos' }} />
-      <Stack.Screen name="Machinery" component={MachineryScreen} options={{ title: 'Maquinaria' }} />
+      <Stack.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo maquinaria/vehículos' }} />
+      <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
       <Stack.Screen name="Map" component={MapScreen} options={{ title: 'Mapa' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />

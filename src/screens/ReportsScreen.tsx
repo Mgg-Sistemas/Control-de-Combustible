@@ -14,8 +14,17 @@ import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { ROUND_TIMES, ROUND_LABELS } from './ControlMaquinariaScreen';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+
+type RoundRow = {
+  round_date: string;
+  machine: string;
+  company: string;
+  statuses: (string | null)[]; // len 4
+  hours_stopped: number;
+};
 
 type Row = {
   dispatch_date: string;
@@ -52,6 +61,9 @@ export default function ReportsScreen() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [mode, setMode] = useState<'fuel' | 'rounds'>('fuel');
+  const [roundRows, setRoundRows] = useState<RoundRow[]>([]);
+  const [roundsPreview, setRoundsPreview] = useState(false);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -99,6 +111,67 @@ export default function ReportsScreen() {
     setRows(mapped);
     setLoading(false);
     setPreview(true);
+  };
+
+  const generateRounds = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('machine_rounds')
+      .select('round_date, round_no, status, hours_stopped, machinery:machinery_id(code, company:company_id(name))')
+      .gte('round_date', from)
+      .lte('round_date', to)
+      .order('round_date', { ascending: true });
+    const map = new Map<string, RoundRow>();
+    (data ?? []).forEach((r: any) => {
+      const machine = r.machinery?.code ?? '—';
+      const company = r.machinery?.company?.name ?? 'Sin empresa';
+      const k = `${r.round_date}|${machine}`;
+      const row = map.get(k) ?? { round_date: r.round_date, machine, company, statuses: [null, null, null, null], hours_stopped: 0 };
+      row.statuses[r.round_no - 1] = r.status;
+      row.hours_stopped += Number(r.hours_stopped) || 0;
+      map.set(k, row);
+    });
+    const list = Array.from(map.values()).sort((a, b) =>
+      a.round_date === b.round_date ? a.machine.localeCompare(b.machine) : a.round_date.localeCompare(b.round_date)
+    );
+    setRoundRows(list);
+    setLoading(false);
+    setRoundsPreview(true);
+  };
+
+  const cell = (s: string | null) => (s === 'operativa' ? '✓' : s === 'parada' ? '✕' : '—');
+  const cellColor = (s: string | null) => (s === 'operativa' ? '#16A34A' : s === 'parada' ? '#DC2626' : '#9CA3AF');
+
+  const downloadRoundsPdf = async () => {
+    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th>${ROUND_LABELS
+      .map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`)
+      .join('')}<th>HORAS<br/>PARADA</th></tr>`;
+    const body = roundRows
+      .map(
+        (r) =>
+          `<tr><td>${r.round_date}</td><td>${r.machine}</td>${r.statuses
+            .map((s) => `<td style="text-align:center;color:${cellColor(s)};font-weight:700">${cell(s)}</td>`)
+            .join('')}<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td></tr>`
+      )
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1C1C1E;padding:24px}
+      h1{font-size:20px;margin:0 0 4px}.muted{color:#6B7280;font-size:13px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+      td,th{border:1px solid #D6D5D2;padding:6px}
+      th{background:#E5E5E5}
+      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
+      .header img{height:60px}
+    </style></head><body>
+      <div class="header"><img src="${LOGO_DATA_URI}"/>
+        <div><div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
+        <div class="muted">RIF ${COMPANY_RIF}</div></div></div>
+      <h1>Control de maquinaria — rondas por día y hora</h1>
+      <div class="muted">Del ${from} al ${to}</div>
+      <table><thead>${head}</thead><tbody>${body || '<tr><td colspan="7" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>
+    </body></html>`;
+    await exportPdf(html);
   };
 
   const setRange = (days: number) => {
@@ -165,6 +238,32 @@ export default function ReportsScreen() {
       <ConfigBanner />
       <SectionTitle>Reportes</SectionTitle>
 
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        {([
+          { v: 'fuel', label: '⛽ Combustible' },
+          { v: 'rounds', label: '🛠️ Rondas' },
+        ] as const).map((t) => {
+          const active = mode === t.v;
+          return (
+            <TouchableOpacity
+              key={t.v}
+              onPress={() => setMode(t.v)}
+              style={{
+                flex: 1,
+                paddingVertical: spacing.md,
+                borderRadius: radius.md,
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: active ? colors.primary : colors.border,
+                backgroundColor: active ? colors.primary : colors.surfaceAlt,
+              }}
+            >
+              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700' }}>{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       <Card>
         <Text style={{ color: colors.muted, fontSize: 13 }}>Rango de fechas</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -184,8 +283,10 @@ export default function ReportsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity style={styles.genBtn} onPress={generate} disabled={loading}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Generar reporte</Text>
+        <TouchableOpacity style={styles.genBtn} onPress={mode === 'fuel' ? generate : generateRounds} disabled={loading}>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
+            {mode === 'fuel' ? '📊 Generar reporte de combustible' : '🛠️ Generar reporte de rondas'}
+          </Text>
         </TouchableOpacity>
       </Card>
 
@@ -307,6 +408,56 @@ export default function ReportsScreen() {
           </Modal>
         </Screen>
       </Modal>
+
+      {/* Vista previa: control de rondas */}
+      <Modal visible={roundsPreview} animationType="slide" onRequestClose={() => setRoundsPreview(false)}>
+        <Screen>
+          <SectionTitle>Control de máquinas (rondas)</SectionTitle>
+          <Card>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', marginTop: 2 }}>{roundRows.length} registro(s)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+              ✓ Operativa · ✕ Parada · — Sin registro
+            </Text>
+          </Card>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator>
+            <View>
+              <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceAlt }}>
+                <Text style={[styles.th, { width: 84 }]}>Fecha</Text>
+                <Text style={[styles.th, { width: 90 }]}>Máquina</Text>
+                {ROUND_TIMES.map((t, i) => (
+                  <Text key={t} style={[styles.th, { width: 56 }]}>{i + 1}ª{'\n'}{t}</Text>
+                ))}
+                <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}parada</Text>
+              </View>
+              {roundRows.length === 0 ? (
+                <Text style={{ color: colors.muted, padding: spacing.md }}>Sin datos en el rango.</Text>
+              ) : (
+                roundRows.map((r, idx) => (
+                  <View key={idx} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={[styles.td, { width: 84, color: colors.text }]}>{r.round_date.slice(5)}</Text>
+                    <Text style={[styles.td, { width: 90, color: colors.text }]}>{r.machine}</Text>
+                    {r.statuses.map((s, i) => (
+                      <Text key={i} style={[styles.td, { width: 56, textAlign: 'center', color: cellColor(s), fontWeight: '700' }]}>{cell(s)}</Text>
+                    ))}
+                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.hours_stopped || '—'}</Text>
+                  </View>
+                ))
+              )}
+            </View>
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setRoundsPreview(false)}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadRoundsPdf}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            </TouchableOpacity>
+          </View>
+        </Screen>
+      </Modal>
     </Screen>
   );
 }
@@ -330,4 +481,6 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
   },
   genBtn: { backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.md },
   btn: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center' },
+  th: { color: colors.text, fontWeight: '700', fontSize: 11, padding: 6, textAlign: 'center' },
+  td: { fontSize: 12, paddingVertical: 8, paddingHorizontal: 6 },
 });
