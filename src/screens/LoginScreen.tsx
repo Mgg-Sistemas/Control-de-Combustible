@@ -51,11 +51,26 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
       >
-        <Image
-          source={require('../../assets/logo.jpeg')}
-          resizeMode="contain"
-          style={{ width: 140, height: 140, alignSelf: 'center', marginBottom: spacing.md }}
-        />
+        <View
+          style={{
+            alignSelf: 'center',
+            marginBottom: spacing.md,
+            backgroundColor: '#FFFFFF',
+            borderRadius: 24,
+            padding: spacing.md,
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 4,
+          }}
+        >
+          <Image
+            source={require('../../assets/logo.jpeg')}
+            resizeMode="contain"
+            style={{ width: 132, height: 132 }}
+          />
+        </View>
         <Text style={styles.brand}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg }]}>
