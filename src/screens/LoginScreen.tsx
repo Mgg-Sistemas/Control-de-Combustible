@@ -7,9 +7,11 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { spacing, radius, AppColors, AppTypography } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -49,9 +51,15 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
       >
+        <Image
+          source={require('../../assets/logo.jpeg')}
+          resizeMode="contain"
+          style={{ width: 140, height: 140, alignSelf: 'center', marginBottom: spacing.md }}
+        />
         <Text style={styles.brand}>Control de Combustible</Text>
+        <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg }]}>
-          {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
+          RIF {COMPANY_RIF} · {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
         </Text>
 
         <TextInput

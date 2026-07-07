@@ -430,5 +430,64 @@ begin
 end $$;
 
 -- ============================================================================
+-- MAQUINARIA AVANZADA: empresas supervisoras, foto/placa/serial, estado
+-- operativo, ubicación/ruta (historial) y regla de 1 carga por día.
+-- ============================================================================
+create table if not exists public.companies (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table public.machinery add column if not exists plate       text;
+alter table public.machinery add column if not exists serial      text;
+alter table public.machinery add column if not exists photo_url   text;
+alter table public.machinery add column if not exists company_id  uuid references public.companies(id);
+alter table public.machinery add column if not exists operational boolean not null default true;
+alter table public.machinery add column if not exists latitude    numeric(9,6);
+alter table public.machinery add column if not exists longitude   numeric(9,6);
+alter table public.machinery add column if not exists location_at timestamptz;
+
+create table if not exists public.machinery_locations (
+  id uuid primary key default uuid_generate_v4(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  latitude    numeric(9,6) not null,
+  longitude   numeric(9,6) not null,
+  recorded_at timestamptz not null default now()
+);
+create index if not exists idx_ml_machinery on public.machinery_locations(machinery_id, recorded_at);
+
+alter table public.companies           enable row level security;
+alter table public.machinery_locations enable row level security;
+drop policy if exists companies_select on public.companies;
+create policy companies_select on public.companies for select to authenticated using (true);
+drop policy if exists companies_write on public.companies;
+create policy companies_write on public.companies for all to authenticated using (public.is_staff()) with check (public.is_staff());
+drop policy if exists ml_select on public.machinery_locations;
+create policy ml_select on public.machinery_locations for select to authenticated using (true);
+drop policy if exists ml_write on public.machinery_locations;
+create policy ml_write on public.machinery_locations for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
+-- Una carga de combustible por máquina por día (aunque sea de otra cisterna).
+create or replace function public.one_fuel_per_machine_per_day() returns trigger
+language plpgsql as $$
+declare prev numeric;
+begin
+  if NEW.asset_kind = 'maquinaria' and NEW.machinery_id is not null then
+    select coalesce(sum(liters),0) into prev from public.dispatches
+      where machinery_id = NEW.machinery_id and dispatch_date = NEW.dispatch_date;
+    if prev > 0 then
+      raise exception 'Esta máquina ya cargó % L hoy y no puede cargar de nuevo (aunque sea de otra cisterna).', prev;
+    end if;
+  end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_one_fuel_per_day on public.dispatches;
+create trigger trg_one_fuel_per_day before insert on public.dispatches
+  for each row execute function public.one_fuel_per_machine_per_day();
+
+-- Nota: crear un bucket público de Storage llamado 'machinery' para las fotos.
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

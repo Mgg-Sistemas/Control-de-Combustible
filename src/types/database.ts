@@ -53,8 +53,30 @@ export interface Machinery {
   description: string | null;
   machinery_type: string | null;
   expected_lph: number | null;
+  plate: string | null;
+  serial: string | null;
+  photo_url: string | null;
+  company_id: string | null;
   active: boolean;
+  operational: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  location_at: string | null;
   created_at: string;
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface MachineryLocation {
+  id: string;
+  machinery_id: string;
+  latitude: number;
+  longitude: number;
+  recorded_at: string;
 }
 
 export interface Authorization {

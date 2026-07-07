@@ -12,12 +12,13 @@ import {
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-const items: { label: string; route: string; desc: string }[] = [
-  { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones de despacho' },
-  { label: 'Vehículos', route: 'Vehicles', desc: 'Placas y flota' },
-  { label: 'Maquinaria', route: 'Machinery', desc: 'Equipos y maquinaria' },
-  { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques' },
-  { label: 'Reportes', route: 'Reports', desc: 'Consumo diario por rango de fechas (PDF)' },
+const items: { label: string; route: string; desc: string; icon: string }[] = [
+  { label: 'Maquinaria', route: 'Machinery', desc: 'Equipos, ubicación y estado', icon: '🚜' },
+  { label: 'Mapa', route: 'Map', desc: 'Ubicación de las máquinas en Venezuela', icon: '🗺️' },
+  { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅' },
+  { label: 'Vehículos', route: 'Vehicles', desc: 'Placas y flota', icon: '🚚' },
+  { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄' },
+  { label: 'Reportes', route: 'Reports', desc: 'Consumo diario (PDF)', icon: '📊' },
 ];
 
 export default function MoreScreen({ navigation }: any) {
@@ -53,8 +54,13 @@ export default function MoreScreen({ navigation }: any) {
       {items.map((it) => (
         <TouchableOpacity key={it.route} onPress={() => navigation.navigate(it.route)}>
           <Card>
-            <Text style={{ fontWeight: '700', color: colors.text }}>{it.label}</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>{it.desc}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ fontSize: 26 }}>{it.icon}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{it.label}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{it.desc}</Text>
+              </View>
+            </View>
           </Card>
         </TouchableOpacity>
       ))}
@@ -62,10 +68,13 @@ export default function MoreScreen({ navigation }: any) {
       {role === 'admin' ? (
         <TouchableOpacity onPress={() => navigation.navigate('Users')}>
           <Card>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Usuarios</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              Crear personas, ver conectados y asignar roles
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ fontSize: 26 }}>👥</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Usuarios</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Crear personas, ver conectados y asignar roles</Text>
+              </View>
+            </View>
           </Card>
         </TouchableOpacity>
       ) : null}

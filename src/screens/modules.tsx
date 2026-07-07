@@ -18,7 +18,6 @@ import {
   FuelIntake,
   Dispatch,
   Vehicle,
-  Machinery,
   Transfer,
 } from '../types/database';
 
@@ -168,33 +167,6 @@ export function VehiclesScreen() {
           ) : null}
           {v.vehicle_type ? <Row label="Tipo" value={v.vehicle_type} /> : null}
           {v.expected_kml != null ? <Row label="Rendimiento" value={`${v.expected_kml} km/L`} /> : null}
-        </>
-      )}
-    />
-  );
-}
-
-export function MachineryScreen() {
-  return (
-    <ListScreen<Machinery>
-      title="Maquinaria"
-      table="machinery"
-      orderBy="code"
-      emptyTitle="Sin maquinaria"
-      emptySubtitle="Registra tus equipos y maquinaria."
-      formTitle="Nueva maquinaria"
-      formFields={[
-        { key: 'code', label: 'Código', type: 'text', required: true },
-        { key: 'description', label: 'Descripción', type: 'text' },
-        { key: 'machinery_type', label: 'Tipo', type: 'text' },
-        { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
-      ]}
-      renderItem={(m) => (
-        <>
-          <ItemTitle>{m.code}</ItemTitle>
-          {m.description ? <Row label="Descripción" value={m.description} /> : null}
-          {m.machinery_type ? <Row label="Tipo" value={m.machinery_type} /> : null}
-          {m.expected_lph != null ? <Row label="Rendimiento" value={`${m.expected_lph} L/h`} /> : null}
         </>
       )}
     />

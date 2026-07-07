@@ -12,6 +12,8 @@ import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
+import { LOGO_DATA_URI } from '../lib/logoData';
+import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -22,6 +24,7 @@ type Row = {
   driver_operator: string | null;
   asset: string;
   tank: string;
+  company: string;
 };
 
 function isoDaysAgo(days: number): string {
@@ -54,6 +57,24 @@ export default function ReportsScreen() {
   const total = all.reduce((s, r) => s + r.liters, 0);
   const byDay = useMemo(() => totalsBy(all, (r) => r.dispatch_date), [rows]);
   const byAsset = useMemo(() => totalsBy(all, (r) => r.asset as any), [rows]);
+  const byCompany = useMemo(() => {
+    const m = new Map<string, { liters: number; assets: Map<string, number> }>();
+    all.forEach((r) => {
+      const c = m.get(r.company) ?? { liters: 0, assets: new Map<string, number>() };
+      c.liters += r.liters;
+      c.assets.set(r.asset, (c.assets.get(r.asset) ?? 0) + r.liters);
+      m.set(r.company, c);
+    });
+    return Array.from(m.entries())
+      .map(([company, v]) => ({
+        company,
+        liters: v.liters,
+        assets: Array.from(v.assets.entries())
+          .map(([asset, liters]) => ({ asset, liters }))
+          .sort((a, b) => b.liters - a.liters),
+      }))
+      .sort((a, b) => b.liters - a.liters);
+  }, [rows]);
   const maxDay = Math.max(1, ...byDay.map((d) => d.liters));
   const maxAsset = Math.max(1, ...byAsset.map((d) => d.liters));
   const dayDetail = selectedDay ? all.filter((r) => r.dispatch_date === selectedDay) : [];
@@ -62,7 +83,7 @@ export default function ReportsScreen() {
     setLoading(true);
     const { data } = await supabase
       .from('dispatches')
-      .select('dispatch_date, liters, asset_kind, driver_operator, vehicle:vehicle_id(plate), machinery:machinery_id(code), tank:tank_id(name)')
+      .select('dispatch_date, liters, asset_kind, driver_operator, vehicle:vehicle_id(plate), machinery:machinery_id(code, company:company_id(name)), tank:tank_id(name)')
       .gte('dispatch_date', from)
       .lte('dispatch_date', to)
       .order('dispatch_date', { ascending: true });
@@ -73,6 +94,7 @@ export default function ReportsScreen() {
       driver_operator: d.driver_operator,
       asset: d.vehicle?.plate ?? d.machinery?.code ?? '—',
       tank: d.tank?.name ?? '—',
+      company: d.machinery?.company?.name ?? (d.vehicle ? 'Vehículos' : 'Sin empresa'),
     }));
     setRows(mapped);
     setLoading(false);
@@ -91,6 +113,15 @@ export default function ReportsScreen() {
     const assetRows = byAsset
       .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
       .join('');
+    const companyBlocks = byCompany
+      .map(
+        (c) =>
+          `<h3 style="margin:10px 0 2px">${c.company} — ${c.liters.toLocaleString()} L</h3>` +
+          `<table><tbody>${c.assets
+            .map((a) => `<tr><td>• ${a.asset}</td><td style="text-align:right">${a.liters.toLocaleString()} L</td></tr>`)
+            .join('')}</tbody></table>`
+      )
+      .join('');
     const dayRows = byDay
       .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
       .join('');
@@ -104,7 +135,16 @@ export default function ReportsScreen() {
       .bar{width:26px;background:#3F3F46;border-radius:4px 4px 0 0}
       .lbl{font-size:10px;color:#6B7280;margin-top:4px}.val{font-size:10px}
       table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px solid #EAEAE8;padding:6px}
+      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
+      .header img{height:60px}
     </style></head><body>
+      <div class="header">
+        <img src="${LOGO_DATA_URI}"/>
+        <div>
+          <div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
+          <div class="muted">RIF ${COMPANY_RIF}</div>
+        </div>
+      </div>
       <h1>Reporte de consumo de combustible</h1>
       <div class="muted">Del ${from} al ${to}</div>
       <div class="summary"><div><span class="muted">Total</span><b>${total.toLocaleString()} L</b></div>
@@ -114,6 +154,8 @@ export default function ReportsScreen() {
       <table><tbody>${dayRows}</tbody></table>
       <h2>Consumo por equipo / máquina</h2>
       <table><thead><tr><th style="text-align:left">Equipo/Máquina</th><th style="text-align:right">Litros</th></tr></thead><tbody>${assetRows}</tbody></table>
+      <h2>Consumo por empresa supervisora</h2>
+      ${companyBlocks || '<span class="muted">Sin datos</span>'}
     </body></html>`;
     await exportPdf(html);
   };
@@ -201,6 +243,30 @@ export default function ReportsScreen() {
                   <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, marginTop: 2 }}>
                     <View style={{ height: 8, width: `${(r.liters / maxAsset) * 100}%`, backgroundColor: colors.primary, borderRadius: radius.pill }} />
                   </View>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+              Consumo por empresa supervisora
+            </Text>
+            {byCompany.length === 0 ? (
+              <Text style={{ color: colors.muted }}>Sin datos.</Text>
+            ) : (
+              byCompany.map((c) => (
+                <View key={c.company} style={{ marginBottom: spacing.md }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{c.company}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{c.liters.toLocaleString()} L</Text>
+                  </View>
+                  {c.assets.map((a) => (
+                    <View key={a.asset} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingLeft: spacing.md }}>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>• {a.asset}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>{a.liters.toLocaleString()} L</Text>
+                    </View>
+                  ))}
                 </View>
               ))
             )}
