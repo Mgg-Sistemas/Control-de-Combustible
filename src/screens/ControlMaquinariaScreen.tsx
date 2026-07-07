@@ -16,8 +16,15 @@ function todayISO(): string {
   const day = `${d.getDate()}`.padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
 }
+function shiftDay(iso: string, delta: number): string {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + delta);
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  const day = `${d.getDate()}`.padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 
-export default function ControlMaquinariaScreen() {
+export default function ControlMaquinariaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
@@ -87,16 +94,44 @@ export default function ControlMaquinariaScreen() {
       <SectionTitle>Control de maquinaria</SectionTitle>
 
       <Card>
-        <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 2 }}>Fecha del control</Text>
-        <TextInput
-          value={date}
-          onChangeText={setDate}
-          placeholder="AAAA-MM-DD"
-          placeholderTextColor={colors.muted}
-          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
-        />
+        <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 2 }}>Día del control</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <TouchableOpacity
+            onPress={() => setDate(shiftDay(date, -1))}
+            style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>◀</Text>
+          </TouchableOpacity>
+          <TextInput
+            value={date}
+            onChangeText={setDate}
+            placeholder="AAAA-MM-DD"
+            placeholderTextColor={colors.muted}
+            style={{ flex: 1, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontWeight: '700' }}
+          />
+          <TouchableOpacity
+            onPress={() => setDate(shiftDay(date, 1))}
+            style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>▶</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <TouchableOpacity
+            onPress={() => setDate(todayISO())}
+            style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700' }}>📅 Hoy</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation?.navigate('Reports')}
+            style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: 'center' }}
+          >
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-          Toca cada ronda: verde = operativa, rojo = parada.
+          Cada máquina tiene sus 4 rondas. Toca una: verde = operativa, rojo = parada.
         </Text>
       </Card>
 
@@ -135,7 +170,7 @@ export default function ControlMaquinariaScreen() {
                         paddingVertical: spacing.xs,
                       }}
                     >
-                      <Text style={{ color: fg, fontWeight: '700', fontSize: 11 }}>{ROUND_LABELS[i].replace(' RONDA', 'ª')}</Text>
+                      <Text style={{ color: fg, fontWeight: '700', fontSize: 11 }}>{ROUND_LABELS[i]}</Text>
                       <Text style={{ color: fg, fontSize: 12, fontWeight: '700' }}>{time}</Text>
                       <Text style={{ color: fg, fontSize: 10 }}>{st === 'operativa' ? '✓ Oper.' : st === 'parada' ? '✕ Parada' : '—'}</Text>
                     </TouchableOpacity>

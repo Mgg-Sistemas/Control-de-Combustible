@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, Image, Modal, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -50,6 +50,8 @@ export default function EquiposScreen({ navigation }: any) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const isVehicle = kind === 'vehiculo';
   const list = isVehicle ? vehicles.data : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
@@ -69,7 +71,7 @@ export default function EquiposScreen({ navigation }: any) {
     setBusy(key);
     const res = await fn();
     setBusy(null);
-    if (!res.ok && res.error) Alert.alert('Aviso', res.error);
+    if (!res.ok && res.error) setNotice('⚠️ ' + res.error);
     if (res.ok) machinery.refetch();
   };
   const locate = (m: Machinery) => run(m.id + '-loc', () => captureLocation(m.id));
@@ -81,12 +83,13 @@ export default function EquiposScreen({ navigation }: any) {
     });
 
   const saveBatch = async () => {
+    setBatchError(null);
     const lines = batchText
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      Alert.alert('Lote vacío', 'Pega un equipo por línea.');
+      setBatchError('Pega al menos un equipo (uno por línea).');
       return;
     }
     setBatchBusy(true);
@@ -119,32 +122,32 @@ export default function EquiposScreen({ navigation }: any) {
       })
       .filter(Boolean) as Row[];
 
-    // 2) Quitar duplicados dentro del mismo lote
+    // 2) Quitar duplicados dentro del mismo lote (por la clave única)
     const seen = new Set<string>();
     const uniq = rows.filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true)));
 
-    // 3) Quitar los que ya existen en la BD
-    const keys = uniq.map((r) => r.data[keyCol]);
-    const { data: existing } = await supabase.from(table).select(keyCol).in(keyCol, keys);
-    const existingSet = new Set((existing ?? []).map((e: any) => String(e[keyCol]).toLowerCase()));
-    const toInsert = uniq.filter((r) => !existingSet.has(r.key));
-
-    if (toInsert.length === 0) {
-      setBatchBusy(false);
-      Alert.alert('Sin novedades', 'Todos los equipos del lote ya estaban registrados.');
+    // 3) Insertar con ON CONFLICT DO NOTHING: los que ya existen se omiten
+    //    automáticamente (sin error 409). .select() devuelve solo los nuevos.
+    const { data: inserted, error } = await supabase
+      .from(table)
+      .upsert(
+        uniq.map((r) => r.data),
+        { onConflict: keyCol, ignoreDuplicates: true }
+      )
+      .select(keyCol);
+    setBatchBusy(false);
+    if (error) {
+      // Mostrar el error real (Alert es silencioso en web).
+      setBatchError(`${error.message}${(error as any).details ? ' — ' + (error as any).details : ''}`);
       return;
     }
 
-    const { error } = await supabase.from(table).insert(toInsert.map((r) => r.data));
-    setBatchBusy(false);
-    if (error) return Alert.alert('Error', error.message);
-
-    const omitted = rows.length - toInsert.length;
+    const added = inserted?.length ?? 0;
+    const omitted = rows.length - added;
     setBatchText('');
     setBatchOpen(false);
-    Alert.alert(
-      'Lote cargado',
-      `Se agregaron ${toInsert.length} equipo(s).` + (omitted > 0 ? `\nOmitidos por duplicado: ${omitted}.` : '')
+    setNotice(
+      `✅ Lote cargado: se agregaron ${added} equipo(s).` + (omitted > 0 ? ` Omitidos por duplicado: ${omitted}.` : '')
     );
     refetch();
   };
@@ -176,6 +179,15 @@ export default function EquiposScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Catálogo maquinaria/vehículos</SectionTitle>
+
+      {notice ? (
+        <TouchableOpacity onPress={() => setNotice(null)}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Selector de tipo (uno al lado del otro, selección única) */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -218,7 +230,10 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={() => setBatchOpen(true)}
+          onPress={() => {
+            setBatchError(null);
+            setBatchOpen(true);
+          }}
         >
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>📋 Lote</Text>
         </TouchableOpacity>
@@ -309,6 +324,11 @@ export default function EquiposScreen({ navigation }: any) {
                 style={{ minHeight: 160, textAlignVertical: 'top', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
               />
             </ScrollView>
+            {batchError ? (
+              <View style={{ backgroundColor: '#FEE2E2', borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm }}>
+                <Text style={{ color: '#B91C1C', fontSize: 13, fontWeight: '600' }}>Error: {batchError}</Text>
+              </View>
+            ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setBatchOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
