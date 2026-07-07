@@ -16,18 +16,19 @@ import { Profile, UserRole } from '../types/database';
 import { MODULES, LEVELS, PermLevel, defaultLevel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useConfirm } from '../components/ConfirmProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'operador', 'conductor'];
 
 export default function UsersScreen() {
   const { role, onlineIds, session } = useAuth();
   const { colors, typography } = useTheme();
+  const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: users, loading, refetch } = useTable<Profile>('profiles', { orderBy: 'full_name', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [query, setQuery] = useState('');
-  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [delError, setDelError] = useState<string | null>(null);
 
@@ -55,18 +56,20 @@ export default function UsersScreen() {
   };
 
   const removeUser = async (u: Profile) => {
-    if (confirmId !== u.id) {
-      setConfirmId(u.id);
-      setDelError(null);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Eliminar usuario',
+      message: `¿Desea eliminar a "${u.full_name ?? 'este usuario'}"? Esta acción no se puede deshacer.`,
+      confirmText: 'Aceptar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     setDeletingId(u.id);
     setDelError(null);
     const { data, error } = await supabase.functions.invoke('admin-manage-user', {
       body: { action: 'delete', id: u.id },
     });
     setDeletingId(null);
-    setConfirmId(null);
     if (error || (data as any)?.error) {
       setDelError(`${u.full_name ?? 'Usuario'}: ${(data as any)?.error ?? error?.message ?? 'No se pudo eliminar.'}`);
       return;
@@ -161,20 +164,15 @@ export default function UsersScreen() {
                   <TouchableOpacity
                     onPress={() => removeUser(u)}
                     disabled={deletingId === u.id}
-                    style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: confirmId === u.id ? colors.danger : 'transparent' }}
+                    style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                   >
-                    <Text style={{ color: confirmId === u.id ? colors.primaryContrast : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                      {deletingId === u.id ? 'Eliminando…' : confirmId === u.id ? '¿Confirmar? Toca de nuevo' : '🗑️ Eliminar'}
+                    <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
+                      {deletingId === u.id ? 'Eliminando…' : '🗑️ Eliminar'}
                     </Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {confirmId === u.id ? (
-                <TouchableOpacity onPress={() => setConfirmId(null)} style={{ marginTop: spacing.xs }}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>Cancelar</Text>
-                </TouchableOpacity>
-              ) : null}
-              {delError && confirmId === null && delError.startsWith((u.full_name ?? 'Usuario')) ? (
+              {delError && delError.startsWith((u.full_name ?? 'Usuario')) ? (
                 <Text style={{ color: colors.danger, fontSize: 12, marginTop: spacing.xs }}>{delError}</Text>
               ) : null}
             </Card>
@@ -297,9 +295,9 @@ function EditUserForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmDel, setConfirmDel] = useState(false);
   const [perms, setPerms] = useState<Record<string, PermLevel>>({});
   const { colors, typography } = useTheme();
+  const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
@@ -307,7 +305,6 @@ function EditUserForm({
     setPassword('');
     setShowPass(false);
     setError(null);
-    setConfirmDel(false);
     setPerms({});
     if (user) {
       supabase
@@ -357,10 +354,14 @@ function EditUserForm({
   };
 
   const remove = async () => {
-    if (!confirmDel) {
-      setConfirmDel(true);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Eliminar usuario',
+      message: `¿Desea eliminar a "${user.full_name ?? 'este usuario'}"? Esta acción no se puede deshacer.`,
+      confirmText: 'Aceptar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     setDeleting(true);
     const { data, error } = await supabase.functions.invoke('admin-manage-user', {
@@ -369,7 +370,6 @@ function EditUserForm({
     setDeleting(false);
     if (error || (data as any)?.error) {
       setError((data as any)?.error ?? error?.message ?? 'No se pudo eliminar.');
-      setConfirmDel(false);
       return;
     }
     onSaved();
@@ -442,7 +442,7 @@ function EditUserForm({
               disabled={deleting}
             >
               <Text style={{ color: colors.danger, fontWeight: '700' }}>
-                {deleting ? 'Eliminando…' : confirmDel ? '¿Confirmar eliminación? Toca de nuevo' : '🗑️ Eliminar usuario'}
+                {deleting ? 'Eliminando…' : '🗑️ Eliminar usuario'}
               </Text>
             </TouchableOpacity>
           ) : (

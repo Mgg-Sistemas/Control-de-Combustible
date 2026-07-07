@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { ConfirmProvider } from './src/components/ConfirmProvider';
 import RootNavigator from './src/navigation';
 
 function ThemedStatusBar() {
@@ -15,10 +16,12 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <AuthProvider>
-          <ThemedStatusBar />
-          <RootNavigator />
-        </AuthProvider>
+        <ConfirmProvider>
+          <AuthProvider>
+            <ThemedStatusBar />
+            <RootNavigator />
+          </AuthProvider>
+        </ConfirmProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

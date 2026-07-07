@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useConfirm } from './ConfirmProvider';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
@@ -73,13 +74,13 @@ export function RecordForm({
   onSaved: () => void;
 }) {
   const { colors, typography } = useTheme();
+  const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isEdit = !!record;
   const [values, setValues] = useState<Record<string, string>>({});
   const [lookups, setLookups] = useState<Record<string, Option[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const fieldDefaults = useMemo(() => {
@@ -105,7 +106,6 @@ export function RecordForm({
       setValues({ ...fieldDefaults });
     }
     setError(null);
-    setConfirmDelete(false);
     // Cargar opciones de los campos lookup
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
@@ -176,10 +176,14 @@ export function RecordForm({
 
   const remove = async () => {
     if (!record) return;
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
+    const ok = await confirm({
+      title: 'Eliminar',
+      message: '¿Desea eliminar este registro? Esta acción no se puede deshacer.',
+      confirmText: 'Aceptar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     setDeleting(true);
     const { error } = await supabase.from(table).delete().eq('id', record.id);
@@ -191,7 +195,6 @@ export function RecordForm({
           ? 'No se puede eliminar: tiene movimientos o registros asociados (ingresos, consumos o traslados).'
           : error.message
       );
-      setConfirmDelete(false);
       return;
     }
     onSaved();
@@ -254,11 +257,7 @@ export function RecordForm({
           {isEdit && allowDelete ? (
             <TouchableOpacity style={styles.btnDelete} onPress={remove} disabled={deleting}>
               <Text style={{ color: colors.danger, fontWeight: '700' }}>
-                {deleting
-                  ? 'Eliminando…'
-                  : confirmDelete
-                  ? '¿Confirmar eliminación? Toca de nuevo'
-                  : 'Eliminar'}
+                {deleting ? 'Eliminando…' : '🗑️ Eliminar'}
               </Text>
             </TouchableOpacity>
           ) : null}
