@@ -65,6 +65,7 @@ export interface Machinery {
   location_at: string | null;
   entry_date: string | null;
   exit_date: string | null;
+  location: string | null;
   created_at: string;
 }
 

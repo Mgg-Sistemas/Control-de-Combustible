@@ -513,9 +513,15 @@ drop policy if exists mr_write on public.machine_rounds;
 create policy mr_write on public.machine_rounds for all to authenticated using (true) with check (true);
 
 -- ============================================================================
--- Columna identificador de maquinaria (además de placa y serial)
+-- Columnas extra de maquinaria: identificador, ubicación (texto), entrada/salida
+-- + serial único (case-insensitive) para no duplicar máquinas.
 -- ============================================================================
 alter table public.machinery add column if not exists identifier text;
+alter table public.machinery add column if not exists location text;
+alter table public.machinery add column if not exists entry_date date;
+alter table public.machinery add column if not exists exit_date date;
+create unique index if not exists uq_machinery_serial
+  on public.machinery (lower(trim(serial))) where serial is not null and trim(serial) <> '';
 
 -- ============================================================================
 -- MATRIZ DE PERMISOS POR USUARIO Y MÓDULO

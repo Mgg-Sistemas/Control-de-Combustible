@@ -49,6 +49,7 @@ export function RecordForm({
   fields,
   autoUserField,
   fixedValues,
+  uniqueField,
   record,
   allowDelete = false,
   onClose,
@@ -62,6 +63,8 @@ export function RecordForm({
   autoUserField?: string;
   /** Valores fijos que se guardan siempre (aunque no haya campo visible). P. ej. machinery_type. */
   fixedValues?: Record<string, any>;
+  /** Evita duplicados en una columna (p. ej. serial); muestra "YA EXISTE …". */
+  uniqueField?: { key: string; labelCol: string; labelName?: string };
   /** Si se pasa un registro existente, el formulario edita (UPDATE) en vez de crear (INSERT). */
   record?: (Record<string, any> & { id: string }) | null;
   /** Muestra el botón "Eliminar" cuando se está editando un registro. */
@@ -137,6 +140,21 @@ export function RecordForm({
     });
 
     if (fixedValues) Object.assign(payload, fixedValues);
+
+    // Validar unicidad (p. ej. serial): "YA EXISTE CÓDIGO ...".
+    if (uniqueField && payload[uniqueField.key] != null && String(payload[uniqueField.key]).trim() !== '') {
+      let q = supabase
+        .from(table)
+        .select(`id, ${uniqueField.labelCol}`)
+        .ilike(uniqueField.key, String(payload[uniqueField.key]).trim());
+      if (isEdit) q = q.neq('id', record!.id);
+      const { data: dup } = await q.limit(1);
+      if (dup && dup.length > 0) {
+        const nombre = uniqueField.labelName ?? uniqueField.key;
+        setError(`YA EXISTE: "${(dup[0] as any)[uniqueField.labelCol]}" con ese ${nombre}.`);
+        return;
+      }
+    }
 
     if (autoUserField && !isEdit) {
       const { data } = await supabase.auth.getUser();

@@ -152,8 +152,12 @@ export default function EquiposScreen({ navigation }: any) {
       .select(keyCol);
     setBatchBusy(false);
     if (error) {
-      // Mostrar el error real (Alert es silencioso en web).
-      setBatchError(`${error.message}${(error as any).details ? ' — ' + (error as any).details : ''}`);
+      const msg = `${error.message} ${(error as any).details ?? ''}`.toLowerCase();
+      if (msg.includes('uq_machinery_serial') || (msg.includes('serial') && msg.includes('duplicate'))) {
+        setBatchError('YA EXISTE una máquina con uno de esos seriales. Revisa el lote y quita los repetidos.');
+      } else {
+        setBatchError(`${error.message}${(error as any).details ? ' — ' + (error as any).details : ''}`);
+      }
       return;
     }
 
@@ -375,6 +379,7 @@ export default function EquiposScreen({ navigation }: any) {
         table={isVehicle ? 'vehicles' : 'machinery'}
         fields={isVehicle ? VEHICLE_FIELDS : MACHINERY_FIELDS}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
+        uniqueField={isVehicle ? undefined : { key: 'serial', labelCol: 'code', labelName: 'serial' }}
         record={editing}
         allowDelete
         onClose={() => setFormOpen(false)}
