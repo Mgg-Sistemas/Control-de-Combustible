@@ -55,6 +55,7 @@ export interface Machinery {
   expected_lph: number | null;
   plate: string | null;
   serial: string | null;
+  identifier: string | null;
   photo_url: string | null;
   company_id: string | null;
   active: boolean;
@@ -62,6 +63,8 @@ export interface Machinery {
   latitude: number | null;
   longitude: number | null;
   location_at: string | null;
+  entry_date: string | null;
+  exit_date: string | null;
   created_at: string;
 }
 

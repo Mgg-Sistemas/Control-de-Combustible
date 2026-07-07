@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { Profile, UserRole } from '../types/database';
+import { MODULES, LEVELS, PermLevel, defaultLevel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -253,6 +254,7 @@ function EditUserForm({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [perms, setPerms] = useState<Record<string, PermLevel>>({});
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -262,9 +264,30 @@ function EditUserForm({
     setShowPass(false);
     setError(null);
     setConfirmDel(false);
+    setPerms({});
+    if (user) {
+      supabase
+        .from('module_permissions')
+        .select('module, level')
+        .eq('user_id', user.id)
+        .then(({ data }) => {
+          const m: Record<string, PermLevel> = {};
+          (data ?? []).forEach((r: any) => (m[r.module] = r.level));
+          setPerms(m);
+        });
+    }
   }, [user]);
 
+  const setPerm = async (moduleKey: string, level: PermLevel) => {
+    if (!user) return;
+    setPerms((p) => ({ ...p, [moduleKey]: level }));
+    await supabase
+      .from('module_permissions')
+      .upsert({ user_id: user.id, module: moduleKey, level }, { onConflict: 'user_id,module' });
+  };
+
   if (!user) return null;
+  const isAdminUser = user.role === 'admin';
 
   const save = async () => {
     setError(null);
@@ -314,7 +337,7 @@ function EditUserForm({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={[typography.title, { marginBottom: spacing.md }]}>Editar usuario</Text>
-          <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
+          <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ gap: spacing.sm }}>
             <Text style={typography.muted}>Nombre completo</Text>
             <TextInput style={styles.input} placeholder="Nombre y apellido" placeholderTextColor={colors.muted} value={fullName} onChangeText={setFullName} autoCapitalize="words" />
             <Text style={typography.muted}>Nueva contraseña (opcional)</Text>
@@ -324,6 +347,40 @@ function EditUserForm({
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈' : '👁'}</Text>
               </TouchableOpacity>
             </View>
+
+            <Text style={[typography.muted, { marginTop: spacing.sm }]}>Permisos por módulo</Text>
+            {isAdminUser ? (
+              <Text style={{ color: colors.success, fontSize: 12 }}>
+                Este usuario es administrador: tiene acceso total a todos los módulos.
+              </Text>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                — Sin acceso · L Lectura · E Escritura · F Full control
+              </Text>
+            )}
+            {MODULES.map((mod) => {
+              const cur = perms[mod.key] ?? defaultLevel(mod.key);
+              return (
+                <View key={mod.key} style={{ marginTop: 2 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{mod.label}</Text>
+                  <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
+                    {LEVELS.map((lv) => {
+                      const active = cur === lv.value;
+                      return (
+                        <TouchableOpacity
+                          key={lv.value}
+                          onPress={() => setPerm(mod.key, lv.value)}
+                          style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface, alignItems: 'center' }}
+                        >
+                          <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })}
+
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
           </ScrollView>
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>

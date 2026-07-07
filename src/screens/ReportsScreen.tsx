@@ -7,6 +7,7 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Image,
 } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -115,15 +116,23 @@ function pdfShell(title: string, sub: string, body: string): string {
     <div class="rule"></div>
     <div class="meta">
       <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}<br/>Sistema de control interno</div>
-      <div class="info">
-        <div class="row"><span class="lbl">Documento:</span><span>${title}</span></div>
-        <div class="row"><span class="lbl">Detalle:</span><span>${sub}</span></div>
-        <div class="row"><span class="lbl">Emitida:</span><span>${nowStamp()}</span></div>
-      </div>
     </div>
     ${body}
     <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
   </body></html>`;
+}
+
+/** Encabezado de la vista previa: logo + título azul + empresa (como el PDF). */
+function ReportHeader({ title, colors }: { title: string; colors: AppColors }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: 3, borderBottomColor: '#1E3A5F' }}>
+      <Image source={{ uri: LOGO_DATA_URI }} style={{ width: 46, height: 46, borderRadius: 8 }} resizeMode="contain" />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: '#2563EB', fontWeight: '800', fontSize: 17 }}>{title}</Text>
+        <Text style={{ color: colors.muted, fontSize: 11 }}>{COMPANY_NAME} · RIF {COMPANY_RIF}</Text>
+      </View>
+    </View>
+  );
 }
 
 function totalsBy<T extends string>(rows: Row[], key: (r: Row) => T): { label: T; liters: number }[] {
@@ -456,6 +465,7 @@ export default function ReportsScreen() {
       <Modal visible={preview} animationType="slide" onRequestClose={() => setPreview(false)}>
         <Screen>
           <SectionTitle>Vista previa del reporte</SectionTitle>
+          <ReportHeader title="REPORTE DE COMBUSTIBLE" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
@@ -574,6 +584,7 @@ export default function ReportsScreen() {
       <Modal visible={roundsPreview} animationType="slide" onRequestClose={() => setRoundsPreview(false)}>
         <Screen>
           <SectionTitle>Control de máquinas (rondas)</SectionTitle>
+          <ReportHeader title="CONTROL DE MAQUINARIA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             <Text style={{ color: colors.text, fontWeight: '700', marginTop: 2 }}>{roundRows.length} registro(s)</Text>
@@ -626,6 +637,7 @@ export default function ReportsScreen() {
       <Modal visible={fleetPreview} animationType="slide" onRequestClose={() => setFleetPreview(false)}>
         <Screen>
           <SectionTitle>Flota por empresa</SectionTitle>
+          <ReportHeader title="REPORTE DE FLOTA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Consumo del {from} al {to}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>

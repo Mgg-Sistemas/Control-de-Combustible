@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,36 @@ export const SHIFT_HOURS = 12;
 /** Horas que representa cada ronda (12 h / 4 rondas = 3 h). */
 export const HOURS_PER_ROUND = SHIFT_HOURS / 4;
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
+
+/** Campo de fecha con calendario: en web usa <input type="date">; en nativo, texto. */
+function DateField({ value, onChange, colors }: { value: string; onChange: (v: string) => void; colors: any }) {
+  if (Platform.OS === 'web') {
+    return React.createElement('input', {
+      type: 'date',
+      value: value || '',
+      onChange: (e: any) => onChange(e.target.value),
+      style: {
+        padding: '9px',
+        borderRadius: '10px',
+        border: '1px solid ' + colors.border,
+        background: colors.surface,
+        color: colors.text,
+        fontSize: '14px',
+        width: '100%',
+        boxSizing: 'border-box',
+      },
+    });
+  }
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChange}
+      placeholder="AAAA-MM-DD"
+      placeholderTextColor={colors.muted}
+      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+    />
+  );
+}
 
 function todayISO(): string {
   const d = new Date();
@@ -36,6 +66,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineryId-roundNo
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // texto en edición por máquina
 
   const key = (mId: string, no: number) => `${mId}-${no}`;
 
@@ -49,6 +80,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const map: Record<string, MachineRound> = {};
     (r ?? []).forEach((row: any) => (map[key(row.machinery_id, row.round_no)] = row));
     setRounds(map);
+    setHoursInput({}); // refrescar los campos con los valores del día cargado
     setLoading(false);
   }, [date]);
 
@@ -89,6 +121,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       return;
     }
     await setRound(m, no, cur?.status === 'operativa' ? 'parada' : 'operativa');
+  };
+
+  const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {
+    const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, [field]: value } as Machinery) : x)));
   };
 
   const setHours = async (m: Machinery, hours: string) => {
@@ -212,11 +250,40 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   );
                 })}
               </View>
+
+              {/* Entrada / Salida (con calendario, solo si se tildan) */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                {(['entry_date', 'exit_date'] as const).map((field) => {
+                  const label = field === 'entry_date' ? '📥 ENTRADA' : '📤 SALIDA';
+                  const val = (m as any)[field] as string | null;
+                  const active = !!val;
+                  return (
+                    <View key={field} style={{ flex: 1 }}>
+                      <TouchableOpacity
+                        onPress={() => setMoveDate(m, field, active ? null : date)}
+                        style={{ paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>
+                          {active ? '✓ ' : ''}{label}
+                        </Text>
+                      </TouchableOpacity>
+                      {active ? (
+                        <View style={{ marginTop: 4 }}>
+                          <DateField value={val ?? ''} onChange={(v) => setMoveDate(m, field, v || null)} colors={colors} />
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
                 <Text style={{ color: colors.muted, fontSize: 13, flex: 1 }}>Horas parada</Text>
                 <TextInput
-                  defaultValue={hours ? String(hours) : ''}
-                  onEndEditing={(e) => setHours(m, e.nativeEvent.text)}
+                  value={hoursInput[m.id] !== undefined ? hoursInput[m.id] : hours ? String(hours) : ''}
+                  onChangeText={(t) => setHoursInput((p) => ({ ...p, [m.id]: t }))}
+                  onBlur={() => hoursInput[m.id] !== undefined && setHours(m, hoursInput[m.id])}
+                  onSubmitEditing={() => hoursInput[m.id] !== undefined && setHours(m, hoursInput[m.id])}
                   keyboardType="numeric"
                   placeholder="0"
                   placeholderTextColor={colors.muted}

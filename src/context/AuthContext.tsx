@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole } from '../types/database';
+import { PermLevel, defaultLevel } from '../lib/permissions';
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -17,6 +18,10 @@ type AuthState = {
   role: UserRole | null;
   /** IDs de usuarios conectados ahora mismo (Realtime Presence). */
   onlineIds: string[];
+  /** Nivel de permiso del usuario para un módulo (admin = full). */
+  moduleLevel: (moduleKey: string) => PermLevel;
+  /** ¿el usuario puede ver/entrar al módulo? (nivel distinto de 'none'). */
+  canSee: (moduleKey: string) => boolean;
   /** Bloqueado a la espera de huella (sesión existe pero no se ha desbloqueado). */
   locked: boolean;
   signIn: (firstName: string, lastName: string, password: string) => Promise<{ error?: string }>;
@@ -37,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<Record<string, PermLevel>>({});
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -63,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!session?.user) {
       setRole(null);
       setOnlineIds([]);
+      setPermissions({});
       return;
     }
     const uid = session.user.id;
@@ -75,6 +82,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single()
       .then(({ data }) => {
         if (active) setRole((data?.role as UserRole) ?? null);
+      });
+
+    // Permisos por módulo del usuario.
+    supabase
+      .from('module_permissions')
+      .select('module, level')
+      .eq('user_id', uid)
+      .then(({ data }) => {
+        if (!active) return;
+        const map: Record<string, PermLevel> = {};
+        (data ?? []).forEach((r: any) => (map[r.module] = r.level));
+        setPermissions(map);
       });
 
     // Realtime Presence: cada usuario logueado se anuncia en este canal.
@@ -145,6 +164,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return ok;
   };
 
+  const moduleLevel = (moduleKey: string): PermLevel =>
+    role === 'admin' ? 'full' : permissions[moduleKey] ?? defaultLevel(moduleKey);
+  const canSee = (moduleKey: string) => moduleLevel(moduleKey) !== 'none';
+
   return (
     <AuthContext.Provider
       value={{
@@ -154,6 +177,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role,
         onlineIds,
         locked,
+        moduleLevel,
+        canSee,
         signIn,
         signUp,
         signOut,

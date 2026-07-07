@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -34,8 +35,9 @@ type Group = {
   machines: Record<string, MachineAgg>;
 };
 
-export default function ControlPagosScreen() {
+export default function ControlPagosScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const { canSee } = useAuth();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<Group[]>([]);
   const [selected, setSelected] = useState<Group | null>(null);
@@ -75,7 +77,10 @@ export default function ControlPagosScreen() {
 
   useEffect(() => {
     load();
-  }, []);
+    // Recargar cada vez que se vuelve a la pantalla (sincroniza con las rondas).
+    const unsub = navigation?.addListener?.('focus', load);
+    return unsub;
+  }, [navigation]);
 
   const q = query.trim().toLowerCase();
   const shown = !q ? groups : groups.filter((g) => g.company.toLowerCase().includes(q));
@@ -92,6 +97,15 @@ export default function ControlPagosScreen() {
   }, [shown]);
 
   const machinesOf = (g: Group) => Object.values(g.machines).sort((a, b) => b.rounds - a.rounds);
+
+  if (!canSee('control_pagos')) {
+    return (
+      <Screen>
+        <SectionTitle>Control de pagos</SectionTitle>
+        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
+      </Screen>
+    );
+  }
 
   return (
     <Screen>

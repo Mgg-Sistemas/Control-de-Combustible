@@ -13,18 +13,18 @@ import {
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-const items: { label: string; route: string; desc: string; icon: string }[] = [
-  { label: 'Catálogo maquinaria/vehículos', route: 'Equipos', desc: 'Registra vehículos, maquinaria y maquinaria pesada', icon: '🚜' },
-  { label: 'Control Maquinaria', route: 'ControlMaquinaria', desc: 'Rondas 07/11/15/19 y horas de parada', icon: '🛠️' },
-  { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰' },
-  { label: 'Mapa', route: 'Map', desc: 'Ubicación de las máquinas en Venezuela', icon: '🗺️' },
-  { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅' },
-  { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄' },
-  { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊' },
+const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
+  { label: 'Catálogo maquinaria/vehículos', route: 'Equipos', desc: 'Registra vehículos, maquinaria y maquinaria pesada', icon: '🚜', module: 'equipos' },
+  { label: 'Control Maquinaria', route: 'ControlMaquinaria', desc: 'Rondas 07/11/15/19 y horas de parada', icon: '🛠️', module: 'control_maquinaria' },
+  { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
+  { label: 'Mapa', route: 'Map', desc: 'Ubicación de las máquinas en Venezuela', icon: '🗺️', module: 'mapa' },
+  { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅', module: 'autorizaciones' },
+  { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄', module: 'traslados' },
+  { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
 ];
 
 export default function MoreScreen({ navigation }: any) {
-  const { signOut, session, configured, role } = useAuth();
+  const { signOut, session, configured, role, canSee } = useAuth();
   const { colors, scheme, toggle } = useTheme();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
@@ -82,7 +82,7 @@ export default function MoreScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Más</SectionTitle>
-      {items.map((it) => (
+      {items.filter((it) => canSee(it.module)).map((it) => (
         <TouchableOpacity key={it.route} onPress={() => navigation.navigate(it.route)}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>

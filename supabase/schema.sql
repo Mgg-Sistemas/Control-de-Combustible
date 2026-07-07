@@ -513,5 +513,27 @@ drop policy if exists mr_write on public.machine_rounds;
 create policy mr_write on public.machine_rounds for all to authenticated using (true) with check (true);
 
 -- ============================================================================
+-- Columna identificador de maquinaria (además de placa y serial)
+-- ============================================================================
+alter table public.machinery add column if not exists identifier text;
+
+-- ============================================================================
+-- MATRIZ DE PERMISOS POR USUARIO Y MÓDULO
+-- Niveles: none · lectura · escritura · full. Solo un admin puede editarla.
+-- ============================================================================
+create table if not exists public.module_permissions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  module  text not null,
+  level   text not null default 'none' check (level in ('none','lectura','escritura','full')),
+  primary key (user_id, module)
+);
+alter table public.module_permissions enable row level security;
+drop policy if exists mp_select on public.module_permissions;
+create policy mp_select on public.module_permissions for select to authenticated using (true);
+drop policy if exists mp_write on public.module_permissions;
+create policy mp_write on public.module_permissions for all to authenticated
+  using (public.current_role() = 'admin') with check (public.current_role() = 'admin');
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
