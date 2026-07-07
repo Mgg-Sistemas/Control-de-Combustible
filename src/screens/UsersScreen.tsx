@@ -27,6 +27,9 @@ export default function UsersScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [query, setQuery] = useState('');
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [delError, setDelError] = useState<string | null>(null);
 
   if (role !== 'admin') {
     return (
@@ -48,6 +51,26 @@ export default function UsersScreen() {
 
   const changeRole = async (id: string, newRole: UserRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id);
+    refetch();
+  };
+
+  const removeUser = async (u: Profile) => {
+    if (confirmId !== u.id) {
+      setConfirmId(u.id);
+      setDelError(null);
+      return;
+    }
+    setDeletingId(u.id);
+    setDelError(null);
+    const { data, error } = await supabase.functions.invoke('admin-manage-user', {
+      body: { action: 'delete', id: u.id },
+    });
+    setDeletingId(null);
+    setConfirmId(null);
+    if (error || (data as any)?.error) {
+      setDelError(`${u.full_name ?? 'Usuario'}: ${(data as any)?.error ?? error?.message ?? 'No se pudo eliminar.'}`);
+      return;
+    }
     refetch();
   };
 
@@ -127,12 +150,33 @@ export default function UsersScreen() {
                 </Text>
               ) : null}
 
-              <TouchableOpacity
-                onPress={() => setEditing(u)}
-                style={{ marginTop: spacing.sm, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
-              >
-                <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>✏️ Editar / contraseña</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => setEditing(u)}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>✏️ Editar / contraseña</Text>
+                </TouchableOpacity>
+                {!isSelf ? (
+                  <TouchableOpacity
+                    onPress={() => removeUser(u)}
+                    disabled={deletingId === u.id}
+                    style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: confirmId === u.id ? colors.danger : 'transparent' }}
+                  >
+                    <Text style={{ color: confirmId === u.id ? colors.primaryContrast : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                      {deletingId === u.id ? 'Eliminando…' : confirmId === u.id ? '¿Confirmar? Toca de nuevo' : '🗑️ Eliminar'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {confirmId === u.id ? (
+                <TouchableOpacity onPress={() => setConfirmId(null)} style={{ marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Cancelar</Text>
+                </TouchableOpacity>
+              ) : null}
+              {delError && confirmId === null && delError.startsWith((u.full_name ?? 'Usuario')) ? (
+                <Text style={{ color: colors.danger, fontSize: 12, marginTop: spacing.xs }}>{delError}</Text>
+              ) : null}
             </Card>
           );
         })
