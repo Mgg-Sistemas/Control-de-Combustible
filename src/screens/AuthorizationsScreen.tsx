@@ -34,7 +34,17 @@ export default function AuthorizationsScreen() {
   const { data: profiles } = useTable<Profile>('profiles');
   const { data: tanks } = useTable<Tank>('tanks');
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Authorization | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  const openNew = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+  const openEdit = (a: Authorization) => {
+    setEditing(a);
+    setFormOpen(true);
+  };
 
   const canResolve = role === 'admin' || role === 'supervisor';
   const nameOf = useMemo(() => {
@@ -65,7 +75,7 @@ export default function AuthorizationsScreen() {
         <SectionTitle>Autorizaciones</SectionTitle>
         <TouchableOpacity
           style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}
-          onPress={() => setFormOpen(true)}
+          onPress={openNew}
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Solicitar</Text>
         </TouchableOpacity>
@@ -78,22 +88,25 @@ export default function AuthorizationsScreen() {
       ) : (
         data.map((a) => (
           <Card key={a.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
-                {Number(a.liters).toLocaleString()} L
+            <TouchableOpacity activeOpacity={0.7} onPress={() => openEdit(a)}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
+                  {Number(a.liters).toLocaleString()} L
+                </Text>
+                <Badge label={a.status} tone={tone(a.status)} />
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>
+                {a.asset_kind} · Tanque: {tankOf(a.tank_id)}
               </Text>
-              <Badge label={a.status} tone={tone(a.status)} />
-            </View>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {a.asset_kind} · Tanque: {tankOf(a.tank_id)}
-            </Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Solicita: {nameOf(a.requested_by)}</Text>
-            {a.reason ? <Text style={{ color: colors.muted, fontSize: 13 }}>Motivo: {a.reason}</Text> : null}
-            {a.status !== 'pendiente' ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>
-                {a.status === 'aprobado' ? 'Autorizado' : 'Rechazado'} por {nameOf(a.approved_by)}
-              </Text>
-            ) : null}
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Solicita: {nameOf(a.requested_by)}</Text>
+              {a.reason ? <Text style={{ color: colors.muted, fontSize: 13 }}>Motivo: {a.reason}</Text> : null}
+              {a.status !== 'pendiente' ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  {a.status === 'aprobado' ? 'Autorizado' : 'Rechazado'} por {nameOf(a.approved_by)}
+                </Text>
+              ) : null}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Toca para editar o borrar</Text>
+            </TouchableOpacity>
 
             {canResolve && a.status === 'pendiente' ? (
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
@@ -119,10 +132,12 @@ export default function AuthorizationsScreen() {
 
       <RecordForm
         visible={formOpen}
-        title="Nueva solicitud"
+        title={editing ? 'Editar solicitud' : 'Nueva solicitud'}
         table="authorizations"
         fields={FIELDS}
         autoUserField="requested_by"
+        record={editing}
+        allowDelete
         onClose={() => setFormOpen(false)}
         onSaved={refetch}
       />
