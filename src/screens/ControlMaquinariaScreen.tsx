@@ -63,6 +63,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
+  const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineryId-roundNo
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
@@ -72,11 +73,15 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: m }, { data: r }] = await Promise.all([
+    const [{ data: m }, { data: r }, { data: c }] = await Promise.all([
       supabase.from('machinery').select('*').order('code', { ascending: true }),
       supabase.from('machine_rounds').select('*').eq('round_date', date),
+      supabase.from('companies').select('id, name'),
     ]);
     setMachines((m ?? []) as Machinery[]);
+    const cmap: Record<string, string> = {};
+    (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
+    setCompanies(cmap);
     const map: Record<string, MachineRound> = {};
     (r ?? []).forEach((row: any) => (map[key(row.machinery_id, row.round_no)] = row));
     setRounds(map);
@@ -152,7 +157,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const q = query.trim().toLowerCase();
   const shown = !q
     ? machines
-    : machines.filter((m) => m.code.toLowerCase().includes(q) || (m.serial ?? '').toLowerCase().includes(q));
+    : machines.filter(
+        (m) =>
+          m.code.toLowerCase().includes(q) ||
+          (m.serial ?? '').toLowerCase().includes(q) ||
+          (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false),
+      );
 
   return (
     <Screen>
@@ -204,7 +214,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar máquina por nombre o serial…"
+        placeholder="🔎 Buscar por nombre, serial o empresa…"
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
@@ -218,7 +228,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
           return (
             <Card key={m.id}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16, marginBottom: spacing.xs }}>{m.code}</Text>
+              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{m.code}</Text>
+              <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600', marginBottom: spacing.xs }}>
+                🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
+              </Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 {ROUND_TIMES.map((time, i) => {
                   const no = i + 1;
