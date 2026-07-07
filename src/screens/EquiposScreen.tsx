@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
-import { Machinery, Vehicle } from '../types/database';
+import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -43,6 +43,12 @@ export default function EquiposScreen({ navigation }: any) {
 
   const vehicles = useTable<Vehicle>('vehicles', { orderBy: 'plate', ascending: true });
   const machinery = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
+  const companies = useTable<Company>('companies');
+  const [query, setQuery] = useState('');
+  const companyName = useMemo(() => {
+    const m = new Map(companies.data.map((c) => [c.id, c.name]));
+    return (id: string | null) => (id ? m.get(id) ?? '' : '');
+  }, [companies.data]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -54,7 +60,16 @@ export default function EquiposScreen({ navigation }: any) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const isVehicle = kind === 'vehiculo';
-  const list = isVehicle ? vehicles.data : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
+  const baseList = isVehicle ? vehicles.data : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
+  const q = query.trim().toLowerCase();
+  const list = !q
+    ? baseList
+    : (baseList as any[]).filter((it) => {
+        const hay = isVehicle
+          ? [it.plate, it.brand, it.model, it.vehicle_type]
+          : [it.code, it.description, it.plate, it.serial, companyName(it.company_id)];
+        return hay.filter(Boolean).some((v: string) => String(v).toLowerCase().includes(q));
+      });
   const loading = isVehicle ? vehicles.loading : machinery.loading;
   const refetch = isVehicle ? vehicles.refetch : machinery.refetch;
 
@@ -248,10 +263,23 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       ) : null}
 
+      <View style={{ marginTop: spacing.sm }}>
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={isVehicle ? '🔎 Buscar por placa, marca…' : '🔎 Buscar por código, placa, serial o empresa…'}
+          placeholderTextColor={colors.muted}
+          style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+        />
+        {q ? (
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{list.length} resultado(s)</Text>
+        ) : null}
+      </View>
+
       {loading ? (
         <Loading />
       ) : list.length === 0 ? (
-        <EmptyState title={`Sin ${kindMeta.label.toLowerCase()}`} subtitle="Agrega tu primer equipo con el botón de arriba." />
+        <EmptyState title={q ? 'Sin resultados' : `Sin ${kindMeta.label.toLowerCase()}`} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : isVehicle ? (
         (list as Vehicle[]).map((v) => (
           <TouchableOpacity key={v.id} onPress={() => openEdit(v)} activeOpacity={0.7}>

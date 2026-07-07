@@ -24,6 +24,7 @@ export default function UsersScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: users, loading, refetch } = useTable<Profile>('profiles', { orderBy: 'full_name', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   if (role !== 'admin') {
     return (
@@ -38,6 +39,10 @@ export default function UsersScreen() {
   }
 
   const onlineCount = users.filter((u) => onlineIds.includes(u.id)).length;
+  const q = query.trim().toLowerCase();
+  const filtered = !q
+    ? users
+    : users.filter((u) => (u.full_name ?? '').toLowerCase().includes(q) || u.role.toLowerCase().includes(q));
 
   const changeRole = async (id: string, newRole: UserRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id);
@@ -60,12 +65,20 @@ export default function UsersScreen() {
         </Text>
       </Card>
 
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder="🔎 Buscar usuario por nombre o rol…"
+        placeholderTextColor={colors.muted}
+        style={styles.input}
+      />
+
       {loading ? (
         <Loading />
-      ) : users.length === 0 ? (
-        <EmptyState title="Sin usuarios" />
+      ) : filtered.length === 0 ? (
+        <EmptyState title={query ? 'Sin resultados' : 'Sin usuarios'} subtitle={query ? 'Prueba con otra búsqueda.' : undefined} />
       ) : (
-        users.map((u) => {
+        filtered.map((u) => {
           const online = onlineIds.includes(u.id);
           const isSelf = u.id === session?.user?.id;
           return (

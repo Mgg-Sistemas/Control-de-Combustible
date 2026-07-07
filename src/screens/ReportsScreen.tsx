@@ -36,6 +36,16 @@ type Row = {
   company: string;
 };
 
+type FleetItem = {
+  name: string;
+  desc: string;
+  plate: string | null;
+  kind: string;
+  company: string;
+  liters: number;
+};
+type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
+
 function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -61,9 +71,28 @@ export default function ReportsScreen() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet'>('fuel');
   const [roundRows, setRoundRows] = useState<RoundRow[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
+  const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
+  const [fleetPreview, setFleetPreview] = useState(false);
+
+  const fleetByCompany = useMemo(() => {
+    const m = new Map<string, FleetCompany>();
+    fleetItems.forEach((it) => {
+      const c = m.get(it.company) ?? { company: it.company, count: 0, liters: 0, items: [] };
+      c.count += 1;
+      c.liters += it.liters;
+      c.items.push(it);
+      m.set(it.company, c);
+    });
+    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+  }, [fleetItems]);
+  const fleetGeneric = useMemo(
+    () => [...fleetItems].sort((a, b) => b.liters - a.liters),
+    [fleetItems]
+  );
+  const fleetTotalLiters = fleetItems.reduce((s, it) => s + it.liters, 0);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -174,6 +203,98 @@ export default function ReportsScreen() {
     await exportPdf(html);
   };
 
+  const generateFleet = async () => {
+    setLoading(true);
+    const [{ data: mach }, { data: vehs }, { data: disp }] = await Promise.all([
+      supabase.from('machinery').select('id, code, description, plate, machinery_type, company:company_id(name)'),
+      supabase.from('vehicles').select('id, plate, brand, model'),
+      supabase
+        .from('dispatches')
+        .select('machinery_id, vehicle_id, liters')
+        .gte('dispatch_date', from)
+        .lte('dispatch_date', to),
+    ]);
+    const mLit = new Map<string, number>();
+    const vLit = new Map<string, number>();
+    (disp ?? []).forEach((d: any) => {
+      if (d.machinery_id) mLit.set(d.machinery_id, (mLit.get(d.machinery_id) ?? 0) + Number(d.liters));
+      if (d.vehicle_id) vLit.set(d.vehicle_id, (vLit.get(d.vehicle_id) ?? 0) + Number(d.liters));
+    });
+    const items: FleetItem[] = [];
+    (mach ?? []).forEach((m: any) =>
+      items.push({
+        name: m.code,
+        desc: m.description || '—',
+        plate: m.plate,
+        kind: m.machinery_type || 'maquinaria',
+        company: m.company?.name || 'Sin empresa',
+        liters: mLit.get(m.id) ?? 0,
+      })
+    );
+    (vehs ?? []).forEach((v: any) =>
+      items.push({
+        name: v.plate,
+        desc: [v.brand, v.model].filter(Boolean).join(' ') || '—',
+        plate: v.plate,
+        kind: 'vehiculo',
+        company: 'Vehículos',
+        liters: vLit.get(v.id) ?? 0,
+      })
+    );
+    setFleetItems(items);
+    setLoading(false);
+    setFleetPreview(true);
+  };
+
+  const downloadFleetPdf = async () => {
+    const companyBlocks = fleetByCompany
+      .map(
+        (c) =>
+          `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s) · ${c.liters.toLocaleString()} L</h3>` +
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:right">Litros</th></tr></thead><tbody>${c.items
+            .map(
+              (i) =>
+                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td style="text-align:right">${i.liters.toLocaleString()} L</td></tr>`
+            )
+            .join('')}</tbody></table>`
+      )
+      .join('');
+    const genericRows = fleetGeneric
+      .map(
+        (i) =>
+          `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.company}</td><td style="text-align:right">${i.liters.toLocaleString()} L</td></tr>`
+      )
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1C1C1E;padding:24px}
+      h1{font-size:20px;margin:0 0 4px} h2{font-size:15px;margin:18px 0 6px} h3{font-size:14px}
+      .muted{color:#6B7280;font-size:13px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+      td,th{border-bottom:1px solid #EAEAE8;padding:6px}th{background:#F0F0EE}
+      .header{display:flex;align-items:center;gap:14px;border-bottom:2px solid #3F3F46;padding-bottom:10px;margin-bottom:10px}
+      .header img{height:60px}
+      .summary{display:flex;gap:24px;margin:12px 0}.summary b{display:block;font-size:22px}
+    </style></head><body>
+      <div class="header"><img src="${LOGO_DATA_URI}"/>
+        <div><div style="font-weight:700;font-size:15px">${COMPANY_NAME}</div>
+        <div class="muted">RIF ${COMPANY_RIF}</div></div></div>
+      <h1>Reporte de flota / inventario por empresa</h1>
+      <div class="muted">Consumo del ${from} al ${to}</div>
+      <div class="summary">
+        <div><span class="muted">Equipos</span><b>${fleetItems.length}</b></div>
+        <div><span class="muted">Empresas</span><b>${fleetByCompany.length}</b></div>
+        <div><span class="muted">Consumo total</span><b>${fleetTotalLiters.toLocaleString()} L</b></div>
+      </div>
+      <h2>Por empresa</h2>
+      ${companyBlocks || '<span class="muted">Sin datos</span>'}
+      <h2>Genérico — todas las máquinas y sus totales</h2>
+      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Empresa</th><th style="text-align:right">Litros</th></tr></thead>
+      <tbody>${genericRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${fleetTotalLiters.toLocaleString()} L</td></tr></tfoot></table>
+    </body></html>`;
+    await exportPdf(html);
+  };
+
   const setRange = (days: number) => {
     setFrom(isoDaysAgo(days));
     setTo(isoDaysAgo(0));
@@ -242,6 +363,7 @@ export default function ReportsScreen() {
         {([
           { v: 'fuel', label: '⛽ Combustible' },
           { v: 'rounds', label: '🛠️ Rondas' },
+          { v: 'fleet', label: '🚚 Flota' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -283,9 +405,17 @@ export default function ReportsScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity style={styles.genBtn} onPress={mode === 'fuel' ? generate : generateRounds} disabled={loading}>
+        <TouchableOpacity
+          style={styles.genBtn}
+          onPress={mode === 'fuel' ? generate : mode === 'rounds' ? generateRounds : generateFleet}
+          disabled={loading}
+        >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
-            {mode === 'fuel' ? '📊 Generar reporte de combustible' : '🛠️ Generar reporte de rondas'}
+            {mode === 'fuel'
+              ? '📊 Generar reporte de combustible'
+              : mode === 'rounds'
+              ? '🛠️ Generar reporte de rondas'
+              : '🚚 Generar reporte de flota'}
           </Text>
         </TouchableOpacity>
       </Card>
@@ -453,6 +583,84 @@ export default function ReportsScreen() {
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadRoundsPdf}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            </TouchableOpacity>
+          </View>
+        </Screen>
+      </Modal>
+
+      {/* Vista previa: flota / inventario por empresa */}
+      <Modal visible={fleetPreview} animationType="slide" onRequestClose={() => setFleetPreview(false)}>
+        <Screen>
+          <SectionTitle>Flota por empresa</SectionTitle>
+          <Card>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>Consumo del {from} al {to}</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
+              <View>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetItems.length}</Text>
+              </View>
+              <View>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetByCompany.length}</Text>
+              </View>
+              <View>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Consumo total</Text>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotalLiters.toLocaleString()} L</Text>
+              </View>
+            </View>
+          </Card>
+
+          {fleetByCompany.length === 0 ? (
+            <Card><Text style={{ color: colors.muted }}>Sin equipos registrados.</Text></Card>
+          ) : (
+            fleetByCompany.map((c) => (
+              <Card key={c.company}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{c.company}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>{c.count} equipo(s)</Text>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  Consumo del grupo: {c.liters.toLocaleString()} L
+                </Text>
+                {c.items.map((i, idx) => (
+                  <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderTopWidth: idx ? 1 : 0, borderTopColor: colors.border }}>
+                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{i.name}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>
+                        {i.desc}{i.plate ? ` · ${i.plate}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>{i.liters.toLocaleString()} L</Text>
+                  </View>
+                ))}
+              </Card>
+            ))
+          )}
+
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: spacing.xs }}>
+              Genérico — todas las máquinas y sus totales
+            </Text>
+            {fleetGeneric.map((i, idx) => (
+              <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                <Text style={{ color: colors.text, fontSize: 13, flex: 1, paddingRight: spacing.sm }}>
+                  {i.name} <Text style={{ color: colors.muted }}>· {i.desc}</Text>
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>{i.liters.toLocaleString()} L</Text>
+              </View>
+            ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.sm, marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>TOTAL</Text>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{fleetTotalLiters.toLocaleString()} L</Text>
+            </View>
+          </Card>
+
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setFleetPreview(false)}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadFleetPdf}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
             </TouchableOpacity>
           </View>
