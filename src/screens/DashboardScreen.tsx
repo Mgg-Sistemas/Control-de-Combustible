@@ -86,6 +86,14 @@ export default function DashboardScreen({ navigation }: any) {
   return (
     <Screen>
       <ConfigBanner />
+      <Card style={{ backgroundColor: colors.primary }}>
+        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
+          BIENVENIDO AL CONTROL INTERNO DE
+        </Text>
+        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
+          BAHIA SUNSET HOTEL BOUTIQUE, C.A
+        </Text>
+      </Card>
       <SectionTitle>Resumen</SectionTitle>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
