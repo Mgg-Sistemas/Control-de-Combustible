@@ -16,6 +16,7 @@ import { useTheme } from '../theme/ThemeContext';
 const items: { label: string; route: string; desc: string; icon: string }[] = [
   { label: 'Catálogo maquinaria/vehículos', route: 'Equipos', desc: 'Registra vehículos, maquinaria y maquinaria pesada', icon: '🚜' },
   { label: 'Control Maquinaria', route: 'ControlMaquinaria', desc: 'Rondas 07/11/15/19 y horas de parada', icon: '🛠️' },
+  { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰' },
   { label: 'Mapa', route: 'Map', desc: 'Ubicación de las máquinas en Venezuela', icon: '🗺️' },
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅' },
   { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄' },

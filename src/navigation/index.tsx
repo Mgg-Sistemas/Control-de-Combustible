@@ -15,6 +15,7 @@ import ReportsScreen from '../screens/ReportsScreen';
 import AuthorizationsScreen from '../screens/AuthorizationsScreen';
 import EquiposScreen from '../screens/EquiposScreen';
 import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
+import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MapScreen from '../screens/MapScreen';
 import {
   TanksScreen,
@@ -46,6 +47,7 @@ function MoreStack() {
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
       <Stack.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo maquinaria/vehículos' }} />
       <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
+      <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
       <Stack.Screen name="Map" component={MapScreen} options={{ title: 'Mapa' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
