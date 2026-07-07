@@ -72,7 +72,7 @@ const PDF_ACCENT = '#1E3A5F'; // azul oscuro
 const PDF_INK = '#1E3A5F';
 const PDF_CSS = `
   *{box-sizing:border-box}
-  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#333;padding:30px 32px}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:30px 32px}
   .top{display:flex;justify-content:space-between;align-items:flex-start}
   .brand{display:flex;gap:16px;align-items:center}
   .brand img{height:70px;width:auto}

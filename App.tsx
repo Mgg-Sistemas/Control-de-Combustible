@@ -1,4 +1,5 @@
 import React from 'react';
+import './src/lib/fonts'; // Fuente global Tahoma en toda la app
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
