@@ -11,6 +11,8 @@ export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
 /** Horas del turno completo (07:00 → 19:00). Las horas trabajadas = turno − parada. */
 export const SHIFT_HOURS = 12;
+/** Horas que representa cada ronda (12 h / 4 rondas = 3 h). */
+export const HOURS_PER_ROUND = SHIFT_HOURS / 4;
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
 
 function todayISO(): string {
@@ -221,11 +223,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   style={{ width: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlign: 'right' }}
                 />
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Turno {SHIFT_HOURS}h − parada {hours || 0}h</Text>
-                <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>
-                  Trabajadas: {workedHours(hours)} h
-                </Text>
+              <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    Turno {SHIFT_HOURS}h − parada {hours || 0}h (≈ {(Number(hours) / HOURS_PER_ROUND).toFixed(1)} rondas)
+                  </Text>
+                  <Text style={{ color: workedHours(hours) === 0 ? colors.danger : colors.success, fontWeight: '700', fontSize: 13 }}>
+                    Trabajadas: {workedHours(hours)} h
+                  </Text>
+                </View>
+                {/* Barra: rojo = parada, verde = trabajadas (descontado del turno) */}
+                <View style={{ flexDirection: 'row', height: 8, borderRadius: radius.pill, overflow: 'hidden', marginTop: 4, backgroundColor: colors.surfaceAlt }}>
+                  <View style={{ flex: Math.min(SHIFT_HOURS, Number(hours) || 0), backgroundColor: colors.danger }} />
+                  <View style={{ flex: workedHours(hours), backgroundColor: colors.success }} />
+                </View>
               </View>
             </Card>
           );
