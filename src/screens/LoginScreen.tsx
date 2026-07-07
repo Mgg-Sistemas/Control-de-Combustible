@@ -56,7 +56,7 @@ export default function LoginScreen() {
           resizeMode="contain"
           style={{ width: 140, height: 140, alignSelf: 'center', marginBottom: spacing.md }}
         />
-        <Text style={styles.brand}>Control de Combustible</Text>
+        <Text style={styles.brand}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg }]}>
           RIF {COMPANY_RIF} · {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}

@@ -66,32 +66,40 @@ function nowStamp(): string {
   return `${dd} ${MESES[d.getMonth()]} ${d.getFullYear()}, ${`${h}`.padStart(2, '0')}:${mm} ${ap}`;
 }
 
-/** Estilos corporativos del PDF: azul oscuro (#1E3A5F) y gris. */
+/** Estilos corporativos del PDF: azul oscuro (#1E3A5F) y gris, estilo membrete. */
+const PDF_ACCENT = '#1E3A5F';
 const PDF_CSS = `
   *{box-sizing:border-box}
-  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#374151;padding:28px}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1E3A5F;padding-bottom:14px}
-  .brand{display:flex;gap:14px;align-items:center}
-  .brand img{height:62px}
-  .doc-title{font-size:24px;font-weight:800;color:#1E3A5F;letter-spacing:.5px;margin:0}
-  .doc-sub{color:#6B7280;font-size:12px;margin-top:2px}
-  .emit{text-align:right;color:#6B7280;font-size:12px;white-space:nowrap}
-  .company{color:#374151;font-size:12px;margin:10px 0 14px;line-height:1.5}
-  .company b{color:#1E3A5F}
-  h2{font-size:14px;color:#1E3A5F;margin:18px 0 6px;border-left:4px solid #1E3A5F;padding-left:8px}
-  h3{font-size:13px;color:#1E3A5F;margin:12px 0 2px}
-  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
-  th{background:#1E3A5F;color:#fff;text-align:left;padding:7px 8px;font-weight:600}
-  td{padding:6px 8px;border-bottom:1px solid #E5E7EB}
-  tbody tr:nth-child(even){background:#F4F6F8}
-  tfoot td{background:#E5E7EB;font-weight:700;color:#1E3A5F}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#374151;padding:30px 32px}
+  .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .brand{display:flex;gap:16px;align-items:center}
+  .brand img{height:68px;width:auto}
+  .doc-title{font-size:27px;font-weight:800;color:${PDF_ACCENT};letter-spacing:1px;text-transform:uppercase;margin:0;line-height:1.05}
+  .doc-sub{color:#6B7280;font-size:12px;margin-top:5px}
+  .emit{text-align:right;font-size:12px;color:#374151;white-space:nowrap}
+  .emit .k{color:#6B7280}
+  .rule{height:4px;background:${PDF_ACCENT};border-radius:2px;margin:12px 0 14px}
+  .meta{display:flex;justify-content:space-between;gap:24px;font-size:12px;line-height:1.6;margin-bottom:6px}
+  .meta .company b{color:${PDF_ACCENT};font-size:13px}
+  .meta .info{text-align:right;color:#374151}
+  .meta .info b{color:${PDF_ACCENT}}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:${PDF_ACCENT};margin:22px 0 6px;padding-bottom:4px;border-bottom:2px solid #E5E7EB}
+  h3{font-size:13px;color:${PDF_ACCENT};margin:14px 0 2px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;overflow:hidden;border-radius:6px}
+  thead th{background:${PDF_ACCENT};color:#fff;text-align:left;padding:8px 10px;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px}
+  td{padding:7px 10px;border-bottom:1px solid #EEF0F2}
+  tbody tr:nth-child(even){background:#F5F7F9}
+  tfoot td{background:#E9EDF2;font-weight:700;color:${PDF_ACCENT};border-top:2px solid ${PDF_ACCENT}}
   .muted{color:#6B7280;font-size:12px}
-  .summary{display:flex;gap:26px;margin:10px 0 4px}
-  .summary .k{color:#6B7280;font-size:11px}.summary b{display:block;font-size:20px;color:#1E3A5F}
+  .summary{display:flex;gap:14px;margin:12px 0 4px}
+  .summary > div{flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;background:#F9FAFB}
+  .summary .k{color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  .summary b{display:block;font-size:22px;color:${PDF_ACCENT};margin-top:2px}
   .chart{display:flex;align-items:flex-end;gap:8px;height:170px;border-bottom:1px solid #E5E7EB;padding-bottom:4px;overflow-x:auto}
   .col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
-  .bar{width:26px;background:#1E3A5F;border-radius:4px 4px 0 0}
+  .bar{width:26px;background:${PDF_ACCENT};border-radius:4px 4px 0 0}
   .lbl{font-size:10px;color:#6B7280;margin-top:4px}.val{font-size:10px;color:#374151}
+  .foot{margin-top:26px;padding-top:10px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
 `;
 function pdfShell(title: string, sub: string, body: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>${PDF_CSS}</style></head><body>
@@ -99,10 +107,15 @@ function pdfShell(title: string, sub: string, body: string): string {
       <div class="brand"><img src="${LOGO_DATA_URI}"/>
         <div><h1 class="doc-title">${title}</h1><div class="doc-sub">${sub}</div></div>
       </div>
-      <div class="emit">Emitida: ${nowStamp()}</div>
+      <div class="emit"><span class="k">Emitida:</span><br/>${nowStamp()}</div>
     </div>
-    <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}</div>
+    <div class="rule"></div>
+    <div class="meta">
+      <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}</div>
+      <div class="info"><b>Control interno</b><br/>Gestión de combustible y maquinaria</div>
+    </div>
     ${body}
+    <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
   </body></html>`;
 }
 
