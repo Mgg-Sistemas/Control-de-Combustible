@@ -62,22 +62,27 @@ export default function DashboardScreen({ navigation }: any) {
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
+  const [activeAssets, setActiveAssets] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: rounds }, { count: locCount }] = await Promise.all([
+      const [{ data: rounds }, { count: locCount }, { count: machCount }, { count: vehCount }] = await Promise.all([
         // Rondas "en verde" (operativas) de hoy → máquinas activas hoy.
         supabase.from('machine_rounds').select('machinery_id').eq('round_date', todayISO()).eq('status', 'operativa'),
         // Máquinas con coordenadas → mismas que muestra el mapa.
         supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
+        // Catálogo: maquinaria + maquinaria pesada activa.
+        supabase.from('machinery').select('id', { count: 'exact', head: true }).eq('active', true),
+        // Catálogo: vehículos activos.
+        supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
       ]);
       const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
       setActiveMachines(uniq.size);
       setActiveLocations(locCount ?? 0);
+      setActiveAssets((machCount ?? 0) + (vehCount ?? 0));
     })();
   }, []);
 
-  const totalCapacity = tanks.reduce((s, t) => s + Number(t.capacity_l || 0), 0);
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
   const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 30).length;
 
@@ -119,10 +124,10 @@ export default function DashboardScreen({ navigation }: any) {
           onPress={() => navigation?.navigate('Tanks')}
         />
         <StatCard
-          label="Capacidad total"
-          value={`${totalCapacity.toLocaleString()} L`}
-          color={colors.text}
-          onPress={() => navigation?.navigate('Tanks')}
+          label="Maquinaria/Vehículos activos"
+          value={activeAssets === null ? '…' : activeAssets}
+          color={activeAssets ? colors.primary : colors.text}
+          onPress={() => goMore('Equipos')}
         />
       </View>
 
