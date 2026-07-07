@@ -71,9 +71,9 @@ export default function LoginScreen() {
             style={{ width: 132, height: 132 }}
           />
         </View>
-        <Text style={styles.brand}>CONTROL INTERNO</Text>
-        <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>{COMPANY_NAME}</Text>
-        <Text style={[typography.muted, { marginBottom: spacing.lg }]}>
+        <Text style={[styles.brand, { textAlign: 'center' }]}>CONTROL INTERNO</Text>
+        <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>{COMPANY_NAME}</Text>
+        <Text style={[typography.muted, { marginBottom: spacing.lg, textAlign: 'center' }]}>
           RIF {COMPANY_RIF} · {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
         </Text>
 
