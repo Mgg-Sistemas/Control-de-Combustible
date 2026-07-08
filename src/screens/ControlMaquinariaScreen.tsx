@@ -25,17 +25,11 @@ export const SHIFT_OPTS: { label: string; hours: number }[] = [
 /** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
   Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
-/** Unidades de PAGO de un turno: el precio ingresado es por jornada de 12 h.
- *  12 h = 1 (precio completo), 6 h = 0.5 (mitad), sin turno = 0. */
-export const shiftPayUnits = (h: number): number => {
-  const n = Number(h) || 0;
-  if (n >= 12) return 1;
-  if (n >= 6) return 0.5;
-  return 0;
-};
-/** Unidades de pago del día = unidad(turno día) + unidad(turno noche). Monto = precio × unidades. */
+/** Fracción de jornada según las horas (proporcional): 12 h = 1, 6 h = 0.5, 10 h = 0.833… (horas ÷ 12). */
+export const shiftPayUnits = (h: number): number => (Number(h) || 0) / 12;
+/** Jornadas del día = (horas día + horas noche) ÷ 12. Monto = precio por jornada × jornadas. */
 export const payUnitsFromShifts = (dayH: number, nightH: number): number =>
-  shiftPayUnits(dayH) + shiftPayUnits(nightH);
+  ((Number(dayH) || 0) + (Number(nightH) || 0)) / 12;
 /** Texto del turno según las horas de turno totales (día + noche). */
 export function shiftLabel(totalShiftHours: number): string {
   const h = Number(totalShiftHours) || 0;
@@ -159,6 +153,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [closures, setClosures] = useState<ControlClosure[]>([]);
   const [closureSel, setClosureSel] = useState<ControlClosure | null>(null);
   const [closureSearch, setClosureSearch] = useState(''); // buscador dentro del cierre
+  const [closureCompany, setClosureCompany] = useState<string | null>(null); // filtra el cierre a una empresa
   const [closureExpanded, setClosureExpanded] = useState<Record<string, boolean>>({}); // código → detalle abierto
 
   const rkey = (mId: string, d: string) => `${mId}|${d}`;
@@ -352,7 +347,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const shiftCell = (h?: number) => (h ? `${h} h` : '—');
   const opCell = (name?: string, ci?: string) => (name ? `${name}${ci ? `<br/><span style="color:#888">C.I ${ci}</span>` : ''}` : '—');
   const downloadClosurePdf = async (c: ControlClosure) => {
-    const machs = c.detail?.machines ?? [];
+    // Si el cierre se abrió desde una empresa, el PDF sale solo con sus máquinas.
+    const machs = (c.detail?.machines ?? []).filter((m) => !closureCompany || (m.company || 'Sin empresa') === closureCompany);
     const range = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
       ? `del ${c.detail.dateFrom} al ${c.detail.dateTo}`
       : `del ${c.detail?.dateFrom ?? c.closure_date}`;
@@ -399,7 +395,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <td style="text-align:right;font-weight:800">${usd(tot.amount)}</td></tr></tfoot>`;
     const html = pdfDocument({
       title: 'Control de maquinaria',
-      subtitle: `Cierre ${range} · ${c.detail?.totalMachines ?? machs.length} máquina(s) · ${machs.length} registro(s)`,
+      subtitle: `Cierre ${range}${closureCompany ? ` · ${closureCompany}` : ''} · ${new Set(machs.map((x) => x.machineId || x.serial || x.code)).size} máquina(s) · ${machs.length} registro(s)`,
       extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:14px;font-size:10px}
         th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
@@ -930,7 +926,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                       ? `${c.detail.dateFrom} → ${c.detail.dateTo}`
                       : c.detail?.dateFrom ?? c.closure_date;
                     return (
-                      <TouchableOpacity key={g.company + c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureSel(c); }}>
+                      <TouchableOpacity key={g.company + c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureCompany(g.company); setClosureSel(c); }}>
                         <Card>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {rng}</Text>
@@ -965,8 +961,11 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   ? `del ${closureSel.detail.dateFrom} al ${closureSel.detail.dateTo}`
                   : `del ${closureSel.detail?.dateFrom ?? closureSel.closure_date}`}
               </SectionTitle>
+              {closureCompany ? (
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800', marginBottom: 2 }}>🏢 {closureCompany}</Text>
+              ) : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-                {closureSel.detail?.totalMachines ?? 0} máquina(s) · {(closureSel.detail?.machines ?? []).length} registro(s)
+                {(() => { const mm = (closureSel.detail?.machines ?? []).filter((x) => !closureCompany || (x.company || 'Sin empresa') === closureCompany); return `${new Set(mm.map((x) => x.machineId || x.serial || x.code)).size} máquina(s) · ${mm.length} registro(s)`; })()}
               </Text>
               <TextInput
                 value={closureSearch}
@@ -982,7 +981,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
                 // Agrupar los registros del cierre POR MÁQUINA ÚNICA (serial/id, no el nombre que puede repetirse).
                 const map = new Map<string, { key: string; code: string; serial: string | null; company: string; days: ClosureMachine[] }>();
-                (closureSel.detail?.machines ?? []).forEach((m) => {
+                (closureSel.detail?.machines ?? [])
+                  .filter((m) => !closureCompany || (m.company || 'Sin empresa') === closureCompany)
+                  .forEach((m) => {
                   const key = (m.machineId || m.serial || m.code) as string;
                   const g = map.get(key) ?? { key, code: m.code, serial: m.serial ?? null, company: m.company || '', days: [] };
                   if (!g.company && m.company) g.company = m.company;
