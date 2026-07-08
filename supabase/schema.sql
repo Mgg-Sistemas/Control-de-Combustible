@@ -451,11 +451,16 @@ alter table public.machinery add column if not exists location_at timestamptz;
 create table if not exists public.machinery_locations (
   id uuid primary key default uuid_generate_v4(),
   machinery_id uuid not null references public.machinery(id) on delete cascade,
-  latitude    numeric(9,6) not null,
-  longitude   numeric(9,6) not null,
+  latitude    numeric(9,6),
+  longitude   numeric(9,6),
+  note        text,
   recorded_at timestamptz not null default now()
 );
 create index if not exists idx_ml_machinery on public.machinery_locations(machinery_id, recorded_at);
+-- Trazabilidad: coordenadas opcionales y nota (p. ej. "Ubicación eliminada manualmente").
+alter table public.machinery_locations alter column latitude drop not null;
+alter table public.machinery_locations alter column longitude drop not null;
+alter table public.machinery_locations add column if not exists note text;
 
 alter table public.companies           enable row level security;
 alter table public.machinery_locations enable row level security;

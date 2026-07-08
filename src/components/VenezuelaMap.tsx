@@ -63,14 +63,23 @@ function buildHtml(pins: MapPin[]): string {
       L.polyline(p.route, {color:'#2563EB', weight:3, opacity:0.7}).addTo(map);
     }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)}).addTo(map);
-    mk.bindPopup('<b>'+p.name+'</b><br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa'));
+    // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
+    var div = document.createElement('div');
+    div.innerHTML = '<b>'+p.name+'</b><br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa');
+    var btn = document.createElement('button');
+    btn.textContent = '🗑️ Eliminar ubicación';
+    btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
+    btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
+    div.appendChild(document.createElement('br'));
+    div.appendChild(btn);
+    mk.bindPopup(div);
     bounds.push([p.lat, p.lng]);
   });
   if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins }: { pins: MapPin[] }) {
+export function VenezuelaMap({ pins, onDelete }: { pins: MapPin[]; onDelete?: (id: string, name?: string) => void }) {
   const { colors } = useTheme();
 
   if (Platform.OS === 'web') {
@@ -100,12 +109,22 @@ export function VenezuelaMap({ pins }: { pins: MapPin[] }) {
               </Text>
             </View>
             <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
-            <TouchableOpacity
-              onPress={() => Linking.openURL(`https://www.google.com/maps?q=${p.lat},${p.lng}`)}
-              style={{ marginTop: spacing.xs, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}
-            >
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Abrir en Google Maps</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => Linking.openURL(`https://www.google.com/maps?q=${p.lat},${p.lng}`)}
+                style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}
+              >
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Google Maps</Text>
+              </TouchableOpacity>
+              {onDelete ? (
+                <TouchableOpacity
+                  onPress={() => onDelete(p.id, p.name)}
+                  style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>🗑️ Eliminar ubicación</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </Card>
         ))
       )}

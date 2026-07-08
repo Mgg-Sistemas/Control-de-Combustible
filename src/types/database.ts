@@ -102,8 +102,9 @@ export interface Company {
 export interface MachineryLocation {
   id: string;
   machinery_id: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
+  note: string | null;
   recorded_at: string;
 }
 
