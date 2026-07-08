@@ -40,16 +40,17 @@ const CURRENCIES = [
   { label: 'Pesos (COP)', value: 'COP' },
 ];
 
-type DayInfo = { stopped: number; green: number };
+type DayInfo = { stopped: number; green: number; overtime: number };
 type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, DayInfo> };
 
 /**
  * Horas cobrables de un día. Solo se cobra si hubo al menos una ronda en verde
  * (operativa); en ese caso son las mismas "horas trabajadas" que muestra Control
- * de maquinaria: turno de 12 h menos las horas parada.
+ * de maquinaria: turno de 12 h menos las horas parada. Además se suman las
+ * horas extras registradas ese día.
  */
 function billableHours(d: DayInfo): number {
-  return d.green > 0 ? workedHours(d.stopped) : 0;
+  return (d.green > 0 ? workedHours(d.stopped) : 0) + (d.overtime || 0);
 }
 type Group = {
   company: string;
@@ -94,7 +95,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const [{ data: rounds }, { data: pays }] = await Promise.all([
       supabase
         .from('machine_rounds')
-        .select('round_date, round_no, hours_stopped, status, machinery:machinery_id(id, code, price_per_hour, company:company_id(id, name))')
+        .select('round_date, round_no, hours_stopped, overtime_hours, status, machinery:machinery_id(id, code, price_per_hour, company:company_id(id, name))')
         .order('round_date', { ascending: false }),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
     ]);
@@ -112,10 +113,11 @@ export default function ControlPagosScreen({ navigation }: any) {
         ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
       const ma = g.machines[machine] ?? { machine, price, hours: 0, subtotal: 0, perDay: {} };
       // Por día: horas paradas (máx. registrado) y cuántas rondas quedaron en verde (operativa).
-      const prev = ma.perDay[r.round_date] ?? { stopped: 0, green: 0 };
+      const prev = ma.perDay[r.round_date] ?? { stopped: 0, green: 0, overtime: 0 };
       ma.perDay[r.round_date] = {
         stopped: Math.max(prev.stopped, Number(r.hours_stopped) || 0),
         green: prev.green + (r.status === 'operativa' ? 1 : 0),
+        overtime: Math.max(prev.overtime, Number(r.overtime_hours) || 0),
       };
       ma.price = price;
       g.machines[machine] = ma;

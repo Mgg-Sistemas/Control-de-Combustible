@@ -682,6 +682,10 @@ export default function EquiposScreen({ navigation }: any) {
         <Screen>
           {fuelFor ? (
             <>
+              <TouchableOpacity onPress={() => setFuelFor(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
               <SectionTitle>⛽ Combustible · {fuelFor.code}</SectionTitle>
               {fuelLoading ? (
                 <Loading />
@@ -766,6 +770,10 @@ export default function EquiposScreen({ navigation }: any) {
       {/* Detalle de maquinaria activa / inactiva */}
       <Modal visible={!!detailStatus} animationType="slide" onRequestClose={() => setDetailStatus(null)}>
         <Screen>
+          <TouchableOpacity onPress={() => setDetailStatus(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>
             {detailStatus === 'active' ? '✅ Maquinaria activa' : '⛔ Maquinaria inactiva'}
             {'  '}({(detailStatus === 'active' ? activeMachines : inactiveMachines).length})
@@ -816,6 +824,10 @@ export default function EquiposScreen({ navigation }: any) {
       {/* Reportes de maquinaria (por empresa / general) con vista previa */}
       <Modal visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
         <Screen>
+          <TouchableOpacity onPress={() => setReportOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>📄 Reportes de maquinaria</SectionTitle>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Elige el alcance del reporte</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>

@@ -20,6 +20,9 @@ export const SHIFT_HOURS = 12;
 /** Horas que representa cada ronda (12 h / 4 rondas = 3 h). */
 export const HOURS_PER_ROUND = SHIFT_HOURS / 4;
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
+/** Horas trabajadas totales = (turno − parada) + horas extras. */
+export const totalWorkedHours = (hoursStopped: number, overtime: number) =>
+  workedHours(hoursStopped) + Math.max(0, overtime || 0);
 
 /** Campo de fecha con calendario: en web usa <input type="date">; en nativo, texto. */
 function DateField({ value, onChange, colors }: { value: string; onChange: (v: string) => void; colors: any }) {
@@ -77,6 +80,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // texto en edición por máquina
+  const [overtimeInput, setOvertimeInput] = useState<Record<string, string>>({}); // horas extras en edición
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
@@ -116,7 +120,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     });
     setOperators(omap);
     // En recarga silenciosa (tiempo real) no borramos lo que el usuario esté escribiendo.
-    if (!silent) setHoursInput({});
+    if (!silent) { setHoursInput({}); setOvertimeInput({}); }
     setLoading(false);
   }, [date]);
 
@@ -203,6 +207,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         const hasActivity = statuses.some((s) => s != null);
         if (!hasActivity) return null;
         const hoursStopped = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
+        const overtime = Number(rounds[key(m.id, 1)]?.overtime_hours ?? 0);
         const op = operators[m.id];
         return {
           code: m.code,
@@ -211,6 +216,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           cedula: op?.cedula ?? '',
           statuses,
           hoursStopped: Number(hoursStopped),
+          overtime,
           worked: workedHours(Number(hoursStopped)),
         } as ClosureMachine;
       })
@@ -256,7 +262,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         (m) =>
           `<tr><td>${m.code}</td><td>${m.company || '—'}</td><td>${m.operator || '—'}</td><td>${m.cedula || '—'}</td>` +
           m.statuses.map((s) => `<td style="text-align:center">${cellTxt(s)}</td>`).join('') +
-          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td></tr>`
+          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked + (m.overtime || 0)} h</td></tr>`
       )
       .join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"/>
@@ -274,8 +280,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <div class="muted">Cierre del ${c.closure_date} · ${machs.length} máquina(s)</div>
       <table><thead><tr><th>Máquina</th><th>Empresa</th><th>Operador</th><th>Cédula</th>
         ${ROUND_LABELS.map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`).join('')}
-        <th>H. PARADA</th><th>H. TRAB.</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+        <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="11" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
       <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>
       <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
       </body></html>`;
@@ -312,6 +318,27 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       round_no: 1,
       status: existing?.status ?? 'operativa',
       hours_stopped: h,
+    };
+    const { data, error } = await supabase
+      .from('machine_rounds')
+      .upsert(payload, { onConflict: 'machinery_id,round_date,round_no' })
+      .select()
+      .single();
+    if (error) return Alert.alert('Aviso', error.message);
+    setRounds((p) => ({ ...p, [key(m.id, 1)]: data as MachineRound }));
+  };
+
+  const setOvertime = async (m: Machinery, hours: string) => {
+    const h = Math.max(0, Number(hours.replace(',', '.')) || 0);
+    // Las horas extras se guardan en la 1ª ronda del día (registro base), junto a la parada.
+    const existing = rounds[key(m.id, 1)];
+    const payload: any = {
+      machinery_id: m.id,
+      round_date: date,
+      round_no: 1,
+      status: existing?.status ?? 'operativa',
+      hours_stopped: existing?.hours_stopped ?? 0,
+      overtime_hours: h,
     };
     const { data, error } = await supabase
       .from('machine_rounds')
@@ -419,6 +446,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       ) : (
         shown.map((m) => {
           const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
+          const overtime = Number(rounds[key(m.id, 1)]?.overtime_hours ?? 0);
+          const totalWorked = totalWorkedHours(Number(hours), overtime);
           return (
             <Card key={m.id}>
               <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)}>
@@ -514,19 +543,33 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   style={{ width: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlign: 'right' }}
                 />
               </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs }}>
+                <Text style={{ color: colors.muted, fontSize: 13, flex: 1 }}>➕ Horas extras</Text>
+                <TextInput
+                  value={overtimeInput[m.id] !== undefined ? overtimeInput[m.id] : overtime ? String(overtime) : ''}
+                  onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [m.id]: t }))}
+                  onBlur={() => overtimeInput[m.id] !== undefined && setOvertime(m, overtimeInput[m.id])}
+                  onSubmitEditing={() => overtimeInput[m.id] !== undefined && setOvertime(m, overtimeInput[m.id])}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={colors.muted}
+                  style={{ width: 90, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlign: 'right' }}
+                />
+              </View>
               <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    Turno {SHIFT_HOURS}h − parada {hours || 0}h (≈ {(Number(hours) / HOURS_PER_ROUND).toFixed(1)} rondas)
+                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+                    Turno {SHIFT_HOURS}h − parada {hours || 0}h{overtime ? ` + extras ${overtime}h` : ''}
                   </Text>
-                  <Text style={{ color: workedHours(hours) === 0 ? colors.danger : colors.success, fontWeight: '700', fontSize: 13 }}>
-                    Trabajadas: {workedHours(hours)} h
+                  <Text style={{ color: totalWorked === 0 ? colors.danger : colors.success, fontWeight: '700', fontSize: 13 }}>
+                    Trabajadas: {totalWorked} h
                   </Text>
                 </View>
-                {/* Barra: rojo = parada, verde = trabajadas (descontado del turno) */}
+                {/* Barra: rojo = parada, verde = trabajadas del turno, azul = extras */}
                 <View style={{ flexDirection: 'row', height: 8, borderRadius: radius.pill, overflow: 'hidden', marginTop: 4, backgroundColor: colors.surfaceAlt }}>
                   <View style={{ flex: Math.min(SHIFT_HOURS, Number(hours) || 0), backgroundColor: colors.danger }} />
                   <View style={{ flex: workedHours(hours), backgroundColor: colors.success }} />
+                  {overtime ? <View style={{ flex: overtime, backgroundColor: '#0EA5E9' }} /> : null}
                 </View>
               </View>
             </Card>
@@ -539,7 +582,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             {priceFor ? (() => {
-              const wh = workedHours(rounds[key(priceFor.id, 1)]?.hours_stopped ?? 0);
+              const baseWh = workedHours(rounds[key(priceFor.id, 1)]?.hours_stopped ?? 0);
+              const ot = Number(rounds[key(priceFor.id, 1)]?.overtime_hours ?? 0);
+              const wh = baseWh + ot;
               const price = Number(priceInput.replace(',', '.')) || 0;
               const total = price * wh;
               return (
@@ -561,7 +606,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   />
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas hoy</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas hoy{ot ? ` (${baseWh} + ${ot} extra)` : ''}</Text>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{wh} h</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -619,6 +664,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       {/* Histórico de cierres */}
       <Modal visible={histOpen} animationType="slide" onRequestClose={() => setHistOpen(false)}>
         <Screen>
+          <TouchableOpacity onPress={() => setHistOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>Histórico de controles</SectionTitle>
           {closures.length === 0 ? (
             <EmptyState title="Sin cierres" subtitle="Cierra un control del día y aparecerá aquí para reportarlo." />
@@ -646,6 +695,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <Screen>
           {closureSel ? (
             <>
+              <TouchableOpacity onPress={() => setClosureSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
               <SectionTitle>Control del {closureSel.closure_date}</SectionTitle>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 {closureSel.detail?.totalMachines ?? 0} máquina(s) · ✓ operativa · ✕ parada · — sin registro
@@ -665,7 +718,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                     ))}
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    Parada {m.hoursStopped} h · Trabajadas {m.worked} h
+                    Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked + (m.overtime || 0)} h
                   </Text>
                 </Card>
               ))}

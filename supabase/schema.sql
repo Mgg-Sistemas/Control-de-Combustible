@@ -499,6 +499,7 @@ create table if not exists public.machine_rounds (
   round_no      smallint not null check (round_no between 1 and 4),
   status        text not null default 'operativa' check (status in ('operativa', 'parada')),
   hours_stopped numeric(6,2) not null default 0 check (hours_stopped >= 0),
+  overtime_hours numeric(6,2) default 0 check (overtime_hours >= 0),
   notes         text,
   recorded_by   uuid references auth.users(id),
   created_at    timestamptz default now(),
@@ -549,6 +550,9 @@ alter table public.machinery add column if not exists price_per_hour numeric(12,
 -- Grupo y encargado de la maquinaria (se muestran en el catálogo).
 alter table public.machinery add column if not exists grupo text;
 alter table public.machinery add column if not exists encargado text;
+
+-- Horas extras por máquina/día (se suman a las horas trabajadas y al total a pagar).
+alter table public.machine_rounds add column if not exists overtime_hours numeric(6,2) default 0;
 
 create table if not exists public.company_payments (
   id           uuid primary key default gen_random_uuid(),

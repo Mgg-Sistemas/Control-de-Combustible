@@ -114,6 +114,7 @@ export interface MachineRound {
   round_no: number; // 1=07:00 2=11:00 3=15:00 4=19:00
   status: 'operativa' | 'parada';
   hours_stopped: number;
+  overtime_hours: number | null;
   notes: string | null;
   recorded_by: string | null;
   created_at: string;
@@ -136,7 +137,8 @@ export interface ClosureMachine {
   cedula: string;
   statuses: (string | null)[]; // 4 rondas
   hoursStopped: number;
-  worked: number;
+  overtime?: number; // horas extras del día
+  worked: number; // horas trabajadas base (turno − parada); las extras se suman aparte
 }
 
 export interface ControlClosure {
