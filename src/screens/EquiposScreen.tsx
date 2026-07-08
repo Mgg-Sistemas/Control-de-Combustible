@@ -208,17 +208,17 @@ export default function EquiposScreen({ navigation }: any) {
     const keyCol = isVehicle ? 'plate' : 'code';
 
     // 1) Construir filas a partir de cada línea (separadores: coma, tab o ;)
-    type Row = { key: string; data: Record<string, any> };
+    type Row = { key: string; data: Record<string, any>; company?: string | null };
     const rows: Row[] = lines
       .map((l) => {
-        const [a, b, c] = l.split(/[,\t;]/).map((s) => s.trim());
+        const [a, b, c, d] = l.split(/[,\t;]/).map((s) => s.trim());
         if (isVehicle) {
           // placa, marca, modelo
           const plate = a;
           if (!plate) return null;
           return { key: plate.toLowerCase(), data: { plate, brand: b || null, model: c || null } };
         }
-        // nombre, placa, serial  →  código único = "nombre placa"
+        // nombre, placa, serial, EMPRESA  →  código único = "nombre placa"
         const name = a;
         if (!name) return null;
         const plate = b || null;
@@ -226,6 +226,7 @@ export default function EquiposScreen({ navigation }: any) {
         return {
           key: code.toLowerCase(),
           data: { code, description: name, plate, serial: c || null, machinery_type: kind },
+          company: d || null, // 4ª columna: empresa (se resuelve/crea abajo)
         };
       })
       .filter(Boolean) as Row[];
@@ -233,6 +234,25 @@ export default function EquiposScreen({ navigation }: any) {
     // 2) Quitar duplicados dentro del mismo lote (por la clave única)
     const seen = new Set<string>();
     const uniq = rows.filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true)));
+
+    // 2.5) Resolver la EMPRESA (4ª columna) a company_id: se busca por nombre
+    //      (sin distinguir mayúsculas) y si no existe, se crea automáticamente.
+    if (!isVehicle) {
+      const wanted = Array.from(new Set(uniq.map((r) => r.company).filter(Boolean).map((s) => (s as string).trim())));
+      if (wanted.length > 0) {
+        const { data: existing } = await supabase.from('companies').select('id, name');
+        const byName = new Map<string, string>();
+        (existing ?? []).forEach((c: any) => byName.set(String(c.name).trim().toLowerCase(), c.id));
+        const missing = wanted.filter((w) => !byName.has(w.toLowerCase()));
+        if (missing.length > 0) {
+          const { data: created } = await supabase.from('companies').insert(missing.map((name) => ({ name }))).select('id, name');
+          (created ?? []).forEach((c: any) => byName.set(String(c.name).trim().toLowerCase(), c.id));
+        }
+        uniq.forEach((r) => {
+          if (r.company) r.data.company_id = byName.get(r.company.trim().toLowerCase()) ?? null;
+        });
+      }
+    }
 
     // 3) Insertar con ON CONFLICT DO NOTHING: los que ya existen se omiten
     //    automáticamente (sin error 409). .select() devuelve solo los nuevos.
@@ -508,14 +528,15 @@ export default function EquiposScreen({ navigation }: any) {
               Cargar {kindMeta.label.toLowerCase()} por lote
             </Text>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Pega una por línea. Opcional: {isVehicle ? 'placa, marca, modelo' : 'código, placa, serial'} separados por coma.
+              Pega una por línea. Opcional: {isVehicle ? 'placa, marca, modelo' : 'nombre, placa, serial, empresa'} separados por coma.
+              {isVehicle ? '' : ' La empresa se reconoce por su nombre y, si no existe, se crea.'}
             </Text>
             <ScrollView style={{ maxHeight: 240 }}>
               <TextInput
                 value={batchText}
                 onChangeText={setBatchText}
                 multiline
-                placeholder={isVehicle ? 'ABC123\nXYZ789, Toyota, Hilux' : 'RETRO-01\nVOLVO-02, PBA123, SER-998'}
+                placeholder={isVehicle ? 'ABC123\nXYZ789, Toyota, Hilux' : 'RETRO-01\nVOLVO-02, PBA123, SER-998, Beraca'}
                 placeholderTextColor={colors.muted}
                 style={{ minHeight: 160, textAlignVertical: 'top', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
               />

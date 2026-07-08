@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity } from 'react-native';
+import { Text, TouchableOpacity, View, Image } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -30,6 +30,38 @@ const Stack = createNativeStackNavigator();
 // Ícono simple basado en emoji (sin dependencias extra)
 const tabIcon = (emoji: string) => () => <Text style={{ fontSize: 18 }}>{emoji}</Text>;
 
+const LOGO = require('../../assets/logo.jpeg');
+
+/** Marca del encabezado: logo de la empresa + título de la pantalla. */
+function HeaderBrand({ title }: { title?: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Image source={LOGO} style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: '#fff' }} resizeMode="contain" />
+      {title ? <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700' }}>{title}</Text> : null}
+    </View>
+  );
+}
+
+/** Fecha y hora del día en horario de Caracas (Venezuela). */
+function HeaderClock() {
+  const { colors } = useTheme();
+  const [now, setNow] = React.useState(new Date());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const opts = { timeZone: 'America/Caracas' } as const;
+  const fecha = now.toLocaleDateString('es-VE', { ...opts, day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = now.toLocaleTimeString('es-VE', { ...opts, hour: '2-digit', minute: '2-digit', hour12: true });
+  return (
+    <View style={{ alignItems: 'flex-end', paddingRight: 12 }}>
+      <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{hora}</Text>
+      <Text style={{ color: colors.muted, fontSize: 10 }}>{fecha} · Caracas 🇻🇪</Text>
+    </View>
+  );
+}
+
 /** Flecha "volver" del encabezado que siempre lleva a Inicio (Dashboard). */
 function HeaderHomeButton() {
   const navigation = useNavigation<any>();
@@ -54,6 +86,9 @@ function useScreenHeader() {
     headerStyle: { backgroundColor: colors.surface },
     headerTitleStyle: { color: colors.text },
     headerTintColor: colors.primary,
+    // Logo de la empresa en el navbar + fecha/hora (Caracas) a la derecha.
+    headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
+    headerRight: () => <HeaderClock />,
   };
 }
 
@@ -62,11 +97,11 @@ function MoreStack() {
   return (
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
       <Stack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'Más' }} />
+      <Stack.Screen name="Tanks" component={TanksScreen} options={{ title: 'Tanques' }} />
+      <Stack.Screen name="Intakes" component={IntakesScreen} options={{ title: 'Ingresos' }} />
+      <Stack.Screen name="Dispatches" component={DispatchesScreen} options={{ title: 'Consumos' }} />
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
-      <Stack.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo maquinaria/vehículos' }} />
-      <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
       <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
-      <Stack.Screen name="Map" component={MapScreen} options={{ title: 'Mapa' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
@@ -92,19 +127,19 @@ function Tabs() {
         options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
       />
       <Tab.Screen
-        name="Tanks"
-        component={TanksScreen}
-        options={{ title: 'Tanques', tabBarIcon: tabIcon('🛢️'), headerLeft: () => <HeaderHomeButton /> }}
+        name="ControlMaquinaria"
+        component={ControlMaquinariaScreen}
+        options={{ title: 'Control', tabBarIcon: tabIcon('🛠️'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
-        name="Intakes"
-        component={IntakesScreen}
-        options={{ title: 'Ingresos', tabBarIcon: tabIcon('⬇️'), headerLeft: () => <HeaderHomeButton /> }}
+        name="Map"
+        component={MapScreen}
+        options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
-        name="Dispatches"
-        component={DispatchesScreen}
-        options={{ title: 'Consumos', tabBarIcon: tabIcon('⛽'), headerLeft: () => <HeaderHomeButton /> }}
+        name="Equipos"
+        component={EquiposScreen}
+        options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
         name="More"

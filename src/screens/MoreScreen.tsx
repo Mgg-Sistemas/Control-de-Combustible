@@ -14,10 +14,10 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
-  { label: 'Catálogo maquinaria/vehículos', route: 'Equipos', desc: 'Registra vehículos, maquinaria y maquinaria pesada', icon: '🚜', module: 'equipos' },
-  { label: 'Control Maquinaria', route: 'ControlMaquinaria', desc: 'Rondas 07/11/15/19 y horas de parada', icon: '🛠️', module: 'control_maquinaria' },
+  { label: 'Tanques', route: 'Tanks', desc: 'Depósitos de combustible y sus niveles', icon: '🛢️', module: 'tanques' },
+  { label: 'Ingresos', route: 'Intakes', desc: 'Recepción/compra de combustible', icon: '⬇️', module: 'ingresos' },
+  { label: 'Consumos', route: 'Dispatches', desc: 'Despachos a vehículos y maquinaria', icon: '⛽', module: 'consumos' },
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
-  { label: 'Mapa', route: 'Map', desc: 'Ubicación de las máquinas en Venezuela', icon: '🗺️', module: 'mapa' },
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅', module: 'autorizaciones' },
   { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄', module: 'traslados' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },

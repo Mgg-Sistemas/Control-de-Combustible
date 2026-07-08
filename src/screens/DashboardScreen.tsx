@@ -86,7 +86,6 @@ export default function DashboardScreen({ navigation }: any) {
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
   const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 30).length;
 
-  const goMore = (screen: string) => navigation?.navigate('More', { screen });
 
   return (
     <Screen>
@@ -106,13 +105,13 @@ export default function DashboardScreen({ navigation }: any) {
           label="Máquinas activas (rondas)"
           value={activeMachines === null ? '…' : activeMachines}
           color={activeMachines ? colors.success : colors.text}
-          onPress={() => goMore('ControlMaquinaria')}
+          onPress={() => navigation?.navigate('ControlMaquinaria')}
         />
         <StatCard
           label="Ubicaciones activas"
           value={activeLocations === null ? '…' : activeLocations}
           color={activeLocations ? colors.primary : colors.text}
-          onPress={() => goMore('Map')}
+          onPress={() => navigation?.navigate('Map')}
         />
       </View>
 
@@ -121,13 +120,13 @@ export default function DashboardScreen({ navigation }: any) {
           label="Existencia total"
           value={`${totalCurrent.toLocaleString()} L`}
           color={colors.text}
-          onPress={() => navigation?.navigate('Tanks')}
+          onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}
         />
         <StatCard
           label="Maquinaria/Vehículos activos"
           value={activeAssets === null ? '…' : activeAssets}
           color={activeAssets ? colors.primary : colors.text}
-          onPress={() => goMore('Equipos')}
+          onPress={() => navigation?.navigate('Equipos')}
         />
       </View>
 
@@ -135,7 +134,7 @@ export default function DashboardScreen({ navigation }: any) {
         label="Tanques con stock bajo"
         value={`${lowTanks} / ${tanks.length}`}
         color={lowTanks ? colors.warning : colors.success}
-        onPress={() => navigation?.navigate('Tanks')}
+        onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}
       />
 
       <SectionTitle>Cisternas / Niveles de tanque</SectionTitle>
@@ -153,7 +152,7 @@ export default function DashboardScreen({ navigation }: any) {
           const barColor =
             tone === 'danger' ? colors.danger : tone === 'warning' ? colors.warning : colors.success;
           return (
-            <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => navigation?.navigate('Tanks')}>
+            <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}>
               <Card>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ fontWeight: '600', color: colors.text }}>{t.name}</Text>

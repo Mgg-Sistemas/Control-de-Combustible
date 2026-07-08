@@ -383,7 +383,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '700' }}>📅 Hoy</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => navigation?.navigate('Reports', { autoReport: 'rounds', date, nonce: Date.now() })}
+            onPress={() => navigation?.navigate('More', { screen: 'Reports', params: { autoReport: 'rounds', date, nonce: Date.now() } })}
             style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: 'center' }}
           >
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte</Text>
