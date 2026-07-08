@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -93,6 +93,18 @@ export default function EquiposScreen({ navigation }: any) {
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
   const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
+  // Solo la PRIMERA carga muestra el spinner; los refrescos mantienen la lista (no salta al inicio).
+  const firstLoad = loading && machinery.data.length === 0 && vehicles.data.length === 0;
+  // Marca con ✓ la máquina recién guardada, sin mover el scroll.
+  const [justSaved, setJustSaved] = useState<string | null>(null);
+  const savedTimer = useRef<any>(null);
+  const handleSaved = (savedId?: string) => {
+    refetchAll();
+    if (!savedId) return;
+    setJustSaved(savedId);
+    clearTimeout(savedTimer.current);
+    savedTimer.current = setTimeout(() => setJustSaved(null), 3500);
+  };
 
   // Conteo de maquinaria por estado operativo (para las tarjetas superiores).
   const activeMachines = machinery.data.filter((m) => m.operational);
@@ -407,9 +419,16 @@ export default function EquiposScreen({ navigation }: any) {
     await exportPdf(html);
   };
 
-  const renderMachineCard = (m: Machinery) => (
-    <Card key={m.id}>
+  const renderMachineCard = (m: Machinery) => {
+    const saved = justSaved === m.id;
+    return (
+    <Card key={m.id} style={saved ? { borderColor: colors.success, borderWidth: 2 } : undefined}>
       <TouchableOpacity onPress={() => { setKind('maquinaria'); openEdit(m); }} activeOpacity={0.7}>
+        {saved ? (
+          <View style={{ alignSelf: 'flex-start', backgroundColor: colors.success, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, marginBottom: spacing.xs }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>✓ Cambios guardados</Text>
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           {m.photo_url ? (
             <Image source={{ uri: m.photo_url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
@@ -446,7 +465,8 @@ export default function EquiposScreen({ navigation }: any) {
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
       </View>
     </Card>
-  );
+    );
+  };
 
   const BigBtn = ({ label, onPress, color, disabled, textColor = '#fff' }: any) => (
     <TouchableOpacity
@@ -563,7 +583,7 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {firstLoad ? (
         <Loading />
       ) : totalResults === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
@@ -955,7 +975,7 @@ export default function EquiposScreen({ navigation }: any) {
         headerImageUrl={isVehicle ? undefined : editing?.photo_url}
         allowDelete
         onClose={() => setFormOpen(false)}
-        onSaved={refetchAll}
+        onSaved={handleSaved}
       />
     </Screen>
   );
