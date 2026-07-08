@@ -25,6 +25,17 @@ export const SHIFT_OPTS: { label: string; hours: number }[] = [
 /** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
   Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
+/** Unidades de PAGO de un turno: el precio ingresado es por jornada de 12 h.
+ *  12 h = 1 (precio completo), 6 h = 0.5 (mitad), sin turno = 0. */
+export const shiftPayUnits = (h: number): number => {
+  const n = Number(h) || 0;
+  if (n >= 12) return 1;
+  if (n >= 6) return 0.5;
+  return 0;
+};
+/** Unidades de pago del día = unidad(turno día) + unidad(turno noche). Monto = precio × unidades. */
+export const payUnitsFromShifts = (dayH: number, nightH: number): number =>
+  shiftPayUnits(dayH) + shiftPayUnits(nightH);
 /** Texto del turno según las horas de turno totales (día + noche). */
 export function shiftLabel(totalShiftHours: number): string {
   const h = Number(totalShiftHours) || 0;
@@ -156,22 +167,27 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     if (!silent) setLoading(true);
     const ws = weekStartISO(date);
     const days = Array.from({ length: dayCount }, (_, i) => shiftDay(ws, i));
-    const [{ data: m }, { data: r }, { data: c }] = await Promise.all([
-      supabase.from('machinery').select('*').order('code', { ascending: true }),
-      supabase.from('machine_rounds').select('*').in('round_date', days),
-      supabase.from('companies').select('id, name'),
-    ]);
-    setMachines((m ?? []) as Machinery[]);
-    const cmap: Record<string, string> = {};
-    (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
-    setCompanies(cmap);
-    // El control activo ignora lo ya cerrado (archivado en el histórico); esos datos
-    // siguen en la BD y cuentan para pagos/reportes, pero no se editan aquí.
-    const map: Record<string, MachineRound> = {};
-    (r ?? []).forEach((row: any) => { if (!row.closed) map[rkey(row.machinery_id, row.round_date)] = row; });
-    setRounds(map);
-    if (!silent) { setHoursInput({}); setOvertimeInput({}); }
-    setLoading(false);
+    try {
+      const [{ data: m }, { data: r }, { data: c }] = await Promise.all([
+        supabase.from('machinery').select('*').order('code', { ascending: true }),
+        supabase.from('machine_rounds').select('*').in('round_date', days),
+        supabase.from('companies').select('id, name'),
+      ]);
+      setMachines((m ?? []) as Machinery[]);
+      const cmap: Record<string, string> = {};
+      (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
+      setCompanies(cmap);
+      // El control activo ignora lo ya cerrado (archivado en el histórico); esos datos
+      // siguen en la BD y cuentan para pagos/reportes, pero no se editan aquí.
+      const map: Record<string, MachineRound> = {};
+      (r ?? []).forEach((row: any) => { if (!row.closed) map[rkey(row.machinery_id, row.round_date)] = row; });
+      setRounds(map);
+      if (!silent) { setHoursInput({}); setOvertimeInput({}); }
+    } catch (e: any) {
+      if (!silent) Alert.alert('Aviso', 'No se pudo cargar el control. Revisa tu conexión e inténtalo de nuevo.');
+    } finally {
+      setLoading(false); // pase lo que pase, se quita el spinner (nunca se queda colgado)
+    }
   }, [date, dayCount]);
 
   useEffect(() => {
@@ -340,7 +356,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const range = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
       ? `del ${c.detail.dateFrom} al ${c.detail.dateTo}`
       : `del ${c.detail?.dateFrom ?? c.closure_date}`;
-    // Precio por hora de cada máquina (por código, de la lista actual).
+    // Precio POR JORNADA (12 h) de cada máquina. Monto = precio × unidades (12h=1, 6h=0.5).
     const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
     const priceOf = (m: ClosureMachine) => (m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0;
@@ -348,7 +364,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const rows = machs
       .map((m) => {
         const price = priceOf(m);
-        const amount = (Number(m.worked) || 0) * price;
+        const amount = payUnitsFromShifts(m.dayHours ?? 0, m.nightHours ?? 0) * price;
         return (
           `<tr><td>${m.date ?? '—'}</td><td>${m.code}${m.serial ? `<br/><span style="color:#888">${m.serial}</span>` : ''}</td><td>${m.company || '—'}</td>` +
           `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td>${opCell(m.dayOperator, m.dayCedula)}</td>` +
@@ -368,7 +384,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           stopped: a.stopped + (Number(m.hoursStopped) || 0),
           extra: a.extra + (Number(m.overtime) || 0),
           worked: a.worked + (Number(m.worked) || 0),
-          amount: a.amount + (Number(m.worked) || 0) * price,
+          amount: a.amount + payUnitsFromShifts(m.dayHours ?? 0, m.nightHours ?? 0) * price,
         };
       },
       { day: 0, night: 0, stopped: 0, extra: 0, worked: 0, amount: 0 }
@@ -407,7 +423,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <div class="c"><div class="k">🌙 Total horas de noche</div><div class="v">${tot.night} h</div></div>
         <div class="c pay"><div class="k">💵 Total a pagar</div><div class="v">${usd(tot.amount)}</div></div>
       </div>
-      <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h · Monto = horas trabajadas × precio/hora de la máquina</p>`,
+      <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Monto = precio por jornada: turno completo (12 h) = precio, medio turno (6 h) = mitad</p>`,
     });
     await exportPdf(html);
   };
@@ -589,7 +605,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {loading && machines.length === 0 ? (
         <Loading />
       ) : shown.length === 0 ? (
         <EmptyState title={query || companyFilter !== '__all__' ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query || companyFilter !== '__all__' ? 'Prueba con otra búsqueda o empresa.' : 'Agrega máquinas en Equipos.'} />
@@ -790,20 +806,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             {priceFor ? (() => {
-              const wh = weekDays.reduce((s, d) => {
+              const units = weekDays.reduce((s, d) => {
                 const b = rounds[rkey(priceFor.id, d)];
-                return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
+                return s + payUnitsFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0));
               }, 0);
               const price = Number(priceInput.replace(',', '.')) || 0;
-              const total = price * wh;
+              const total = price * units;
               return (
                 <>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{priceFor.code}</Text>
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                    Precio por hora · bloque {dayLabel(weekStart)} → {dayLabel(weekEnd)}
+                    Precio por jornada (12 h) · bloque {dayLabel(weekStart)} → {dayLabel(weekEnd)}
                   </Text>
 
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por hora ($)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por jornada de 12 h ($)</Text>
                   <TextInput
                     value={priceInput}
                     onChangeText={setPriceInput}
@@ -815,15 +831,15 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   />
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas del bloque</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{wh} h</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Jornadas del bloque (12h=1, 6h=0.5)</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{Number(units.toFixed(2))}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Total del bloque</Text>
                     <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>${total.toLocaleString()}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-                    El precio se guarda por máquina; en Control de pagos se multiplica por las horas trabajadas de cada semana.
+                    El precio es por jornada de 12 h: turno completo = precio, medio turno (6 h) = mitad. Ej.: $750 el completo, $375 el medio.
                   </Text>
 
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
@@ -965,11 +981,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                       stopped: a.stopped + (Number(m.hoursStopped) || 0),
                       extra: a.extra + (Number(m.overtime) || 0),
                       worked: a.worked + (Number(m.worked) || 0),
+                      units: a.units + payUnitsFromShifts(m.dayHours ?? 0, m.nightHours ?? 0),
                     }),
-                    { day: 0, night: 0, stopped: 0, extra: 0, worked: 0 }
+                    { day: 0, night: 0, stopped: 0, extra: 0, worked: 0, units: 0 }
                   );
                   const price = (g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0;
-                  const amount = t.worked * price;
+                  const amount = t.units * price;
                   const open = !!closureExpanded[g.key];
                   return (
                     <Card key={g.key}>

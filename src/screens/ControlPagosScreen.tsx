@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { workedFromShifts } from './ControlMaquinariaScreen';
+import { workedFromShifts, payUnitsFromShifts } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -148,10 +148,12 @@ export default function ControlPagosScreen({ navigation }: any) {
       Object.values(g.machines).forEach((ma) => {
         const days = Object.values(ma.perDay);
         const hrs = days.reduce((s, d) => s + billableHours(d), 0);
+        // Monto = precio por jornada × unidades (12h=1, 6h=0.5); las horas son solo informativas.
+        const units = days.reduce((s, d) => s + payUnitsFromShifts(d.day, d.night), 0);
         ma.hours = hrs;
         ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
         ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
-        ma.subtotal = (ma.price ?? 0) * hrs;
+        ma.subtotal = (ma.price ?? 0) * units;
         total += ma.subtotal;
         hoursWorked += hrs;
         if (ma.price == null && hrs > 0) noPrice = true;
@@ -285,7 +287,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
         const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
         return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
-          <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/h</th><th>Subtotal</th></tr></thead>
+          <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/jornada</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
           <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
       })
@@ -441,7 +443,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               </Card>
 
               <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
-                Máquinas · horas × precio
+                Máquinas · jornadas × precio
               </Text>
               {machinesOf(selected).map((m) => (
                 <Card key={m.machine}>
@@ -450,7 +452,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.success, fontWeight: '800' }}>${m.subtotal.toLocaleString()}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    ⏱️ {m.hours.toLocaleString()} h × {m.price != null ? `$${m.price.toLocaleString()}/h` : '⚠️ sin precio'}
+                    ⏱️ {m.hours.toLocaleString()} h · {m.price != null ? `$${m.price.toLocaleString()}/jornada` : '⚠️ sin precio'}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     ☀️ Día: {m.dayHours.toLocaleString()} h · 🌙 Noche: {m.nightHours.toLocaleString()} h
