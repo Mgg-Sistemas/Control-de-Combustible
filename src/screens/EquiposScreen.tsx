@@ -47,6 +47,7 @@ export default function EquiposScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -183,18 +184,71 @@ export default function EquiposScreen({ navigation }: any) {
 
   const kindMeta = KINDS.find((k) => k.value === kind)!;
 
-  const companyOptions = useMemo(
-    () => [
-      { label: 'Todas las empresas', value: '__all__' },
+  const companyOptions = useMemo(() => {
+    // Máquinas del tipo actual (sin filtrar por empresa ni búsqueda) para contar.
+    const ofKind = machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
+    const countFor = (id: string) => ofKind.filter((m) => m.company_id === id).length;
+    return [
+      { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
       ...companies.data
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((c) => ({ label: c.name, value: c.id })),
-      { label: 'Sin empresa', value: '__none__' },
-    ],
-    [companies.data]
-  );
+        .map((c) => ({ label: c.name, value: c.id, count: countFor(c.id) })),
+      { label: 'Sin empresa', value: '__none__', count: ofKind.filter((m) => !m.company_id).length },
+    ];
+  }, [companies.data, machinery.data, kind]);
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
+
+  // Agrupar la maquinaria por empresa (para el catálogo en acordeón).
+  const machineryByCompany = useMemo(() => {
+    if (isVehicle) return [] as { key: string; name: string; items: Machinery[] }[];
+    const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
+    (list as Machinery[]).forEach((it) => {
+      const k = it.company_id ?? '__none__';
+      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      const g = m.get(k) ?? { key: k, name, items: [] };
+      g.items.push(it);
+      m.set(k, g);
+    });
+    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [isVehicle, list, companyName]);
+
+  const renderMachineCard = (m: Machinery) => (
+    <Card key={m.id}>
+      <TouchableOpacity onPress={() => openEdit(m)} activeOpacity={0.7}>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          {m.photo_url ? (
+            <Image source={{ uri: m.photo_url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
+          ) : (
+            <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 28 }}>{kindMeta.icon}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
+              <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                {m.operational ? '● Operativa' : '● No operativa'}
+              </Text>
+            </View>
+            {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
+            {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
+            {m.latitude != null ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {m.latitude}, {m.longitude} · {elapsedSince(m.location_at)}</Text>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+        <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
+        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
+        <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+      </View>
+    </Card>
+  );
 
   const BigBtn = ({ label, onPress, color, disabled }: any) => (
     <TouchableOpacity
@@ -338,42 +392,29 @@ export default function EquiposScreen({ navigation }: any) {
           </TouchableOpacity>
         ))
       ) : (
-        (list as Machinery[]).map((m) => (
-          <Card key={m.id}>
-            <TouchableOpacity onPress={() => openEdit(m)} activeOpacity={0.7}>
-              <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                {m.photo_url ? (
-                  <Image source={{ uri: m.photo_url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
-                ) : (
-                  <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-                    <Text style={{ fontSize: 28 }}>{kindMeta.icon}</Text>
-                  </View>
-                )}
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
-                    <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                      {m.operational ? '● Operativa' : '● No operativa'}
-                    </Text>
-                  </View>
-                  {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
-                  {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
-                  {m.latitude != null ? (
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {m.latitude}, {m.longitude} · {elapsedSince(m.location_at)}</Text>
-                  ) : (
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
-                  )}
+        // Catálogo de maquinaria dividido por empresa (acordeón).
+        machineryByCompany.map((g) => {
+          // Al buscar, los grupos se muestran desplegados por defecto.
+          const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__');
+          return (
+            <View key={g.key} style={{ marginBottom: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                  <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                  <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
                 </View>
-              </View>
-            </TouchableOpacity>
-
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-              <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
-              <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
-              <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+                <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                </View>
+              </TouchableOpacity>
+              {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
             </View>
-          </Card>
-        ))
+          );
+        })
       )}
 
       {/* Carga por lote: pegar varias líneas */}
@@ -425,9 +466,12 @@ export default function EquiposScreen({ navigation }: any) {
                   <TouchableOpacity
                     key={o.value}
                     onPress={() => { setCompanyFilter(o.value); setCompanyPickerOpen(false); }}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}
                   >
-                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500' }}>{o.label}</Text>
+                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
+                    <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                    </View>
                     {active ? <Text style={{ color: colors.primary, fontWeight: '800' }}>✓</Text> : null}
                   </TouchableOpacity>
                 );
