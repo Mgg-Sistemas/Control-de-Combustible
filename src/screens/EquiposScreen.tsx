@@ -46,6 +46,7 @@ export default function EquiposScreen({ navigation }: any) {
   const companies = useTable<Company>('companies');
   const [query, setQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -182,6 +183,19 @@ export default function EquiposScreen({ navigation }: any) {
 
   const kindMeta = KINDS.find((k) => k.value === kind)!;
 
+  const companyOptions = useMemo(
+    () => [
+      { label: 'Todas las empresas', value: '__all__' },
+      ...companies.data
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ label: c.name, value: c.id })),
+      { label: 'Sin empresa', value: '__none__' },
+    ],
+    [companies.data]
+  );
+  const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
+
   const BigBtn = ({ label, onPress, color, disabled }: any) => (
     <TouchableOpacity
       onPress={onPress}
@@ -289,33 +303,17 @@ export default function EquiposScreen({ navigation }: any) {
         ) : null}
       </View>
 
-      {/* Filtro por empresa (solo maquinaria) */}
+      {/* Filtro por empresa (solo maquinaria) — lista desplegable */}
       {!isVehicle ? (
         <View style={{ marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por empresa</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-              {[
-                { label: 'Todas', value: '__all__' },
-                ...companies.data
-                  .slice()
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((c) => ({ label: c.name, value: c.id })),
-                { label: 'Sin empresa', value: '__none__' },
-              ].map((c) => {
-                const active = companyFilter === c.value;
-                return (
-                  <TouchableOpacity
-                    key={c.value}
-                    onPress={() => setCompanyFilter(c.value)}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}
-                  >
-                    <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
+          <TouchableOpacity
+            onPress={() => setCompanyPickerOpen(true)}
+            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '600' }}>{companyFilterLabel}</Text>
+            <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
+          </TouchableOpacity>
           {companyFilter !== '__all__' ? (
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>{list.length} resultado(s)</Text>
           ) : null}
@@ -413,6 +411,30 @@ export default function EquiposScreen({ navigation }: any) {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Lista desplegable de empresas para filtrar */}
+      <Modal visible={companyPickerOpen} transparent animationType="fade" onRequestClose={() => setCompanyPickerOpen(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setCompanyPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '75%', overflow: 'hidden' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, padding: spacing.md }}>Filtrar por empresa</Text>
+            <ScrollView>
+              {companyOptions.map((o) => {
+                const active = companyFilter === o.value;
+                return (
+                  <TouchableOpacity
+                    key={o.value}
+                    onPress={() => { setCompanyFilter(o.value); setCompanyPickerOpen(false); }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500' }}>{o.label}</Text>
+                    {active ? <Text style={{ color: colors.primary, fontWeight: '800' }}>✓</Text> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       <RecordForm
