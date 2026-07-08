@@ -369,10 +369,11 @@ export default function ReportsScreen({ route }: any) {
     const p = route?.params;
     if (p?.autoReport === 'rounds') {
       const d = p.date || to;
+      const d2 = p.dateTo || d;
       setMode('rounds');
       setFrom(d);
-      setTo(d);
-      generateRounds(d, d, p.company ?? null);
+      setTo(d2);
+      generateRounds(d, d2, p.company ?? null);
     }
     // 'nonce' cambia en cada navegación para permitir re-abrir el reporte.
     // eslint-disable-next-line react-hooks/exhaustive-deps

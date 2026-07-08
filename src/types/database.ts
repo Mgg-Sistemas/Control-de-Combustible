@@ -120,6 +120,10 @@ export interface MachineRound {
   overtime_hours: number | null;
   day_hours: number | null;   // turno de día trabajado (0 / 6 / 12)
   night_hours: number | null; // turno de noche trabajado (0 / 6 / 12)
+  day_operator: string | null;      // operador del turno de día
+  day_operator_ci: string | null;
+  night_operator: string | null;    // operador del turno de noche
+  night_operator_ci: string | null;
   closed: boolean;
   notes: string | null;
   recorded_by: string | null;
@@ -140,8 +144,13 @@ export interface MachineDayOperator {
 export interface ClosureMachine {
   code: string;
   company: string;
-  operator: string; // "Nombre Apellido"
+  operator: string; // (compat) "Nombre Apellido"
   cedula: string;
+  date?: string; // fecha del registro (cuando el cierre abarca varios días)
+  dayOperator?: string;   // operador del turno de día
+  dayCedula?: string;
+  nightOperator?: string; // operador del turno de noche
+  nightCedula?: string;
   statuses?: (string | null)[]; // (histórico viejo) 4 rondas
   dayHours?: number;   // turno de día (0/6/12)
   nightHours?: number; // turno de noche (0/6/12)
@@ -154,7 +163,7 @@ export interface ControlClosure {
   id: string;
   closure_date: string;
   closed_by: string | null;
-  detail: { machines: ClosureMachine[]; totalMachines: number } | null;
+  detail: { machines: ClosureMachine[]; totalMachines: number; dateFrom?: string; dateTo?: string } | null;
   created_at: string;
 }
 

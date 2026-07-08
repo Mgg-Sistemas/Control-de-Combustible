@@ -575,6 +575,11 @@ alter table public.machine_day_operators add column if not exists closed boolean
 -- (día + noche) − parada + extras. medio=6h, completo=12h, 1½=18h, 2 turnos=24h.
 alter table public.machine_rounds add column if not exists day_hours numeric(6,2) not null default 0;
 alter table public.machine_rounds add column if not exists night_hours numeric(6,2) not null default 0;
+-- Operador por turno (día/noche): cada jornada puede tener un operador distinto.
+alter table public.machine_rounds add column if not exists day_operator text;
+alter table public.machine_rounds add column if not exists day_operator_ci text;
+alter table public.machine_rounds add column if not exists night_operator text;
+alter table public.machine_rounds add column if not exists night_operator_ci text;
 
 create table if not exists public.company_payments (
   id           uuid primary key default gen_random_uuid(),
