@@ -117,6 +117,34 @@ export interface MachineRound {
   created_at: string;
 }
 
+export interface MachineDayOperator {
+  machinery_id: string;
+  round_date: string;
+  first_name: string | null;
+  last_name: string | null;
+  cedula: string | null;
+  updated_at: string;
+}
+
+/** Fila del snapshot que se guarda al cerrar el control del día. */
+export interface ClosureMachine {
+  code: string;
+  company: string;
+  operator: string; // "Nombre Apellido"
+  cedula: string;
+  statuses: (string | null)[]; // 4 rondas
+  hoursStopped: number;
+  worked: number;
+}
+
+export interface ControlClosure {
+  id: string;
+  closure_date: string;
+  closed_by: string | null;
+  detail: { machines: ClosureMachine[]; totalMachines: number } | null;
+  created_at: string;
+}
+
 export interface Authorization {
   id: string;
   requested_by: string | null;

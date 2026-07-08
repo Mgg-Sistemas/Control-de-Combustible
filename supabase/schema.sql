@@ -567,5 +567,37 @@ drop policy if exists cp_write on public.company_payments;
 create policy cp_write on public.company_payments for all to authenticated using (true) with check (true);
 
 -- ============================================================================
+-- OPERADOR por máquina y día + CIERRES DE CONTROL (histórico de maquinaria)
+-- ============================================================================
+create table if not exists public.machine_day_operators (
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  round_date   date not null,
+  first_name   text,
+  last_name    text,
+  cedula       text,
+  updated_at   timestamptz default now(),
+  primary key (machinery_id, round_date)
+);
+alter table public.machine_day_operators enable row level security;
+drop policy if exists mdo_select on public.machine_day_operators;
+create policy mdo_select on public.machine_day_operators for select to authenticated using (true);
+drop policy if exists mdo_write on public.machine_day_operators;
+create policy mdo_write on public.machine_day_operators for all to authenticated using (true) with check (true);
+
+create table if not exists public.control_closures (
+  id           uuid primary key default gen_random_uuid(),
+  closure_date date not null,
+  closed_by    uuid references auth.users(id),
+  detail       jsonb,                 -- snapshot del día: máquinas, rondas, operador, horas
+  created_at   timestamptz default now()
+);
+create index if not exists idx_cc_date on public.control_closures(closure_date desc);
+alter table public.control_closures enable row level security;
+drop policy if exists cc_select on public.control_closures;
+create policy cc_select on public.control_closures for select to authenticated using (true);
+drop policy if exists cc_write on public.control_closures;
+create policy cc_write on public.control_closures for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

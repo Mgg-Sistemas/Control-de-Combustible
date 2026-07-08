@@ -3,9 +3,15 @@ import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal } from 
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
-import { Machinery, MachineRound } from '../types/database';
+import { exportPdf } from '../lib/pdf';
+import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { useConfirm } from '../components/ConfirmProvider';
+import { useAuth } from '../context/AuthContext';
+import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+
+type Operator = { first_name: string; last_name: string; cedula: string };
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -61,24 +67,41 @@ function shiftDay(iso: string, delta: number): string {
 
 export default function ControlMaquinariaScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const confirm = useConfirm();
+  const { session } = useAuth();
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineryId-roundNo
+  const [operators, setOperators] = useState<Record<string, Operator>>({}); // machineId → operador del día
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // texto en edición por máquina
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
+  // Operador (nombre, apellido, cédula)
+  const [opFor, setOpFor] = useState<Machinery | null>(null);
+  const [opFirst, setOpFirst] = useState('');
+  const [opLast, setOpLast] = useState('');
+  const [opCedula, setOpCedula] = useState('');
+
+  // Cierre de control + histórico
+  const [closing, setClosing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [histOpen, setHistOpen] = useState(false);
+  const [closures, setClosures] = useState<ControlClosure[]>([]);
+  const [closureSel, setClosureSel] = useState<ControlClosure | null>(null);
+
   const key = (mId: string, no: number) => `${mId}-${no}`;
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data: m }, { data: r }, { data: c }] = await Promise.all([
+    const [{ data: m }, { data: r }, { data: c }, { data: ops }] = await Promise.all([
       supabase.from('machinery').select('*').order('code', { ascending: true }),
       supabase.from('machine_rounds').select('*').eq('round_date', date),
       supabase.from('companies').select('id, name'),
+      supabase.from('machine_day_operators').select('*').eq('round_date', date),
     ]);
     setMachines((m ?? []) as Machinery[]);
     const cmap: Record<string, string> = {};
@@ -87,6 +110,11 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const map: Record<string, MachineRound> = {};
     (r ?? []).forEach((row: any) => (map[key(row.machinery_id, row.round_no)] = row));
     setRounds(map);
+    const omap: Record<string, Operator> = {};
+    (ops ?? []).forEach((o: MachineDayOperator) => {
+      omap[o.machinery_id] = { first_name: o.first_name ?? '', last_name: o.last_name ?? '', cedula: o.cedula ?? '' };
+    });
+    setOperators(omap);
     setHoursInput({}); // refrescar los campos con los valores del día cargado
     setLoading(false);
   }, [date]);
@@ -127,7 +155,121 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       });
       return;
     }
+    const willBeOperative = cur?.status !== 'operativa';
     await setRound(m, no, cur?.status === 'operativa' ? 'parada' : 'operativa');
+    // Al marcar en verde y si aún no hay operador del día, pedir sus datos.
+    if (willBeOperative && !operators[m.id]) openOperator(m);
+  };
+
+  // ── Operador del día ────────────────────────────────────────────────────────
+  const openOperator = (m: Machinery) => {
+    const o = operators[m.id];
+    setOpFor(m);
+    setOpFirst(o?.first_name ?? '');
+    setOpLast(o?.last_name ?? '');
+    setOpCedula(o?.cedula ?? '');
+  };
+
+  const saveOperator = async () => {
+    if (!opFor) return;
+    const payload = {
+      machinery_id: opFor.id,
+      round_date: date,
+      first_name: opFirst.trim() || null,
+      last_name: opLast.trim() || null,
+      cedula: opCedula.trim() || null,
+    };
+    const { error } = await supabase.from('machine_day_operators').upsert(payload, { onConflict: 'machinery_id,round_date' });
+    if (error) return Alert.alert('Aviso', error.message);
+    setOperators((p) => ({ ...p, [opFor.id]: { first_name: opFirst.trim(), last_name: opLast.trim(), cedula: opCedula.trim() } }));
+    setOpFor(null);
+  };
+
+  // ── Cerrar control del día → guardar snapshot en el histórico ────────────────
+  const buildSnapshot = (): ClosureMachine[] => {
+    return machines
+      .map((m) => {
+        const statuses = [1, 2, 3, 4].map((no) => rounds[key(m.id, no)]?.status ?? null);
+        const hasActivity = statuses.some((s) => s != null);
+        if (!hasActivity) return null;
+        const hoursStopped = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
+        const op = operators[m.id];
+        return {
+          code: m.code,
+          company: m.company_id ? companies[m.company_id] ?? '' : 'Sin empresa',
+          operator: op ? `${op.first_name} ${op.last_name}`.trim() : '',
+          cedula: op?.cedula ?? '',
+          statuses,
+          hoursStopped: Number(hoursStopped),
+          worked: workedHours(Number(hoursStopped)),
+        } as ClosureMachine;
+      })
+      .filter(Boolean) as ClosureMachine[];
+  };
+
+  const cerrarControl = async () => {
+    const snapshot = buildSnapshot();
+    if (snapshot.length === 0) {
+      setNotice('No hay máquinas con rondas marcadas hoy para cerrar.');
+      return;
+    }
+    const ok = await confirm({
+      title: 'Cerrar control',
+      message: `¿Cerrar el control del ${date}? Se guardará en el histórico con ${snapshot.length} máquina(s) y sus operadores.`,
+      confirmText: 'Cerrar y guardar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    setClosing(true);
+    const { error } = await supabase.from('control_closures').insert({
+      closure_date: date,
+      closed_by: session?.user?.id ?? null,
+      detail: { machines: snapshot, totalMachines: snapshot.length },
+    });
+    setClosing(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setNotice(`✅ Control del ${date} cerrado y guardado en el histórico.`);
+  };
+
+  const openHistorico = async () => {
+    setHistOpen(true);
+    const { data } = await supabase.from('control_closures').select('*').order('closure_date', { ascending: false }).limit(200);
+    setClosures((data ?? []) as ControlClosure[]);
+  };
+
+  const cellTxt = (s: string | null) => (s === 'operativa' ? '✓' : s === 'parada' ? '✕' : '—');
+
+  const downloadClosurePdf = async (c: ControlClosure) => {
+    const machs = c.detail?.machines ?? [];
+    const rows = machs
+      .map(
+        (m) =>
+          `<tr><td>${m.code}</td><td>${m.company || '—'}</td><td>${m.operator || '—'}</td><td>${m.cedula || '—'}</td>` +
+          m.statuses.map((s) => `<td style="text-align:center">${cellTxt(s)}</td>`).join('') +
+          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td></tr>`
+      )
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>
+      <style>
+        *{box-sizing:border-box}
+        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
+        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
+        .muted{color:#666;font-size:12px}
+        table{width:100%;border-collapse:collapse;margin-top:14px;font-size:11px}
+        th,td{border:1px solid #ccc;padding:5px 6px;text-align:left}
+        th{background:#1E3A5F;color:#fff}
+        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
+      </style></head><body>
+      <h1>CONTROL DE MAQUINARIA</h1>
+      <div class="muted">Cierre del ${c.closure_date} · ${machs.length} máquina(s)</div>
+      <table><thead><tr><th>Máquina</th><th>Empresa</th><th>Operador</th><th>Cédula</th>
+        ${ROUND_LABELS.map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`).join('')}
+        <th>H. PARADA</th><th>H. TRAB.</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>
+      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
+      </body></html>`;
+    await exportPdf(html);
   };
 
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {
@@ -184,6 +326,31 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Control de maquinaria</SectionTitle>
+
+      {notice ? (
+        <TouchableOpacity onPress={() => setNotice(null)}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <TouchableOpacity
+          onPress={cerrarControl}
+          disabled={closing}
+          style={{ flex: 2, paddingVertical: spacing.md, backgroundColor: colors.danger, borderRadius: radius.md, alignItems: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800' }}>{closing ? 'Cerrando…' : '🔒 Cerrar control'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={openHistorico}
+          style={{ flex: 1, paddingVertical: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '700' }}>🗂️ Histórico</Text>
+        </TouchableOpacity>
+      </View>
 
       <Card>
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 2 }}>Día del control</Text>
@@ -251,9 +418,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
                   🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
                 </Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
                   💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / hora · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
                 </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => openOperator(m)} activeOpacity={0.6} style={{ marginBottom: spacing.xs }}>
+                {operators[m.id] && (operators[m.id].first_name || operators[m.id].last_name || operators[m.id].cedula) ? (
+                  <Text style={{ color: colors.text, fontSize: 12 }}>
+                    👷 {`${operators[m.id].first_name} ${operators[m.id].last_name}`.trim()}
+                    {operators[m.id].cedula ? ` · C.I ${operators[m.id].cedula}` : ''} <Text style={{ color: colors.primary }}>✎</Text>
+                  </Text>
+                ) : (
+                  <Text style={{ color: colors.warning, fontSize: 12 }}>👷 Sin operador · toca para agregar</Text>
+                )}
               </TouchableOpacity>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 {ROUND_TIMES.map((time, i) => {
@@ -397,6 +575,99 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             })() : null}
           </View>
         </View>
+      </Modal>
+
+      {/* Modal: datos del operador (nombre, apellido, cédula) */}
+      <Modal visible={!!opFor} transparent animationType="fade" onRequestClose={() => setOpFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Operador</Text>
+            {opFor ? <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>{opFor.code} · {date}</Text> : null}
+
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre</Text>
+            <TextInput value={opFirst} onChangeText={setOpFirst} placeholder="Nombre" placeholderTextColor={colors.muted} autoCapitalize="words"
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Apellido</Text>
+            <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} autoCapitalize="words"
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula</Text>
+            <TextInput value={opCedula} onChangeText={setOpCedula} placeholder="C.I" placeholderTextColor={colors.muted} keyboardType="numeric"
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4 }} />
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setOpFor(null)}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={saveOperator}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Histórico de cierres */}
+      <Modal visible={histOpen} animationType="slide" onRequestClose={() => setHistOpen(false)}>
+        <Screen>
+          <SectionTitle>Histórico de controles</SectionTitle>
+          {closures.length === 0 ? (
+            <EmptyState title="Sin cierres" subtitle="Cierra un control del día y aparecerá aquí para reportarlo." />
+          ) : (
+            closures.map((c) => (
+              <TouchableOpacity key={c.id} activeOpacity={0.7} onPress={() => setClosureSel(c)}>
+                <Card>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {c.closure_date}</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800' }}>{c.detail?.totalMachines ?? 0} máq.</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca para ver e imprimir el reporte</Text>
+                </Card>
+              </TouchableOpacity>
+            ))
+          )}
+          <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => setHistOpen(false)}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Cerrar</Text>
+          </TouchableOpacity>
+        </Screen>
+      </Modal>
+
+      {/* Vista previa de un cierre + PDF */}
+      <Modal visible={!!closureSel} animationType="slide" onRequestClose={() => setClosureSel(null)}>
+        <Screen>
+          {closureSel ? (
+            <>
+              <SectionTitle>Control del {closureSel.closure_date}</SectionTitle>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                {closureSel.detail?.totalMachines ?? 0} máquina(s) · ✓ operativa · ✕ parada · — sin registro
+              </Text>
+              {(closureSel.detail?.machines ?? []).map((m, i) => (
+                <Card key={i}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{m.code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company || 'Sin empresa'}</Text>
+                  <Text style={{ color: colors.text, fontSize: 12, marginTop: 2 }}>
+                    👷 {m.operator || 'Sin operador'}{m.cedula ? ` · C.I ${m.cedula}` : ''}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                    {m.statuses.map((s, j) => (
+                      <Text key={j} style={{ color: s === 'operativa' ? colors.success : s === 'parada' ? colors.danger : colors.muted, fontSize: 12, fontWeight: '700' }}>
+                        {ROUND_LABELS[j]}: {cellTxt(s)}
+                      </Text>
+                    ))}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    Parada {m.hoursStopped} h · Trabajadas {m.worked} h
+                  </Text>
+                </Card>
+              ))}
+              <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => downloadClosurePdf(closureSel)}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setClosureSel(null)}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </Screen>
       </Modal>
     </Screen>
   );
