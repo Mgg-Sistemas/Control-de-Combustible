@@ -398,13 +398,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           >
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>◀</Text>
           </TouchableOpacity>
-          <TextInput
-            value={date}
-            onChangeText={setDate}
-            placeholder="AAAA-MM-DD"
-            placeholderTextColor={colors.muted}
-            style={{ flex: 1, minWidth: 0, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontWeight: '700' }}
-          />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <DateField value={date} onChange={(v) => v && setDate(v)} colors={colors} />
+          </View>
           <TouchableOpacity
             onPress={() => setDate(shiftDay(date, 1))}
             style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
