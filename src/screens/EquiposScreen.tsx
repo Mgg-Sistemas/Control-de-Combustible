@@ -81,25 +81,25 @@ export default function EquiposScreen({ navigation }: any) {
       : companyFilter === '__none__'
       ? !m.company_id
       : m.company_id === companyFilter;
-  const baseList = isVehicle
-    ? vehicles.data
-    : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind && matchCompany(m));
   const q = query.trim().toLowerCase();
-  const list = !q
-    ? baseList
-    : (baseList as any[]).filter((it) => {
-        const hay = isVehicle
-          ? [it.plate, it.brand, it.model, it.vehicle_type]
-          : [it.code, it.description, it.plate, it.serial, it.identifier, companyName(it.company_id)];
-        return hay.filter(Boolean).some((v: string) => String(v).toLowerCase().includes(q));
-      });
-  const loading = isVehicle ? vehicles.loading : machinery.loading;
-  const refetch = isVehicle ? vehicles.refetch : machinery.refetch;
+  const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => String(v).toLowerCase().includes(q));
+  // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
+  const machineryList = machinery.data.filter(
+    (m) => matchCompany(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, companyName(m.company_id)])
+  );
+  const vehicleList = vehicles.data.filter((v) => matchQ([v.plate, v.brand, v.model, v.vehicle_type]));
+  const totalResults = machineryList.length + vehicleList.length;
+  const loading = machinery.loading || vehicles.loading;
+  const refetchAll = () => { machinery.refetch(); vehicles.refetch(); };
 
-  const openNew = () => {
-    setEditing(null);
-    setFormOpen(true);
-  };
+  // Conteo de maquinaria por estado operativo (para las tarjetas superiores).
+  const activeMachines = machinery.data.filter((m) => m.operational);
+  const inactiveMachines = machinery.data.filter((m) => !m.operational);
+
+  // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
+  const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive'>(null);
+
   const openEdit = (item: any) => {
     setEditing(item);
     setFormOpen(true);
@@ -281,14 +281,13 @@ export default function EquiposScreen({ navigation }: any) {
     setNotice(
       `✅ Lote cargado: se agregaron ${added} equipo(s).` + (omitted > 0 ? ` Omitidos por duplicado: ${omitted}.` : '')
     );
-    refetch();
+    refetchAll();
   };
 
   const kindMeta = KINDS.find((k) => k.value === kind)!;
 
   const companyOptions = useMemo(() => {
-    // Máquinas del tipo actual (sin filtrar por empresa ni búsqueda) para contar.
-    const ofKind = machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
+    const ofKind = machinery.data;
     const countFor = (id: string) => ofKind.filter((m) => m.company_id === id).length;
     return [
       { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
@@ -298,14 +297,13 @@ export default function EquiposScreen({ navigation }: any) {
         .map((c) => ({ label: c.name, value: c.id, count: countFor(c.id) })),
       { label: 'Sin empresa', value: '__none__', count: ofKind.filter((m) => !m.company_id).length },
     ];
-  }, [companies.data, machinery.data, kind]);
+  }, [companies.data, machinery.data]);
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
 
   // Agrupar la maquinaria por empresa (para el catálogo en acordeón).
   const machineryByCompany = useMemo(() => {
-    if (isVehicle) return [] as { key: string; name: string; items: Machinery[] }[];
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
-    (list as Machinery[]).forEach((it) => {
+    machineryList.forEach((it) => {
       const k = it.company_id ?? '__none__';
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
       const g = m.get(k) ?? { key: k, name, items: [] };
@@ -313,17 +311,17 @@ export default function EquiposScreen({ navigation }: any) {
       m.set(k, g);
     });
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [isVehicle, list, companyName]);
+  }, [machineryList, companyName]);
 
   const renderMachineCard = (m: Machinery) => (
     <Card key={m.id}>
-      <TouchableOpacity onPress={() => openEdit(m)} activeOpacity={0.7}>
+      <TouchableOpacity onPress={() => { setKind('maquinaria'); openEdit(m); }} activeOpacity={0.7}>
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           {m.photo_url ? (
             <Image source={{ uri: m.photo_url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
           ) : (
             <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 28 }}>{kindMeta.icon}</Text>
+              <Text style={{ fontSize: 28 }}>🚜</Text>
             </View>
           )}
           <View style={{ flex: 1 }}>
@@ -389,136 +387,147 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       ) : null}
 
-      {/* Selector de tipo (uno al lado del otro, selección única) */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
-        {KINDS.map((k) => {
-          const active = k.value === kind;
-          return (
-            <TouchableOpacity
-              key={k.value}
-              onPress={() => setKind(k.value)}
-              style={{
-                flexGrow: 1,
-                flexBasis: 100,
-                minHeight: 60,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: active ? colors.primary : colors.border,
-                backgroundColor: active ? colors.primary : colors.surfaceAlt,
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingVertical: spacing.sm,
-              }}
-            >
-              <Text style={{ fontSize: 22 }}>{k.icon}</Text>
-              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13, textAlign: 'center' }}>
-                {k.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+      {/* Tarjetas de estado: maquinaria activa / inactiva (clickeables → detalle) */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('active')}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.success }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria activa</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+            </View>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success }}>{machinery.loading ? '…' : activeMachines.length}</Text>
+          </Card>
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('inactive')}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria inactiva</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+            </View>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger }}>{machinery.loading ? '…' : inactiveMachines.length}</Text>
+          </Card>
+        </TouchableOpacity>
       </View>
 
+      {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Lote */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <TouchableOpacity
           style={{ flex: 2, backgroundColor: colors.primary, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={openNew}
+          onPress={() => setKindChooser('add')}
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 15 }}>
-            {kindMeta.icon}  + Agregar
+            🚗 / 🚜  + Agregar
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
-          onPress={() => {
-            setBatchError(null);
-            setBatchOpen(true);
-          }}
+          onPress={() => setKindChooser('batch')}
         >
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>📋 Lote</Text>
         </TouchableOpacity>
       </View>
 
-      {!isVehicle ? (
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Map')}
-          style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.sm }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa de máquinas</Text>
-        </TouchableOpacity>
-      ) : null}
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Map')}
+        style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.sm }}
+      >
+        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa de máquinas</Text>
+      </TouchableOpacity>
 
       <View style={{ marginTop: spacing.sm }}>
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={isVehicle ? '🔎 Buscar por placa, marca…' : '🔎 Buscar por código, placa, serial o empresa…'}
+          placeholder="🔎 Buscar por código, placa, serial, identificador o empresa…"
           placeholderTextColor={colors.muted}
           style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
         />
         {q ? (
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{list.length} resultado(s)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{totalResults} resultado(s)</Text>
         ) : null}
       </View>
 
-      {/* Filtro por empresa (solo maquinaria) — lista desplegable */}
-      {!isVehicle ? (
-        <View style={{ marginTop: spacing.sm }}>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por empresa</Text>
-          <TouchableOpacity
-            onPress={() => setCompanyPickerOpen(true)}
-            style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
-          >
-            <Text style={{ color: colors.text, fontWeight: '600' }}>{companyFilterLabel}</Text>
-            <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
-          </TouchableOpacity>
-          {companyFilter !== '__all__' ? (
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>{list.length} resultado(s)</Text>
-          ) : null}
-        </View>
-      ) : null}
+      {/* Filtro por empresa (maquinaria) — lista desplegable */}
+      <View style={{ marginTop: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por empresa</Text>
+        <TouchableOpacity
+          onPress={() => setCompanyPickerOpen(true)}
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '600' }}>{companyFilterLabel}</Text>
+          <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
+        </TouchableOpacity>
+      </View>
 
       {loading ? (
         <Loading />
-      ) : list.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : `Sin ${kindMeta.label.toLowerCase()}`} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
-      ) : isVehicle ? (
-        (list as Vehicle[]).map((v) => (
-          <TouchableOpacity key={v.id} onPress={() => openEdit(v)} activeOpacity={0.7}>
-            <Card>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{v.plate}</Text>
-              {v.brand || v.model ? (
-                <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
-              ) : null}
-              {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Toca para editar</Text>
-            </Card>
-          </TouchableOpacity>
-        ))
+      ) : totalResults === 0 ? (
+        <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : (
-        // Catálogo de maquinaria dividido por empresa (acordeón).
-        machineryByCompany.map((g) => {
-          // Al buscar, los grupos se muestran desplegados por defecto.
-          const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__');
-          return (
-            <View key={g.key} style={{ marginBottom: spacing.xs }}>
-              <TouchableOpacity
-                onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
-                activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+        <>
+          {/* Maquinaria dividida por empresa (acordeón). */}
+          {machineryByCompany.map((g) => {
+            const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__');
+            return (
+              <View key={g.key} style={{ marginBottom: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
+                  activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                    <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                    <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                  </View>
+                  <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                    <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                  </View>
+                </TouchableOpacity>
+                {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
+              </View>
+            );
+          })}
+
+          {/* Vehículos (acordeón aparte, dentro del mismo catálogo). */}
+          {vehicleList.length > 0 ? (
+            (() => {
+              const open = expanded['__vehicles__'] ?? !!q;
+              return (
+                <View style={{ marginBottom: spacing.xs }}>
+                  <TouchableOpacity
+                    onPress={() => setExpanded((p) => ({ ...p, __vehicles__: !open }))}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                      <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🚗 Vehículos</Text>
+                    </View>
+                    <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                      <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{vehicleList.length}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  {open ? (
+                    <View style={{ marginTop: spacing.sm }}>
+                      {vehicleList.map((v) => (
+                        <TouchableOpacity key={v.id} onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
+                          <Card>
+                            <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+                            {v.brand || v.model ? (
+                              <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
+                            ) : null}
+                            {v.vehicle_type ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo: {v.vehicle_type}</Text> : null}
+                            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Toca para editar</Text>
+                          </Card>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : null}
                 </View>
-                <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                  <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
-                </View>
-              </TouchableOpacity>
-              {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
-            </View>
-          );
-        })
+              );
+            })()
+          ) : null}
+        </>
       )}
 
       {/* Carga por lote: pegar varias líneas */}
@@ -642,6 +651,77 @@ export default function EquiposScreen({ navigation }: any) {
         </Screen>
       </Modal>
 
+      {/* Selector de tipo al agregar / cargar lote (vehículo o maquinaria) */}
+      <Modal visible={!!kindChooser} transparent animationType="fade" onRequestClose={() => setKindChooser(null)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setKindChooser(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs, textAlign: 'center' }}>
+              {kindChooser === 'batch' ? '¿Qué cargas por lote?' : '¿Qué deseas agregar?'}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md, textAlign: 'center' }}>Elige el tipo de equipo.</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              {KINDS.map((k) => (
+                <TouchableOpacity
+                  key={k.value}
+                  onPress={() => {
+                    const action = kindChooser;
+                    setKind(k.value);
+                    setKindChooser(null);
+                    if (action === 'add') { setEditing(null); setFormOpen(true); }
+                    else { setBatchError(null); setBatchOpen(true); }
+                  }}
+                  style={{ flex: 1, minHeight: 96, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: spacing.md }}
+                >
+                  <Text style={{ fontSize: 34 }}>{k.icon}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{k.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Detalle de maquinaria activa / inactiva */}
+      <Modal visible={!!detailStatus} animationType="slide" onRequestClose={() => setDetailStatus(null)}>
+        <Screen>
+          <SectionTitle>
+            {detailStatus === 'active' ? '✅ Maquinaria activa' : '⛔ Maquinaria inactiva'}
+            {'  '}({(detailStatus === 'active' ? activeMachines : inactiveMachines).length})
+          </SectionTitle>
+          {(detailStatus === 'active' ? activeMachines : inactiveMachines).length === 0 ? (
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : 'No hay maquinaria inactiva.'} />
+          ) : (
+            <ScrollView>
+              {(detailStatus === 'active' ? activeMachines : inactiveMachines)
+                .slice()
+                .sort((a, b) => a.code.localeCompare(b.code))
+                .map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    activeOpacity={0.7}
+                    onPress={() => { setDetailStatus(null); setKind('maquinaria'); openEdit(m); }}
+                  >
+                    <Card>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
+                        <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                          {m.operational ? '● Operativa' : '● No operativa'}
+                        </Text>
+                      </View>
+                      {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+                      {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
+                      {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
+                    </Card>
+                  </TouchableOpacity>
+                ))}
+            </ScrollView>
+          )}
+          <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setDetailStatus(null)}>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
+        </Screen>
+      </Modal>
+
       <RecordForm
         visible={formOpen}
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
@@ -653,7 +733,7 @@ export default function EquiposScreen({ navigation }: any) {
         headerImageUrl={isVehicle ? undefined : editing?.photo_url}
         allowDelete
         onClose={() => setFormOpen(false)}
-        onSaved={refetch}
+        onSaved={refetchAll}
       />
     </Screen>
   );
