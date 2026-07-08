@@ -317,8 +317,8 @@ export default function EquiposScreen({ navigation }: any) {
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [machineryList, companyName]);
 
-  // Grupos para el REPORTE: se filtra por la empresa elegida y se AGRUPA POR TIPO
-  // (Jumbo, Tractor, Chuto...). Cada grupo muestra "Total de {Tipo}: N" + desglose.
+  // Grupos para el REPORTE: se AGRUPA POR EMPRESA y dentro se cuenta por TIPO
+  // (Jumbo, Volteo, Tractor...) con sus totales + el desglose de máquinas.
   const reportGroups = useMemo(() => {
     const src =
       reportCompany === '__all__'
@@ -328,20 +328,32 @@ export default function EquiposScreen({ navigation }: any) {
         : machinery.data.filter((m) => m.company_id === reportCompany);
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
-      const t = it.tipo && it.tipo.trim() ? it.tipo.trim() : 'Sin tipo';
-      const g = m.get(t) ?? { key: t, name: t, items: [] };
+      const k = it.company_id ?? '__none__';
+      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      const g = m.get(k) ?? { key: k, name, items: [] };
       g.items.push(it);
-      m.set(t, g);
+      m.set(k, g);
     });
     const groups = Array.from(m.values());
     groups.forEach((g) =>
       g.items.sort((a, b) => (a.identifier || 'zzz').localeCompare(b.identifier || 'zzz') || a.code.localeCompare(b.code))
     );
-    // "Sin tipo" al final; el resto alfabético.
+    // "Sin empresa" al final; el resto alfabético.
     return groups.sort((a, b) =>
-      a.name === 'Sin tipo' ? 1 : b.name === 'Sin tipo' ? -1 : a.name.localeCompare(b.name)
+      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name)
     );
-  }, [reportCompany, machinery.data]);
+  }, [reportCompany, machinery.data, companyName]);
+  // Conteo por tipo dentro de un conjunto de máquinas → [['Jumbo', 3], ['Volteo', 2], ...].
+  const typeCountsOf = (items: Machinery[]): [string, number][] => {
+    const c = new Map<string, number>();
+    items.forEach((it) => {
+      const t = it.tipo && it.tipo.trim() ? it.tipo.trim() : 'Sin tipo';
+      c.set(t, (c.get(t) ?? 0) + 1);
+    });
+    return Array.from(c.entries()).sort((a, b) =>
+      a[0] === 'Sin tipo' ? 1 : b[0] === 'Sin tipo' ? -1 : a[0].localeCompare(b[0])
+    );
+  };
   const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
   const reportTitle = reportCompany === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(reportCompany) || 'Sin empresa'}`;
 
@@ -366,9 +378,14 @@ export default function EquiposScreen({ navigation }: any) {
             </tr>`;
           })
           .join('');
-        return `<h2>🔧 Total de ${esc(g.name)}: <span style="color:#1E3A5F">${g.items.length}</span></h2>
+        const tipos = typeCountsOf(g.items)
+          .map(([t, n]) => `<span class="chip">${esc(t)}: <b>${n}</b></span>`)
+          .join('');
+        return `<h2>🏢 ${esc(g.name)} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
+          <div class="tipos">${tipos}</div>
           <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Tipo</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
-          <tbody>${rows}</tbody></table>`;
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td colspan="9" style="text-align:right;font-weight:700;background:#EEF2F7">Total ${esc(g.name)}: ${g.items.length}</td></tr></tfoot></table>`;
       })
       .join('');
     const html = pdfDocument({
@@ -380,6 +397,8 @@ export default function EquiposScreen({ navigation }: any) {
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         h2{font-size:14px;color:#1E3A5F;margin:16px 0 4px}
+        .tipos{margin:2px 0 6px}
+        .chip{display:inline-block;background:#EEF2F7;color:#1E3A5F;border:1px solid #d6dee8;border-radius:12px;padding:2px 9px;margin:0 6px 4px 0;font-size:11px}
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body:
         (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
@@ -866,9 +885,16 @@ export default function EquiposScreen({ navigation }: any) {
                   <>
                     {reportGroups.map((g) => (
                       <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 4 }}>
-                          🔧 Total de {g.name}: {g.items.length}
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>
+                          🏢 {g.name} ({g.items.length} máquina{g.items.length === 1 ? '' : 's'})
                         </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                          {typeCountsOf(g.items).map(([t, n]) => (
+                            <View key={t} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '600' }}>{t}: <Text style={{ color: colors.primary, fontWeight: '800' }}>{n}</Text></Text>
+                            </View>
+                          ))}
+                        </View>
                         {g.items.map((m) => {
                           item += 1;
                           const n = item;
