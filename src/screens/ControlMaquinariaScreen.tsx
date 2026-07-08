@@ -147,6 +147,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [histOpen, setHistOpen] = useState(false);
   const [closures, setClosures] = useState<ControlClosure[]>([]);
   const [closureSel, setClosureSel] = useState<ControlClosure | null>(null);
+  const [closureSearch, setClosureSearch] = useState(''); // buscador dentro del cierre
+  const [closureExpanded, setClosureExpanded] = useState<Record<string, boolean>>({}); // código → detalle abierto
 
   const rkey = (mId: string, d: string) => `${mId}|${d}`;
 
@@ -882,7 +884,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 ? `${c.detail.dateFrom} → ${c.detail.dateTo}`
                 : c.detail?.dateFrom ?? c.closure_date;
               return (
-                <TouchableOpacity key={c.id} activeOpacity={0.7} onPress={() => setClosureSel(c)}>
+                <TouchableOpacity key={c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureSel(c); }}>
                   <Card>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {rng}</Text>
@@ -917,26 +919,87 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 {closureSel.detail?.totalMachines ?? 0} máquina(s) · {(closureSel.detail?.machines ?? []).length} registro(s)
               </Text>
-              {(closureSel.detail?.machines ?? []).map((m, i) => (
-                <Card key={i}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{m.code}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{m.date ?? ''}</Text>
+              <TextInput
+                value={closureSearch}
+                onChangeText={setClosureSearch}
+                placeholder="🔎 Buscar máquina o empresa..."
+                placeholderTextColor={colors.muted}
+                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm }}
+              />
+              {(() => {
+                const usdFmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
+                // Agrupar los registros del cierre POR MÁQUINA (código).
+                const map = new Map<string, { code: string; company: string; days: ClosureMachine[] }>();
+                (closureSel.detail?.machines ?? []).forEach((m) => {
+                  const g = map.get(m.code) ?? { code: m.code, company: m.company || '', days: [] };
+                  if (!g.company && m.company) g.company = m.company;
+                  g.days.push(m);
+                  map.set(m.code, g);
+                });
+                const q = closureSearch.trim().toLowerCase();
+                let groups = Array.from(map.values());
+                if (q) groups = groups.filter((g) => g.code.toLowerCase().includes(q) || g.company.toLowerCase().includes(q));
+                groups.sort((a, b) => a.code.localeCompare(b.code));
+                if (groups.length === 0)
+                  return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
+                const StatBox = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
+                  <View style={{ flex: 1, borderWidth: 1, borderColor: accent ? colors.primary : colors.border, backgroundColor: accent ? colors.primary : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
+                    <Text style={{ color: accent ? colors.primaryContrast : colors.muted, fontSize: 10 }}>{k}</Text>
+                    <Text style={{ color: accent ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15 }}>{v}</Text>
                   </View>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company || 'Sin empresa'}</Text>
-                  <View style={{ marginTop: spacing.xs, gap: 2 }}>
-                    <Text style={{ color: colors.text, fontSize: 12 }}>
-                      ☀️ Día {m.dayHours ? `${m.dayHours}h` : '—'} · 👷 {m.dayOperator || 'sin operador'}{m.dayCedula ? ` (C.I ${m.dayCedula})` : ''}
-                    </Text>
-                    <Text style={{ color: colors.text, fontSize: 12 }}>
-                      🌙 Noche {m.nightHours ? `${m.nightHours}h` : '—'} · 👷 {m.nightOperator || 'sin operador'}{m.nightCedula ? ` (C.I ${m.nightCedula})` : ''}
-                    </Text>
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    {shiftLabel((m.dayHours || 0) + (m.nightHours || 0))} · Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked} h
-                  </Text>
-                </Card>
-              ))}
+                );
+                return groups.map((g) => {
+                  const t = g.days.reduce(
+                    (a, m) => ({
+                      day: a.day + (Number(m.dayHours) || 0),
+                      night: a.night + (Number(m.nightHours) || 0),
+                      stopped: a.stopped + (Number(m.hoursStopped) || 0),
+                      extra: a.extra + (Number(m.overtime) || 0),
+                      worked: a.worked + (Number(m.worked) || 0),
+                    }),
+                    { day: 0, night: 0, stopped: 0, extra: 0, worked: 0 }
+                  );
+                  const price = priceByCode.get(g.code) ?? 0;
+                  const amount = t.worked * price;
+                  const open = !!closureExpanded[g.code];
+                  return (
+                    <Card key={g.code}>
+                      <TouchableOpacity activeOpacity={0.7} onPress={() => setClosureExpanded((p) => ({ ...p, [g.code]: !p[g.code] }))}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}</Text>
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                          <StatBox k="Total horas" v={`${t.worked} h`} />
+                          <StatBox k="☀️ Día" v={`${t.day} h`} />
+                          <StatBox k="🌙 Noche" v={`${t.night} h`} />
+                          <StatBox k="💵 Monto" v={price ? usdFmt(amount) : '—'} accent />
+                        </View>
+                      </TouchableOpacity>
+                      {open && (
+                        <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm, gap: spacing.sm }}>
+                          {g.days.map((m, i) => (
+                            <View key={i} style={{ gap: 2 }}>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{m.date ?? ''}</Text>
+                              <Text style={{ color: colors.text, fontSize: 12 }}>
+                                ☀️ Día {m.dayHours ? `${m.dayHours}h` : '—'} · 👷 {m.dayOperator || 'sin operador'}{m.dayCedula ? ` (C.I ${m.dayCedula})` : ''}
+                              </Text>
+                              <Text style={{ color: colors.text, fontSize: 12 }}>
+                                🌙 Noche {m.nightHours ? `${m.nightHours}h` : '—'} · 👷 {m.nightOperator || 'sin operador'}{m.nightCedula ? ` (C.I ${m.nightCedula})` : ''}
+                              </Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                {shiftLabel((m.dayHours || 0) + (m.nightHours || 0))} · Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked} h
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </Card>
+                  );
+                });
+              })()}
               <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => downloadClosurePdf(closureSel)}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
