@@ -8,9 +8,14 @@ import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
+import { exportPdf } from '../lib/pdf';
+import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { workedHours } from './ControlMaquinariaScreen';
 import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+
+type FuelRow = { date: string; liters: number; tank: string };
 
 type Kind = 'vehiculo' | 'maquinaria' | 'maquinaria pesada';
 
@@ -48,6 +53,13 @@ export default function EquiposScreen({ navigation }: any) {
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
+
+  // Traza de combustible por máquina
+  const [fuelFor, setFuelFor] = useState<Machinery | null>(null);
+  const [fuelLoading, setFuelLoading] = useState(false);
+  const [fuelTrace, setFuelTrace] = useState<FuelRow[]>([]);
+  const [fuelSurtido, setFuelSurtido] = useState(0);
+  const [fuelWorked, setFuelWorked] = useState(0);
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -107,6 +119,76 @@ export default function EquiposScreen({ navigation }: any) {
       const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
       return { ok: !error, error: error?.message };
     });
+
+  // ── Traza de combustible (surtido) por máquina ───────────────────────────────
+  const fuelConsumed = fuelFor?.expected_lph != null ? fuelWorked * Number(fuelFor.expected_lph) : null;
+  const fuelLast = fuelTrace[0]?.date ?? null;
+
+  const openFuel = async (m: Machinery) => {
+    setFuelFor(m);
+    setFuelLoading(true);
+    setFuelTrace([]);
+    setFuelSurtido(0);
+    setFuelWorked(0);
+    const [{ data: disp }, { data: rnd }] = await Promise.all([
+      supabase.from('dispatches').select('dispatch_date, liters, tank:tank_id(name)').eq('machinery_id', m.id).order('dispatch_date', { ascending: false }),
+      supabase.from('machine_rounds').select('round_date, status, hours_stopped').eq('machinery_id', m.id),
+    ]);
+    const trace: FuelRow[] = (disp ?? []).map((d: any) => ({ date: d.dispatch_date, liters: Number(d.liters) || 0, tank: d.tank?.name ?? '' }));
+    const surtido = trace.reduce((s, t) => s + t.liters, 0);
+    // Horas trabajadas (para el consumo estimado) = por día con ronda verde, 12 − parada.
+    const perDay = new Map<string, { stopped: number; green: number }>();
+    (rnd ?? []).forEach((r: any) => {
+      const p = perDay.get(r.round_date) ?? { stopped: 0, green: 0 };
+      p.stopped = Math.max(p.stopped, Number(r.hours_stopped) || 0);
+      p.green += r.status === 'operativa' ? 1 : 0;
+      perDay.set(r.round_date, p);
+    });
+    let worked = 0;
+    perDay.forEach((d) => { if (d.green > 0) worked += workedHours(d.stopped); });
+    setFuelTrace(trace);
+    setFuelSurtido(surtido);
+    setFuelWorked(worked);
+    setFuelLoading(false);
+  };
+
+  const downloadFuelPdf = async () => {
+    if (!fuelFor) return;
+    const consumed = fuelConsumed;
+    const rows = fuelTrace
+      .map((t) => `<tr><td>${t.date}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>
+      <style>
+        *{box-sizing:border-box}
+        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
+        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
+        .muted{color:#666;font-size:12px}
+        .cards{display:flex;gap:10px;margin-top:12px}
+        .c{flex:1;border:1px solid #ccc;border-radius:8px;padding:8px}
+        .c .k{color:#666;font-size:11px}
+        .c .v{font-weight:800;font-size:16px}
+        table{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}
+        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+        th{background:#1E3A5F;color:#fff}
+        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
+      </style></head><body>
+      <h1>TRAZA DE COMBUSTIBLE</h1>
+      <div class="muted">${fuelFor.code}${fuelFor.company_id ? ' · ' + (companyName(fuelFor.company_id) || '') : ''}</div>
+      <div class="cards">
+        <div class="c"><div class="k">Última vez surtida</div><div class="v">${fuelLast ?? '—'}</div></div>
+        <div class="c"><div class="k">Total surtido</div><div class="v">${fuelSurtido.toLocaleString()} L</div></div>
+        <div class="c"><div class="k">Consumo estimado</div><div class="v">${consumed != null ? consumed.toLocaleString() + ' L' : '—'}</div></div>
+      </div>
+      <p class="muted" style="margin-top:6px">Consumo estimado = ${fuelWorked.toLocaleString()} h trabajadas × ${fuelFor.expected_lph != null ? Number(fuelFor.expected_lph).toLocaleString() + ' L/h' : 'sin rendimiento'}</p>
+      <h2 style="font-size:14px;color:#1E3A5F">Traza de surtidos</h2>
+      <table><thead><tr><th>Fecha</th><th>Tanque origen</th><th style="text-align:right">Litros</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin surtidos registrados</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="2" style="text-align:right"><b>Total surtido</b></td><td style="text-align:right"><b>${fuelSurtido.toLocaleString()} L</b></td></tr></tfoot></table>
+      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
+      </body></html>`;
+    await exportPdf(html);
+  };
 
   const saveBatch = async () => {
     setBatchError(null);
@@ -245,6 +327,7 @@ export default function EquiposScreen({ navigation }: any) {
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
+        <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
       </View>
     </Card>
@@ -479,6 +562,62 @@ export default function EquiposScreen({ navigation }: any) {
             </ScrollView>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Traza de combustible por máquina (vista previa + PDF) */}
+      <Modal visible={!!fuelFor} animationType="slide" onRequestClose={() => setFuelFor(null)}>
+        <Screen>
+          {fuelFor ? (
+            <>
+              <SectionTitle>⛽ Combustible · {fuelFor.code}</SectionTitle>
+              {fuelLoading ? (
+                <Loading />
+              ) : (
+                <>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Última vez surtida</Text>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fuelLast ?? '—'}</Text>
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Total surtido</Text>
+                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{fuelSurtido.toLocaleString()} L</Text>
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Consumo estimado</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>{fuelConsumed != null ? `${fuelConsumed.toLocaleString()} L` : '—'}</Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                    Consumo estimado = {fuelWorked.toLocaleString()} h trabajadas × {fuelFor.expected_lph != null ? `${Number(fuelFor.expected_lph).toLocaleString()} L/h` : 'sin rendimiento (defínelo al editar la máquina)'}
+                  </Text>
+
+                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.md, marginBottom: spacing.xs }}>Traza de surtidos</Text>
+                  {fuelTrace.length === 0 ? (
+                    <EmptyState title="Sin surtidos" subtitle="Cuando registres un consumo/despacho a esta máquina, aparecerá aquí." />
+                  ) : (
+                    fuelTrace.map((t, i) => (
+                      <Card key={i}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>{t.date}</Text>
+                          <Text style={{ color: colors.success, fontWeight: '800' }}>{t.liters.toLocaleString()} L</Text>
+                        </View>
+                        {t.tank ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tanque: {t.tank}</Text> : null}
+                      </Card>
+                    ))
+                  )}
+
+                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={downloadFuelPdf}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setFuelFor(null)}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
+            </>
+          ) : null}
+        </Screen>
       </Modal>
 
       <RecordForm
