@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -143,7 +143,7 @@ function totalsBy<T extends string>(rows: Row[], key: (r: Row) => T): { label: T
     .sort((a, b) => b.liters - a.liters);
 }
 
-export default function ReportsScreen() {
+export default function ReportsScreen({ route }: any) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [from, setFrom] = useState(isoDaysAgo(7));
@@ -224,13 +224,13 @@ export default function ReportsScreen() {
     setPreview(true);
   };
 
-  const generateRounds = async () => {
+  const generateRounds = async (fromArg: string = from, toArg: string = to) => {
     setLoading(true);
     const { data } = await supabase
       .from('machine_rounds')
       .select('round_date, round_no, status, hours_stopped, machinery:machinery_id(code, company:company_id(name))')
-      .gte('round_date', from)
-      .lte('round_date', to)
+      .gte('round_date', fromArg)
+      .lte('round_date', toArg)
       .order('round_date', { ascending: true });
     const map = new Map<string, RoundRow>();
     (data ?? []).forEach((r: any) => {
@@ -356,6 +356,21 @@ export default function ReportsScreen() {
     await exportPdf(pdfShell('REPORTE DE FLOTA', sub, body));
   };
 
+  // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
+  // "Ver reporte" en Control de maquinaria → reporte de rondas de ese día).
+  useEffect(() => {
+    const p = route?.params;
+    if (p?.autoReport === 'rounds') {
+      const d = p.date || to;
+      setMode('rounds');
+      setFrom(d);
+      setTo(d);
+      generateRounds(d, d);
+    }
+    // 'nonce' cambia en cada navegación para permitir re-abrir el reporte.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.nonce]);
+
   const setRange = (days: number) => {
     setFrom(isoDaysAgo(days));
     setTo(isoDaysAgo(0));
@@ -447,7 +462,7 @@ export default function ReportsScreen() {
         </View>
         <TouchableOpacity
           style={styles.genBtn}
-          onPress={mode === 'fuel' ? generate : mode === 'rounds' ? generateRounds : generateFleet}
+          onPress={() => (mode === 'fuel' ? generate() : mode === 'rounds' ? generateRounds() : generateFleet())}
           disabled={loading}
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
