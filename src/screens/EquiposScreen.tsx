@@ -54,6 +54,7 @@ export default function EquiposScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | tipo | '__none__'
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
   // Traza de combustible por máquina
@@ -83,12 +84,30 @@ export default function EquiposScreen({ navigation }: any) {
       : companyFilter === '__none__'
       ? !m.company_id
       : m.company_id === companyFilter;
+  const matchType = (m: Machinery) => {
+    if (typeFilter === '__all__') return true;
+    const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : '';
+    return typeFilter === '__none__' ? !t : t === typeFilter;
+  };
   const q = query.trim().toLowerCase();
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => String(v).toLowerCase().includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   const machineryList = machinery.data.filter(
-    (m) => matchCompany(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, companyName(m.company_id)])
+    (m) => matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, companyName(m.company_id)])
   );
+  // Opciones del filtro por tipo (según la empresa elegida), con conteo.
+  const typeOptions = useMemo(() => {
+    const c = new Map<string, number>();
+    machinery.data.filter(matchCompany).forEach((m) => {
+      const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : '__none__';
+      c.set(t, (c.get(t) ?? 0) + 1);
+    });
+    const entries = Array.from(c.entries()).sort((a, b) =>
+      a[0] === '__none__' ? 1 : b[0] === '__none__' ? -1 : a[0].localeCompare(b[0])
+    );
+    return entries;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machinery.data, companyFilter]);
   const vehicleList = vehicles.data.filter((v) => matchQ([v.plate, v.brand, v.model, v.vehicle_type]));
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
@@ -583,6 +602,28 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* Filtro por tipo de maquinaria (chips) */}
+      <View style={{ marginTop: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tipo</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+          {([['__all__', 'Todos'], ...typeOptions.map(([t]) => [t, t === '__none__' ? 'Sin tipo' : t] as [string, string])] as [string, string][]).map(([val, label]) => {
+            const active = typeFilter === val;
+            const count = val === '__all__' ? typeOptions.reduce((s, [, n]) => s + n, 0) : (typeOptions.find(([t]) => t === val)?.[1] ?? 0);
+            return (
+              <TouchableOpacity
+                key={val}
+                onPress={() => setTypeFilter(val)}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+              >
+                <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+                <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({count})</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
       {firstLoad ? (
         <Loading />
       ) : totalResults === 0 ? (
@@ -591,7 +632,7 @@ export default function EquiposScreen({ navigation }: any) {
         <>
           {/* Maquinaria dividida por empresa (acordeón). */}
           {machineryByCompany.map((g) => {
-            const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__');
+            const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__' || typeFilter !== '__all__');
             return (
               <View key={g.key} style={{ marginBottom: spacing.xs }}>
                 <TouchableOpacity
