@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
-import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
+import { SHIFT_HOURS, valueFromShifts, shiftValue, shiftLabel } from './ControlMaquinariaScreen';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -259,10 +259,10 @@ export default function ReportsScreen({ route }: any) {
     setRoundsPreview(true);
   };
 
-  const hCell = (h: number) => (h ? `${h} h` : '—');
+  const hCell = (h: number) => { const v = shiftValue(h); return v ? v.toLocaleString() : '—'; };
 
   const downloadRoundsPdf = async () => {
-    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th><th>☀️ TURNO<br/>DÍA</th><th>🌙 TURNO<br/>NOCHE</th><th>TURNO</th><th>HORAS<br/>PARADA</th><th>HORAS<br/>EXTRA</th><th>HORAS<br/>TRABAJADAS</th></tr>`;
+    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th><th>☀️ TURNO<br/>DÍA</th><th>🌙 TURNO<br/>NOCHE</th><th>TURNO</th><th>HORAS<br/>PARADA</th><th>HORAS<br/>EXTRA</th><th>TOTAL</th></tr>`;
     const body = roundRows
       .map(
         (r) =>
@@ -271,13 +271,13 @@ export default function ReportsScreen({ route }: any) {
           `<td style="text-align:center">${shiftLabel(r.day + r.night)}</td>` +
           `<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td>` +
           `<td style="text-align:center">${r.overtime ? r.overtime.toLocaleString() : '—'}</td>` +
-          `<td style="text-align:center;font-weight:700">${workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</td></tr>`
+          `<td style="text-align:center;font-weight:700">${valueFromShifts(r.day, r.night).toLocaleString()}</td></tr>`
       )
       .join('');
     const content = `
       <div class="muted">Turnos del ${from} al ${to} · Turno completo ${SHIFT_HOURS} h · Medio 6 h${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="8" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">Horas trabajadas = (turno día + turno noche) − parada + extras · Medio turno 6 h · Turno completo 12 h · Turno y medio 18 h · Dos turnos 24 h</p>`;
+      <p class="muted" style="margin-top:8px">Valor por turno: completo (12 h) = 2 · medio (6 h) = 0.6 · TOTAL = valor día + valor noche</p>`;
     await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Turnos por día', content));
   };
 
@@ -640,7 +640,7 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.night || '—'}</Text>
                     <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.hours_stopped || '—'}</Text>
                     <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.overtime || '—'}</Text>
-                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</Text>
+                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{valueFromShifts(r.day, r.night).toLocaleString()}</Text>
                   </View>
                 ))
               )}

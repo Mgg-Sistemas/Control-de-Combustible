@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { workedFromShifts } from './ControlMaquinariaScreen';
+import { valueFromShifts, shiftValue } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -51,11 +51,11 @@ type MachineAgg = {
 };
 
 /**
- * Horas cobrables de un día = (turno día + turno noche) − parada + extras.
- * Solo se cobra si la máquina trabajó al menos un turno ese día.
+ * Valor cobrable de un día = valor(turno día) + valor(turno noche).
+ * Valor por turno: completo (12 h) = 2 · medio (6 h) = 0.6.
  */
 function billableHours(d: DayInfo): number {
-  return d.day + d.night > 0 ? workedFromShifts(d.day, d.night, d.stopped, d.overtime) : 0;
+  return valueFromShifts(d.day, d.night);
 }
 type Group = {
   company: string;
@@ -139,10 +139,10 @@ export default function ControlPagosScreen({ navigation }: any) {
       let noPrice = false;
       Object.values(g.machines).forEach((ma) => {
         const days = Object.values(ma.perDay);
-        const hrs = days.reduce((s, d) => s + billableHours(d), 0);
+        const hrs = Number(days.reduce((s, d) => s + billableHours(d), 0).toFixed(2));
         ma.hours = hrs;
-        ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
-        ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
+        ma.dayHours = Number(days.reduce((s, d) => s + shiftValue(d.day), 0).toFixed(2));
+        ma.nightHours = Number(days.reduce((s, d) => s + shiftValue(d.night), 0).toFixed(2));
         ma.subtotal = (ma.price ?? 0) * hrs;
         total += ma.subtotal;
         hoursWorked += hrs;
@@ -267,19 +267,19 @@ export default function ControlPagosScreen({ navigation }: any) {
           .map(
             (m) =>
               `<tr><td>${m.machine}</td>` +
-              `<td style="text-align:right">${m.dayHours.toLocaleString()} h</td>` +
-              `<td style="text-align:right">${m.nightHours.toLocaleString()} h</td>` +
-              `<td style="text-align:right;font-weight:700">${m.hours.toLocaleString()} h</td>` +
+              `<td style="text-align:right">${m.dayHours.toLocaleString()}</td>` +
+              `<td style="text-align:right">${m.nightHours.toLocaleString()}</td>` +
+              `<td style="text-align:right;font-weight:700">${m.hours.toLocaleString()}</td>` +
               `<td style="text-align:right">${m.price != null ? '$' + m.price.toLocaleString() : '—'}</td>` +
               `<td style="text-align:right;font-weight:700">$${m.subtotal.toLocaleString()}</td></tr>`
           )
           .join('');
-        const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
-        const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
+        const totDay = Number(machs.reduce((s, m) => s + m.dayHours, 0).toFixed(2));
+        const totNight = Number(machs.reduce((s, m) => s + m.nightHours, 0).toFixed(2));
         return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
-          <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/h</th><th>Subtotal</th></tr></thead>
+          <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Total</th><th>Precio/u</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
-          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
+          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()}</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()}</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()}</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
       })
       .join('');
     const totalPend = inRange.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
@@ -376,7 +376,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                   <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machinesOf(g).length} máquina(s)</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} h trab.</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} valor</Text>
                     {g.noPrice ? <Text style={{ color: colors.warning, fontSize: 12 }}>⚠️ falta precio</Text> : null}
                   </View>
                   <Text style={{ color: g.paid ? colors.success : colors.muted, fontSize: 12, marginTop: spacing.xs, fontWeight: g.paid ? '700' : '400' }}>
@@ -401,7 +401,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 </Text>
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Horas trabajadas</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Total (valor)</Text>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{selected.hoursWorked.toLocaleString()}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
@@ -416,7 +416,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               </Card>
 
               <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
-                Máquinas · horas × precio
+                Máquinas · valor × precio
               </Text>
               {machinesOf(selected).map((m) => (
                 <Card key={m.machine}>
@@ -425,10 +425,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.success, fontWeight: '800' }}>${m.subtotal.toLocaleString()}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    ⏱️ {m.hours.toLocaleString()} h × {m.price != null ? `$${m.price.toLocaleString()}/h` : '⚠️ sin precio'}
+                    ⏱️ {m.hours.toLocaleString()} × {m.price != null ? `$${m.price.toLocaleString()}/u` : '⚠️ sin precio'}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    ☀️ Día: {m.dayHours.toLocaleString()} h · 🌙 Noche: {m.nightHours.toLocaleString()} h
+                    ☀️ Día: {m.dayHours.toLocaleString()} · 🌙 Noche: {m.nightHours.toLocaleString()}
                   </Text>
                 </Card>
               ))}
@@ -561,7 +561,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.success, fontWeight: '800' }}>${Number(m.subtotal).toLocaleString()}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    ⏱️ {Number(m.hours).toLocaleString()} h × ${Number(m.price).toLocaleString()}/h
+                    ⏱️ {Number(m.hours).toLocaleString()} × ${Number(m.price).toLocaleString()}/u
                   </Text>
                 </Card>
               ))}
@@ -571,7 +571,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.text, fontWeight: '800' }}>TOTAL calculado</Text>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>${Number(histSel.detail.total).toLocaleString()}</Text>
                   </View>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{Number(histSel.detail.totalHours).toLocaleString()} h trabajadas</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{Number(histSel.detail.totalHours).toLocaleString()} valor total</Text>
                 </Card>
               ) : null}
 
