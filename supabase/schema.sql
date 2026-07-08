@@ -546,6 +546,10 @@ create policy mp_write on public.module_permissions for all to authenticated
 -- ============================================================================
 alter table public.machinery add column if not exists price_per_hour numeric(12,2);
 
+-- Grupo y encargado de la maquinaria (se muestran en el catálogo).
+alter table public.machinery add column if not exists grupo text;
+alter table public.machinery add column if not exists encargado text;
+
 create table if not exists public.company_payments (
   id           uuid primary key default gen_random_uuid(),
   company_id   uuid references public.companies(id) on delete set null,

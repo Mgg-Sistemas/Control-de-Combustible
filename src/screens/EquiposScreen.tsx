@@ -39,6 +39,8 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name' },
+  { key: 'grupo', label: 'Grupo', type: 'text' },
+  { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
 ];
 
@@ -85,7 +87,7 @@ export default function EquiposScreen({ navigation }: any) {
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => String(v).toLowerCase().includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   const machineryList = machinery.data.filter(
-    (m) => matchCompany(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, companyName(m.company_id)])
+    (m) => matchCompany(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, companyName(m.company_id)])
   );
   const vehicleList = vehicles.data.filter((v) => matchQ([v.plate, v.brand, v.model, v.vehicle_type]));
   const totalResults = machineryList.length + vehicleList.length;
@@ -332,6 +334,8 @@ export default function EquiposScreen({ navigation }: any) {
               </Text>
             </View>
             {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+            {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+            {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {m.latitude != null ? (
@@ -710,6 +714,7 @@ export default function EquiposScreen({ navigation }: any) {
                       </View>
                       {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
+                      {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                     </Card>
                   </TouchableOpacity>

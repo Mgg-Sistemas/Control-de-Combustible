@@ -67,6 +67,8 @@ export interface Machinery {
   exit_date: string | null;
   location: string | null;
   price_per_hour: number | null;
+  grupo: string | null;
+  encargado: string | null;
   created_at: string;
 }
 
