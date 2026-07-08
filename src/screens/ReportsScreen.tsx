@@ -73,6 +73,7 @@ function nowStamp(): string {
 const PDF_ACCENT = '#1E3A5F'; // azul oscuro
 const PDF_INK = '#1E3A5F';
 const PDF_CSS = `
+  @page{margin:0}
   *{box-sizing:border-box}
   body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:30px 32px}
   .top{display:flex;justify-content:space-between;align-items:flex-start}
@@ -108,7 +109,7 @@ const PDF_CSS = `
   .foot{margin-top:26px;padding-top:10px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
 `;
 function pdfShell(title: string, sub: string, body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${PDF_CSS}</style></head><body>
+  return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
       <div class="brand"><img src="${LOGO_DATA_URI}"/>
         <div><h1 class="doc-title">${title}</h1><div class="doc-sub">${sub}</div></div>

@@ -8,8 +8,7 @@ import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
-import { exportPdf } from '../lib/pdf';
-import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -166,11 +165,10 @@ export default function EquiposScreen({ navigation }: any) {
     const rows = fuelTrace
       .map((t) => `<tr><td>${t.date}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <style>
-        *{box-sizing:border-box}
-        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
-        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
+    const html = pdfDocument({
+      title: 'Traza de combustible',
+      subtitle: `${fuelFor.code}${fuelFor.company_id ? ' · ' + (companyName(fuelFor.company_id) || '') : ''}`,
+      extraCss: `
         .muted{color:#666;font-size:12px}
         .cards{display:flex;gap:10px;margin-top:12px}
         .c{flex:1;border:1px solid #ccc;border-radius:8px;padding:8px}
@@ -179,22 +177,19 @@ export default function EquiposScreen({ navigation }: any) {
         table{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}
         th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
-      </style></head><body>
-      <h1>TRAZA DE COMBUSTIBLE</h1>
-      <div class="muted">${fuelFor.code}${fuelFor.company_id ? ' · ' + (companyName(fuelFor.company_id) || '') : ''}</div>
+        h2{font-size:14px;color:#1E3A5F}`,
+      body: `
       <div class="cards">
         <div class="c"><div class="k">Última vez surtida</div><div class="v">${fuelLast ?? '—'}</div></div>
         <div class="c"><div class="k">Total surtido</div><div class="v">${fuelSurtido.toLocaleString()} L</div></div>
         <div class="c"><div class="k">Consumo estimado</div><div class="v">${consumed != null ? consumed.toLocaleString() + ' L' : '—'}</div></div>
       </div>
       <p class="muted" style="margin-top:6px">Consumo estimado = ${fuelWorked.toLocaleString()} h trabajadas × ${fuelFor.expected_lph != null ? Number(fuelFor.expected_lph).toLocaleString() + ' L/h' : 'sin rendimiento'}</p>
-      <h2 style="font-size:14px;color:#1E3A5F">Traza de surtidos</h2>
+      <h2>Traza de surtidos</h2>
       <table><thead><tr><th>Fecha</th><th>Tanque origen</th><th style="text-align:right">Litros</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin surtidos registrados</td></tr>'}</tbody>
-      <tfoot><tr><td colspan="2" style="text-align:right"><b>Total surtido</b></td><td style="text-align:right"><b>${fuelSurtido.toLocaleString()} L</b></td></tr></tfoot></table>
-      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
-      </body></html>`;
+      <tfoot><tr><td colspan="2" style="text-align:right"><b>Total surtido</b></td><td style="text-align:right"><b>${fuelSurtido.toLocaleString()} L</b></td></tr></tfoot></table>`,
+    });
     await exportPdf(html);
   };
 
@@ -368,22 +363,17 @@ export default function EquiposScreen({ navigation }: any) {
           <tbody>${rows}</tbody></table>`;
       })
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <style>
-        *{box-sizing:border-box}
-        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
-        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
+    const html = pdfDocument({
+      title: reportTitle,
+      subtitle: `Total de máquinas: ${reportTotal}`,
+      extraCss: `
         .muted{color:#666;font-size:12px}
         table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
-      </style></head><body>
-      <h1>${esc(reportTitle.toUpperCase())}</h1>
-      <div class="muted">Total de máquinas: ${reportTotal}</div>
-      ${sections || '<p class="muted">Sin maquinaria para este filtro.</p>'}
-      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
-      </body></html>`;
+        h2{font-size:14px;color:#1E3A5F;margin:16px 0 4px}`,
+      body: sections || '<p class="muted">Sin maquinaria para este filtro.</p>',
+    });
     await exportPdf(html);
   };
 

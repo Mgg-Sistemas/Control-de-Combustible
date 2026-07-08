@@ -3,9 +3,8 @@ import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal, Scroll
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
-import { exportPdf } from '../lib/pdf';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
-import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine } from '../types/database';
@@ -346,26 +345,21 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td></tr>`
       )
       .join('');
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <style>
-        *{box-sizing:border-box}
-        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
-        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
-        .muted{color:#666;font-size:12px}
+    const html = pdfDocument({
+      title: 'Control de maquinaria',
+      subtitle: `Cierre ${range} · ${c.detail?.totalMachines ?? machs.length} máquina(s) · ${machs.length} registro(s)`,
+      extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:14px;font-size:10px}
         th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
-      </style></head><body>
-      <h1>CONTROL DE MAQUINARIA</h1>
-      <div class="muted">Cierre ${range} · ${c.detail?.totalMachines ?? machs.length} máquina(s) · ${machs.length} registro(s)</div>
+        .note{color:#666;font-size:11px;margin-top:8px}`,
+      body: `
       <table><thead><tr><th>Fecha</th><th>Máquina</th><th>Empresa</th>
         <th>☀️ Día</th><th>Operador día</th><th>🌙 Noche</th><th>Operador noche</th>
         <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h · Cada jornada puede tener un operador distinto</p>
-      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
-      </body></html>`;
+      <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h · Cada jornada puede tener un operador distinto</p>`,
+    });
     await exportPdf(html);
   };
 

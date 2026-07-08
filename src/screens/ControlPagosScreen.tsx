@@ -3,8 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'reac
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
-import { exportPdf } from '../lib/pdf';
-import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -286,25 +285,20 @@ export default function ControlPagosScreen({ navigation }: any) {
     const totalPend = inRange.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
     const totalPag = inRange.filter((g) => g.paid).reduce((s, g) => s + g.total, 0);
     const title = repCompany === '__all__' ? 'Todas las empresas' : repCompany;
-    const html = `<!doctype html><html><head><meta charset="utf-8"/>
-      <style>
-        *{box-sizing:border-box}
-        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:28px}
-        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
-        .muted{color:#666;font-size:12px}
+    const html = pdfDocument({
+      title: 'Control de pagos por maquinaria',
+      subtitle: `${title} · del ${repFrom} al ${repTo}`,
+      extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7}
         .tot{margin-top:16px;font-size:13px}
-        .foot{margin-top:20px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
-      </style></head><body>
-      <h1>CONTROL DE PAGOS — POR MAQUINARIA</h1>
-      <div class="muted">${title} · del ${repFrom} al ${repTo}</div>
+        .muted{color:#666;font-size:12px}`,
+      body: `
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div class="tot"><b>Total pendiente:</b> $${totalPend.toLocaleString()} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${totalPag.toLocaleString()}</div>
-      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
-      </body></html>`;
+      <div class="tot"><b>Total pendiente:</b> $${totalPend.toLocaleString()} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${totalPag.toLocaleString()}</div>`,
+    });
     await exportPdf(html);
   };
 
