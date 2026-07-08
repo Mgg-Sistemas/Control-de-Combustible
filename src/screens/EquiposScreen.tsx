@@ -211,22 +211,22 @@ export default function EquiposScreen({ navigation }: any) {
     type Row = { key: string; data: Record<string, any>; company?: string | null };
     const rows: Row[] = lines
       .map((l) => {
-        const [a, b, c, d] = l.split(/[,\t;]/).map((s) => s.trim());
+        const [a, b, c, d, e] = l.split(/[,\t;]/).map((s) => s.trim());
         if (isVehicle) {
           // placa, marca, modelo
           const plate = a;
           if (!plate) return null;
           return { key: plate.toLowerCase(), data: { plate, brand: b || null, model: c || null } };
         }
-        // nombre, placa, serial, EMPRESA  →  código único = "nombre placa"
+        // nombre, placa, serial, IDENTIFICADOR, EMPRESA  →  código único = "nombre placa"
         const name = a;
         if (!name) return null;
         const plate = b || null;
         const code = (plate ? `${name} ${plate}` : name).trim();
         return {
           key: code.toLowerCase(),
-          data: { code, description: name, plate, serial: c || null, machinery_type: kind },
-          company: d || null, // 4ª columna: empresa (se resuelve/crea abajo)
+          data: { code, description: name, plate, serial: c || null, identifier: d || null, machinery_type: kind },
+          company: e || null, // 5ª columna: empresa (se resuelve/crea abajo)
         };
       })
       .filter(Boolean) as Row[];
@@ -528,7 +528,7 @@ export default function EquiposScreen({ navigation }: any) {
               Cargar {kindMeta.label.toLowerCase()} por lote
             </Text>
             <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-              Pega una por línea. Opcional: {isVehicle ? 'placa, marca, modelo' : 'nombre, placa, serial, empresa'} separados por coma.
+              Pega una por línea. Opcional: {isVehicle ? 'placa, marca, modelo' : 'nombre, placa, serial, identificador, empresa'} separados por coma.
               {isVehicle ? '' : ' La empresa se reconoce por su nombre y, si no existe, se crea.'}
             </Text>
             <ScrollView style={{ maxHeight: 240 }}>
@@ -536,7 +536,7 @@ export default function EquiposScreen({ navigation }: any) {
                 value={batchText}
                 onChangeText={setBatchText}
                 multiline
-                placeholder={isVehicle ? 'ABC123\nXYZ789, Toyota, Hilux' : 'RETRO-01\nVOLVO-02, PBA123, SER-998, Beraca'}
+                placeholder={isVehicle ? 'ABC123\nXYZ789, Toyota, Hilux' : 'RETRO-01\nVOLVO-02, PBA123, SER-998, ID-77, Beraca'}
                 placeholderTextColor={colors.muted}
                 style={{ minHeight: 160, textAlignVertical: 'top', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
               />
