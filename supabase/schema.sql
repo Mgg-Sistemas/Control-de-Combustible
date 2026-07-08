@@ -111,7 +111,7 @@ create table if not exists public.vehicles (
 -- ============================================================================
 create table if not exists public.machinery (
   id            uuid primary key default uuid_generate_v4(),
-  code          text not null unique,
+  code          text not null, -- el NOMBRE puede repetirse (varias "Volteos"); la unicidad va por serial/placa
   description   text,
   machinery_type text,
   expected_lph  numeric(10,2),         -- rendimiento esperado L/h
@@ -526,8 +526,13 @@ alter table public.machinery add column if not exists identifier text;
 alter table public.machinery add column if not exists location text;
 alter table public.machinery add column if not exists entry_date date;
 alter table public.machinery add column if not exists exit_date date;
+-- La identidad ÚNICA de la máquina es el SERIAL o la PLACA (no el nombre/código):
+-- puede haber varias máquinas llamadas "Volteos" con distinto serial/placa.
+alter table public.machinery drop constraint if exists machinery_code_key;
 create unique index if not exists uq_machinery_serial
   on public.machinery (lower(trim(serial))) where serial is not null and trim(serial) <> '';
+create unique index if not exists uq_machinery_plate
+  on public.machinery (lower(trim(plate))) where plate is not null and trim(plate) <> '';
 
 -- ============================================================================
 -- MATRIZ DE PERMISOS POR USUARIO Y MÓDULO

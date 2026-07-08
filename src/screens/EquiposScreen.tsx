@@ -947,7 +947,10 @@ export default function EquiposScreen({ navigation }: any) {
         table={isVehicle ? 'vehicles' : 'machinery'}
         fields={isVehicle ? VEHICLE_FIELDS : MACHINERY_FIELDS}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
-        uniqueField={isVehicle ? undefined : { key: 'serial', labelCol: 'code', labelName: 'serial' }}
+        uniqueField={isVehicle ? undefined : [
+          { key: 'serial', labelCol: 'code', labelName: 'serial' },
+          { key: 'plate', labelCol: 'code', labelName: 'placa' },
+        ]}
         record={editing}
         headerImageUrl={isVehicle ? undefined : editing?.photo_url}
         allowDelete
