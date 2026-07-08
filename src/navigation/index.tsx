@@ -110,6 +110,12 @@ function Tabs() {
         name="More"
         component={MoreStack}
         options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰'), popToTopOnBlur: true }}
+        listeners={({ navigation }) => ({
+          // Al tocar la pestaña "Más" siempre mostrar el menú, no el último módulo abierto.
+          tabPress: () => {
+            navigation.navigate('More', { screen: 'MoreMenu' });
+          },
+        })}
       />
     </Tab.Navigator>
   );
