@@ -34,6 +34,7 @@ const VEHICLE_FIELDS: Field[] = [
 
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
+  { key: 'tipo', label: 'Tipo (Jumbo, Tractor, Chuto...)', type: 'text' },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
@@ -316,7 +317,8 @@ export default function EquiposScreen({ navigation }: any) {
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [machineryList, companyName]);
 
-  // Grupos para el REPORTE (usa toda la maquinaria, no la búsqueda/filtro de arriba).
+  // Grupos para el REPORTE: se filtra por la empresa elegida y se AGRUPA POR TIPO
+  // (Jumbo, Tractor, Chuto...). Cada grupo muestra "Total de {Tipo}: N" + desglose.
   const reportGroups = useMemo(() => {
     const src =
       reportCompany === '__all__'
@@ -326,40 +328,46 @@ export default function EquiposScreen({ navigation }: any) {
         : machinery.data.filter((m) => m.company_id === reportCompany);
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
-      const k = it.company_id ?? '__none__';
-      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
-      const g = m.get(k) ?? { key: k, name, items: [] };
+      const t = it.tipo && it.tipo.trim() ? it.tipo.trim() : 'Sin tipo';
+      const g = m.get(t) ?? { key: t, name: t, items: [] };
       g.items.push(it);
-      m.set(k, g);
+      m.set(t, g);
     });
     const groups = Array.from(m.values());
     groups.forEach((g) =>
       g.items.sort((a, b) => (a.identifier || 'zzz').localeCompare(b.identifier || 'zzz') || a.code.localeCompare(b.code))
     );
-    return groups.sort((a, b) => a.name.localeCompare(b.name));
-  }, [reportCompany, machinery.data, companyName]);
+    // "Sin tipo" al final; el resto alfabético.
+    return groups.sort((a, b) =>
+      a.name === 'Sin tipo' ? 1 : b.name === 'Sin tipo' ? -1 : a.name.localeCompare(b.name)
+    );
+  }, [reportCompany, machinery.data]);
   const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
   const reportTitle = reportCompany === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(reportCompany) || 'Sin empresa'}`;
 
   const downloadReportPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let item = 0; // contador continuo de ítems (1..N) en todo el reporte
     const sections = reportGroups
       .map((g) => {
         const rows = g.items
-          .map(
-            (m) => `<tr>
+          .map((m) => {
+            item += 1;
+            return `<tr>
+              <td style="text-align:center;font-weight:700">${item}</td>
               <td>${esc(m.identifier || '—')}</td>
               <td>${esc(m.code)}</td>
+              <td>${esc(m.tipo || '—')}</td>
               <td>${esc(m.plate || '—')}</td>
               <td>${esc(m.serial || '—')}</td>
               <td>${esc(m.encargado || '—')}</td>
               <td>${esc(m.grupo || '—')}</td>
               <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
-            </tr>`
-          )
+            </tr>`;
+          })
           .join('');
-        return `<h2 style="font-size:14px;color:#1E3A5F;margin:16px 0 4px">🏢 ${esc(g.name)} <span style="color:#666;font-weight:400">(${g.items.length})</span></h2>
-          <table><thead><tr><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
+        return `<h2>🔧 Total de ${esc(g.name)}: <span style="color:#1E3A5F">${g.items.length}</span></h2>
+          <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Tipo</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
           <tbody>${rows}</tbody></table>`;
       })
       .join('');
@@ -371,8 +379,11 @@ export default function EquiposScreen({ navigation }: any) {
         table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        h2{font-size:14px;color:#1E3A5F;margin:16px 0 4px}`,
-      body: sections || '<p class="muted">Sin maquinaria para este filtro.</p>',
+        h2{font-size:14px;color:#1E3A5F;margin:16px 0 4px}
+        .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
+      body:
+        (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
+        `<div class="grand">Total de máquinas: ${reportTotal}</div>`,
     });
     await exportPdf(html);
   };
@@ -849,26 +860,45 @@ export default function EquiposScreen({ navigation }: any) {
             {reportTotal === 0 ? (
               <EmptyState title="Sin maquinaria" subtitle="No hay máquinas para este alcance." />
             ) : (
-              reportGroups.map((g) => (
-                <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 4 }}>🏢 {g.name} ({g.items.length})</Text>
-                  {g.items.map((m) => (
-                    <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
-                          {m.identifier ? `${m.identifier} · ` : ''}{m.code}
+              (() => {
+                let item = 0; // contador continuo (1..N) para el ítem
+                return (
+                  <>
+                    {reportGroups.map((g) => (
+                      <View key={g.key} style={{ marginBottom: spacing.sm }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 4 }}>
+                          🔧 Total de {g.name}: {g.items.length}
                         </Text>
-                        <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
-                          {m.operational ? 'Operativa' : 'No operativa'}
-                        </Text>
+                        {g.items.map((m) => {
+                          item += 1;
+                          const n = item;
+                          return (
+                            <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
+                                  <Text style={{ color: colors.muted }}>{n}. </Text>
+                                  {m.identifier ? `${m.identifier} · ` : ''}{m.code}
+                                </Text>
+                                <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
+                                  {m.operational ? 'Operativa' : 'No operativa'}
+                                </Text>
+                              </View>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                {[m.tipo && `Tipo: ${m.tipo}`, m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
+                              </Text>
+                            </View>
+                          );
+                        })}
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>
-                        {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
+                    ))}
+                    <View style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14, textAlign: 'right' }}>
+                        Total de máquinas: {reportTotal}
                       </Text>
                     </View>
-                  ))}
-                </View>
-              ))
+                  </>
+                );
+              })()
             )}
           </ScrollView>
 

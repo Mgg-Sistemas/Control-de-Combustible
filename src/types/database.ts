@@ -71,6 +71,7 @@ export interface Machinery {
   price_per_hour: number | null;
   grupo: string | null;
   encargado: string | null;
+  tipo: string | null; // tipo de máquina (Jumbo, Tractor, Chuto...) — para agrupar reportes
   created_at: string;
 }
 
