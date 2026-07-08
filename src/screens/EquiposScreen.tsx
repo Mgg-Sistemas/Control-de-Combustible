@@ -45,6 +45,7 @@ export default function EquiposScreen({ navigation }: any) {
   const machinery = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
   const companies = useTable<Company>('companies');
   const [query, setQuery] = useState('');
+  const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -60,7 +61,15 @@ export default function EquiposScreen({ navigation }: any) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const isVehicle = kind === 'vehiculo';
-  const baseList = isVehicle ? vehicles.data : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind);
+  const matchCompany = (m: Machinery) =>
+    companyFilter === '__all__'
+      ? true
+      : companyFilter === '__none__'
+      ? !m.company_id
+      : m.company_id === companyFilter;
+  const baseList = isVehicle
+    ? vehicles.data
+    : machinery.data.filter((m) => (m.machinery_type ?? 'maquinaria') === kind && matchCompany(m));
   const q = query.trim().toLowerCase();
   const list = !q
     ? baseList
@@ -279,6 +288,39 @@ export default function EquiposScreen({ navigation }: any) {
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{list.length} resultado(s)</Text>
         ) : null}
       </View>
+
+      {/* Filtro por empresa (solo maquinaria) */}
+      {!isVehicle ? (
+        <View style={{ marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por empresa</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {[
+                { label: 'Todas', value: '__all__' },
+                ...companies.data
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((c) => ({ label: c.name, value: c.id })),
+                { label: 'Sin empresa', value: '__none__' },
+              ].map((c) => {
+                const active = companyFilter === c.value;
+                return (
+                  <TouchableOpacity
+                    key={c.value}
+                    onPress={() => setCompanyFilter(c.value)}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}
+                  >
+                    <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
+          {companyFilter !== '__all__' ? (
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>{list.length} resultado(s)</Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {loading ? (
         <Loading />
