@@ -336,15 +336,45 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const range = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
       ? `del ${c.detail.dateFrom} al ${c.detail.dateTo}`
       : `del ${c.detail?.dateFrom ?? c.closure_date}`;
+    // Precio por hora de cada máquina (por código, de la lista actual).
+    const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
+    const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rows = machs
-      .map(
-        (m) =>
+      .map((m) => {
+        const price = priceByCode.get(m.code) ?? 0;
+        const amount = (Number(m.worked) || 0) * price;
+        return (
           `<tr><td>${m.date ?? '—'}</td><td>${m.code}</td><td>${m.company || '—'}</td>` +
           `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td>${opCell(m.dayOperator, m.dayCedula)}</td>` +
           `<td style="text-align:center">${shiftCell(m.nightHours)}</td><td>${opCell(m.nightOperator, m.nightCedula)}</td>` +
-          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td></tr>`
-      )
+          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td>` +
+          `<td style="text-align:right;font-weight:700">${price ? usd(amount) : '—'}</td></tr>`
+        );
+      })
       .join('');
+    // Totales del cierre.
+    const tot = machs.reduce(
+      (a, m) => {
+        const price = priceByCode.get(m.code) ?? 0;
+        return {
+          day: a.day + (Number(m.dayHours) || 0),
+          night: a.night + (Number(m.nightHours) || 0),
+          stopped: a.stopped + (Number(m.hoursStopped) || 0),
+          extra: a.extra + (Number(m.overtime) || 0),
+          worked: a.worked + (Number(m.worked) || 0),
+          amount: a.amount + (Number(m.worked) || 0) * price,
+        };
+      },
+      { day: 0, night: 0, stopped: 0, extra: 0, worked: 0, amount: 0 }
+    );
+    const foot = `<tfoot><tr>
+      <td colspan="3" style="text-align:right;font-weight:800">TOTALES</td>
+      <td style="text-align:center;font-weight:800">${tot.day} h</td><td></td>
+      <td style="text-align:center;font-weight:800">${tot.night} h</td><td></td>
+      <td style="text-align:center;font-weight:800">${tot.stopped} h</td>
+      <td style="text-align:center;font-weight:800">${tot.extra} h</td>
+      <td style="text-align:center;font-weight:800">${tot.worked} h</td>
+      <td style="text-align:right;font-weight:800">${usd(tot.amount)}</td></tr></tfoot>`;
     const html = pdfDocument({
       title: 'Control de maquinaria',
       subtitle: `Cierre ${range} · ${c.detail?.totalMachines ?? machs.length} máquina(s) · ${machs.length} registro(s)`,
@@ -352,13 +382,26 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         table{width:100%;border-collapse:collapse;margin-top:14px;font-size:10px}
         th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        .note{color:#666;font-size:11px;margin-top:8px}`,
+        tfoot td{background:#EEF2F7}
+        .note{color:#666;font-size:11px;margin-top:8px}
+        .totals{display:flex;gap:12px;margin-top:14px}
+        .totals .c{flex:1;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;background:#FBFBFB}
+        .totals .c.pay{background:#1E3A5F;border-color:#1E3A5F}
+        .totals .c.pay .k,.totals .c.pay .v{color:#fff}
+        .totals .k{color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+        .totals .v{font-weight:800;font-size:20px;color:#1E3A5F;margin-top:2px}`,
       body: `
       <table><thead><tr><th>Fecha</th><th>Máquina</th><th>Empresa</th>
         <th>☀️ Día</th><th>Operador día</th><th>🌙 Noche</th><th>Operador noche</th>
-        <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h · Cada jornada puede tener un operador distinto</p>`,
+        <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th><th>Monto ($)</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="11" style="text-align:center">Sin datos</td></tr>'}</tbody>${foot}</table>
+      <div class="totals">
+        <div class="c"><div class="k">Total de horas trabajadas</div><div class="v">${tot.worked} h</div></div>
+        <div class="c"><div class="k">☀️ Total horas de día</div><div class="v">${tot.day} h</div></div>
+        <div class="c"><div class="k">🌙 Total horas de noche</div><div class="v">${tot.night} h</div></div>
+        <div class="c pay"><div class="k">💵 Total a pagar</div><div class="v">${usd(tot.amount)}</div></div>
+      </div>
+      <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h · Monto = horas trabajadas × precio/hora de la máquina</p>`,
     });
     await exportPdf(html);
   };
