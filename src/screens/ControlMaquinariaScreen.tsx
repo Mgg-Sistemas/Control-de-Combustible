@@ -4,6 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
+import { elapsedSince } from '../lib/time';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
@@ -63,6 +64,18 @@ function todayISO(): string {
   const day = `${d.getDate()}`.padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
 }
+/** Fecha + hora (Caracas) legible, p. ej. "08/07/2026 07:35". */
+function fmtDateTime(iso?: string | null): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('es-VE', {
+      timeZone: 'America/Caracas',
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
 function shiftDay(iso: string, delta: number): string {
   const d = new Date(iso + 'T12:00:00');
   d.setDate(d.getDate() + delta);
@@ -117,11 +130,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const cmap: Record<string, string> = {};
     (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
     setCompanies(cmap);
+    // El control activo ignora lo ya cerrado (archivado en el histórico); esos datos
+    // siguen en la BD y cuentan para pagos/reportes, pero no se editan aquí.
     const map: Record<string, MachineRound> = {};
-    (r ?? []).forEach((row: any) => (map[key(row.machinery_id, row.round_no)] = row));
+    (r ?? []).forEach((row: any) => { if (!row.closed) map[key(row.machinery_id, row.round_no)] = row; });
     setRounds(map);
     const omap: Record<string, Operator> = {};
-    (ops ?? []).forEach((o: MachineDayOperator) => {
+    (ops ?? []).forEach((o: any) => {
+      if (o.closed) return;
       omap[o.machinery_id] = { first_name: o.first_name ?? '', last_name: o.last_name ?? '', cedula: o.cedula ?? '' };
     });
     setOperators(omap);
@@ -248,9 +264,17 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       closed_by: session?.user?.id ?? null,
       detail: { machines: snapshot, totalMachines: snapshot.length },
     });
+    if (error) {
+      setClosing(false);
+      return Alert.alert('Aviso', error.message);
+    }
+    // Marca las rondas y operadores del día como cerrados: dejan de verse en el
+    // control activo (queda limpio) pero permanecen en la BD para pagos/reportes.
+    await supabase.from('machine_rounds').update({ closed: true }).eq('round_date', date).eq('closed', false);
+    await supabase.from('machine_day_operators').update({ closed: true }).eq('round_date', date).eq('closed', false);
     setClosing(false);
-    if (error) return Alert.alert('Aviso', error.message);
-    setNotice(`✅ Control del ${date} cerrado y guardado en el histórico.`);
+    setNotice(`✅ Control del ${date} cerrado y guardado en el histórico. El control del día quedó limpio.`);
+    load(true);
   };
 
   const openHistorico = async () => {
@@ -298,6 +322,17 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
     if (error) return Alert.alert('Aviso', error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, [field]: value } as Machinery) : x)));
+  };
+
+  // Marca/limpia la ENTRADA o SALIDA guardando el MOMENTO exacto (fecha + hora).
+  // Desde la entrada se cuenta que la máquina empieza a trabajar.
+  const setMove = async (m: Machinery, kind: 'entry' | 'exit', on: boolean) => {
+    const patch = on
+      ? { [`${kind}_date`]: date, [`${kind}_at`]: new Date().toISOString() }
+      : { [`${kind}_date`]: null, [`${kind}_at`]: null };
+    const { error } = await supabase.from('machinery').update(patch).eq('id', m.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, ...patch } as Machinery) : x)));
   };
 
   const openPrice = (m: Machinery) => {
@@ -566,16 +601,19 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 })}
               </View>
 
-              {/* Entrada / Salida (con calendario, solo si se tildan) */}
+              {/* Entrada / Salida: guarda el momento exacto (fecha + hora). Desde la
+                  entrada se cuenta que la máquina empieza a trabajar. */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                {(['entry_date', 'exit_date'] as const).map((field) => {
-                  const label = field === 'entry_date' ? '📥 ENTRADA' : '📤 SALIDA';
-                  const val = (m as any)[field] as string | null;
+                {(['entry', 'exit'] as const).map((kind) => {
+                  const label = kind === 'entry' ? '📥 ENTRADA' : '📤 SALIDA';
+                  const dateField = kind === 'entry' ? 'entry_date' : 'exit_date';
+                  const atVal = (kind === 'entry' ? m.entry_at : m.exit_at) as string | null;
+                  const val = (m as any)[dateField] as string | null;
                   const active = !!val;
                   return (
-                    <View key={field} style={{ flex: 1 }}>
+                    <View key={kind} style={{ flex: 1 }}>
                       <TouchableOpacity
-                        onPress={() => setMoveDate(m, field, active ? null : date)}
+                        onPress={() => setMove(m, kind, !active)}
                         style={{ paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, alignItems: 'center' }}
                       >
                         <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>
@@ -583,8 +621,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                         </Text>
                       </TouchableOpacity>
                       {active ? (
-                        <View style={{ marginTop: 4 }}>
-                          <DateField value={val ?? ''} onChange={(v) => setMoveDate(m, field, v || null)} colors={colors} />
+                        <View style={{ marginTop: 4, gap: 4 }}>
+                          <Text style={{ color: kind === 'entry' ? colors.success : colors.text, fontSize: 11, fontWeight: '700' }}>
+                            🕒 {fmtDateTime(atVal)}
+                          </Text>
+                          {kind === 'entry' && atVal ? (
+                            <Text style={{ color: colors.success, fontSize: 11 }}>▶ Trabajando {elapsedSince(atVal)}</Text>
+                          ) : null}
+                          <DateField value={val ?? ''} onChange={(v) => setMoveDate(m, dateField, v || null)} colors={colors} />
                         </View>
                       ) : null}
                     </View>

@@ -559,6 +559,17 @@ alter table public.machinery add column if not exists encargado text;
 -- Horas extras por máquina/día (se suman a las horas trabajadas y al total a pagar).
 alter table public.machine_rounds add column if not exists overtime_hours numeric(6,2) default 0;
 
+-- Momento exacto (fecha + hora) de entrada/salida de la máquina: desde la entrada
+-- se cuenta que empieza a trabajar.
+alter table public.machinery add column if not exists entry_at timestamptz;
+alter table public.machinery add column if not exists exit_at timestamptz;
+
+-- "Cerrar control" archiva el día en el histórico y marca sus rondas/operadores como
+-- cerrados (closed=true): dejan de verse en el control activo pero siguen contando
+-- para pagos y reportes. Cambiar de fecha NO borra nada.
+alter table public.machine_rounds add column if not exists closed boolean not null default false;
+alter table public.machine_day_operators add column if not exists closed boolean not null default false;
+
 create table if not exists public.company_payments (
   id           uuid primary key default gen_random_uuid(),
   company_id   uuid references public.companies(id) on delete set null,

@@ -65,6 +65,8 @@ export interface Machinery {
   location_at: string | null;
   entry_date: string | null;
   exit_date: string | null;
+  entry_at: string | null;
+  exit_at: string | null;
   location: string | null;
   price_per_hour: number | null;
   grupo: string | null;
@@ -116,6 +118,7 @@ export interface MachineRound {
   status: 'operativa' | 'parada';
   hours_stopped: number;
   overtime_hours: number | null;
+  closed: boolean;
   notes: string | null;
   recorded_by: string | null;
   created_at: string;
@@ -127,6 +130,7 @@ export interface MachineDayOperator {
   first_name: string | null;
   last_name: string | null;
   cedula: string | null;
+  closed: boolean;
   updated_at: string;
 }
 
