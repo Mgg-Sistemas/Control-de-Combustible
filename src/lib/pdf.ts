@@ -23,7 +23,7 @@ const PDF_ACCENT = '#1E3A5F';
 export const PDF_BASE_CSS = `
   @page{margin:0}
   *{box-sizing:border-box}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:30px 32px}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:2cm}
   .top{display:flex;justify-content:space-between;align-items:flex-start}
   .brand{display:flex;gap:16px;align-items:center}
   .brand img{height:70px;width:auto}

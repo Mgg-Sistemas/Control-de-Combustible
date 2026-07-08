@@ -348,15 +348,14 @@ export default function EquiposScreen({ navigation }: any) {
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [machineryList, companyName]);
 
-  // Grupos para el REPORTE: se AGRUPA POR EMPRESA y dentro se cuenta por TIPO
-  // (Jumbo, Volteo, Tractor...) con sus totales + el desglose de máquinas.
-  const reportGroups = useMemo(() => {
+  // Grupos para el REPORTE (por EMPRESA) según el alcance elegido.
+  const groupsForScope = (scope: string) => {
     const src =
-      reportCompany === '__all__'
+      scope === '__all__'
         ? machinery.data
-        : reportCompany === '__none__'
+        : scope === '__none__'
         ? machinery.data.filter((m) => !m.company_id)
-        : machinery.data.filter((m) => m.company_id === reportCompany);
+        : machinery.data.filter((m) => m.company_id === scope);
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const k = it.company_id ?? '__none__';
@@ -369,73 +368,81 @@ export default function EquiposScreen({ navigation }: any) {
     groups.forEach((g) =>
       g.items.sort((a, b) => (a.identifier || 'zzz').localeCompare(b.identifier || 'zzz') || a.code.localeCompare(b.code))
     );
-    // "Sin empresa" al final; el resto alfabético.
     return groups.sort((a, b) =>
       a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name)
     );
-  }, [reportCompany, machinery.data, companyName]);
-  // Conteo por tipo dentro de un conjunto de máquinas → [['Jumbo', 3], ['Volteo', 2], ...].
-  const typeCountsOf = (items: Machinery[]): [string, number][] => {
-    const c = new Map<string, number>();
+  };
+  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, machinery.data, companyName]);
+  // Subgrupos por TIPO dentro de un conjunto: [['Jumbo', items], ...] con "Sin tipo" al final.
+  const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
+    const c = new Map<string, Machinery[]>();
     items.forEach((it) => {
       const t = it.tipo && it.tipo.trim() ? it.tipo.trim() : 'Sin tipo';
-      c.set(t, (c.get(t) ?? 0) + 1);
+      if (!c.has(t)) c.set(t, []);
+      c.get(t)!.push(it);
     });
     return Array.from(c.entries()).sort((a, b) =>
       a[0] === 'Sin tipo' ? 1 : b[0] === 'Sin tipo' ? -1 : a[0].localeCompare(b[0])
     );
   };
   const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
-  const reportTitle = reportCompany === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(reportCompany) || 'Sin empresa'}`;
+  const titleForScope = (scope: string) =>
+    scope === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(scope) || 'Sin empresa'}`;
+  const reportTitle = titleForScope(reportCompany);
 
-  const downloadReportPdf = async () => {
+  const buildReportHtml = (scope: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const groups = groupsForScope(scope);
+    const total = groups.reduce((s, g) => s + g.items.length, 0);
     let item = 0; // contador continuo de ítems (1..N) en todo el reporte
-    const sections = reportGroups
+    const sections = groups
       .map((g) => {
-        const rows = g.items
-          .map((m) => {
-            item += 1;
-            return `<tr>
-              <td style="text-align:center;font-weight:700">${item}</td>
-              <td>${esc(m.identifier || '—')}</td>
-              <td>${esc(m.code)}</td>
-              <td>${esc(m.tipo || '—')}</td>
-              <td>${esc(m.plate || '—')}</td>
-              <td>${esc(m.serial || '—')}</td>
-              <td>${esc(m.encargado || '—')}</td>
-              <td>${esc(m.grupo || '—')}</td>
-              <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
-            </tr>`;
+        const tipoBlocks = tiposOf(g.items)
+          .map(([tipo, items]) => {
+            const rows = items
+              .map((m) => {
+                item += 1;
+                return `<tr>
+                  <td style="text-align:center;font-weight:700">${item}</td>
+                  <td>${esc(m.identifier || '—')}</td>
+                  <td>${esc(m.code)}</td>
+                  <td>${esc(m.plate || '—')}</td>
+                  <td>${esc(m.serial || '—')}</td>
+                  <td>${esc(m.encargado || '—')}</td>
+                  <td>${esc(m.grupo || '—')}</td>
+                  <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
+                </tr>`;
+              })
+              .join('');
+            return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
+              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
+              <tbody>${rows}</tbody></table>`;
           })
           .join('');
-        const tipos = typeCountsOf(g.items)
-          .map(([t, n]) => `<span class="chip">${esc(t)}: <b>${n}</b></span>`)
-          .join('');
-        return `<h2>🏢 ${esc(g.name)} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
-          <div class="tipos">${tipos}</div>
-          <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Tipo</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
-          <tbody>${rows}</tbody>
-          <tfoot><tr><td colspan="9" style="text-align:right;font-weight:700;background:#EEF2F7">Total ${esc(g.name)}: ${g.items.length}</td></tr></tfoot></table>`;
+        return `<h2>🏢 ${esc(g.name.toUpperCase())} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
+          ${tipoBlocks}
+          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length}</div>`;
       })
       .join('');
-    const html = pdfDocument({
-      title: reportTitle,
-      subtitle: `Total de máquinas: ${reportTotal}`,
+    return pdfDocument({
+      title: titleForScope(scope),
+      subtitle: `Total de máquinas: ${total}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
-        table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
+        table{width:100%;border-collapse:collapse;margin-top:2px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        h2{font-size:14px;color:#1E3A5F;margin:16px 0 4px}
-        .tipos{margin:2px 0 6px}
-        .chip{display:inline-block;background:#EEF2F7;color:#1E3A5F;border:1px solid #d6dee8;border-radius:12px;padding:2px 9px;margin:0 6px 4px 0;font-size:11px}
+        h2{font-size:15px;color:#1E3A5F;margin:18px 0 4px;text-transform:uppercase}
+        .tipo{font-size:13px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:12px 0 2px}
+        .subtotal{margin:6px 0 2px;text-align:right;font-weight:700;color:#1E3A5F}
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body:
         (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
-        `<div class="grand">Total de máquinas: ${reportTotal}</div>`,
+        `<div class="grand">Total de máquinas: ${total}</div>`,
     });
-    await exportPdf(html);
+  };
+  const downloadReportPdf = async (scope: string = reportCompany) => {
+    await exportPdf(buildReportHtml(scope));
   };
 
   const renderMachineCard = (m: Machinery) => {
@@ -921,7 +928,7 @@ export default function EquiposScreen({ navigation }: any) {
                 return (
                   <TouchableOpacity
                     key={o.value}
-                    onPress={() => setReportCompany(o.value)}
+                    onPress={() => { setReportCompany(o.value); downloadReportPdf(o.value); }}
                     style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                   >
                     <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
@@ -946,36 +953,36 @@ export default function EquiposScreen({ navigation }: any) {
                   <>
                     {reportGroups.map((g) => (
                       <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
                           🏢 {g.name} ({g.items.length} máquina{g.items.length === 1 ? '' : 's'})
                         </Text>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                          {typeCountsOf(g.items).map(([t, n]) => (
-                            <View key={t} style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                              <Text style={{ color: colors.text, fontSize: 11, fontWeight: '600' }}>{t}: <Text style={{ color: colors.primary, fontWeight: '800' }}>{n}</Text></Text>
-                            </View>
-                          ))}
-                        </View>
-                        {g.items.map((m) => {
-                          item += 1;
-                          const n = item;
-                          return (
-                            <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
-                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
-                                  <Text style={{ color: colors.muted }}>{n}. </Text>
-                                  {m.identifier ? `${m.identifier} · ` : ''}{m.code}
-                                </Text>
-                                <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
-                                  {m.operational ? 'Operativa' : 'No operativa'}
-                                </Text>
-                              </View>
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>
-                                {[m.tipo && `Tipo: ${m.tipo}`, m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
-                              </Text>
-                            </View>
-                          );
-                        })}
+                        {tiposOf(g.items).map(([tipo, items]) => (
+                          <View key={tipo} style={{ marginBottom: spacing.xs }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                              {tipo.toUpperCase()} — TOTAL {items.length}
+                            </Text>
+                            {items.map((m) => {
+                              item += 1;
+                              const n = item;
+                              return (
+                                <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 5, paddingLeft: spacing.sm }}>
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
+                                      <Text style={{ color: colors.muted }}>{n}. </Text>
+                                      {m.identifier ? `${m.identifier} · ` : ''}{m.code}
+                                    </Text>
+                                    <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
+                                      {m.operational ? 'Operativa' : 'No operativa'}
+                                    </Text>
+                                  </View>
+                                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                                    {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ))}
                       </View>
                     ))}
                     <View style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
@@ -991,7 +998,7 @@ export default function EquiposScreen({ navigation }: any) {
 
           <TouchableOpacity
             style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1 }}
-            onPress={downloadReportPdf}
+            onPress={() => downloadReportPdf()}
             disabled={reportTotal === 0}
           >
             <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
