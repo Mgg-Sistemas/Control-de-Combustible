@@ -13,7 +13,6 @@ import {
 import { supabase } from '../lib/supabase';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
-import { useConfirm } from './ConfirmProvider';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
@@ -35,6 +34,14 @@ export type Field =
     };
 
 type Option = { label: string; value: string };
+
+/** Etiqueta corta para botones: si el nombre trae siglas entre paréntesis
+ *  (p. ej. "Ferreconstruccion 3-G (F3G)") muestra sólo las siglas ("F3G").
+ *  El valor guardado no cambia (se guarda el id del registro). */
+function shortLabel(label: string): string {
+  const m = label.match(/\(([^)]+)\)\s*$/);
+  return m ? m[1].trim() : label;
+}
 
 function todayISO() {
   // Evita Date.now(); usa la fecha local del dispositivo a través del input.
@@ -78,7 +85,6 @@ export function RecordForm({
   onSaved: () => void;
 }) {
   const { colors, typography } = useTheme();
-  const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isEdit = !!record;
   const [values, setValues] = useState<Record<string, string>>({});
@@ -86,6 +92,7 @@ export function RecordForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [askDelete, setAskDelete] = useState(false);
 
   const fieldDefaults = useMemo(() => {
     const o: Record<string, string> = {};
@@ -110,6 +117,7 @@ export function RecordForm({
       setValues({ ...fieldDefaults });
     }
     setError(null);
+    setAskDelete(false);
     // Cargar opciones de los campos lookup
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
@@ -180,14 +188,7 @@ export function RecordForm({
 
   const remove = async () => {
     if (!record) return;
-    const ok = await confirm({
-      title: 'Eliminar',
-      message: '¿Desea eliminar este registro? Esta acción no se puede deshacer.',
-      confirmText: 'Aceptar',
-      cancelText: 'Cancelar',
-      danger: true,
-    });
-    if (!ok) return;
+    setAskDelete(false);
     setError(null);
     setDeleting(true);
     const { error } = await supabase.from(table).delete().eq('id', record.id);
@@ -266,11 +267,42 @@ export function RecordForm({
           </View>
 
           {isEdit && allowDelete ? (
-            <TouchableOpacity style={styles.btnDelete} onPress={remove} disabled={deleting}>
+            <TouchableOpacity style={styles.btnDelete} onPress={() => setAskDelete(true)} disabled={deleting}>
               <Text style={{ color: colors.danger, fontWeight: '700' }}>
                 {deleting ? 'Eliminando…' : '🗑️ Eliminar'}
               </Text>
             </TouchableOpacity>
+          ) : null}
+
+          {askDelete ? (
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmBox}>
+                <Text style={[typography.title, { marginBottom: spacing.sm, textAlign: 'center' }]}>
+                  Eliminar
+                </Text>
+                <Text style={{ color: colors.text, textAlign: 'center', marginBottom: spacing.md }}>
+                  ¿Desea eliminar este registro? Esta acción no se puede deshacer.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity
+                    style={[styles.btn, styles.btnGhost]}
+                    onPress={() => setAskDelete(false)}
+                    disabled={deleting}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btn, { backgroundColor: colors.danger }]}
+                    onPress={remove}
+                    disabled={deleting}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>
+                      {deleting ? 'Eliminando…' : 'Aceptar'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
           ) : null}
         </View>
       </View>
@@ -343,6 +375,7 @@ function SearchSelect({
               style={[styles.gridBtn, active && styles.gridBtnActive]}
             >
               <Text
+                numberOfLines={2}
                 style={{
                   color: active ? colors.primaryContrast : colors.text,
                   fontSize: 15,
@@ -350,7 +383,7 @@ function SearchSelect({
                   textAlign: 'center',
                 }}
               >
-                {o.label}
+                {shortLabel(o.label)}
               </Text>
             </TouchableOpacity>
           );
@@ -500,5 +533,27 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.danger,
+  },
+  confirmOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+  },
+  confirmBox: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.background,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
   },
 });
