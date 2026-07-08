@@ -899,22 +899,51 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           {closures.length === 0 ? (
             <EmptyState title="Sin cierres" subtitle="Cierra un control del día y aparecerá aquí para reportarlo." />
           ) : (
-            closures.map((c) => {
-              const rng = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
-                ? `${c.detail.dateFrom} → ${c.detail.dateTo}`
-                : c.detail?.dateFrom ?? c.closure_date;
-              return (
-                <TouchableOpacity key={c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureSel(c); }}>
-                  <Card>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {rng}</Text>
-                      <Text style={{ color: colors.primary, fontWeight: '800' }}>{c.detail?.totalMachines ?? 0} máq.</Text>
-                    </View>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca para ver e imprimir el reporte</Text>
-                  </Card>
-                </TouchableOpacity>
+            (() => {
+              // Agrupar el histórico POR EMPRESA (un cierre con varias empresas sale en cada una).
+              const groups = new Map<string, { company: string; items: { c: ControlClosure; machines: number }[] }>();
+              closures.forEach((c) => {
+                const machs = c.detail?.machines ?? [];
+                const perComp = new Map<string, Set<string>>();
+                machs.forEach((mm) => {
+                  const comp = mm.company || 'Sin empresa';
+                  const key = (mm.machineId || mm.serial || mm.code) as string;
+                  if (!perComp.has(comp)) perComp.set(comp, new Set());
+                  perComp.get(comp)!.add(key);
+                });
+                if (perComp.size === 0) perComp.set('Sin empresa', new Set());
+                perComp.forEach((set, comp) => {
+                  if (!groups.has(comp)) groups.set(comp, { company: comp, items: [] });
+                  groups.get(comp)!.items.push({ c, machines: set.size });
+                });
+              });
+              const list = Array.from(groups.values()).sort((a, b) =>
+                a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : a.company.localeCompare(b.company)
               );
-            })
+              return list.map((g) => (
+                <View key={g.company} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
+                    🏢 {g.company} <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>· {g.items.length} cierre(s)</Text>
+                  </Text>
+                  {g.items.map(({ c, machines }) => {
+                    const rng = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
+                      ? `${c.detail.dateFrom} → ${c.detail.dateTo}`
+                      : c.detail?.dateFrom ?? c.closure_date;
+                    return (
+                      <TouchableOpacity key={g.company + c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureSel(c); }}>
+                        <Card>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {rng}</Text>
+                            <Text style={{ color: colors.primary, fontWeight: '800' }}>{machines} máq.</Text>
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca para ver e imprimir el reporte</Text>
+                        </Card>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ));
+            })()
           )}
           <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => setHistOpen(false)}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Cerrar</Text>
