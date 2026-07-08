@@ -7,7 +7,7 @@ import { exportPdf } from '../lib/pdf';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { HOURS_PER_ROUND } from './ControlMaquinariaScreen';
+import { workedHours } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -43,9 +43,13 @@ const CURRENCIES = [
 type DayInfo = { stopped: number; green: number };
 type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, DayInfo> };
 
-/** Horas cobrables de un día = (rondas verdes × 3 h) − horas parada, nunca negativo. */
+/**
+ * Horas cobrables de un día. Solo se cobra si hubo al menos una ronda en verde
+ * (operativa); en ese caso son las mismas "horas trabajadas" que muestra Control
+ * de maquinaria: turno de 12 h menos las horas parada.
+ */
 function billableHours(d: DayInfo): number {
-  return Math.max(0, d.green * HOURS_PER_ROUND - (d.stopped || 0));
+  return d.green > 0 ? workedHours(d.stopped) : 0;
 }
 type Group = {
   company: string;
