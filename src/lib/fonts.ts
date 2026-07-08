@@ -1,26 +1,25 @@
 // Fuente global del sistema: Tahoma en toda la app.
-// React Native no tiene "fuente por defecto", así que parcheamos el render de
-// Text y TextInput una sola vez para inyectar la familia tipográfica. Como la
-// ponemos primero en el arreglo de estilos, cualquier estilo explícito (tamaño,
-// peso, color) se conserva; solo se hereda la familia Tahoma.
-import React from 'react';
-import { Text, TextInput } from 'react-native';
+//
+// En WEB (el objetivo desplegado en Vercel) inyectamos una regla CSS global.
+// Es la forma segura: el intento anterior de "parchear" el render de Text con
+// React.cloneElement rompía react-native-web ("Failed to set an indexed
+// property [0] on 'CSSStyleDeclaration'") al pasar un arreglo de estilos a un
+// nodo del DOM. Con CSS global evitamos por completo ese problema.
+//
+// En NATIVO usamos Text.defaultProps como mejor esfuerzo (no lanza error).
+import { Platform, Text } from 'react-native';
 
 export const FONT_FAMILY = 'Tahoma, Geneva, Verdana, sans-serif';
 
-function applyFont(Component: any) {
-  if (!Component || Component.__fontPatched) return;
-  const original = Component.render;
-  if (typeof original !== 'function') return;
-  Component.render = function (...args: any[]) {
-    const element = original.apply(this, args);
-    if (!element) return element;
-    return React.cloneElement(element, {
-      style: [{ fontFamily: FONT_FAMILY }, (element.props as any)?.style],
-    });
-  };
-  Component.__fontPatched = true;
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.setAttribute('data-app-font', 'tahoma');
+  // !important para ganarle a las clases atómicas de react-native-web.
+  style.textContent = `* { font-family: ${FONT_FAMILY} !important; }`;
+  document.head.appendChild(style);
+} else {
+  // Nativo: valor por defecto para los Text que no definan su propia familia.
+  const T: any = Text as any;
+  T.defaultProps = T.defaultProps || {};
+  T.defaultProps.style = [{ fontFamily: FONT_FAMILY }, T.defaultProps.style].filter(Boolean);
 }
-
-applyFont(Text);
-applyFont(TextInput);

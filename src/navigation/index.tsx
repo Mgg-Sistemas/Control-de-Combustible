@@ -1,6 +1,6 @@
 import React from 'react';
-import { Text } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { Text, TouchableOpacity } from 'react-native';
+import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
@@ -30,6 +30,24 @@ const Stack = createNativeStackNavigator();
 // Ícono simple basado en emoji (sin dependencias extra)
 const tabIcon = (emoji: string) => () => <Text style={{ fontSize: 18 }}>{emoji}</Text>;
 
+/** Flecha "volver" del encabezado que siempre lleva a Inicio (Dashboard). */
+function HeaderHomeButton() {
+  const navigation = useNavigation<any>();
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity
+      onPress={() => {
+        const parent = navigation.getParent?.();
+        (parent ?? navigation).navigate('Dashboard');
+      }}
+      style={{ paddingHorizontal: 12, paddingVertical: 4 }}
+      accessibilityLabel="Volver al inicio"
+    >
+      <Text style={{ color: colors.primary, fontSize: 24, fontWeight: '700' }}>←</Text>
+    </TouchableOpacity>
+  );
+}
+
 function useScreenHeader() {
   const { colors } = useTheme();
   return {
@@ -42,7 +60,7 @@ function useScreenHeader() {
 function MoreStack() {
   const screenHeader = useScreenHeader();
   return (
-    <Stack.Navigator screenOptions={screenHeader}>
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
       <Stack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'Más' }} />
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
       <Stack.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo maquinaria/vehículos' }} />
@@ -76,17 +94,17 @@ function Tabs() {
       <Tab.Screen
         name="Tanks"
         component={TanksScreen}
-        options={{ title: 'Tanques', tabBarIcon: tabIcon('🛢️') }}
+        options={{ title: 'Tanques', tabBarIcon: tabIcon('🛢️'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
         name="Intakes"
         component={IntakesScreen}
-        options={{ title: 'Ingresos', tabBarIcon: tabIcon('⬇️') }}
+        options={{ title: 'Ingresos', tabBarIcon: tabIcon('⬇️'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
         name="Dispatches"
         component={DispatchesScreen}
-        options={{ title: 'Consumos', tabBarIcon: tabIcon('⛽') }}
+        options={{ title: 'Consumos', tabBarIcon: tabIcon('⛽'), headerLeft: () => <HeaderHomeButton /> }}
       />
       <Tab.Screen
         name="More"
