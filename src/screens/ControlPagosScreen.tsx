@@ -7,7 +7,7 @@ import { exportPdf } from '../lib/pdf';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { workedHours } from './ControlMaquinariaScreen';
+import { HOURS_PER_ROUND } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -40,8 +40,13 @@ const CURRENCIES = [
   { label: 'Pesos (COP)', value: 'COP' },
 ];
 
-type DayInfo = { stopped: number; operative: boolean };
+type DayInfo = { stopped: number; green: number };
 type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, DayInfo> };
+
+/** Horas cobrables de un día = (rondas verdes × 3 h) − horas parada, nunca negativo. */
+function billableHours(d: DayInfo): number {
+  return Math.max(0, d.green * HOURS_PER_ROUND - (d.stopped || 0));
+}
 type Group = {
   company: string;
   companyId: string | null;
@@ -102,27 +107,26 @@ export default function ControlPagosScreen({ navigation }: any) {
         map.get(k) ??
         ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
       const ma = g.machines[machine] ?? { machine, price, hours: 0, subtotal: 0, perDay: {} };
-      // Por día: horas paradas (máx. registrado) y si hubo al menos una ronda operativa (verde).
-      const prev = ma.perDay[r.round_date] ?? { stopped: 0, operative: false };
+      // Por día: horas paradas (máx. registrado) y cuántas rondas quedaron en verde (operativa).
+      const prev = ma.perDay[r.round_date] ?? { stopped: 0, green: 0 };
       ma.perDay[r.round_date] = {
         stopped: Math.max(prev.stopped, Number(r.hours_stopped) || 0),
-        operative: prev.operative || r.status === 'operativa',
+        green: prev.green + (r.status === 'operativa' ? 1 : 0),
       };
       ma.price = price;
       g.machines[machine] = ma;
       map.set(k, g);
     });
 
-    // Segunda pasada: horas trabajadas y totales.
-    // Solo se cobran los días con al menos una ronda operativa (verde);
-    // los días solo-parada o sin marcar no generan deuda.
+    // Segunda pasada: horas cobrables y totales.
+    // Solo cuentan las rondas en verde (3 h c/u), descontando las horas parada.
     const list = Array.from(map.values());
     list.forEach((g) => {
       let total = 0;
       let hoursWorked = 0;
       let noPrice = false;
       Object.values(g.machines).forEach((ma) => {
-        const hrs = Object.values(ma.perDay).reduce((s, d) => s + (d.operative ? workedHours(d.stopped) : 0), 0);
+        const hrs = Object.values(ma.perDay).reduce((s, d) => s + billableHours(d), 0);
         ma.hours = hrs;
         ma.subtotal = (ma.price ?? 0) * hrs;
         total += ma.subtotal;
