@@ -570,6 +570,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 </Text>
               </TouchableOpacity>
 
+              {/* La entrada se MANTIENE: sigue visible aunque cambies de fecha o cierres
+                  el control, hasta que se registre la salida. */}
+              {m.entry_at && !m.exit_at ? (
+                <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 3, borderLeftColor: colors.success, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>
+                    ▶ En obra desde {fmtDateTime(m.entry_at)} · Trabajando {elapsedSince(m.entry_at)}
+                  </Text>
+                </View>
+              ) : null}
+
               <TouchableOpacity onPress={() => openOperator(m)} activeOpacity={0.6} style={{ marginBottom: spacing.xs }}>
                 {operators[m.id] && (operators[m.id].first_name || operators[m.id].last_name || operators[m.id].cedula) ? (
                   <Text style={{ color: colors.text, fontSize: 12 }}>
