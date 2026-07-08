@@ -155,6 +155,7 @@ export default function ReportsScreen({ route }: any) {
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet'>('fuel');
   const [roundRows, setRoundRows] = useState<RoundRow[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
+  const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
@@ -224,7 +225,7 @@ export default function ReportsScreen({ route }: any) {
     setPreview(true);
   };
 
-  const generateRounds = async (fromArg: string = from, toArg: string = to) => {
+  const generateRounds = async (fromArg: string = from, toArg: string = to, companyArg?: string | null) => {
     setLoading(true);
     const { data } = await supabase
       .from('machine_rounds')
@@ -242,9 +243,12 @@ export default function ReportsScreen({ route }: any) {
       row.hours_stopped += Number(r.hours_stopped) || 0;
       map.set(k, row);
     });
-    const list = Array.from(map.values()).sort((a, b) =>
+    let list = Array.from(map.values()).sort((a, b) =>
       a.round_date === b.round_date ? a.machine.localeCompare(b.machine) : a.round_date.localeCompare(b.round_date)
     );
+    // Sincronía con Control de maquinaria: si viene una empresa, filtra solo sus máquinas.
+    if (companyArg) list = list.filter((r) => r.company === companyArg);
+    setRoundsCompany(companyArg ?? null);
     setRoundRows(list);
     setLoading(false);
     setRoundsPreview(true);
@@ -267,7 +271,7 @@ export default function ReportsScreen({ route }: any) {
       )
       .join('');
     const content = `
-      <div class="muted">Rondas del ${from} al ${to} · Turno de ${SHIFT_HOURS} h (07:00–19:00)</div>
+      <div class="muted">Rondas del ${from} al ${to} · Turno de ${SHIFT_HOURS} h (07:00–19:00)${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="8" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
       <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro · Horas trabajadas = turno (${SHIFT_HOURS} h) − horas parada</p>`;
     await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Rondas por día y hora', content));
@@ -365,7 +369,7 @@ export default function ReportsScreen({ route }: any) {
       setMode('rounds');
       setFrom(d);
       setTo(d);
-      generateRounds(d, d);
+      generateRounds(d, d, p.company ?? null);
     }
     // 'nonce' cambia en cada navegación para permitir re-abrir el reporte.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -602,6 +606,7 @@ export default function ReportsScreen({ route }: any) {
           <ReportHeader title="CONTROL DE MAQUINARIA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
+            {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '700', marginTop: 2 }}>{roundRows.length} registro(s)</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
               ✓ Operativa · ✕ Parada · — Sin registro

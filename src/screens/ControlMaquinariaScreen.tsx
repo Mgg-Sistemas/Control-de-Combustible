@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -81,6 +81,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // texto en edición por máquina
   const [overtimeInput, setOvertimeInput] = useState<Record<string, string>>({}); // horas extras en edición
+  const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
@@ -350,14 +353,43 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   };
 
   const q = query.trim().toLowerCase();
-  const shown = !q
-    ? machines
-    : machines.filter(
-        (m) =>
-          m.code.toLowerCase().includes(q) ||
-          (m.serial ?? '').toLowerCase().includes(q) ||
-          (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false),
-      );
+  const matchCompany = (m: Machinery) =>
+    companyFilter === '__all__' ? true : companyFilter === '__none__' ? !m.company_id : m.company_id === companyFilter;
+  const shown = machines.filter(
+    (m) =>
+      matchCompany(m) &&
+      (!q ||
+        m.code.toLowerCase().includes(q) ||
+        (m.serial ?? '').toLowerCase().includes(q) ||
+        (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false)),
+  );
+
+  // Opciones de empresa (con conteo) para el filtro desplegable.
+  const companyOptions = [
+    { label: 'Todas las empresas', value: '__all__', count: machines.length },
+    ...Object.entries(companies)
+      .map(([id, name]) => ({ label: name, value: id, count: machines.filter((m) => m.company_id === id).length }))
+      .filter((o) => o.count > 0)
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    { label: 'Sin empresa', value: '__none__', count: machines.filter((m) => !m.company_id).length },
+  ];
+  const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
+  // Empresa seleccionada para sincronizar el reporte (null = todas).
+  const reportCompanyName =
+    companyFilter === '__all__' ? null : companyFilter === '__none__' ? 'Sin empresa' : companies[companyFilter] ?? null;
+
+  // Agrupa las máquinas mostradas por empresa (acordeón, como en el catálogo).
+  const machinesByCompany = (() => {
+    const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
+    shown.forEach((it) => {
+      const k = it.company_id ?? '__none__';
+      const name = it.company_id ? companies[it.company_id] || 'Empresa' : 'Sin empresa';
+      const g = map.get(k) ?? { key: k, name, items: [] };
+      g.items.push(it);
+      map.set(k, g);
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  })();
 
   return (
     <Screen>
@@ -416,10 +448,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '700' }}>📅 Hoy</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => navigation?.navigate('More', { screen: 'Reports', params: { autoReport: 'rounds', date, nonce: Date.now() } })}
+            onPress={() => navigation?.navigate('More', { screen: 'Reports', params: { autoReport: 'rounds', date, company: reportCompanyName, nonce: Date.now() } })}
             style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: 'center' }}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte{reportCompanyName ? ' · empresa' : ''}</Text>
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
@@ -435,12 +467,41 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
 
+      {/* Filtro por empresa (desplegable). Al elegir una, el reporte se sincroniza con ella. */}
+      <View style={{ marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa (se trabaja y se reporta sobre estas máquinas)</Text>
+        <TouchableOpacity
+          onPress={() => setCompanyPickerOpen(true)}
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyFilterLabel}</Text>
+          <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
+        </TouchableOpacity>
+      </View>
+
       {loading ? (
         <Loading />
       ) : shown.length === 0 ? (
-        <EmptyState title={query ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query ? 'Prueba con otra búsqueda.' : 'Agrega máquinas en Equipos.'} />
+        <EmptyState title={query || companyFilter !== '__all__' ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query || companyFilter !== '__all__' ? 'Prueba con otra búsqueda o empresa.' : 'Agrega máquinas en Equipos.'} />
       ) : (
-        shown.map((m) => {
+        machinesByCompany.map((g) => {
+          const open = expanded[g.key] ?? true;
+          return (
+            <View key={g.key} style={{ marginBottom: spacing.xs }}>
+              <TouchableOpacity
+                onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                  <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                  <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                </View>
+                <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                </View>
+              </TouchableOpacity>
+              {open ? g.items.map((m) => {
           const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
           const overtime = Number(rounds[key(m.id, 1)]?.overtime_hours ?? 0);
           const totalWorked = totalWorkedHours(Number(hours), overtime);
@@ -570,8 +631,38 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               </View>
             </Card>
           );
+              }) : null}
+            </View>
+          );
         })
       )}
+
+      {/* Lista desplegable de empresas para filtrar */}
+      <Modal visible={companyPickerOpen} transparent animationType="fade" onRequestClose={() => setCompanyPickerOpen(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setCompanyPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '75%', overflow: 'hidden' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, padding: spacing.md }}>Filtrar por empresa</Text>
+            <ScrollView>
+              {companyOptions.map((o) => {
+                const active = companyFilter === o.value;
+                return (
+                  <TouchableOpacity
+                    key={o.value}
+                    onPress={() => { setCompanyFilter(o.value); setCompanyPickerOpen(false); }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}
+                  >
+                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
+                    <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                    </View>
+                    {active ? <Text style={{ color: colors.primary, fontWeight: '800' }}>✓</Text> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Modal: precio por hora trabajada → total */}
       <Modal visible={!!priceFor} transparent animationType="fade" onRequestClose={() => setPriceFor(null)}>
