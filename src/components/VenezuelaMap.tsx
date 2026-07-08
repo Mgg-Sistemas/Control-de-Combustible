@@ -20,7 +20,9 @@ function buildHtml(pins: MapPin[]): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>html,body,#map{height:100%;margin:0}</style></head>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"/>
+<script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
+<style>html,body,#map{height:100%;margin:0}.leaflet-control-geocoder{min-width:260px}.leaflet-control-geocoder-form input{width:230px}</style></head>
 <body><div id="map"></div><script>
   var pins = ${data};
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
@@ -38,6 +40,20 @@ function buildHtml(pins: MapPin[]): string {
   });
   sat.addTo(map); // Satélite por defecto
   L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: false }).addTo(map);
+
+  // Buscador de lugares (estados, municipios, parroquias, calles…) limitado a Venezuela.
+  if (L.Control && L.Control.Geocoder) {
+    var geocoder = L.Control.Geocoder.nominatim({
+      geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8 }
+    });
+    L.Control.geocoder({
+      geocoder: geocoder,
+      defaultMarkGeocode: true,
+      collapsed: false,
+      placeholder: 'Buscar estado, municipio, parroquia, calle…',
+      errorMessage: 'No se encontró el lugar'
+    }).addTo(map);
+  }
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
   var bounds = [];
