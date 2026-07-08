@@ -7,7 +7,7 @@ import { exportPdf } from '../lib/pdf';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { workedHours } from './ControlMaquinariaScreen';
+import { workedFromShifts } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -40,17 +40,23 @@ const CURRENCIES = [
   { label: 'Pesos (COP)', value: 'COP' },
 ];
 
-type DayInfo = { stopped: number; green: number; overtime: number };
-type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, DayInfo> };
+type DayInfo = { stopped: number; overtime: number; day: number; night: number };
+type MachineAgg = {
+  machine: string;
+  price: number | null;
+  hours: number;      // horas trabajadas totales (día + noche − parada + extras)
+  dayHours: number;   // total horas de turno de día
+  nightHours: number; // total horas de turno de noche
+  subtotal: number;
+  perDay: Record<string, DayInfo>;
+};
 
 /**
- * Horas cobrables de un día. Solo se cobra si hubo al menos una ronda en verde
- * (operativa); en ese caso son las mismas "horas trabajadas" que muestra Control
- * de maquinaria: turno de 12 h menos las horas parada. Además se suman las
- * horas extras registradas ese día.
+ * Horas cobrables de un día = (turno día + turno noche) − parada + extras.
+ * Solo se cobra si la máquina trabajó al menos un turno ese día.
  */
 function billableHours(d: DayInfo): number {
-  return (d.green > 0 ? workedHours(d.stopped) : 0) + (d.overtime || 0);
+  return d.day + d.night > 0 ? workedFromShifts(d.day, d.night, d.stopped, d.overtime) : 0;
 }
 type Group = {
   company: string;
@@ -95,7 +101,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const [{ data: rounds }, { data: pays }] = await Promise.all([
       supabase
         .from('machine_rounds')
-        .select('round_date, round_no, hours_stopped, overtime_hours, status, machinery:machinery_id(id, code, price_per_hour, company:company_id(id, name))')
+        .select('round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, price_per_hour, company:company_id(id, name))')
         .order('round_date', { ascending: false }),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
     ]);
@@ -111,13 +117,14 @@ export default function ControlPagosScreen({ navigation }: any) {
       const g =
         map.get(k) ??
         ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
-      const ma = g.machines[machine] ?? { machine, price, hours: 0, subtotal: 0, perDay: {} };
-      // Por día: horas paradas (máx. registrado) y cuántas rondas quedaron en verde (operativa).
-      const prev = ma.perDay[r.round_date] ?? { stopped: 0, green: 0, overtime: 0 };
+      const ma = g.machines[machine] ?? { machine, price, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
+      // Por día: turno de día/noche, parada y extras (todo en el registro base).
+      const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       ma.perDay[r.round_date] = {
         stopped: Math.max(prev.stopped, Number(r.hours_stopped) || 0),
-        green: prev.green + (r.status === 'operativa' ? 1 : 0),
         overtime: Math.max(prev.overtime, Number(r.overtime_hours) || 0),
+        day: Math.max(prev.day, Number(r.day_hours) || 0),
+        night: Math.max(prev.night, Number(r.night_hours) || 0),
       };
       ma.price = price;
       g.machines[machine] = ma;
@@ -132,8 +139,11 @@ export default function ControlPagosScreen({ navigation }: any) {
       let hoursWorked = 0;
       let noPrice = false;
       Object.values(g.machines).forEach((ma) => {
-        const hrs = Object.values(ma.perDay).reduce((s, d) => s + billableHours(d), 0);
+        const days = Object.values(ma.perDay);
+        const hrs = days.reduce((s, d) => s + billableHours(d), 0);
         ma.hours = hrs;
+        ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
+        ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
         ma.subtotal = (ma.price ?? 0) * hrs;
         total += ma.subtotal;
         hoursWorked += hrs;
@@ -248,10 +258,29 @@ export default function ControlPagosScreen({ navigation }: any) {
     const inRange = groups.filter(
       (g) => g.weekStart >= repFrom && g.weekStart <= repTo && (repCompany === '__all__' || g.company === repCompany)
     );
-    const rows = inRange
+    // Por cada semana/empresa: encabezado + desglose por máquina (horas día/noche,
+    // horas trabajadas totales, precio y subtotal).
+    const sections = inRange
       .map((g) => {
         const estado = g.paid ? `PAGADA (${g.paid.currency} ${Number(g.paid.amount).toLocaleString()})` : 'PENDIENTE';
-        return `<tr><td>${g.company}</td><td>${g.weekStart} → ${g.weekEnd}</td><td style="text-align:right">${g.hoursWorked.toLocaleString()} h</td><td style="text-align:right">$${g.total.toLocaleString()}</td><td>${estado}</td></tr>`;
+        const machs = machinesOf(g);
+        const mrows = machs
+          .map(
+            (m) =>
+              `<tr><td>${m.machine}</td>` +
+              `<td style="text-align:right">${m.dayHours.toLocaleString()} h</td>` +
+              `<td style="text-align:right">${m.nightHours.toLocaleString()} h</td>` +
+              `<td style="text-align:right;font-weight:700">${m.hours.toLocaleString()} h</td>` +
+              `<td style="text-align:right">${m.price != null ? '$' + m.price.toLocaleString() : '—'}</td>` +
+              `<td style="text-align:right;font-weight:700">$${m.subtotal.toLocaleString()}</td></tr>`
+          )
+          .join('');
+        const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
+        const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
+        return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
+          <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/h</th><th>Subtotal</th></tr></thead>
+          <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
+          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
       })
       .join('');
     const totalPend = inRange.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
@@ -263,16 +292,16 @@ export default function ControlPagosScreen({ navigation }: any) {
         body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:28px}
         h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
         .muted{color:#666;font-size:12px}
-        table{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}
-        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
+        table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
+        th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        .tot{margin-top:12px;font-size:13px}
+        tfoot td{background:#EEF2F7}
+        .tot{margin-top:16px;font-size:13px}
         .foot{margin-top:20px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
       </style></head><body>
-      <h1>CONTROL DE PAGOS</h1>
+      <h1>CONTROL DE PAGOS — POR MAQUINARIA</h1>
       <div class="muted">${title} · del ${repFrom} al ${repTo}</div>
-      <table><thead><tr><th>Empresa</th><th>Semana</th><th>Horas trab.</th><th>Total</th><th>Estado</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" style="text-align:center">Sin datos en el rango</td></tr>'}</tbody></table>
+      ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div class="tot"><b>Total pendiente:</b> $${totalPend.toLocaleString()} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${totalPag.toLocaleString()}</div>
       <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
       </body></html>`;
@@ -403,6 +432,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     ⏱️ {m.hours.toLocaleString()} h × {m.price != null ? `$${m.price.toLocaleString()}/h` : '⚠️ sin precio'}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    ☀️ Día: {m.dayHours.toLocaleString()} h · 🌙 Noche: {m.nightHours.toLocaleString()} h
                   </Text>
                 </Card>
               ))}

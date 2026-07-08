@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
-import { ROUND_TIMES, ROUND_LABELS, SHIFT_HOURS, workedHours } from './ControlMaquinariaScreen';
+import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -23,8 +23,10 @@ type RoundRow = {
   round_date: string;
   machine: string;
   company: string;
-  statuses: (string | null)[]; // len 4
+  day: number;      // turno de día (h)
+  night: number;    // turno de noche (h)
   hours_stopped: number;
+  overtime: number;
 };
 
 type Row = {
@@ -229,7 +231,7 @@ export default function ReportsScreen({ route }: any) {
     setLoading(true);
     const { data } = await supabase
       .from('machine_rounds')
-      .select('round_date, round_no, status, hours_stopped, machinery:machinery_id(code, company:company_id(name))')
+      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(code, company:company_id(name))')
       .gte('round_date', fromArg)
       .lte('round_date', toArg)
       .order('round_date', { ascending: true });
@@ -238,9 +240,11 @@ export default function ReportsScreen({ route }: any) {
       const machine = r.machinery?.code ?? '—';
       const company = r.machinery?.company?.name ?? 'Sin empresa';
       const k = `${r.round_date}|${machine}`;
-      const row = map.get(k) ?? { round_date: r.round_date, machine, company, statuses: [null, null, null, null], hours_stopped: 0 };
-      row.statuses[r.round_no - 1] = r.status;
-      row.hours_stopped += Number(r.hours_stopped) || 0;
+      const row = map.get(k) ?? { round_date: r.round_date, machine, company, day: 0, night: 0, hours_stopped: 0, overtime: 0 };
+      row.day = Math.max(row.day, Number(r.day_hours) || 0);
+      row.night = Math.max(row.night, Number(r.night_hours) || 0);
+      row.hours_stopped = Math.max(row.hours_stopped, Number(r.hours_stopped) || 0);
+      row.overtime = Math.max(row.overtime, Number(r.overtime_hours) || 0);
       map.set(k, row);
     });
     let list = Array.from(map.values()).sort((a, b) =>
@@ -254,27 +258,26 @@ export default function ReportsScreen({ route }: any) {
     setRoundsPreview(true);
   };
 
-  const cell = (s: string | null) => (s === 'operativa' ? '✓' : s === 'parada' ? '✕' : '—');
-  const cellColor = (s: string | null) => (s === 'operativa' ? '#16A34A' : s === 'parada' ? '#DC2626' : '#9CA3AF');
+  const hCell = (h: number) => (h ? `${h} h` : '—');
 
   const downloadRoundsPdf = async () => {
-    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th>${ROUND_LABELS
-      .map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`)
-      .join('')}<th>HORAS<br/>PARADA</th><th>HORAS<br/>TRABAJADAS</th></tr>`;
+    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th><th>☀️ TURNO<br/>DÍA</th><th>🌙 TURNO<br/>NOCHE</th><th>TURNO</th><th>HORAS<br/>PARADA</th><th>HORAS<br/>EXTRA</th><th>HORAS<br/>TRABAJADAS</th></tr>`;
     const body = roundRows
       .map(
         (r) =>
-          `<tr><td>${r.round_date}</td><td>${r.machine}</td>${r.statuses
-            .map((s) => `<td style="text-align:center;color:${cellColor(s)};font-weight:700">${cell(s)}</td>`)
-            .join('')}<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td>` +
-          `<td style="text-align:center;font-weight:700">${workedHours(r.hours_stopped)} h</td></tr>`
+          `<tr><td>${r.round_date}</td><td>${r.machine}</td>` +
+          `<td style="text-align:center">${hCell(r.day)}</td><td style="text-align:center">${hCell(r.night)}</td>` +
+          `<td style="text-align:center">${shiftLabel(r.day + r.night)}</td>` +
+          `<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td>` +
+          `<td style="text-align:center">${r.overtime ? r.overtime.toLocaleString() : '—'}</td>` +
+          `<td style="text-align:center;font-weight:700">${workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</td></tr>`
       )
       .join('');
     const content = `
-      <div class="muted">Rondas del ${from} al ${to} · Turno de ${SHIFT_HOURS} h (07:00–19:00)${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <div class="muted">Turnos del ${from} al ${to} · Turno completo ${SHIFT_HOURS} h · Medio 6 h${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="8" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro · Horas trabajadas = turno (${SHIFT_HOURS} h) − horas parada</p>`;
-    await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Rondas por día y hora', content));
+      <p class="muted" style="margin-top:8px">Horas trabajadas = (turno día + turno noche) − parada + extras · Medio turno 6 h · Turno completo 12 h · Turno y medio 18 h · Dos turnos 24 h</p>`;
+    await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Turnos por día', content));
   };
 
   const generateFleet = async () => {
@@ -602,14 +605,14 @@ export default function ReportsScreen({ route }: any) {
       {/* Vista previa: control de rondas */}
       <Modal visible={roundsPreview} animationType="slide" onRequestClose={() => setRoundsPreview(false)}>
         <Screen>
-          <SectionTitle>Control de máquinas (rondas)</SectionTitle>
+          <SectionTitle>Control de máquinas (turnos)</SectionTitle>
           <ReportHeader title="CONTROL DE MAQUINARIA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '700', marginTop: 2 }}>{roundRows.length} registro(s)</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-              ✓ Operativa · ✕ Parada · — Sin registro
+              Trabajadas = (turno día + noche) − parada + extras
             </Text>
           </Card>
 
@@ -618,10 +621,10 @@ export default function ReportsScreen({ route }: any) {
               <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceAlt }}>
                 <Text style={[styles.th, { width: 84 }]}>Fecha</Text>
                 <Text style={[styles.th, { width: 90 }]}>Máquina</Text>
-                {ROUND_TIMES.map((t, i) => (
-                  <Text key={t} style={[styles.th, { width: 56 }]}>{i + 1}ª{'\n'}{t}</Text>
-                ))}
+                <Text style={[styles.th, { width: 56 }]}>☀️ Día</Text>
+                <Text style={[styles.th, { width: 56 }]}>🌙 Noche</Text>
                 <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}parada</Text>
+                <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}extra</Text>
                 <Text style={[styles.th, { width: 64 }]}>Horas{'\n'}trabaj.</Text>
               </View>
               {roundRows.length === 0 ? (
@@ -631,11 +634,11 @@ export default function ReportsScreen({ route }: any) {
                   <View key={idx} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border }}>
                     <Text style={[styles.td, { width: 84, color: colors.text }]}>{r.round_date.slice(5)}</Text>
                     <Text style={[styles.td, { width: 90, color: colors.text }]}>{r.machine}</Text>
-                    {r.statuses.map((s, i) => (
-                      <Text key={i} style={[styles.td, { width: 56, textAlign: 'center', color: cellColor(s), fontWeight: '700' }]}>{cell(s)}</Text>
-                    ))}
+                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.day || '—'}</Text>
+                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.night || '—'}</Text>
                     <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.hours_stopped || '—'}</Text>
-                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{workedHours(r.hours_stopped)} h</Text>
+                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.overtime || '—'}</Text>
+                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</Text>
                   </View>
                 ))
               )}

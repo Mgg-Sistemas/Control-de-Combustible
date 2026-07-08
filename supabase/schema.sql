@@ -570,6 +570,12 @@ alter table public.machinery add column if not exists exit_at timestamptz;
 alter table public.machine_rounds add column if not exists closed boolean not null default false;
 alter table public.machine_day_operators add column if not exists closed boolean not null default false;
 
+-- Control por TURNOS (en vez de 4 rondas): turno de día y de noche, cada uno medio
+-- (6h) o completo (12h). Se guardan en el registro base (round_no=1). Trabajadas =
+-- (día + noche) − parada + extras. medio=6h, completo=12h, 1½=18h, 2 turnos=24h.
+alter table public.machine_rounds add column if not exists day_hours numeric(6,2) not null default 0;
+alter table public.machine_rounds add column if not exists night_hours numeric(6,2) not null default 0;
+
 create table if not exists public.company_payments (
   id           uuid primary key default gen_random_uuid(),
   company_id   uuid references public.companies(id) on delete set null,

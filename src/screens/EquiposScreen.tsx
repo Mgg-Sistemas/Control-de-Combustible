@@ -10,7 +10,7 @@ import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { exportPdf } from '../lib/pdf';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
-import { workedHours } from './ControlMaquinariaScreen';
+import { workedFromShifts } from './ControlMaquinariaScreen';
 import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -138,20 +138,22 @@ export default function EquiposScreen({ navigation }: any) {
     setFuelWorked(0);
     const [{ data: disp }, { data: rnd }] = await Promise.all([
       supabase.from('dispatches').select('dispatch_date, liters, tank:tank_id(name)').eq('machinery_id', m.id).order('dispatch_date', { ascending: false }),
-      supabase.from('machine_rounds').select('round_date, status, hours_stopped').eq('machinery_id', m.id),
+      supabase.from('machine_rounds').select('round_date, hours_stopped, overtime_hours, day_hours, night_hours').eq('machinery_id', m.id),
     ]);
     const trace: FuelRow[] = (disp ?? []).map((d: any) => ({ date: d.dispatch_date, liters: Number(d.liters) || 0, tank: d.tank?.name ?? '' }));
     const surtido = trace.reduce((s, t) => s + t.liters, 0);
-    // Horas trabajadas (para el consumo estimado) = por día con ronda verde, 12 − parada.
-    const perDay = new Map<string, { stopped: number; green: number }>();
+    // Horas trabajadas (para el consumo estimado) = por día: (turno día + noche) − parada + extras.
+    const perDay = new Map<string, { stopped: number; overtime: number; day: number; night: number }>();
     (rnd ?? []).forEach((r: any) => {
-      const p = perDay.get(r.round_date) ?? { stopped: 0, green: 0 };
+      const p = perDay.get(r.round_date) ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       p.stopped = Math.max(p.stopped, Number(r.hours_stopped) || 0);
-      p.green += r.status === 'operativa' ? 1 : 0;
+      p.overtime = Math.max(p.overtime, Number(r.overtime_hours) || 0);
+      p.day = Math.max(p.day, Number(r.day_hours) || 0);
+      p.night = Math.max(p.night, Number(r.night_hours) || 0);
       perDay.set(r.round_date, p);
     });
     let worked = 0;
-    perDay.forEach((d) => { if (d.green > 0) worked += workedHours(d.stopped); });
+    perDay.forEach((d) => { if (d.day + d.night > 0) worked += workedFromShifts(d.day, d.night, d.stopped, d.overtime); });
     setFuelTrace(trace);
     setFuelSurtido(surtido);
     setFuelWorked(worked);

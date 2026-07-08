@@ -16,14 +16,30 @@ type Operator = { first_name: string; last_name: string; cedula: string };
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
-/** Horas del turno completo (07:00 → 19:00). Las horas trabajadas = turno − parada. */
+/** Horas de un turno completo. Medio turno = 6 h. */
 export const SHIFT_HOURS = 12;
-/** Horas que representa cada ronda (12 h / 4 rondas = 3 h). */
-export const HOURS_PER_ROUND = SHIFT_HOURS / 4;
+export const HALF_SHIFT = 6;
+/** Opciones por turno (día/noche): sin turno, medio (6h) o completo (12h). */
+export const SHIFT_OPTS: { label: string; hours: number }[] = [
+  { label: '—', hours: 0 },
+  { label: 'Medio · 6h', hours: 6 },
+  { label: 'Completo · 12h', hours: 12 },
+];
+/** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
+export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
+  Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
+/** Texto del turno según las horas de turno totales (día + noche). */
+export function shiftLabel(totalShiftHours: number): string {
+  const h = Number(totalShiftHours) || 0;
+  if (h <= 0) return 'Sin turno';
+  if (h === 6) return 'Medio turno';
+  if (h === 12) return 'Turno completo';
+  if (h === 18) return 'Turno y medio';
+  if (h === 24) return 'Dos turnos';
+  return `${(h / 12).toLocaleString()} turno(s)`;
+}
+/** Compat: horas trabajadas asumiendo turno completo (para datos viejos sin turnos). */
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
-/** Horas trabajadas totales = (turno − parada) + horas extras. */
-export const totalWorkedHours = (hoursStopped: number, overtime: number) =>
-  workedHours(hoursStopped) + Math.max(0, overtime || 0);
 
 /** Campo de fecha con calendario: en web usa <input type="date">; en nativo, texto. */
 function DateField({ value, onChange, colors }: { value: string; onChange: (v: string) => void; colors: any }) {
@@ -159,14 +175,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [load]);
 
-  const setRound = async (m: Machinery, no: number, status: 'operativa' | 'parada') => {
-    const existing = rounds[key(m.id, no)];
+  // Fija el turno de DÍA o NOCHE (0 / 6 / 12 h) en el registro base del día.
+  const setShift = async (m: Machinery, which: 'day' | 'night', hoursVal: number) => {
+    const existing = rounds[key(m.id, 1)];
+    const dayH = which === 'day' ? hoursVal : Number(existing?.day_hours ?? 0);
+    const nightH = which === 'night' ? hoursVal : Number(existing?.night_hours ?? 0);
     const payload: any = {
       machinery_id: m.id,
       round_date: date,
-      round_no: no,
-      status,
+      round_no: 1,
+      status: dayH + nightH > 0 ? 'operativa' : 'parada',
       hours_stopped: existing?.hours_stopped ?? 0,
+      overtime_hours: existing?.overtime_hours ?? 0,
+      day_hours: dayH,
+      night_hours: nightH,
     };
     const { data, error } = await supabase
       .from('machine_rounds')
@@ -174,27 +196,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       .select()
       .single();
     if (error) return Alert.alert('Aviso', error.message);
-    setRounds((p) => ({ ...p, [key(m.id, no)]: data as MachineRound }));
-  };
-
-  /** Cicla el estado de la ronda: gris (sin registro) → verde → rojo → gris. */
-  const cycleRound = async (m: Machinery, no: number) => {
-    const cur = rounds[key(m.id, no)];
-    if (cur?.status === 'parada') {
-      // Volver a gris: eliminar el registro de la ronda.
-      const { error } = await supabase.from('machine_rounds').delete().eq('id', cur.id);
-      if (error) return Alert.alert('Aviso', error.message);
-      setRounds((p) => {
-        const n = { ...p };
-        delete n[key(m.id, no)];
-        return n;
-      });
-      return;
-    }
-    const willBeOperative = cur?.status !== 'operativa';
-    await setRound(m, no, cur?.status === 'operativa' ? 'parada' : 'operativa');
-    // Al marcar en verde y si aún no hay operador del día, pedir sus datos.
-    if (willBeOperative && !operators[m.id]) openOperator(m);
+    setRounds((p) => ({ ...p, [key(m.id, 1)]: data as MachineRound }));
+    // Al asignar un turno y si aún no hay operador del día, pedir sus datos.
+    if (hoursVal > 0 && !operators[m.id]) openOperator(m);
   };
 
   // ── Operador del día ────────────────────────────────────────────────────────
@@ -225,21 +229,24 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const buildSnapshot = (): ClosureMachine[] => {
     return machines
       .map((m) => {
-        const statuses = [1, 2, 3, 4].map((no) => rounds[key(m.id, no)]?.status ?? null);
-        const hasActivity = statuses.some((s) => s != null);
+        const base = rounds[key(m.id, 1)];
+        const dayH = Number(base?.day_hours ?? 0);
+        const nightH = Number(base?.night_hours ?? 0);
+        const hoursStopped = Number(base?.hours_stopped ?? 0);
+        const overtime = Number(base?.overtime_hours ?? 0);
+        const hasActivity = dayH > 0 || nightH > 0 || hoursStopped > 0 || overtime > 0;
         if (!hasActivity) return null;
-        const hoursStopped = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
-        const overtime = Number(rounds[key(m.id, 1)]?.overtime_hours ?? 0);
         const op = operators[m.id];
         return {
           code: m.code,
           company: m.company_id ? companies[m.company_id] ?? '' : 'Sin empresa',
           operator: op ? `${op.first_name} ${op.last_name}`.trim() : '',
           cedula: op?.cedula ?? '',
-          statuses,
-          hoursStopped: Number(hoursStopped),
+          dayHours: dayH,
+          nightHours: nightH,
+          hoursStopped,
           overtime,
-          worked: workedHours(Number(hoursStopped)),
+          worked: workedFromShifts(dayH, nightH, hoursStopped, overtime),
         } as ClosureMachine;
       })
       .filter(Boolean) as ClosureMachine[];
@@ -283,16 +290,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setClosures((data ?? []) as ControlClosure[]);
   };
 
-  const cellTxt = (s: string | null) => (s === 'operativa' ? '✓' : s === 'parada' ? '✕' : '—');
-
+  const shiftCell = (h?: number) => (h ? `${h} h` : '—');
   const downloadClosurePdf = async (c: ControlClosure) => {
     const machs = c.detail?.machines ?? [];
     const rows = machs
       .map(
         (m) =>
           `<tr><td>${m.code}</td><td>${m.company || '—'}</td><td>${m.operator || '—'}</td><td>${m.cedula || '—'}</td>` +
-          m.statuses.map((s) => `<td style="text-align:center">${cellTxt(s)}</td>`).join('') +
-          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked + (m.overtime || 0)} h</td></tr>`
+          `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td style="text-align:center">${shiftCell(m.nightHours)}</td>` +
+          `<td style="text-align:center">${shiftLabel((m.dayHours || 0) + (m.nightHours || 0))}</td>` +
+          `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td></tr>`
       )
       .join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"/>
@@ -309,10 +316,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <h1>CONTROL DE MAQUINARIA</h1>
       <div class="muted">Cierre del ${c.closure_date} · ${machs.length} máquina(s)</div>
       <table><thead><tr><th>Máquina</th><th>Empresa</th><th>Operador</th><th>Cédula</th>
-        ${ROUND_LABELS.map((l, i) => `<th>${l}<br/>${ROUND_TIMES[i]}</th>`).join('')}
+        <th>☀️ Turno día</th><th>🌙 Turno noche</th><th>Turno</th>
         <th>H. PARADA</th><th>H. EXTRA</th><th>H. TRAB.</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="11" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">✓ Operativa · ✕ Parada · — Sin registro</p>
+      <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
+      <p class="muted" style="margin-top:8px">Trabajadas = (turno día + turno noche) − parada + extras · Turno completo 12 h · Medio 6 h</p>
       <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
       </body></html>`;
     await exportPdf(html);
@@ -494,7 +501,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-          Cada máquina tiene sus 4 rondas. Toca una vez = ✓ operativa (verde), otra = ✕ parada (rojo), otra = gris (sin registro).
+          Marca el turno de día y el de noche: Medio (6h) o Completo (12h). Se suman: medio 6h · completo 12h · turno y medio 18h · dos turnos 24h.
         </Text>
       </Card>
 
@@ -542,9 +549,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 </View>
               </TouchableOpacity>
               {open ? g.items.map((m) => {
-          const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
-          const overtime = Number(rounds[key(m.id, 1)]?.overtime_hours ?? 0);
-          const totalWorked = totalWorkedHours(Number(hours), overtime);
+          const base = rounds[key(m.id, 1)];
+          const hours = base?.hours_stopped ?? 0;
+          const overtime = Number(base?.overtime_hours ?? 0);
+          const dayH = Number(base?.day_hours ?? 0);
+          const nightH = Number(base?.night_hours ?? 0);
+          const shiftTotal = dayH + nightH;
+          const totalWorked = workedFromShifts(dayH, nightH, Number(hours), overtime);
           return (
             <Card key={m.id}>
               <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)}>
@@ -569,34 +580,42 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   <Text style={{ color: colors.warning, fontSize: 12 }}>👷 Sin operador · toca para agregar</Text>
                 )}
               </TouchableOpacity>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {ROUND_TIMES.map((time, i) => {
-                  const no = i + 1;
-                  const r = rounds[key(m.id, no)];
-                  const st = r?.status;
-                  const bg = st === 'operativa' ? colors.success : st === 'parada' ? colors.danger : colors.surfaceAlt;
-                  const fg = st ? '#fff' : colors.text;
+              {/* Turnos: día y noche, cada uno medio (6h) o completo (12h). */}
+              <View style={{ gap: spacing.xs }}>
+                {(['day', 'night'] as const).map((which) => {
+                  const cur = which === 'day' ? dayH : nightH;
+                  const title = which === 'day' ? '☀️ Turno de día' : '🌙 Turno de noche';
                   return (
-                    <TouchableOpacity
-                      key={no}
-                      onPress={() => cycleRound(m, no)}
-                      style={{
-                        flexGrow: 1,
-                        flexBasis: 70,
-                        minHeight: 56,
-                        borderRadius: radius.md,
-                        borderWidth: 1,
-                        borderColor: st ? bg : colors.border,
-                        backgroundColor: bg,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        paddingVertical: spacing.xs,
-                      }}
-                    >
-                      <Text style={{ color: fg, fontWeight: '700', fontSize: 11 }}>{ROUND_LABELS[i]}</Text>
-                      <Text style={{ color: fg, fontSize: 12, fontWeight: '700' }}>{time}</Text>
-                      <Text style={{ color: fg, fontSize: 10 }}>{st === 'operativa' ? '✓ Oper.' : st === 'parada' ? '✕ Parada' : '—'}</Text>
-                    </TouchableOpacity>
+                    <View key={which}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>{title}</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        {SHIFT_OPTS.map((opt) => {
+                          const active = cur === opt.hours;
+                          const activeBg = opt.hours === 0 ? colors.danger : colors.success;
+                          return (
+                            <TouchableOpacity
+                              key={opt.hours}
+                              onPress={() => setShift(m, which, opt.hours)}
+                              style={{
+                                flex: 1,
+                                minHeight: 46,
+                                borderRadius: radius.md,
+                                borderWidth: 1,
+                                borderColor: active ? activeBg : colors.border,
+                                backgroundColor: active ? activeBg : colors.surfaceAlt,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                paddingVertical: spacing.xs,
+                              }}
+                            >
+                              <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '700', fontSize: 12, textAlign: 'center' }}>
+                                {opt.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
                   );
                 })}
               </View>
@@ -664,8 +683,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               </View>
               <View style={{ marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
-                    Turno {SHIFT_HOURS}h − parada {hours || 0}h{overtime ? ` + extras ${overtime}h` : ''}
+                  <Text style={{ color: shiftTotal > 0 ? colors.primary : colors.muted, fontSize: 12, flex: 1 }}>
+                    {shiftLabel(shiftTotal)} ({shiftTotal}h){hours ? ` − parada ${hours}h` : ''}{overtime ? ` + extras ${overtime}h` : ''}
                   </Text>
                   <Text style={{ color: totalWorked === 0 ? colors.danger : colors.success, fontWeight: '700', fontSize: 13 }}>
                     Trabajadas: {totalWorked} h
@@ -673,9 +692,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 </View>
                 {/* Barra: rojo = parada, verde = trabajadas del turno, azul = extras */}
                 <View style={{ flexDirection: 'row', height: 8, borderRadius: radius.pill, overflow: 'hidden', marginTop: 4, backgroundColor: colors.surfaceAlt }}>
-                  <View style={{ flex: Math.min(SHIFT_HOURS, Number(hours) || 0), backgroundColor: colors.danger }} />
-                  <View style={{ flex: workedHours(hours), backgroundColor: colors.success }} />
+                  <View style={{ flex: Math.min(shiftTotal, Number(hours) || 0), backgroundColor: colors.danger }} />
+                  <View style={{ flex: Math.max(0, shiftTotal - (Number(hours) || 0)), backgroundColor: colors.success }} />
                   {overtime ? <View style={{ flex: overtime, backgroundColor: '#0EA5E9' }} /> : null}
+                  {shiftTotal === 0 && !overtime ? <View style={{ flex: 1 }} /> : null}
                 </View>
               </View>
             </Card>
@@ -718,9 +738,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             {priceFor ? (() => {
-              const baseWh = workedHours(rounds[key(priceFor.id, 1)]?.hours_stopped ?? 0);
-              const ot = Number(rounds[key(priceFor.id, 1)]?.overtime_hours ?? 0);
-              const wh = baseWh + ot;
+              const pb = rounds[key(priceFor.id, 1)];
+              const dH = Number(pb?.day_hours ?? 0);
+              const nH = Number(pb?.night_hours ?? 0);
+              const stp = Number(pb?.hours_stopped ?? 0);
+              const ot = Number(pb?.overtime_hours ?? 0);
+              const wh = workedFromShifts(dH, nH, stp, ot);
+              const baseWh = wh - ot;
               const price = Number(priceInput.replace(',', '.')) || 0;
               const total = price * wh;
               return (
@@ -846,15 +870,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   <Text style={{ color: colors.text, fontSize: 12, marginTop: 2 }}>
                     👷 {m.operator || 'Sin operador'}{m.cedula ? ` · C.I ${m.cedula}` : ''}
                   </Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                    {m.statuses.map((s, j) => (
-                      <Text key={j} style={{ color: s === 'operativa' ? colors.success : s === 'parada' ? colors.danger : colors.muted, fontSize: 12, fontWeight: '700' }}>
-                        {ROUND_LABELS[j]}: {cellTxt(s)}
-                      </Text>
-                    ))}
+                  <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>☀️ Día: {m.dayHours ? `${m.dayHours} h` : '—'}</Text>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>🌙 Noche: {m.nightHours ? `${m.nightHours} h` : '—'}</Text>
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{shiftLabel((m.dayHours || 0) + (m.nightHours || 0))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked + (m.overtime || 0)} h
+                    Parada {m.hoursStopped} h{m.overtime ? ` · Extras ${m.overtime} h` : ''} · Trabajadas {m.worked} h
                   </Text>
                 </Card>
               ))}

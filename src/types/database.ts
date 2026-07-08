@@ -118,6 +118,8 @@ export interface MachineRound {
   status: 'operativa' | 'parada';
   hours_stopped: number;
   overtime_hours: number | null;
+  day_hours: number | null;   // turno de día trabajado (0 / 6 / 12)
+  night_hours: number | null; // turno de noche trabajado (0 / 6 / 12)
   closed: boolean;
   notes: string | null;
   recorded_by: string | null;
@@ -140,10 +142,12 @@ export interface ClosureMachine {
   company: string;
   operator: string; // "Nombre Apellido"
   cedula: string;
-  statuses: (string | null)[]; // 4 rondas
+  statuses?: (string | null)[]; // (histórico viejo) 4 rondas
+  dayHours?: number;   // turno de día (0/6/12)
+  nightHours?: number; // turno de noche (0/6/12)
   hoursStopped: number;
   overtime?: number; // horas extras del día
-  worked: number; // horas trabajadas base (turno − parada); las extras se suman aparte
+  worked: number; // horas trabajadas totales del día (turnos − parada + extras)
 }
 
 export interface ControlClosure {
