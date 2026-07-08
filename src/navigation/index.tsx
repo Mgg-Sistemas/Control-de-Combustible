@@ -109,7 +109,7 @@ function Tabs() {
       <Tab.Screen
         name="More"
         component={MoreStack}
-        options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰') }}
+        options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰'), popToTopOnBlur: true }}
       />
     </Tab.Navigator>
   );
