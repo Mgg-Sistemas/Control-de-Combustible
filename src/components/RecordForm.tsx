@@ -147,7 +147,13 @@ export function RecordForm({
     const payload: Record<string, any> = {};
     visibleFields.forEach((f) => {
       const raw = values[f.key];
-      if (raw === undefined || raw === '') return;
+      if (raw === undefined) return;
+      if (raw === '') {
+        // Al editar, un campo que se deja en blanco debe vaciarse (null),
+        // no conservar el valor anterior. Al crear, simplemente se omite.
+        if (isEdit) payload[f.key] = null;
+        return;
+      }
       payload[f.key] = f.type === 'number' ? Number(raw) : raw;
     });
 
