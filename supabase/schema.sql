@@ -541,5 +541,31 @@ create policy mp_write on public.module_permissions for all to authenticated
   using (public.current_role() = 'admin') with check (public.current_role() = 'admin');
 
 -- ============================================================================
+-- CONTROL DE PAGOS: precio por hora de la maquinaria + histórico de pagos
+-- El total por empresa/semana = Σ (horas trabajadas × precio_por_hora).
+-- ============================================================================
+alter table public.machinery add column if not exists price_per_hour numeric(12,2);
+
+create table if not exists public.company_payments (
+  id           uuid primary key default gen_random_uuid(),
+  company_id   uuid references public.companies(id) on delete set null,
+  company_name text not null,
+  period_start date not null,
+  period_end   date not null,
+  amount       numeric(14,2) not null default 0,
+  currency     text not null default 'USD',
+  detail       jsonb,                    -- snapshot: máquinas, horas, precio, total
+  paid_at      timestamptz not null default now(),
+  created_by   uuid references auth.users(id),
+  created_at   timestamptz default now()
+);
+create index if not exists idx_cp_company on public.company_payments(company_name, period_start);
+alter table public.company_payments enable row level security;
+drop policy if exists cp_select on public.company_payments;
+create policy cp_select on public.company_payments for select to authenticated using (true);
+drop policy if exists cp_write on public.company_payments;
+create policy cp_write on public.company_payments for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

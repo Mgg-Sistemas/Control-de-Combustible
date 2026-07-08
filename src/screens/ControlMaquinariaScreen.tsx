@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -68,6 +68,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // texto en edición por máquina
+  const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
+  const [priceInput, setPriceInput] = useState('');
 
   const key = (mId: string, no: number) => `${mId}-${no}`;
 
@@ -132,6 +134,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
     if (error) return Alert.alert('Aviso', error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, [field]: value } as Machinery) : x)));
+  };
+
+  const openPrice = (m: Machinery) => {
+    setPriceFor(m);
+    setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
+  };
+
+  const savePrice = async (m: Machinery, value: string) => {
+    const n = Number(value.replace(',', '.'));
+    const val = value.trim() === '' ? null : isFinite(n) && n >= 0 ? n : null;
+    const { error } = await supabase.from('machinery').update({ price_per_hour: val }).eq('id', m.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, price_per_hour: val } as Machinery) : x)));
+    setPriceFor(null);
   };
 
   const setHours = async (m: Machinery, hours: string) => {
@@ -228,10 +244,17 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           const hours = rounds[key(m.id, 1)]?.hours_stopped ?? 0;
           return (
             <Card key={m.id}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{m.code}</Text>
-              <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600', marginBottom: spacing.xs }}>
-                🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
-              </Text>
+              <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
+                  {m.code} <Text style={{ color: colors.primary, fontSize: 13 }}>✎</Text>
+                </Text>
+                <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
+                  🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / hora · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
+                </Text>
+              </TouchableOpacity>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 {ROUND_TIMES.map((time, i) => {
                   const no = i + 1;
@@ -322,6 +345,59 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           );
         })
       )}
+
+      {/* Modal: precio por hora trabajada → total */}
+      <Modal visible={!!priceFor} transparent animationType="fade" onRequestClose={() => setPriceFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+            {priceFor ? (() => {
+              const wh = workedHours(rounds[key(priceFor.id, 1)]?.hours_stopped ?? 0);
+              const price = Number(priceInput.replace(',', '.')) || 0;
+              const total = price * wh;
+              return (
+                <>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{priceFor.code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
+                    Precio por hora trabajada · {date}
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por hora ($)</Text>
+                  <TextInput
+                    value={priceInput}
+                    onChangeText={setPriceInput}
+                    keyboardType="numeric"
+                    placeholder="0.00"
+                    placeholderTextColor={colors.muted}
+                    autoFocus
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
+                  />
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas hoy</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{wh} h</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Total del día</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>${total.toLocaleString()}</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                    El precio se guarda por máquina; en Control de pagos se multiplica por las horas trabajadas de cada semana.
+                  </Text>
+
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPriceFor(null)}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => savePrice(priceFor, priceInput)}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar precio</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })() : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }

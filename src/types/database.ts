@@ -66,7 +66,29 @@ export interface Machinery {
   entry_date: string | null;
   exit_date: string | null;
   location: string | null;
+  price_per_hour: number | null;
   created_at: string;
+}
+
+export interface CompanyPayment {
+  id: string;
+  company_id: string | null;
+  company_name: string;
+  period_start: string;
+  period_end: string;
+  amount: number;
+  currency: string;
+  detail: PaymentDetail | null;
+  paid_at: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Snapshot que se guarda al marcar como pagada una cuenta. */
+export interface PaymentDetail {
+  machines: { machine: string; hours: number; price: number; subtotal: number }[];
+  totalHours: number;
+  total: number;
 }
 
 export interface Company {
