@@ -40,7 +40,8 @@ const CURRENCIES = [
   { label: 'Pesos (COP)', value: 'COP' },
 ];
 
-type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, number> };
+type DayInfo = { stopped: number; operative: boolean };
+type MachineAgg = { machine: string; price: number | null; hours: number; subtotal: number; perDay: Record<string, DayInfo> };
 type Group = {
   company: string;
   companyId: string | null;
@@ -101,21 +102,27 @@ export default function ControlPagosScreen({ navigation }: any) {
         map.get(k) ??
         ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
       const ma = g.machines[machine] ?? { machine, price, hours: 0, subtotal: 0, perDay: {} };
-      // Horas paradas por día = máximo registrado ese día (se guarda en la 1ª ronda).
-      ma.perDay[r.round_date] = Math.max(ma.perDay[r.round_date] ?? 0, Number(r.hours_stopped) || 0);
+      // Por día: horas paradas (máx. registrado) y si hubo al menos una ronda operativa (verde).
+      const prev = ma.perDay[r.round_date] ?? { stopped: 0, operative: false };
+      ma.perDay[r.round_date] = {
+        stopped: Math.max(prev.stopped, Number(r.hours_stopped) || 0),
+        operative: prev.operative || r.status === 'operativa',
+      };
       ma.price = price;
       g.machines[machine] = ma;
       map.set(k, g);
     });
 
     // Segunda pasada: horas trabajadas y totales.
+    // Solo se cobran los días con al menos una ronda operativa (verde);
+    // los días solo-parada o sin marcar no generan deuda.
     const list = Array.from(map.values());
     list.forEach((g) => {
       let total = 0;
       let hoursWorked = 0;
       let noPrice = false;
       Object.values(g.machines).forEach((ma) => {
-        const hrs = Object.values(ma.perDay).reduce((s, stopped) => s + workedHours(stopped), 0);
+        const hrs = Object.values(ma.perDay).reduce((s, d) => s + (d.operative ? workedHours(d.stopped) : 0), 0);
         ma.hours = hrs;
         ma.subtotal = (ma.price ?? 0) * hrs;
         total += ma.subtotal;
@@ -146,7 +153,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
-  const machinesOf = (g: Group) => Object.values(g.machines).sort((a, b) => b.subtotal - a.subtotal);
+  const machinesOf = (g: Group) => Object.values(g.machines).filter((m) => m.hours > 0).sort((a, b) => b.subtotal - a.subtotal);
 
   // ── Deudas pendientes (no pagadas, con monto) → alerta de los lunes ──────────
   const outstandingByCompany = useMemo(() => {
@@ -161,8 +168,10 @@ export default function ControlPagosScreen({ navigation }: any) {
   const canAlert = role === 'admin' || role === 'supervisor';
   const showMondayAlert = isMonday && canAlert && outstandingByCompany.length > 0;
 
+  // Solo cuentas con monto por cobrar o ya pagadas (evita mostrar $0 cuando no hay actividad).
+  const visible = groups.filter((g) => g.total > 0 || g.paid);
   const q = query.trim().toLowerCase();
-  const shown = !q ? groups : groups.filter((g) => g.company.toLowerCase().includes(q));
+  const shown = !q ? visible : visible.filter((g) => g.company.toLowerCase().includes(q));
 
   const byCompany = useMemo(() => {
     const m = new Map<string, Group[]>();
@@ -321,7 +330,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {Object.keys(g.machines).length} máquina(s)</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machinesOf(g).length} máquina(s)</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} h trab.</Text>
                     {g.noPrice ? <Text style={{ color: colors.warning, fontSize: 12 }}>⚠️ falta precio</Text> : null}
                   </View>
@@ -352,7 +361,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Máquinas</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{Object.keys(selected.machines).length}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{machinesOf(selected).length}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text>
