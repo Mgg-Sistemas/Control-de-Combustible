@@ -489,7 +489,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <EmptyState title={query || companyFilter !== '__all__' ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query || companyFilter !== '__all__' ? 'Prueba con otra búsqueda o empresa.' : 'Agrega máquinas en Equipos.'} />
       ) : (
         machinesByCompany.map((g) => {
-          const open = expanded[g.key] ?? true;
+          // Colapsadas por defecto; se abren al buscar o al filtrar una empresa.
+          const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__');
           return (
             <View key={g.key} style={{ marginBottom: spacing.xs }}>
               <TouchableOpacity
