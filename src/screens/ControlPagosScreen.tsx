@@ -78,6 +78,7 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [payments, setPayments] = useState<CompanyPayment[]>([]);
   const [selected, setSelected] = useState<Group | null>(null);
   const [query, setQuery] = useState('');
+  const [expandedCompany, setExpandedCompany] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
   // Marcar como pagada
   const [payFor, setPayFor] = useState<Group | null>(null);
@@ -358,12 +359,28 @@ export default function ControlPagosScreen({ navigation }: any) {
       ) : byCompany.length === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin cuentas por pagar'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Registra rondas y precios en Control de maquinaria.'} />
       ) : (
-        byCompany.map(([company, weeks]) => (
-          <View key={company}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginTop: spacing.sm, marginBottom: spacing.xs }}>
-              🏢 {company}
-            </Text>
-            {weeks.map((g) => (
+        byCompany.map(([company, weeks]) => {
+          const open = !!expandedCompany[company];
+          // Total que se debe = suma de las semanas pendientes (sin pagar).
+          const debt = weeks.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
+          // Máquinas con jornada = máquinas distintas que trabajaron en la empresa.
+          const machineSet = new Set<string>();
+          weeks.forEach((g) => machinesOf(g).forEach((m) => machineSet.add(m.machine)));
+          return (
+            <View key={company}>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setExpandedCompany((p) => ({ ...p, [company]: !p[company] }))}>
+                <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
+                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${debt.toLocaleString()}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machineSet.size} máquina(s) con jornada · {weeks.length} semana(s)</Text>
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
+                  </View>
+                </Card>
+              </TouchableOpacity>
+              {open ? weeks.map((g) => (
               <TouchableOpacity key={g.weekStart} activeOpacity={0.7} onPress={() => setSelected(g)}>
                 <Card style={g.paid ? { borderColor: colors.success } : undefined}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -384,9 +401,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </Text>
                 </Card>
               </TouchableOpacity>
-            ))}
-          </View>
-        ))
+            )) : null}
+            </View>
+          );
+        })
       )}
 
       {/* ── Detalle de la cuenta (empresa + semana) ── */}
