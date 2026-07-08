@@ -41,7 +41,8 @@ const CURRENCIES = [
 
 type DayInfo = { stopped: number; overtime: number; day: number; night: number };
 type MachineAgg = {
-  machine: string;
+  machine: string;        // etiqueta visible (nombre · serial/placa)
+  serial: string | null;  // serial único (identifica la máquina física)
   price: number | null;
   hours: number;      // horas trabajadas totales (día + noche − parada + extras)
   dayHours: number;   // total horas de turno de día
@@ -101,7 +102,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const [{ data: rounds }, { data: pays }] = await Promise.all([
       supabase
         .from('machine_rounds')
-        .select('round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, price_per_hour, company:company_id(id, name))')
+        .select('round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))')
         .order('round_date', { ascending: false }),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
     ]);
@@ -110,14 +111,20 @@ export default function ControlPagosScreen({ navigation }: any) {
     (rounds ?? []).forEach((r: any) => {
       const company = r.machinery?.company?.name ?? 'Sin empresa';
       const companyId = r.machinery?.company?.id ?? null;
-      const machine = r.machinery?.code ?? '—';
+      // Identidad ÚNICA por máquina física: id de la máquina (no el nombre, que puede repetirse).
+      const machineId = r.machinery?.id ?? r.machinery?.code ?? '—';
+      const serial = r.machinery?.serial ?? null;
+      const plate = r.machinery?.plate ?? null;
+      const code = r.machinery?.code ?? '—';
+      // Etiqueta visible: nombre + serial (o placa) para distinguir máquinas del mismo nombre.
+      const label = `${code}${serial ? ` · ${serial}` : plate ? ` · ${plate}` : ''}`;
       const price = r.machinery?.price_per_hour != null ? Number(r.machinery.price_per_hour) : null;
       const weekStart = weekStartISO(r.round_date);
       const k = `${company}|${weekStart}`;
       const g =
         map.get(k) ??
         ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
-      const ma = g.machines[machine] ?? { machine, price, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
+      const ma = g.machines[machineId] ?? { machine: label, serial, price, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
       // Por día: turno de día/noche, parada y extras (todo en el registro base).
       const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       ma.perDay[r.round_date] = {
@@ -127,7 +134,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         night: Math.max(prev.night, Number(r.night_hours) || 0),
       };
       ma.price = price;
-      g.machines[machine] = ma;
+      g.machines[machineId] = ma;
       map.set(k, g);
     });
 

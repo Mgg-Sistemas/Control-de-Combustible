@@ -261,7 +261,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Trae todos los turnos sin cerrar (de cualquier fecha) con sus operadores por turno.
     const { data: openRounds } = await supabase
       .from('machine_rounds')
-      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(code, company:company_id(name))')
+      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, company:company_id(name))')
       .eq('closed', false);
     const rows = (openRounds ?? []).filter(
       (r: any) => (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) > 0 || (Number(r.hours_stopped) || 0) > 0 || (Number(r.overtime_hours) || 0) > 0
@@ -283,6 +283,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         const ot = Number(r.overtime_hours) || 0;
         return {
           code: r.machinery?.code ?? '—',
+          machineId: r.machinery?.id ?? null,
+          serial: r.machinery?.serial ?? r.machinery?.plate ?? null,
           company: r.machinery?.company?.name ?? 'Sin empresa',
           operator: [r.day_operator, r.night_operator].filter(Boolean).join(' / '),
           cedula: '',
@@ -298,7 +300,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           worked: workedFromShifts(dayH, nightH, stopped, ot),
         } as ClosureMachine;
       });
-    const uniqueMachines = new Set(snapshot.map((s) => s.code)).size;
+    const uniqueMachines = new Set(snapshot.map((s) => s.machineId || s.serial || s.code)).size;
     const rangeTxt = from === to ? `del ${from}` : `del ${from} al ${to}`;
     setClosing(false);
     const ok = await confirm({
@@ -339,14 +341,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       ? `del ${c.detail.dateFrom} al ${c.detail.dateTo}`
       : `del ${c.detail?.dateFrom ?? c.closure_date}`;
     // Precio por hora de cada máquina (por código, de la lista actual).
+    const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
+    const priceOf = (m: ClosureMachine) => (m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0;
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rows = machs
       .map((m) => {
-        const price = priceByCode.get(m.code) ?? 0;
+        const price = priceOf(m);
         const amount = (Number(m.worked) || 0) * price;
         return (
-          `<tr><td>${m.date ?? '—'}</td><td>${m.code}</td><td>${m.company || '—'}</td>` +
+          `<tr><td>${m.date ?? '—'}</td><td>${m.code}${m.serial ? `<br/><span style="color:#888">${m.serial}</span>` : ''}</td><td>${m.company || '—'}</td>` +
           `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td>${opCell(m.dayOperator, m.dayCedula)}</td>` +
           `<td style="text-align:center">${shiftCell(m.nightHours)}</td><td>${opCell(m.nightOperator, m.nightCedula)}</td>` +
           `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td>` +
@@ -357,7 +361,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Totales del cierre.
     const tot = machs.reduce(
       (a, m) => {
-        const price = priceByCode.get(m.code) ?? 0;
+        const price = priceOf(m);
         return {
           day: a.day + (Number(m.dayHours) || 0),
           night: a.night + (Number(m.nightHours) || 0),
@@ -928,18 +932,22 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               />
               {(() => {
                 const usdFmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                // Precio por SERIAL (único) y por código (respaldo para datos viejos).
+                const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
                 const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
-                // Agrupar los registros del cierre POR MÁQUINA (código).
-                const map = new Map<string, { code: string; company: string; days: ClosureMachine[] }>();
+                // Agrupar los registros del cierre POR MÁQUINA ÚNICA (serial/id, no el nombre que puede repetirse).
+                const map = new Map<string, { key: string; code: string; serial: string | null; company: string; days: ClosureMachine[] }>();
                 (closureSel.detail?.machines ?? []).forEach((m) => {
-                  const g = map.get(m.code) ?? { code: m.code, company: m.company || '', days: [] };
+                  const key = (m.machineId || m.serial || m.code) as string;
+                  const g = map.get(key) ?? { key, code: m.code, serial: m.serial ?? null, company: m.company || '', days: [] };
                   if (!g.company && m.company) g.company = m.company;
+                  if (!g.serial && m.serial) g.serial = m.serial;
                   g.days.push(m);
-                  map.set(m.code, g);
+                  map.set(key, g);
                 });
                 const q = closureSearch.trim().toLowerCase();
                 let groups = Array.from(map.values());
-                if (q) groups = groups.filter((g) => g.code.toLowerCase().includes(q) || g.company.toLowerCase().includes(q));
+                if (q) groups = groups.filter((g) => g.code.toLowerCase().includes(q) || (g.serial || '').toLowerCase().includes(q) || g.company.toLowerCase().includes(q));
                 groups.sort((a, b) => a.code.localeCompare(b.code));
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
@@ -960,14 +968,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                     }),
                     { day: 0, night: 0, stopped: 0, extra: 0, worked: 0 }
                   );
-                  const price = priceByCode.get(g.code) ?? 0;
+                  const price = (g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0;
                   const amount = t.worked * price;
-                  const open = !!closureExpanded[g.code];
+                  const open = !!closureExpanded[g.key];
                   return (
-                    <Card key={g.code}>
-                      <TouchableOpacity activeOpacity={0.7} onPress={() => setClosureExpanded((p) => ({ ...p, [g.code]: !p[g.code] }))}>
+                    <Card key={g.key}>
+                      <TouchableOpacity activeOpacity={0.7} onPress={() => setClosureExpanded((p) => ({ ...p, [g.key]: !p[g.key] }))}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}{g.serial ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>  ·  {g.serial}</Text> : null}</Text>
                           <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>

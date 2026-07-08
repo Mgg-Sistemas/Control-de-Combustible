@@ -144,6 +144,8 @@ export interface MachineDayOperator {
 /** Fila del snapshot que se guarda al cerrar el control del día. */
 export interface ClosureMachine {
   code: string;
+  machineId?: string | null; // id único de la máquina física
+  serial?: string | null;    // serial (o placa) — identifica la máquina, puede repetirse el nombre
   company: string;
   operator: string; // (compat) "Nombre Apellido"
   cedula: string;
