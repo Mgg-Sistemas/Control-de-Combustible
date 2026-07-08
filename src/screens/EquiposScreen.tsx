@@ -346,14 +346,14 @@ export default function EquiposScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
-        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
+        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} textColor={colors.primaryContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
       </View>
     </Card>
   );
 
-  const BigBtn = ({ label, onPress, color, disabled }: any) => (
+  const BigBtn = ({ label, onPress, color, disabled, textColor = '#fff' }: any) => (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled}
@@ -370,7 +370,7 @@ export default function EquiposScreen({ navigation }: any) {
         paddingVertical: spacing.xs,
       }}
     >
-      <Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center', fontSize: 13 }}>{label}</Text>
+      <Text style={{ color: textColor, fontWeight: '700', textAlign: 'center', fontSize: 13 }}>{label}</Text>
     </TouchableOpacity>
   );
 
@@ -649,6 +649,7 @@ export default function EquiposScreen({ navigation }: any) {
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : { key: 'serial', labelCol: 'code', labelName: 'serial' }}
         record={editing}
+        headerImageUrl={isVehicle ? undefined : editing?.photo_url}
         allowDelete
         onClose={() => setFormOpen(false)}
         onSaved={refetch}

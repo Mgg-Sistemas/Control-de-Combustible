@@ -157,7 +157,19 @@ export default function ControlPagosScreen({ navigation }: any) {
   useEffect(() => {
     load();
     const unsub = navigation?.addListener?.('focus', load);
-    return unsub;
+    // Sincronización multiusuario en vivo.
+    let timer: any;
+    const bump = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+    const ch = supabase.channel('rt-control-pagos');
+    ['machine_rounds', 'company_payments', 'machinery'].forEach((t) =>
+      ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
+    );
+    ch.subscribe();
+    return () => {
+      clearTimeout(timer);
+      supabase.removeChannel(ch);
+      unsub?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 

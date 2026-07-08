@@ -95,8 +95,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   const key = (mId: string, no: number) => `${mId}-${no}`;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const [{ data: m }, { data: r }, { data: c }, { data: ops }] = await Promise.all([
       supabase.from('machinery').select('*').order('code', { ascending: true }),
       supabase.from('machine_rounds').select('*').eq('round_date', date),
@@ -115,12 +115,22 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       omap[o.machinery_id] = { first_name: o.first_name ?? '', last_name: o.last_name ?? '', cedula: o.cedula ?? '' };
     });
     setOperators(omap);
-    setHoursInput({}); // refrescar los campos con los valores del día cargado
+    // En recarga silenciosa (tiempo real) no borramos lo que el usuario esté escribiendo.
+    if (!silent) setHoursInput({});
     setLoading(false);
   }, [date]);
 
   useEffect(() => {
     load();
+    // Sincronización multiusuario: refresca (silencioso) al cambiar rondas/operadores/máquinas.
+    let timer: any;
+    const bump = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 300); };
+    const ch = supabase.channel('rt-control-maquinaria');
+    ['machine_rounds', 'machine_day_operators', 'machinery'].forEach((t) =>
+      ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
+    );
+    ch.subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [load]);
 
   const setRound = async (m: Machinery, no: number, status: 'operativa' | 'parada') => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -58,30 +58,41 @@ function StatCard({
 
 export default function DashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
-  const { data: tanks, loading } = useTable<TankLevel>('tank_levels');
+  const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const [{ data: rounds }, { count: locCount }, { count: machCount }, { count: vehCount }] = await Promise.all([
-        // Rondas "en verde" (operativas) de hoy → máquinas activas hoy.
-        supabase.from('machine_rounds').select('machinery_id').eq('round_date', todayISO()).eq('status', 'operativa'),
-        // Máquinas con coordenadas → mismas que muestra el mapa.
-        supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
-        // Catálogo: maquinaria + maquinaria pesada activa.
-        supabase.from('machinery').select('id', { count: 'exact', head: true }).eq('active', true),
-        // Catálogo: vehículos activos.
-        supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
-      ]);
-      const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
-      setActiveMachines(uniq.size);
-      setActiveLocations(locCount ?? 0);
-      setActiveAssets((machCount ?? 0) + (vehCount ?? 0));
-    })();
+  const loadCounts = useCallback(async () => {
+    const [{ data: rounds }, { count: locCount }, { count: machCount }, { count: vehCount }] = await Promise.all([
+      // Rondas "en verde" (operativas) de hoy → máquinas activas hoy.
+      supabase.from('machine_rounds').select('machinery_id').eq('round_date', todayISO()).eq('status', 'operativa'),
+      // Máquinas con coordenadas → mismas que muestra el mapa.
+      supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
+      // Catálogo: maquinaria + maquinaria pesada activa.
+      supabase.from('machinery').select('id', { count: 'exact', head: true }).eq('active', true),
+      // Catálogo: vehículos activos.
+      supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
+    ]);
+    const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
+    setActiveMachines(uniq.size);
+    setActiveLocations(locCount ?? 0);
+    setActiveAssets((machCount ?? 0) + (vehCount ?? 0));
   }, []);
+
+  useEffect(() => {
+    loadCounts();
+    // Sincroniza los conteos en vivo si otro usuario cambia rondas/máquinas/vehículos.
+    let timer: any;
+    const bump = () => { clearTimeout(timer); timer = setTimeout(loadCounts, 300); };
+    const ch = supabase.channel('rt-dashboard-counts');
+    ['machine_rounds', 'machinery', 'vehicles'].forEach((t) =>
+      ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
+    );
+    ch.subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
+  }, [loadCounts]);
 
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
   const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 30).length;

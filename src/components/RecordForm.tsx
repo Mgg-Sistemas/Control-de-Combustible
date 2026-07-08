@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ScrollView,
   Platform,
+  Image,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { spacing, radius, AppColors } from '../theme';
@@ -53,6 +54,7 @@ export function RecordForm({
   uniqueField,
   record,
   allowDelete = false,
+  headerImageUrl,
   onClose,
   onSaved,
 }: {
@@ -70,6 +72,8 @@ export function RecordForm({
   record?: (Record<string, any> & { id: string }) | null;
   /** Muestra el botón "Eliminar" cuando se está editando un registro. */
   allowDelete?: boolean;
+  /** URL de una foto (p. ej. de la máquina) que se muestra arriba del formulario. */
+  headerImageUrl?: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -206,6 +210,13 @@ export function RecordForm({
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={[typography.title, { marginBottom: spacing.md }]}>{title}</Text>
+          {isEdit && headerImageUrl ? (
+            <Image
+              source={{ uri: headerImageUrl }}
+              style={{ width: '100%', height: 180, borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}
+              resizeMode="cover"
+            />
+          ) : null}
           <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: spacing.sm }}>
             {visibleFields.map((f) => (
               <View key={f.key} style={{ gap: 4 }}>
