@@ -17,12 +17,11 @@ import { spacing, radius } from '../theme';
 
 type FuelRow = { date: string; liters: number; tank: string };
 
-type Kind = 'vehiculo' | 'maquinaria' | 'maquinaria pesada';
+type Kind = 'vehiculo' | 'maquinaria';
 
 const KINDS: { value: Kind; label: string; icon: string }[] = [
   { value: 'vehiculo', label: 'Vehículo', icon: '🚗' },
   { value: 'maquinaria', label: 'Maquinaria', icon: '🚜' },
-  { value: 'maquinaria pesada', label: 'Maq. pesada', icon: '🏗️' },
 ];
 
 const VEHICLE_FIELDS: Field[] = [
@@ -36,6 +35,7 @@ const VEHICLE_FIELDS: Field[] = [
 
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
+  { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name' },
@@ -90,7 +90,7 @@ export default function EquiposScreen({ navigation }: any) {
     : (baseList as any[]).filter((it) => {
         const hay = isVehicle
           ? [it.plate, it.brand, it.model, it.vehicle_type]
-          : [it.code, it.description, it.plate, it.serial, companyName(it.company_id)];
+          : [it.code, it.description, it.plate, it.serial, it.identifier, companyName(it.company_id)];
         return hay.filter(Boolean).some((v: string) => String(v).toLowerCase().includes(q));
       });
   const loading = isVehicle ? vehicles.loading : machinery.loading;
@@ -333,6 +333,7 @@ export default function EquiposScreen({ navigation }: any) {
                 {m.operational ? '● Operativa' : '● No operativa'}
               </Text>
             </View>
+            {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {m.latitude != null ? (
