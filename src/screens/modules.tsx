@@ -75,6 +75,7 @@ export function IntakesScreen() {
       table="fuel_intakes"
       orderBy="intake_date"
       editable
+      dateField="intake_date"
       emptyTitle="Sin ingresos"
       emptySubtitle="Registra la recepción/compra de combustible."
       formTitle="Nuevo ingreso"
@@ -112,6 +113,7 @@ export function DispatchesScreen() {
       table="dispatches"
       orderBy="dispatch_date"
       editable
+      dateField="dispatch_date"
       emptyTitle="Sin consumos"
       emptySubtitle="Registra los despachos a vehículos o maquinaria."
       formTitle="Nuevo consumo"
@@ -180,6 +182,7 @@ export function TransfersScreen() {
       table="transfers"
       orderBy="transfer_date"
       editable
+      dateField="transfer_date"
       emptyTitle="Sin traslados"
       emptySubtitle="Registra movimientos de combustible entre tanques."
       formTitle="Nuevo traslado"
