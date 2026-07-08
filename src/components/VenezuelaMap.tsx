@@ -24,9 +24,20 @@ function buildHtml(pins: MapPin[]): string {
 <body><div id="map"></div><script>
   var pins = ${data};
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Capa satelital (Esri World Imagery) + nombres de calles/lugares encima.
+  var sat = L.layerGroup([
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Tiles © Esri'
+    }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19
+    })
+  ]);
+  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19, attribution: '© OpenStreetMap'
-  }).addTo(map);
+  });
+  sat.addTo(map); // Satélite por defecto
+  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: false }).addTo(map);
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
   var bounds = [];
