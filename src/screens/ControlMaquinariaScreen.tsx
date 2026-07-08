@@ -31,6 +31,9 @@ function DateField({ value, onChange, colors }: { value: string; onChange: (v: s
       type: 'date',
       value: value || '',
       onChange: (e: any) => onChange(e.target.value),
+      // Al hacer clic (o enfocar) abre directamente el calendario del navegador.
+      onClick: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
+      onFocus: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
       style: {
         padding: '9px',
         borderRadius: '10px',
@@ -314,12 +317,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const setHours = async (m: Machinery, hours: string) => {
     const h = Number(hours.replace(',', '.')) || 0;
     // Guarda las horas de parada en la 1ª ronda del día (registro base).
+    // No marca la máquina como operativa: escribir horas NO cuenta como "activa por rondas".
     const existing = rounds[key(m.id, 1)];
     const payload: any = {
       machinery_id: m.id,
       round_date: date,
       round_no: 1,
-      status: existing?.status ?? 'operativa',
+      status: existing?.status ?? 'parada',
       hours_stopped: h,
     };
     const { data, error } = await supabase
@@ -339,7 +343,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       machinery_id: m.id,
       round_date: date,
       round_no: 1,
-      status: existing?.status ?? 'operativa',
+      status: existing?.status ?? 'parada',
       hours_stopped: existing?.hours_stopped ?? 0,
       overtime_hours: h,
     };
