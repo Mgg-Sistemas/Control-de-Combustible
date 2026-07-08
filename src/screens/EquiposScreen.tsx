@@ -102,6 +102,10 @@ export default function EquiposScreen({ navigation }: any) {
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
   const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive'>(null);
 
+  // Reportes de maquinaria (por empresa o general) con vista previa.
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+
   const openEdit = (item: any) => {
     setEditing(item);
     setFormOpen(true);
@@ -315,6 +319,72 @@ export default function EquiposScreen({ navigation }: any) {
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [machineryList, companyName]);
 
+  // Grupos para el REPORTE (usa toda la maquinaria, no la búsqueda/filtro de arriba).
+  const reportGroups = useMemo(() => {
+    const src =
+      reportCompany === '__all__'
+        ? machinery.data
+        : reportCompany === '__none__'
+        ? machinery.data.filter((m) => !m.company_id)
+        : machinery.data.filter((m) => m.company_id === reportCompany);
+    const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
+    src.forEach((it) => {
+      const k = it.company_id ?? '__none__';
+      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      const g = m.get(k) ?? { key: k, name, items: [] };
+      g.items.push(it);
+      m.set(k, g);
+    });
+    const groups = Array.from(m.values());
+    groups.forEach((g) =>
+      g.items.sort((a, b) => (a.identifier || 'zzz').localeCompare(b.identifier || 'zzz') || a.code.localeCompare(b.code))
+    );
+    return groups.sort((a, b) => a.name.localeCompare(b.name));
+  }, [reportCompany, machinery.data, companyName]);
+  const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
+  const reportTitle = reportCompany === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(reportCompany) || 'Sin empresa'}`;
+
+  const downloadReportPdf = async () => {
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const sections = reportGroups
+      .map((g) => {
+        const rows = g.items
+          .map(
+            (m) => `<tr>
+              <td>${esc(m.identifier || '—')}</td>
+              <td>${esc(m.code)}</td>
+              <td>${esc(m.plate || '—')}</td>
+              <td>${esc(m.serial || '—')}</td>
+              <td>${esc(m.encargado || '—')}</td>
+              <td>${esc(m.grupo || '—')}</td>
+              <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
+            </tr>`
+          )
+          .join('');
+        return `<h2 style="font-size:14px;color:#1E3A5F;margin:16px 0 4px">🏢 ${esc(g.name)} <span style="color:#666;font-weight:400">(${g.items.length})</span></h2>
+          <table><thead><tr><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
+      })
+      .join('');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/>
+      <style>
+        *{box-sizing:border-box}
+        body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#222;padding:26px}
+        h1{color:#1E3A5F;margin:0 0 2px;font-size:20px}
+        .muted{color:#666;font-size:12px}
+        table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
+        th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
+        th{background:#1E3A5F;color:#fff}
+        .foot{margin-top:18px;color:#888;font-size:10px;border-top:1px solid #ccc;padding-top:6px}
+      </style></head><body>
+      <h1>${esc(reportTitle.toUpperCase())}</h1>
+      <div class="muted">Total de máquinas: ${reportTotal}</div>
+      ${sections || '<p class="muted">Sin maquinaria para este filtro.</p>'}
+      <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
+      </body></html>`;
+    await exportPdf(html);
+  };
+
   const renderMachineCard = (m: Machinery) => (
     <Card key={m.id}>
       <TouchableOpacity onPress={() => { setKind('maquinaria'); openEdit(m); }} activeOpacity={0.7}>
@@ -431,12 +501,20 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity
-        onPress={() => navigation.navigate('Map')}
-        style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.sm }}
-      >
-        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa de máquinas</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Map')}
+          style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>🗺️  Ver mapa</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setReportOpen(true)}
+          style={{ flex: 1, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>📄  Reportes</Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={{ marginTop: spacing.sm }}>
         <TextInput
@@ -700,12 +778,11 @@ export default function EquiposScreen({ navigation }: any) {
                 .slice()
                 .sort((a, b) => a.code.localeCompare(b.code))
                 .map((m) => (
-                  <TouchableOpacity
-                    key={m.id}
-                    activeOpacity={0.7}
-                    onPress={() => { setDetailStatus(null); setKind('maquinaria'); openEdit(m); }}
-                  >
-                    <Card>
+                  <Card key={m.id}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => { setDetailStatus(null); setKind('maquinaria'); openEdit(m); }}
+                    >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
                         <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
@@ -716,12 +793,89 @@ export default function EquiposScreen({ navigation }: any) {
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
-                    </Card>
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => toggleOp(m)}
+                      disabled={busy === m.id + '-op'}
+                      style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                        {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⛔ Poner No operativa' : '✅ Activar (Operativa)'}
+                      </Text>
+                    </TouchableOpacity>
+                  </Card>
                 ))}
             </ScrollView>
           )}
           <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setDetailStatus(null)}>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
+        </Screen>
+      </Modal>
+
+      {/* Reportes de maquinaria (por empresa / general) con vista previa */}
+      <Modal visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
+        <Screen>
+          <SectionTitle>📄 Reportes de maquinaria</SectionTitle>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Elige el alcance del reporte</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {companyOptions
+              .map((o) => ({ ...o, label: o.value === '__all__' ? 'General (todas)' : o.label }))
+              .map((o) => {
+                const active = reportCompany === o.value;
+                return (
+                  <TouchableOpacity
+                    key={o.value}
+                    onPress={() => setReportCompany(o.value)}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                  >
+                    <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
+                    <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{reportTitle}</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>{reportTotal} máquina(s)</Text>
+          </View>
+
+          <ScrollView style={{ flex: 1 }}>
+            {reportTotal === 0 ? (
+              <EmptyState title="Sin maquinaria" subtitle="No hay máquinas para este alcance." />
+            ) : (
+              reportGroups.map((g) => (
+                <View key={g.key} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 4 }}>🏢 {g.name} ({g.items.length})</Text>
+                  {g.items.map((m) => (
+                    <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
+                          {m.identifier ? `${m.identifier} · ` : ''}{m.code}
+                        </Text>
+                        <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
+                          {m.operational ? 'Operativa' : 'No operativa'}
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))
+            )}
+          </ScrollView>
+
+          <TouchableOpacity
+            style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1 }}
+            onPress={downloadReportPdf}
+            disabled={reportTotal === 0}
+          >
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setReportOpen(false)}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
         </Screen>
