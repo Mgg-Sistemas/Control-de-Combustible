@@ -324,12 +324,9 @@ export default function ReportsScreen({ route }: any) {
 
   const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
-  // Promedio = horas trabajadas ÷ jornadas trabajadas (los equipos/jornadas en 0 no cuentan).
-  const avgHJ = (h: number, d: number) => (d > 0 ? `${Number((h / d).toFixed(2)).toLocaleString()} h/j` : '—');
-
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Prom. h/jornada</th><th>Precio/jornada (12h)</th><th>Total $</th></tr>`;
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -341,8 +338,7 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
               `<td style="text-align:center">${nH(m.nightH)}</td>` +
               `<td style="text-align:center;font-weight:700">${nH(m.totalH)}</td>` +
-              `<td style="text-align:center">${avgHJ(m.totalH, m.days)}</td>` +
-              `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada) : '—'}</td>` +
+              `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada / 12) : '—'}</td>` +
               `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
           )
           .join('');
@@ -352,19 +348,17 @@ export default function ReportsScreen({ route }: any) {
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
-            <td style="text-align:center;font-weight:800">${avgHJ(g.totalH, g.days)}</td>
             <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>`;
       })
       .join('');
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
-    const grandDays = roundGroups.reduce((s, g) => s + g.days, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
     const content = `
       <div class="muted">Informe por jornada · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · Prom. ${avgHJ(grandH, grandDays)} · ${usd(grandUSD)}</div>
-      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Promedio = horas trabajadas ÷ jornadas trabajadas. Total $ = (horas trabajadas ÷ 12) × precio por jornada de 12 h.</p>`;
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
+      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
     await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
   };
 
@@ -790,9 +784,7 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
             </Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-              Promedio: {avgHJ(roundGroups.reduce((s, g) => s + g.totalH, 0), roundGroups.reduce((s, g) => s + g.days, 0))} · solo equipos que trabajaron
-            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Solo equipos que trabajaron</Text>
           </Card>
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
@@ -820,17 +812,16 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.muted, fontSize: 12 }}>☀️ {nH(m.dayH)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🌙 {nH(m.nightH)}</Text>
                       <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Σ {nH(m.totalH)}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>⌀ {avgHJ(m.totalH, m.days)}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>Precio/jornada: {m.priceJornada != null ? usd(m.priceJornada) : '⚠️ sin precio'}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Precio/hora: {m.priceJornada != null ? usd(m.priceJornada / 12) : '⚠️ sin precio'}</Text>
                       <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{m.priceJornada != null ? usd(m.totalUSD) : '—'}</Text>
                     </View>
                   </Card>
                 ))}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>TOTAL {g.company}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · ⌀ {avgHJ(g.totalH, g.days)} · {usd(g.totalUSD)}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · {usd(g.totalUSD)}</Text>
                 </View>
               </View>
             ))
