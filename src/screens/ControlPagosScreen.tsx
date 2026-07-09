@@ -464,15 +464,44 @@ export default function ControlPagosScreen({ navigation }: any) {
           .join('');
         const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
         const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
+        // Detalle de abonos de esta semana/empresa.
+        const abonosHtml =
+          g.abonos.length > 0
+            ? `<table class="ab"><thead><tr><th>Abono</th><th>Fecha</th><th style="text-align:right">Monto</th></tr></thead>
+              <tbody>${g.abonos
+                .map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY((p.paid_at || '').slice(0, 10))}</td><td style="text-align:right;font-weight:700">$${money(Number(p.amount) || 0)}</td></tr>`)
+                .join('')}</tbody>
+              <tfoot>
+                <tr><td colspan="2" style="text-align:right;font-weight:700">Total abonado</td><td style="text-align:right;font-weight:800">$${money(g.paidAmount)}</td></tr>
+                <tr><td colspan="2" style="text-align:right;font-weight:700">Saldo pendiente</td><td style="text-align:right;font-weight:800">$${money(g.saldo)}</td></tr>
+              </tfoot></table>`
+            : `<div class="muted" style="margin:3px 0 6px">Sin abonos registrados · saldo pendiente $${money(g.saldo)}</div>`;
         return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${fmtDMY(g.weekStart)} → ${fmtDMY(g.weekEnd)} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
           <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/jornada</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
-          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${money(g.total)}</td></tr></tfoot></table>`;
+          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${money(g.total)}</td></tr></tfoot></table>
+          <div class="abt">💵 Abonos</div>${abonosHtml}`;
       })
       .join('');
+    const totalFact = inRange.reduce((s, g) => s + g.total, 0);
     const totalPend = inRange.reduce((s, g) => s + g.saldo, 0);
     const totalPag = inRange.reduce((s, g) => s + g.paidAmount, 0);
-    const title = repCompany === '__all__' ? 'Todas las empresas' : repCompany;
+    const title = repCompany === '__all__' ? 'Todas las empresas (general)' : repCompany;
+    // Resumen general por empresa (facturado / abonado / saldo) — útil sobre todo en el general.
+    const byCompany = new Map<string, { total: number; pag: number; saldo: number }>();
+    inRange.forEach((g) => {
+      const a = byCompany.get(g.company) ?? { total: 0, pag: 0, saldo: 0 };
+      a.total += g.total; a.pag += g.paidAmount; a.saldo += g.saldo;
+      byCompany.set(g.company, a);
+    });
+    const resumenRows = [...byCompany.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([c, v]) => `<tr><td>${c}</td><td style="text-align:right">$${money(v.total)}</td><td style="text-align:right;color:#087443;font-weight:700">$${money(v.pag)}</td><td style="text-align:right;font-weight:700">$${money(v.saldo)}</td></tr>`)
+      .join('');
+    const resumenHtml = `<h2 class="res">Resumen ${repCompany === '__all__' ? 'general por empresa' : 'de la empresa'}</h2>
+      <table><thead><tr><th>Empresa</th><th style="text-align:right">Facturado</th><th style="text-align:right">Abonado</th><th style="text-align:right">Saldo</th></tr></thead>
+      <tbody>${resumenRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">$${money(totalFact)}</td><td style="text-align:right;font-weight:800">$${money(totalPag)}</td><td style="text-align:right;font-weight:800">$${money(totalPend)}</td></tr></tfoot></table>`;
     const html = pdfDocument({
       title: 'Control de pagos por maquinaria',
       subtitle: `${title} · del ${fmtDMY(repFrom)} al ${fmtDMY(repTo)}`,
@@ -481,11 +510,16 @@ export default function ControlPagosScreen({ navigation }: any) {
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7}
+        table.ab{margin-bottom:10px}
+        table.ab th{background:#087443}
+        .abt{font-size:11px;font-weight:800;color:#087443;margin-top:6px}
+        h2.res{font-size:14px;color:#fff;background:#1E3A5F;padding:8px 12px;border-radius:6px;margin:22px 0 6px}
         .tot{margin-top:16px;font-size:13px}
         .muted{color:#666;font-size:12px}`,
       body: `
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div class="tot"><b>Total pendiente:</b> $${money(totalPend)} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${money(totalPag)}</div>`,
+      ${resumenHtml}
+      <div class="tot"><b>Total facturado:</b> $${money(totalFact)} &nbsp;·&nbsp; <b>Total abonado:</b> $${money(totalPag)} &nbsp;·&nbsp; <b>Total pendiente:</b> $${money(totalPend)}</div>`,
     });
     await exportPdf(html);
   };
