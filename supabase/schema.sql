@@ -652,5 +652,16 @@ alter table public.machinery add column if not exists initial_cost numeric(14,2)
 alter table public.machinery add column if not exists useful_value numeric(14,2);
 
 -- ============================================================================
+-- RECORRIDO / RUTA por surtido de maquinaria: km ida/vuelta y combustible
+-- inicial/final para calcular el rendimiento de la ruta = km ÷ (inicial−final).
+-- Límite de surtido: no se puede despachar más de 2× el consumo diario.
+-- ============================================================================
+alter table public.dispatches add column if not exists km_ida numeric(12,2);
+alter table public.dispatches add column if not exists km_vuelta numeric(12,2);
+alter table public.dispatches add column if not exists fuel_start numeric(12,2);
+alter table public.dispatches add column if not exists fuel_end numeric(12,2);
+alter table public.machinery add column if not exists daily_consumption_l numeric(12,2);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

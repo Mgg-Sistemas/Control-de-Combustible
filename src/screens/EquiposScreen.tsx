@@ -15,7 +15,7 @@ import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
-type FuelRow = { date: string; liters: number; tank: string };
+type FuelRow = { date: string; liters: number; tank: string; km?: number | null; gasto?: number | null };
 
 type Kind = 'vehiculo' | 'maquinaria';
 
@@ -55,6 +55,7 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
+  { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
 ];
 
 export default function EquiposScreen({ navigation }: any) {
@@ -82,6 +83,10 @@ export default function EquiposScreen({ navigation }: any) {
   const [regLiters, setRegLiters] = useState('');
   const [regTank, setRegTank] = useState('');
   const [regOperator, setRegOperator] = useState('');
+  const [regKmIda, setRegKmIda] = useState('');
+  const [regKmVuelta, setRegKmVuelta] = useState('');
+  const [regFuelStart, setRegFuelStart] = useState('');
+  const [regFuelEnd, setRegFuelEnd] = useState('');
   const [regSaving, setRegSaving] = useState(false);
   const [tanks, setTanks] = useState<{ id: string; name: string; fuel: string }[]>([]);
   const companyName = useMemo(() => {
@@ -233,8 +238,14 @@ export default function EquiposScreen({ navigation }: any) {
     setRegLiters('');
     setRegTank(tanks[0]?.id ?? '');
     setRegOperator('');
+    setRegKmIda('');
+    setRegKmVuelta('');
+    setRegFuelStart('');
+    setRegFuelEnd('');
     setRegOpen(true);
   };
+
+  const num = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) ? n : null; };
 
   // Inserta un despacho de combustible a la máquina actual y refresca la traza.
   const registrarSurtido = async () => {
@@ -243,6 +254,11 @@ export default function EquiposScreen({ navigation }: any) {
     if (!isFinite(liters) || liters <= 0) return Alert.alert('Aviso', 'Ingresa los litros surtidos (mayor a 0).');
     if (!regTank) return Alert.alert('Aviso', 'Selecciona el tanque de origen.');
     if (!regDate) return Alert.alert('Aviso', 'Selecciona la fecha.');
+    // Tope: no se puede solicitar más de 2× el consumo diario de la máquina.
+    const diario = fuelFor.daily_consumption_l != null ? Number(fuelFor.daily_consumption_l) : null;
+    if (diario != null && diario > 0 && liters > diario * 2) {
+      return Alert.alert('Límite de surtido', `Esta máquina consume ${diario.toLocaleString()} L/día. No se puede surtir más de ${(diario * 2).toLocaleString()} L (2× el consumo diario).`);
+    }
     setRegSaving(true);
     const { error } = await supabase.from('dispatches').insert({
       dispatch_date: regDate,
@@ -251,6 +267,10 @@ export default function EquiposScreen({ navigation }: any) {
       liters,
       tank_id: regTank,
       driver_operator: regOperator.trim() || null,
+      km_ida: num(regKmIda),
+      km_vuelta: num(regKmVuelta),
+      fuel_start: num(regFuelStart),
+      fuel_end: num(regFuelEnd),
     });
     setRegSaving(false);
     if (error) return Alert.alert('Aviso', error.message);
@@ -265,10 +285,14 @@ export default function EquiposScreen({ navigation }: any) {
     setFuelSurtido(0);
     setFuelWorked(0);
     const [{ data: disp }, { data: rnd }] = await Promise.all([
-      supabase.from('dispatches').select('dispatch_date, liters, tank:tank_id(name)').eq('machinery_id', m.id).order('dispatch_date', { ascending: false }),
+      supabase.from('dispatches').select('dispatch_date, liters, tank:tank_id(name), km_ida, km_vuelta, fuel_start, fuel_end').eq('machinery_id', m.id).order('dispatch_date', { ascending: false }),
       supabase.from('machine_rounds').select('round_date, hours_stopped, overtime_hours, day_hours, night_hours').eq('machinery_id', m.id),
     ]);
-    const trace: FuelRow[] = (disp ?? []).map((d: any) => ({ date: d.dispatch_date, liters: Number(d.liters) || 0, tank: d.tank?.name ?? '' }));
+    const trace: FuelRow[] = (disp ?? []).map((d: any) => {
+      const km = (Number(d.km_ida) || 0) + (Number(d.km_vuelta) || 0);
+      const gasto = (Number(d.fuel_start) || 0) - (Number(d.fuel_end) || 0);
+      return { date: d.dispatch_date, liters: Number(d.liters) || 0, tank: d.tank?.name ?? '', km: km > 0 ? km : null, gasto: gasto > 0 ? gasto : null };
+    });
     const surtido = trace.reduce((s, t) => s + t.liters, 0);
     // Horas trabajadas (para el consumo estimado) = por día: (turno día + noche) − parada + extras.
     const perDay = new Map<string, { stopped: number; overtime: number; day: number; night: number }>();
@@ -947,6 +971,11 @@ export default function EquiposScreen({ navigation }: any) {
                           <Text style={{ color: colors.success, fontWeight: '800' }}>{t.liters.toLocaleString()} L</Text>
                         </View>
                         {t.tank ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tanque: {t.tank}</Text> : null}
+                        {t.km && t.gasto ? (
+                          <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
+                            Ruta: {t.km.toLocaleString()} km · {t.gasto.toLocaleString()} L · {(t.km / t.gasto).toLocaleString(undefined, { maximumFractionDigits: 2 })} km/L
+                          </Text>
+                        ) : null}
                       </Card>
                     ))
                   )}
@@ -1006,6 +1035,44 @@ export default function EquiposScreen({ navigation }: any) {
                       autoCapitalize="words"
                       style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }}
                     />
+
+                    {/* Recorrido de la ruta (KM ida/vuelta) y combustible inicial/final */}
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginTop: spacing.md }}>Recorrido de la ruta (opcional)</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>KM ida</Text>
+                        <TextInput value={regKmIda} onChangeText={setRegKmIda} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                          style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>KM vuelta</Text>
+                        <TextInput value={regKmVuelta} onChangeText={setRegKmVuelta} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                          style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Combustible inicial (L)</Text>
+                        <TextInput value={regFuelStart} onChangeText={setRegFuelStart} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                          style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Combustible final (L)</Text>
+                        <TextInput value={regFuelEnd} onChangeText={setRegFuelEnd} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                          style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
+                      </View>
+                    </View>
+                    {(() => {
+                      const km = (num(regKmIda) ?? 0) + (num(regKmVuelta) ?? 0);
+                      const gasto = (num(regFuelStart) ?? 0) - (num(regFuelEnd) ?? 0);
+                      if (km > 0 && gasto > 0) {
+                        return <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 6 }}>Rendimiento de la ruta: {(km / gasto).toLocaleString(undefined, { maximumFractionDigits: 2 })} km/L  ·  {km.toLocaleString()} km · {gasto.toLocaleString()} L</Text>;
+                      }
+                      return null;
+                    })()}
+                    {fuelFor.daily_consumption_l != null && Number(fuelFor.daily_consumption_l) > 0 ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Consumo diario: {Number(fuelFor.daily_consumption_l).toLocaleString()} L · tope de surtido: {(Number(fuelFor.daily_consumption_l) * 2).toLocaleString()} L (2×)</Text>
+                    ) : null}
 
                     <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                       <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setRegOpen(false)} disabled={regSaving}>
