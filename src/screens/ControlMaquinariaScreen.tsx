@@ -630,7 +630,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             const b = rounds[rkey(m.id, d)];
             return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
           }, 0);
-          const isOpen = cardOpen[m.id] ?? true;
+          const isOpen = cardOpen[m.id] ?? false;
           return (
             <Card key={m.id}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
