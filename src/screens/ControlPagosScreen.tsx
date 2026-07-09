@@ -31,6 +31,12 @@ function addDaysISO(iso: string, n: number): string {
 function todayISO(): string {
   return toISO(new Date());
 }
+/** Días entre dos fechas ISO (b − a). Mismo día = 0. */
+function daysBetween(aISO: string, bISO: string): number {
+  const a = new Date(aISO + 'T12:00:00').getTime();
+  const b = new Date(bISO + 'T12:00:00').getTime();
+  return Math.round((b - a) / 86400000);
+}
 
 // ── Formato de dinero: SIEMPRE 2 decimales, redondeo estándar (si el 3er decimal
 //    es ≥ 5 sube el 2º). Ej.: 46,666 → 46,67 · 85895833,333 → 85.895.833,33 ──────
@@ -304,6 +310,125 @@ export default function ControlPagosScreen({ navigation }: any) {
     load();
   };
 
+  // ── Reporte por EMPRESA → TIPO de maquinaria, con apartado especial y semanas ──
+  // 1er apartado: desde la fecha de llegada de cada máquina hasta el 05/07/2026.
+  // Luego, un apartado por SEMANA (lun→dom) alineado con la semana de la jornada.
+  // Muestra: horas trabajadas por máquina y por empresa, total a pagar y días transcurridos.
+  const CUTOFF_APARTADO = '2026-07-05';
+  const openTipoReport = async () => {
+    const [{ data: mach }, { data: rnds }] = await Promise.all([
+      supabase.from('machinery').select('id, code, serial, tipo, entry_date, price_per_hour, company:company_id(id, name)'),
+      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours'),
+    ]);
+    const machById = new Map<string, any>();
+    (mach ?? []).forEach((m: any) => machById.set(m.id, m));
+    // Una fila por (máquina, fecha) para no duplicar.
+    const byMD = new Map<string, any>();
+    (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+
+    type Period = { key: string; label: string; end: string; order: number; companies: Map<string, Map<string, Map<string, number>>> };
+    const periods = new Map<string, Period>();
+    for (const r of byMD.values()) {
+      const m = machById.get(r.machinery_id);
+      if (!m) continue;
+      const worked = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+      if (worked <= 0) continue;
+      let key: string, label: string, end: string, order: number;
+      if (r.round_date <= CUTOFF_APARTADO) {
+        key = '__apartado__'; label = 'Fecha de llegada → 05/07/2026'; end = CUTOFF_APARTADO; order = 0;
+      } else {
+        const ws = weekStartISO(r.round_date); end = addDaysISO(ws, 6);
+        key = ws; label = `Semana ${ws} → ${end}`; order = Number(ws.replace(/-/g, ''));
+      }
+      const p = periods.get(key) ?? { key, label, end, order, companies: new Map() };
+      const cname = m.company?.name ?? 'Sin empresa';
+      const comp = p.companies.get(cname) ?? new Map<string, Map<string, number>>();
+      const tkey = m.tipo && String(m.tipo).trim() ? String(m.tipo).trim().toUpperCase() : 'SIN TIPO';
+      const tmap = comp.get(tkey) ?? new Map<string, number>();
+      tmap.set(m.id, (tmap.get(m.id) ?? 0) + worked);
+      comp.set(tkey, tmap);
+      p.companies.set(cname, comp);
+      periods.set(key, p);
+    }
+
+    const diasStr = (entry: string | null, end: string) => (entry ? `${Math.max(0, daysBetween(entry, end) + 1)} d` : '—');
+    let grandWorked = 0;
+    let grandAmount = 0;
+    const periodList = [...periods.values()].sort((a, b) => a.order - b.order);
+    const sections = periodList
+      .map((p) => {
+        const compNames = [...p.companies.keys()].sort((a, b) => a.localeCompare(b));
+        let pWorked = 0;
+        let pAmount = 0;
+        const compHtml = compNames
+          .map((cn) => {
+            const comp = p.companies.get(cn)!;
+            const tipoKeys = [...comp.keys()].sort((a, b) => a.localeCompare(b));
+            let cWorked = 0;
+            let cAmount = 0;
+            let earliest = '';
+            const rowsHtml = tipoKeys
+              .map((tk) => {
+                const tmap = comp.get(tk)!;
+                let tW = 0;
+                let tA = 0;
+                const ms = [...tmap.entries()]
+                  .map(([mid, worked]) => {
+                    const m = machById.get(mid);
+                    const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+                    const amount = round2((worked / 12) * price);
+                    tW += worked; tA += amount;
+                    const entry = m.entry_date || null;
+                    if (entry && (!earliest || entry < earliest)) earliest = entry;
+                    return `<tr><td>${m.code}${m.serial ? `<br/><span class="s">${m.serial}</span>` : ''}</td>` +
+                      `<td class="c">${diasStr(entry, p.end)}</td>` +
+                      `<td class="c b">${worked} h</td>` +
+                      `<td class="r b">${amount ? '$' + money(amount) : '—'}</td></tr>`;
+                  })
+                  .join('');
+                cWorked += tW; cAmount += tA;
+                return `<tr class="tipo"><td colspan="4">🔧 ${tk} — ${tmap.size} máquina(s)</td></tr>${ms}` +
+                  `<tr class="sub"><td class="r">Subtotal ${tk}</td><td></td><td class="c b">${tW} h</td><td class="r b">$${money(tA)}</td></tr>`;
+              })
+              .join('');
+            pWorked += cWorked; pAmount += cAmount;
+            return `<h3 class="emp">🏢 ${cn} — ${cWorked} h · $${money(cAmount)}</h3>
+              <table><thead><tr><th>Tipo / Máquina</th><th>Días transc.</th><th>Horas trab.</th><th>Total a pagar</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+              <tfoot><tr><td class="r">TOTAL ${cn}</td><td class="c b">${diasStr(earliest || null, p.end)}</td><td class="c b">${cWorked} h</td><td class="r b">$${money(cAmount)}</td></tr></tfoot></table>`;
+          })
+          .join('');
+        grandWorked += pWorked; grandAmount += pAmount;
+        const dtxt = p.key === '__apartado__' ? '' : ' · 7 día(s)';
+        return `<h2 class="per">📅 ${p.label}${dtxt}</h2>${compHtml}
+          <div class="pt">Total del período: ${pWorked} h · $${money(pAmount)}</div>`;
+      })
+      .join('');
+
+    const html = pdfDocument({
+      title: 'Reporte por empresa y tipo',
+      subtitle: `Apartado inicial (llegada → 05/07/2026) + semanas · horas, pago y días transcurridos`,
+      extraCss: `
+        h2.per{font-size:15px;color:#fff;background:#1E3A5F;padding:8px 12px;border-radius:6px;margin:20px 0 8px}
+        h3.emp{font-size:13px;font-weight:800;color:#1E3A5F;margin:14px 0 3px}
+        table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px}
+        th,td{border:1px solid #ccc;padding:4px 7px;text-align:left}
+        th{background:#1E3A5F;color:#fff}
+        td.c{text-align:center}td.r{text-align:right}td.b{font-weight:700}
+        span.s{color:#888;font-size:9px}
+        tr.tipo td{background:#DCE4EE;font-weight:800;color:#1E3A5F}
+        tr.sub td{background:#F3F6FA;font-weight:700}
+        tfoot td{background:#1E3A5F;color:#fff;font-weight:800}
+        .pt{text-align:right;font-weight:800;color:#1E3A5F;margin:2px 0 6px}
+        .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
+      body: `
+        ${sections || '<p style="text-align:center;color:#888">Sin jornadas registradas.</p>'}
+        <div class="grand">TOTAL GENERAL: ${grandWorked} h · $${money(grandAmount)}</div>
+        <p style="color:#666;font-size:11px;margin-top:8px">Horas = (día + noche) − parada + extras · Pago = horas trabajadas × precio por hora (precio jornada ÷ 12) · Días transcurridos = desde la fecha de llegada hasta el fin del período.</p>`,
+    });
+    await exportPdf(html);
+  };
+
   // ── Reporte PDF por empresa y rango de fechas ────────────────────────────────
   const generateReport = async () => {
     const inRange = groups.filter(
@@ -400,6 +525,13 @@ export default function ControlPagosScreen({ navigation }: any) {
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📄 Reporte</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        onPress={openTipoReport}
+        style={{ padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.sm }}
+      >
+        <Text style={{ color: colors.primary, fontWeight: '700' }}>📊 Reporte por empresa y tipo (llegada → 05/07 + semanas)</Text>
+      </TouchableOpacity>
 
       <TextInput
         value={query}

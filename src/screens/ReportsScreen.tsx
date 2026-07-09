@@ -434,7 +434,7 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
       ${generalBlock}`;
-    await exportPdf(pdfShell('REPORTE DE FLOTA', sub, body));
+    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body));
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -500,7 +500,7 @@ export default function ReportsScreen({ route }: any) {
         {([
           { v: 'fuel', label: '⛽ Combustible' },
           { v: 'rounds', label: '🛠️ Rondas' },
-          { v: 'fleet', label: '🚚 Flota' },
+          { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -552,7 +552,7 @@ export default function ReportsScreen({ route }: any) {
               ? '📊 Generar reporte de combustible'
               : mode === 'rounds'
               ? '🛠️ Generar reporte de rondas'
-              : '🚚 Generar reporte de flota'}
+              : '🚚 Generar reporte de maquinaria/vehículo'}
           </Text>
         </TouchableOpacity>
       </Card>
@@ -754,8 +754,8 @@ export default function ReportsScreen({ route }: any) {
           >
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
           </TouchableOpacity>
-          <SectionTitle>Flota por empresa</SectionTitle>
-          <ReportHeader title="REPORTE DE FLOTA" colors={colors} />
+          <SectionTitle>Maquinaria/Vehículo por empresa</SectionTitle>
+          <ReportHeader title="REPORTE DE MAQUINARIA/VEHÍCULOS" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Consumo del {from} al {to}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
