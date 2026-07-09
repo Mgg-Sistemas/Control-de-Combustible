@@ -118,7 +118,8 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   // Reporte
   const [repOpen, setRepOpen] = useState(false);
-  const [repCompany, setRepCompany] = useState<string>('__all__');
+  // Empresas seleccionadas para el reporte. Vacío = TODAS (reporte general).
+  const [repCompanies, setRepCompanies] = useState<string[]>([]);
   const [repFrom, setRepFrom] = useState(addDaysISO(todayISO(), -30));
   const [repTo, setRepTo] = useState(todayISO());
 
@@ -438,8 +439,9 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   // ── Reporte PDF por empresa y rango de fechas ────────────────────────────────
   const generateReport = async () => {
+    const allCompanies = repCompanies.length === 0;
     const inRange = groups.filter(
-      (g) => g.weekStart >= repFrom && g.weekStart <= repTo && (repCompany === '__all__' || g.company === repCompany)
+      (g) => g.weekStart >= repFrom && g.weekStart <= repTo && (allCompanies || repCompanies.includes(g.company))
     );
     // Por cada semana/empresa: encabezado + desglose por máquina (horas día/noche,
     // horas trabajadas totales, precio y subtotal).
@@ -486,7 +488,11 @@ export default function ControlPagosScreen({ navigation }: any) {
     const totalFact = inRange.reduce((s, g) => s + g.total, 0);
     const totalPend = inRange.reduce((s, g) => s + g.saldo, 0);
     const totalPag = inRange.reduce((s, g) => s + g.paidAmount, 0);
-    const title = repCompany === '__all__' ? 'Todas las empresas (general)' : repCompany;
+    const title = allCompanies
+      ? 'Todas las empresas (general)'
+      : repCompanies.length === 1
+      ? repCompanies[0]
+      : `${repCompanies.length} empresas seleccionadas`;
     // Resumen general por empresa (facturado / abonado / saldo) — útil sobre todo en el general.
     const byCompany = new Map<string, { total: number; pag: number; saldo: number }>();
     inRange.forEach((g) => {
@@ -498,7 +504,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([c, v]) => `<tr><td>${c}</td><td style="text-align:right">$${money(v.total)}</td><td style="text-align:right;color:#087443;font-weight:700">$${money(v.pag)}</td><td style="text-align:right;font-weight:700">$${money(v.saldo)}</td></tr>`)
       .join('');
-    const resumenHtml = `<h2 class="res">Resumen ${repCompany === '__all__' ? 'general por empresa' : 'de la empresa'}</h2>
+    const resumenHtml = `<h2 class="res">Resumen ${allCompanies ? 'general por empresa' : repCompanies.length === 1 ? 'de la empresa' : 'por empresa'}</h2>
       <table><thead><tr><th>Empresa</th><th style="text-align:right">Facturado</th><th style="text-align:right">Abonado</th><th style="text-align:right">Saldo</th></tr></thead>
       <tbody>${resumenRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">$${money(totalFact)}</td><td style="text-align:right;font-weight:800">$${money(totalPag)}</td><td style="text-align:right;font-weight:800">$${money(totalPend)}</td></tr></tfoot></table>`;
@@ -887,22 +893,40 @@ export default function ControlPagosScreen({ navigation }: any) {
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>Reporte de pagos</Text>
 
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4, marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                {[{ label: 'Todas', value: '__all__' }, ...companyNames.map((c) => ({ label: c, value: c }))].map((c) => {
-                  const active = repCompany === c.value;
-                  return (
-                    <TouchableOpacity
-                      key={c.value}
-                      onPress={() => setRepCompany(c.value)}
-                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}
-                    >
-                      <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas (marca una o varias)</Text>
+              {repCompanies.length > 0 ? (
+                <TouchableOpacity onPress={() => setRepCompanies([])}>
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <ScrollView style={{ marginTop: 4, marginBottom: spacing.sm, maxHeight: 220 }}>
+              {/* "Todas" = ninguna marcada (reporte general). */}
+              <TouchableOpacity
+                onPress={() => setRepCompanies([])}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.primary : colors.border, backgroundColor: repCompanies.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {repCompanies.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                </View>
+                <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>Todas (general)</Text>
+              </TouchableOpacity>
+              {companyNames.map((c) => {
+                const checked = repCompanies.includes(c);
+                return (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => setRepCompanies((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+                  >
+                    <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                    </View>
+                    <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{c}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
