@@ -21,7 +21,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite escanear el código QR de las máquinas."
+        }
+      ]
     ]
   }
 }

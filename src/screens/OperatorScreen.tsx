@@ -9,6 +9,8 @@ import { Machinery } from '../types/database';
 import { upsertMachineRound, getMachineRound } from '../lib/machineRounds';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { SHIFT_OPTS, workedFromShifts } from './ControlMaquinariaScreen';
+import QrScanner from '../components/QrScanner';
+import { parseMachineId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -37,6 +39,7 @@ export default function OperatorScreen() {
   const [sel, setSel] = useState<(Machinery & { companyName?: string }) | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickQuery, setPickQuery] = useState('');
+  const [scanOpen, setScanOpen] = useState(false);
   const [tanks, setTanks] = useState<{ id: string; name: string; fuel: string }[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -179,9 +182,14 @@ export default function OperatorScreen() {
         ) : (
           <Text style={{ color: colors.warning, fontWeight: '700', marginTop: 2 }}>No tienes una máquina asignada. Elige una para registrar.</Text>
         )}
-        <TouchableOpacity onPress={() => { setPickQuery(''); setPickerOpen(true); }} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🔁 Cambiar máquina</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+          <TouchableOpacity onPress={() => { setPickQuery(''); setPickerOpen(true); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🔁 Cambiar máquina</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>📷 Escanear QR</Text>
+          </TouchableOpacity>
+        </View>
         {mine.length > 0 && sel && sel.operator_id !== uid ? (
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Estás usando una máquina distinta a la que tienes asignada.</Text>
         ) : null}
@@ -299,6 +307,22 @@ export default function OperatorScreen() {
       ) : (
         <EmptyState title="Elige tu máquina" subtitle="Toca “Cambiar máquina” para seleccionar la que vas a operar." />
       )}
+
+      {/* Escáner de QR: al detectar, selecciona esa máquina. */}
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner
+            onClose={() => setScanOpen(false)}
+            onDetected={(text) => {
+              setScanOpen(false);
+              const id = parseMachineId(text);
+              const found = id ? machines.find((m) => m.id === id) : null;
+              if (found) { setSel(found); setNotice('✅ Máquina seleccionada: ' + found.code); }
+              else setNotice('❌ El QR no corresponde a una máquina registrada.');
+            }}
+          />
+        </View>
+      </Modal>
 
       {/* Selector de máquina */}
       <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => setPickerOpen(false)}>

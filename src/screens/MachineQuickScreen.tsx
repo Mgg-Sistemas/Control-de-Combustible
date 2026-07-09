@@ -29,10 +29,13 @@ const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
  *  🔴 Combustible (ingreso de litros)  🟢 Mapa (marca coordenadas)  🔵 Avería
  *  (mantenimiento: caucho/aceite/filtro/repuesto con la cantidad a cambiar).
  */
-export default function MachineQuickScreen({ machineId, onExit }: { machineId: string; onExit: () => void }) {
+export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
+  // Acepta la máquina por prop (deep-link) o por parámetro de navegación (escáner).
+  const machineId: string = props.machineId ?? props.route?.params?.machineId ?? '';
+  const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
 
   const [loading, setLoading] = useState(true);
   const [machine, setMachine] = useState<(Machinery & { companyName?: string }) | null>(null);
