@@ -67,7 +67,11 @@ type Group = {
   total: number;
   hoursWorked: number;
   noPrice: boolean;
-  paid?: CompanyPayment | null;
+  // Abonos (pagos parciales) de la semana: se acumulan hasta cubrir el total.
+  abonos: CompanyPayment[]; // todos los abonos de esta empresa+semana
+  paidAmount: number;       // suma de abonos
+  saldo: number;            // total − abonado (nunca negativo)
+  fullyPaid: boolean;       // saldado por completo
 };
 
 export default function ControlPagosScreen({ navigation }: any) {
@@ -123,7 +127,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       const k = `${company}|${weekStart}`;
       const g =
         map.get(k) ??
-        ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false } as Group);
+        ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false } as Group);
       const ma = g.machines[machineId] ?? { machine: label, serial, price, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
       // Por día: turno de día/noche, parada y extras (todo en el registro base).
       const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
@@ -163,10 +167,16 @@ export default function ControlPagosScreen({ navigation }: any) {
       g.noPrice = noPrice;
     });
 
-    // Vincular pagos ya realizados (empresa + inicio de semana).
+    // Vincular abonos ya realizados (empresa + inicio de semana). Una semana puede
+    // tener VARIOS abonos que se suman hasta cubrir el total; el saldo es lo que resta.
     const payList = (pays ?? []) as CompanyPayment[];
     list.forEach((g) => {
-      g.paid = payList.find((p) => p.company_name === g.company && p.period_start === g.weekStart) ?? null;
+      g.abonos = payList
+        .filter((p) => p.company_name === g.company && p.period_start === g.weekStart)
+        .sort((a, b) => (a.paid_at < b.paid_at ? -1 : 1));
+      g.paidAmount = g.abonos.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      g.saldo = Math.max(0, g.total - g.paidAmount);
+      g.fullyPaid = g.total > 0 && g.paidAmount >= g.total - 0.01;
     });
 
     list.sort((a, b) => (a.weekStart === b.weekStart ? a.company.localeCompare(b.company) : b.weekStart.localeCompare(a.weekStart)));
@@ -200,7 +210,7 @@ export default function ControlPagosScreen({ navigation }: any) {
   const outstandingByCompany = useMemo(() => {
     const m = new Map<string, number>();
     groups.forEach((g) => {
-      if (!g.paid && g.total > 0) m.set(g.company, (m.get(g.company) ?? 0) + g.total);
+      if (g.saldo > 0) m.set(g.company, (m.get(g.company) ?? 0) + g.saldo);
     });
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [groups]);
@@ -209,8 +219,8 @@ export default function ControlPagosScreen({ navigation }: any) {
   const canAlert = role === 'admin' || role === 'supervisor';
   const showMondayAlert = isMonday && canAlert && outstandingByCompany.length > 0;
 
-  // Solo cuentas con monto por cobrar o ya pagadas (evita mostrar $0 cuando no hay actividad).
-  const visible = groups.filter((g) => g.total > 0 || g.paid);
+  // Solo cuentas con monto por cobrar o con algún abono (evita mostrar $0 sin actividad).
+  const visible = groups.filter((g) => g.total > 0 || g.paidAmount > 0);
   const q = query.trim().toLowerCase();
   const shown = !q ? visible : visible.filter((g) => g.company.toLowerCase().includes(q));
 
@@ -226,16 +236,21 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const companyNames = useMemo(() => Array.from(new Set(groups.map((g) => g.company))).sort(), [groups]);
 
-  // ── Marcar como pagada ───────────────────────────────────────────────────────
+  // ── Registrar abono (pago parcial o total) ───────────────────────────────────
   const openPay = (g: Group) => {
     setPayFor(g);
-    setPayAmount(g.total ? String(g.total) : '');
+    // Por defecto el abono cubre el saldo pendiente (paga todo lo que resta).
+    setPayAmount(g.saldo ? String(g.saldo) : '');
     setPayCurrency('USD');
   };
 
   const confirmPay = async () => {
     if (!payFor) return;
     const amount = Number(payAmount.replace(',', '.')) || 0;
+    if (amount <= 0) {
+      await confirm({ title: 'Monto inválido', message: 'Ingresa un monto mayor a 0 para el abono.', confirmText: 'Entendido', cancelText: ' ' });
+      return;
+    }
     const detail: PaymentDetail = {
       machines: machinesOf(payFor).map((m) => ({ machine: m.machine, hours: m.hours, price: m.price ?? 0, subtotal: m.subtotal })),
       totalHours: payFor.hoursWorked,
@@ -262,6 +277,24 @@ export default function ControlPagosScreen({ navigation }: any) {
     load();
   };
 
+  // Eliminar un abono (para corregir errores). Devuelve el monto al saldo.
+  const deleteAbono = async (p: CompanyPayment) => {
+    const ok = await confirm({
+      title: 'Eliminar abono',
+      message: `¿Eliminar el abono de ${p.currency} ${Number(p.amount).toLocaleString()}? El saldo volverá a incluir ese monto.`,
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('company_payments').delete().eq('id', p.id);
+    if (error) {
+      await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' });
+      return;
+    }
+    setSelected(null);
+    load();
+  };
+
   // ── Reporte PDF por empresa y rango de fechas ────────────────────────────────
   const generateReport = async () => {
     const inRange = groups.filter(
@@ -271,7 +304,11 @@ export default function ControlPagosScreen({ navigation }: any) {
     // horas trabajadas totales, precio y subtotal).
     const sections = inRange
       .map((g) => {
-        const estado = g.paid ? `PAGADA (${g.paid.currency} ${Number(g.paid.amount).toLocaleString()})` : 'PENDIENTE';
+        const estado = g.fullyPaid
+          ? `PAGADA ($${g.paidAmount.toLocaleString()})`
+          : g.paidAmount > 0
+          ? `ABONADA · pagado $${g.paidAmount.toLocaleString()} · resta $${g.saldo.toLocaleString()}`
+          : 'PENDIENTE';
         const machs = machinesOf(g);
         const mrows = machs
           .map(
@@ -292,8 +329,8 @@ export default function ControlPagosScreen({ navigation }: any) {
           <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
       })
       .join('');
-    const totalPend = inRange.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
-    const totalPag = inRange.filter((g) => g.paid).reduce((s, g) => s + g.total, 0);
+    const totalPend = inRange.reduce((s, g) => s + g.saldo, 0);
+    const totalPag = inRange.reduce((s, g) => s + g.paidAmount, 0);
     const title = repCompany === '__all__' ? 'Todas las empresas' : repCompany;
     const html = pdfDocument({
       title: 'Control de pagos por maquinaria',
@@ -370,8 +407,8 @@ export default function ControlPagosScreen({ navigation }: any) {
       ) : (
         byCompany.map(([company, weeks]) => {
           const open = !!expandedCompany[company];
-          // Total que se debe = suma de las semanas pendientes (sin pagar).
-          const debt = weeks.filter((g) => !g.paid).reduce((s, g) => s + g.total, 0);
+          // Total que se debe = suma de los SALDOS pendientes (descontando abonos).
+          const debt = weeks.reduce((s, g) => s + g.saldo, 0);
           // Máquinas con jornada = máquinas distintas que trabajaron en la empresa.
           const machineSet = new Set<string>();
           weeks.forEach((g) => machinesOf(g).forEach((m) => machineSet.add(m.machine)));
@@ -389,28 +426,40 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                 </Card>
               </TouchableOpacity>
-              {open ? weeks.map((g) => (
-              <TouchableOpacity key={g.weekStart} activeOpacity={0.7} onPress={() => setSelected(g)}>
-                <Card style={g.paid ? { borderColor: colors.success } : undefined}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
-                      Semana {g.weekStart} → {g.weekEnd}
-                    </Text>
-                    <Text style={{ color: g.paid ? colors.success : colors.primary, fontWeight: '800' }}>
-                      ${g.total.toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machinesOf(g).length} máquina(s)</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} h trab.</Text>
-                    {g.noPrice ? <Text style={{ color: colors.warning, fontSize: 12 }}>⚠️ falta precio</Text> : null}
-                  </View>
-                  <Text style={{ color: g.paid ? colors.success : colors.muted, fontSize: 12, marginTop: spacing.xs, fontWeight: g.paid ? '700' : '400' }}>
-                    {g.paid ? `✓ Pagada · ${g.paid.currency} ${Number(g.paid.amount).toLocaleString()}` : 'Pendiente · toca para ver el detalle'}
-                  </Text>
-                </Card>
-              </TouchableOpacity>
-            )) : null}
+              {open ? weeks.map((g) => {
+                const partial = g.paidAmount > 0 && !g.fullyPaid;
+                return (
+                <TouchableOpacity key={g.weekStart} activeOpacity={0.7} onPress={() => setSelected(g)}>
+                  <Card style={g.fullyPaid ? { borderColor: colors.success } : partial ? { borderColor: colors.warning } : undefined}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
+                        Semana {g.weekStart} → {g.weekEnd}
+                      </Text>
+                      <Text style={{ color: g.fullyPaid ? colors.success : colors.primary, fontWeight: '800' }}>
+                        ${g.total.toLocaleString()}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machinesOf(g).length} máquina(s)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} h trab.</Text>
+                      {g.noPrice ? <Text style={{ color: colors.warning, fontSize: 12 }}>⚠️ falta precio</Text> : null}
+                    </View>
+                    {g.fullyPaid ? (
+                      <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.xs, fontWeight: '700' }}>
+                        ✓ Pagada · abonado ${g.paidAmount.toLocaleString()}
+                      </Text>
+                    ) : partial ? (
+                      <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs, fontWeight: '700' }}>
+                        🟡 Abonado ${g.paidAmount.toLocaleString()} · resta ${g.saldo.toLocaleString()}
+                      </Text>
+                    ) : (
+                      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+                        Pendiente · toca para ver el detalle
+                      </Text>
+                    )}
+                  </Card>
+                </TouchableOpacity>
+              ); }) : null}
             </View>
           );
         })
@@ -437,7 +486,18 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>${selected.total.toLocaleString()}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>${selected.total.toLocaleString()}</Text>
+                  </View>
+                </View>
+                {/* Abonado y saldo pendiente */}
+                <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
+                  <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Abonado</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>${selected.paidAmount.toLocaleString()}</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Saldo pendiente</Text>
+                    <Text style={{ color: selected.saldo > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 20 }}>${selected.saldo.toLocaleString()}</Text>
                   </View>
                 </View>
               </Card>
@@ -460,11 +520,35 @@ export default function ControlPagosScreen({ navigation }: any) {
                 </Card>
               ))}
 
-              {selected.paid ? (
+              {/* Abonos registrados (pagos parciales) */}
+              {selected.abonos.length > 0 ? (
+                <>
+                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                    Abonos ({selected.abonos.length})
+                  </Text>
+                  {selected.abonos.map((p, i) => (
+                    <Card key={p.id}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>
+                            🟢 Abono {i + 1} · {p.currency} {Number(p.amount).toLocaleString()}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>{p.paid_at?.slice(0, 10)}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => deleteAbono(p)} style={{ padding: spacing.xs }}>
+                          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </Card>
+                  ))}
+                </>
+              ) : null}
+
+              {selected.fullyPaid ? (
                 <Card style={{ borderColor: colors.success, marginTop: spacing.sm }}>
-                  <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Pagada</Text>
+                  <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Pagada por completo</Text>
                   <Text style={{ color: colors.text, fontSize: 13 }}>
-                    {selected.paid.currency} {Number(selected.paid.amount).toLocaleString()} · {selected.paid.paid_at?.slice(0, 10)}
+                    Total abonado: ${selected.paidAmount.toLocaleString()}
                   </Text>
                 </Card>
               ) : (
@@ -472,7 +556,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                   style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}
                   onPress={() => openPay(selected)}
                 >
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>✓ Marcar como pagada</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>
+                    {selected.paidAmount > 0 ? `＋ Registrar abono · resta $${selected.saldo.toLocaleString()}` : '＋ Registrar abono / pago'}
+                  </Text>
                 </TouchableOpacity>
               )}
 
@@ -491,11 +577,16 @@ export default function ControlPagosScreen({ navigation }: any) {
       <Modal visible={!!payFor} transparent animationType="fade" onRequestClose={() => setPayFor(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Registrar pago</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Registrar abono</Text>
             {payFor ? (
-              <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                {payFor.company} · Semana {payFor.weekStart} → {payFor.weekEnd}
-              </Text>
+              <>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>
+                  {payFor.company} · Semana {payFor.weekStart} → {payFor.weekEnd}
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
+                  Total ${payFor.total.toLocaleString()} · abonado ${payFor.paidAmount.toLocaleString()} · <Text style={{ color: colors.primary, fontWeight: '800' }}>saldo ${payFor.saldo.toLocaleString()}</Text>
+                </Text>
+              </>
             ) : null}
 
             <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo de moneda</Text>
@@ -529,7 +620,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={confirmPay} disabled={saving}>
-                <Text style={{ color: '#fff', fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar pago'}</Text>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar abono'}</Text>
               </TouchableOpacity>
             </View>
           </View>
