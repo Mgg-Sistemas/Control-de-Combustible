@@ -336,11 +336,11 @@ export default function ReportsScreen({ route }: any) {
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const content = `
-      <div class="muted">Informe por rondas · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <div class="muted">Informe por jornada · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${nH(grandH)} · ${usd(grandUSD)}</div>
       <p class="muted" style="margin-top:8px">Total $ = (total de horas ÷ 12) × precio por jornada de 12 h. Total horas = horas de día + horas de noche.</p>`;
-    await exportPdf(pdfShell('INFORME POR RONDAS', 'Por empresa y maquinaria', content));
+    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
   };
 
   const generateFleet = async () => {
@@ -543,7 +543,7 @@ export default function ReportsScreen({ route }: any) {
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         {([
           { v: 'fuel', label: '⛽ Combustible' },
-          { v: 'rounds', label: '🛠️ Rondas' },
+          { v: 'rounds', label: '🛠️ Jornada' },
           { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
         ] as const).map((t) => {
           const active = mode === t.v;
@@ -595,7 +595,7 @@ export default function ReportsScreen({ route }: any) {
             {mode === 'fuel'
               ? '📊 Generar reporte de combustible'
               : mode === 'rounds'
-              ? '🛠️ Generar reporte de rondas'
+              ? '🛠️ Generar reporte de jornada'
               : '🚚 Generar reporte de maquinaria/vehículo'}
           </Text>
         </TouchableOpacity>
@@ -731,8 +731,8 @@ export default function ReportsScreen({ route }: any) {
           >
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
           </TouchableOpacity>
-          <SectionTitle>Informe por rondas</SectionTitle>
-          <ReportHeader title="INFORME POR RONDAS" colors={colors} />
+          <SectionTitle>Informe por jornada</SectionTitle>
+          <ReportHeader title="INFORME POR JORNADA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
@@ -740,6 +740,10 @@ export default function ReportsScreen({ route }: any) {
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
             </Text>
           </Card>
+
+          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+          </TouchableOpacity>
 
           {roundGroups.length === 0 ? (
             <EmptyState title="Sin datos" subtitle="No hay rondas en el rango seleccionado." />
@@ -780,9 +784,6 @@ export default function ReportsScreen({ route }: any) {
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setRoundsPreview(false)}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadRoundsPdf}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
             </TouchableOpacity>
           </View>
         </Screen>
