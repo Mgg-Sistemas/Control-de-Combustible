@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { workedFromShifts, payUnitsFromShifts } from './ControlMaquinariaScreen';
+import { workedFromShifts } from './ControlMaquinariaScreen';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -148,8 +148,8 @@ export default function ControlPagosScreen({ navigation }: any) {
       Object.values(g.machines).forEach((ma) => {
         const days = Object.values(ma.perDay);
         const hrs = days.reduce((s, d) => s + billableHours(d), 0);
-        // Monto = precio por jornada × unidades (12h=1, 6h=0.5); las horas son solo informativas.
-        const units = days.reduce((s, d) => s + payUnitsFromShifts(d.day, d.night), 0);
+        // Monto = horas TRABAJADAS × precio por hora (precio jornada ÷ 12); las paradas ya están descontadas en hrs.
+        const units = hrs / 12;
         ma.hours = hrs;
         ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
         ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
