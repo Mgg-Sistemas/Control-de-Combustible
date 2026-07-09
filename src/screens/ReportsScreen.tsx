@@ -54,6 +54,7 @@ type FleetItem = {
   plate: string | null;
   kind: string;
   tipo: string;
+  referencia: string | null;
   company: string;
   liters: number;
 };
@@ -336,7 +337,7 @@ export default function ReportsScreen({ route }: any) {
   const generateFleet = async () => {
     setLoading(true);
     const [{ data: mach }, { data: vehs }, { data: disp }] = await Promise.all([
-      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, referencia, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       supabase
         .from('dispatches')
@@ -358,6 +359,7 @@ export default function ReportsScreen({ route }: any) {
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
         tipo: canonTipo(m.tipo) || 'Sin tipo',
+        referencia: m.referencia || null,
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
       })
@@ -369,6 +371,7 @@ export default function ReportsScreen({ route }: any) {
         plate: v.plate,
         kind: 'vehiculo',
         tipo: 'Vehículo',
+        referencia: null,
         company: 'Vehículos',
         liters: vLit.get(v.id) ?? 0,
       })
@@ -385,10 +388,10 @@ export default function ReportsScreen({ route }: any) {
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:left">Tipo</th></tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th></tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td>${i.tipo}</td></tr>`
+                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td></tr>`
             )
             .join('')}</tbody></table>`
       )

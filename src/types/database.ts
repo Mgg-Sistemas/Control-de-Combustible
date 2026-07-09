@@ -72,6 +72,7 @@ export interface Machinery {
   grupo: string | null;
   encargado: string | null;
   tipo: string | null; // tipo de máquina (Jumbo, Tractor, Chuto...) — para agrupar reportes
+  referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes
   created_at: string;
 }
 

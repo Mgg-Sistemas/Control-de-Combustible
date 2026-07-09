@@ -41,6 +41,7 @@ export const canonTipo = (t?: string | null): string =>
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'tipo', label: 'Tipo (Jumbo, Tractor, Chuto...)', type: 'text' },
+  { key: 'referencia', label: 'Referencia / Ubicación', type: 'text' },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
@@ -442,6 +443,7 @@ export default function EquiposScreen({ navigation }: any) {
                   <td>${esc(m.code)}</td>
                   <td>${esc(m.plate || '—')}</td>
                   <td>${esc(m.serial || '—')}</td>
+                  <td>${esc((m as any).referencia || '—')}</td>
                   <td>${esc(m.encargado || '—')}</td>
                   <td>${esc(m.grupo || '—')}</td>
                   <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
@@ -449,7 +451,7 @@ export default function EquiposScreen({ navigation }: any) {
               })
               .join('');
             return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
-              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
+              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
               <tbody>${rows}</tbody></table>`;
           })
           .join('');
@@ -1049,7 +1051,7 @@ export default function EquiposScreen({ navigation }: any) {
                                     </Text>
                                   </View>
                                   <Text style={{ color: colors.muted, fontSize: 11 }}>
-                                    {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
+                                    {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, (m as any).referencia && `📍 ${(m as any).referencia}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
                                   </Text>
                                 </View>
                               );

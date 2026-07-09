@@ -564,6 +564,9 @@ alter table public.machinery add column if not exists encargado text;
 -- Tipo de máquina (Jumbo, Tractor, Chuto...) — agrupa los reportes por tipo.
 alter table public.machinery add column if not exists tipo text;
 
+-- Referencia / UBICACIÓN de la máquina — se muestra en los reportes.
+alter table public.machinery add column if not exists referencia text;
+
 -- Horas extras por máquina/día (se suman a las horas trabajadas y al total a pagar).
 alter table public.machine_rounds add column if not exists overtime_hours numeric(6,2) default 0;
 
