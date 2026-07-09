@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
@@ -253,12 +253,12 @@ export default function ReportsScreen({ route }: any) {
 
   const generateRounds = async (fromArg: string = from, toArg: string = to, companyArg?: string | null) => {
     setLoading(true);
-    const { data } = await supabase
-      .from('machine_rounds')
-      .select('round_date, day_hours, night_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))')
-      .gte('round_date', fromArg)
-      .lte('round_date', toArg)
-      .order('round_date', { ascending: true });
+    // Paginado: con >1000 rondas en el rango la consulta se truncaba.
+    const data = await selectAllRows(
+      'machine_rounds',
+      'round_date, day_hours, night_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))',
+      (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
+    );
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
     type Acc = { machine: string; tipo: string; serial: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number }> };
     const accs = new Map<string, Acc>();
@@ -345,7 +345,7 @@ export default function ReportsScreen({ route }: any) {
 
   const generateFleet = async () => {
     setLoading(true);
-    const [{ data: mach }, { data: vehs }, { data: disp }, { data: rnds }] = await Promise.all([
+    const [{ data: mach }, { data: vehs }, { data: disp }, rnds] = await Promise.all([
       supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, referencia, price_per_hour, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       supabase
@@ -354,10 +354,8 @@ export default function ReportsScreen({ route }: any) {
         .gte('dispatch_date', from)
         .lte('dispatch_date', to),
       // Horas trabajadas HASTA el 05/07/2026 (día + noche − parada + extras).
-      supabase
-        .from('machine_rounds')
-        .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours')
-        .lte('round_date', FLEET_HOURS_CUTOFF),
+      // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas (HBS quedaba corto).
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.lte('round_date', FLEET_HOURS_CUTOFF)),
     ]);
     const mLit = new Map<string, number>();
     const vLit = new Map<string, number>();

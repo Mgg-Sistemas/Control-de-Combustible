@@ -4,7 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
@@ -35,8 +35,13 @@ const VEHICLE_FIELDS: Field[] = [
 /** Tipo canónico: MAYÚSCULA, sin espacios extra y sin la "S" final, para que
  *  "Retroexcavadora", "retroexcavadoras", "RETROEXCAVADORAS" sean el MISMO tipo
  *  (el usuario puede escribir con o sin S). Vacío si no hay tipo. */
-export const canonTipo = (t?: string | null): string =>
-  t && t.trim() ? t.trim().toUpperCase().replace(/\s+/g, ' ').replace(/S$/, '') : '';
+export const canonTipo = (t?: string | null): string => {
+  if (!t || !t.trim()) return '';
+  const up = t.trim().toUpperCase().replace(/\s+/g, ' ');
+  // Quita la "S" del plural (RETROEXCAVADORAS→RETROEXCAVADORA), pero NO en palabras
+  // que terminan en "US" (AUTOBUS, OMNIBUS) donde la S es parte del singular.
+  return up.endsWith('US') ? up : up.replace(/S$/, '');
+};
 
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
@@ -158,10 +163,8 @@ export default function EquiposScreen({ navigation }: any) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data } = await supabase
-        .from('machine_rounds')
-        .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours')
-        .lte('round_date', CUTOFF_HORAS);
+      // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas.
+      const data = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.lte('round_date', CUTOFF_HORAS));
       if (!alive) return;
       const byMD = new Map<string, any>();
       (data ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));

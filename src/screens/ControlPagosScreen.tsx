@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -118,11 +118,12 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: rounds }, { data: pays }] = await Promise.all([
-      supabase
-        .from('machine_rounds')
-        .select('round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))')
-        .order('round_date', { ascending: false }),
+    const [rounds, { data: pays }] = await Promise.all([
+      // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
+      selectAllRows(
+        'machine_rounds',
+        'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))'
+      ),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
     ]);
 
@@ -316,9 +317,9 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Muestra: horas trabajadas por máquina y por empresa, total a pagar y días transcurridos.
   const CUTOFF_APARTADO = '2026-07-05';
   const openTipoReport = async () => {
-    const [{ data: mach }, { data: rnds }] = await Promise.all([
+    const [{ data: mach }, rnds] = await Promise.all([
       supabase.from('machinery').select('id, code, serial, tipo, entry_date, price_per_hour, company:company_id(id, name)'),
-      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours'),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours'),
     ]);
     const machById = new Map<string, any>();
     (mach ?? []).forEach((m: any) => machById.set(m.id, m));

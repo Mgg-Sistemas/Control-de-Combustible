@@ -28,3 +28,32 @@ export const supabase = createClient(
     },
   }
 );
+
+/**
+ * Trae TODAS las filas de una tabla paginando en bloques (PostgREST/Supabase corta
+ * en ~1000 filas por consulta). Sin esto, con muchas rondas los reportes quedaban
+ * truncados y los totales salían por debajo de lo real.
+ * @param table   nombre de la tabla
+ * @param columns columnas a seleccionar
+ * @param filter  callback opcional para aplicar filtros (.lte/.eq/…) al query
+ */
+export async function selectAllRows(
+  table: string,
+  columns: string,
+  filter?: (q: any) => any
+): Promise<any[]> {
+  const pageSize = 1000;
+  const out: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let q: any = supabase.from(table).select(columns);
+    if (filter) q = filter(q);
+    // Orden estable por id para paginar sin saltar/duplicar filas.
+    q = q.order('id', { ascending: true }).range(from, from + pageSize - 1);
+    const { data, error } = await q;
+    if (error) throw error;
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return out;
+}

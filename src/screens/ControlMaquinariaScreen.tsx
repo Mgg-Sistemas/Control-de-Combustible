@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -472,9 +472,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     // Resumen = histórico COMPLETO (todas las fechas, incluidas las jornadas ya cerradas),
     // no solo la semana en pantalla. Así el reporte general muestra TODAS las empresas.
-    const { data: allRounds } = await supabase
-      .from('machine_rounds')
-      .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
+    // Paginado: con >1000 rondas una consulta simple se truncaba (faltaban empresas/horas).
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
     // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
     const byMD = new Map<string, any>();
     let minD = '';
