@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -150,6 +150,34 @@ export default function EquiposScreen({ navigation }: any) {
       n.has(t) ? n.delete(t) : n.add(t);
       return n;
     });
+
+  // Horas trabajadas por máquina HASTA el 05/07/2026 (para el reporte de maquinaria).
+  // Se carga una vez; horas = (día + noche) − parada + extras, dedupe por máquina+día.
+  const CUTOFF_HORAS = '2026-07-05';
+  const [hoursByMachine, setHoursByMachine] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from('machine_rounds')
+        .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours')
+        .lte('round_date', CUTOFF_HORAS);
+      if (!alive) return;
+      const byMD = new Map<string, any>();
+      (data ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+      const acc: Record<string, number> = {};
+      byMD.forEach((r) => {
+        const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+        if (w > 0) acc[r.machinery_id] = (acc[r.machinery_id] ?? 0) + w;
+      });
+      setHoursByMachine(acc);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // Formato de dinero: 2 decimales, redondeo estándar.
+  const money = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const openEdit = (item: any) => {
     setEditing(item);
@@ -430,13 +458,24 @@ export default function EquiposScreen({ navigation }: any) {
     const groups = groupsForScope(scope);
     const total = groups.reduce((s, g) => s + g.items.length, 0);
     let item = 0; // contador continuo de ítems (1..N) en todo el reporte
+    let grandHours = 0;
+    let grandAmount = 0;
+    const workedOf = (m: Machinery) => hoursByMachine[m.id] ?? 0;
+    const amountOf = (m: Machinery) => (workedOf(m) / 12) * (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
     const sections = groups
       .map((g) => {
+        let gHours = 0;
+        let gAmount = 0;
         const tipoBlocks = tiposOf(g.items)
           .map(([tipo, items]) => {
+            let tHours = 0;
+            let tAmount = 0;
             const rows = items
               .map((m) => {
                 item += 1;
+                const worked = workedOf(m);
+                const amount = amountOf(m);
+                tHours += worked; tAmount += amount;
                 return `<tr>
                   <td style="text-align:center;font-weight:700">${item}</td>
                   <td>${esc(m.identifier || '—')}</td>
@@ -447,17 +486,22 @@ export default function EquiposScreen({ navigation }: any) {
                   <td>${esc(m.encargado || '—')}</td>
                   <td>${esc(m.grupo || '—')}</td>
                   <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
+                  <td style="text-align:center;font-weight:700">${worked} h</td>
+                  <td style="text-align:right;font-weight:700">${amount ? '$' + money(amount) : '—'}</td>
                 </tr>`;
               })
               .join('');
+            gHours += tHours; gAmount += tAmount;
             return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
-              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th></tr></thead>
-              <tbody>${rows}</tbody></table>`;
+              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th><th>Total $</th></tr></thead>
+              <tbody>${rows}</tbody>
+              <tfoot><tr><td colspan="9" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td><td style="text-align:right;font-weight:800">$${money(tAmount)}</td></tr></tfoot></table>`;
           })
           .join('');
+        grandHours += gHours; grandAmount += gAmount;
         return `<h2>🏢 ${esc(g.name.toUpperCase())} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
           ${tipoBlocks}
-          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length}</div>`;
+          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length} máquina(s) · ${gHours} h · $${money(gAmount)}</div>`;
       })
       .join('');
     const tipoFilterNote = reportTypes.size > 0 ? ` · Tipos: ${Array.from(reportTypes).join(', ')}` : '';
@@ -475,7 +519,8 @@ export default function EquiposScreen({ navigation }: any) {
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body:
         (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
-        `<div class="grand">Total de máquinas: ${total}</div>`,
+        `<div class="grand">Total de máquinas: ${total} · Horas trabajadas (≤ 05/07/2026): ${grandHours} h · Total a pagar: $${money(grandAmount)}</div>
+         <p class="muted" style="margin-top:6px">Horas = (día + noche) − parada + extras, acumuladas hasta el 05/07/2026 · Total $ = horas trabajadas × precio por hora (precio jornada ÷ 12).</p>`,
     });
   };
   const downloadReportPdf = async (scope: string = reportCompany) => {
