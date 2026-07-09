@@ -70,6 +70,9 @@ function HeaderHomeButton() {
   return (
     <TouchableOpacity
       onPress={() => {
+        // Primero intenta volver a la pantalla anterior (p. ej. Tanques → menú Más);
+        // si no hay a dónde volver (pantalla raíz de un tab), va al inicio.
+        if (navigation.canGoBack?.()) { navigation.goBack(); return; }
         const parent = navigation.getParent?.();
         (parent ?? navigation).navigate('Dashboard');
       }}
