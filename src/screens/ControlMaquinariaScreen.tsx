@@ -22,6 +22,13 @@ export const SHIFT_OPTS: { label: string; hours: number }[] = [
   { label: 'Medio · 6h', hours: 6 },
   { label: 'Completo · 12h', hours: 12 },
 ];
+/**
+ * Fecha de corte del período a facturar. El resumen de horas/pagos solo cuenta
+ * jornadas HASTA esta fecha (igual que el reporte de Maquinaria) para que todos
+ * los reportes cuadren con el Excel. Hay rondas posteriores (06–08/07) que no
+ * pertenecen a este período y no deben sumarse.
+ */
+export const PERIODO_CORTE = '2026-07-05';
 /** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
   Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
@@ -473,7 +480,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Resumen = histórico COMPLETO (todas las fechas, incluidas las jornadas ya cerradas),
     // no solo la semana en pantalla. Así el reporte general muestra TODAS las empresas.
     // Paginado: con >1000 rondas una consulta simple se truncaba (faltaban empresas/horas).
-    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.lte('round_date', PERIODO_CORTE));
     // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
     const byMD = new Map<string, any>();
     let minD = '';

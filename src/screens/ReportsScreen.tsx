@@ -550,7 +550,12 @@ export default function ReportsScreen({ route }: any) {
           return (
             <TouchableOpacity
               key={t.v}
-              onPress={() => setMode(t.v)}
+              onPress={() => {
+                setMode(t.v);
+                // La Jornada resume el mismo período que Maquinaria (26/06 → 05/07)
+                // para que ambos reportes cuadren con el Excel.
+                if (t.v === 'rounds') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
+              }}
               style={{
                 flex: 1,
                 paddingVertical: spacing.md,
