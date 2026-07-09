@@ -645,5 +645,12 @@ drop policy if exists cc_write on public.control_closures;
 create policy cc_write on public.control_closures for all to authenticated using (true) with check (true);
 
 -- ============================================================================
+-- MARGEN DE GANANCIA: costo inicial y valor útil de cada maquinaria.
+-- % de ganancia = (valor_útil − costo_inicial) ÷ costo_inicial × 100.
+-- ============================================================================
+alter table public.machinery add column if not exists initial_cost numeric(14,2);
+alter table public.machinery add column if not exists useful_value numeric(14,2);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

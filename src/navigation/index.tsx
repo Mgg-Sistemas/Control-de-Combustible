@@ -16,6 +16,7 @@ import AuthorizationsScreen from '../screens/AuthorizationsScreen';
 import EquiposScreen from '../screens/EquiposScreen';
 import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import ControlPagosScreen from '../screens/ControlPagosScreen';
+import MargenGananciaScreen from '../screens/MargenGananciaScreen';
 import MapScreen from '../screens/MapScreen';
 import {
   TanksScreen,
@@ -102,6 +103,7 @@ function MoreStack() {
       <Stack.Screen name="Dispatches" component={DispatchesScreen} options={{ title: 'Consumos' }} />
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
       <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
+      <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
