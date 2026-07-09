@@ -16,6 +16,7 @@ import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
+import { canonTipo } from './EquiposScreen';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -186,7 +187,7 @@ export default function ReportsScreen({ route }: any) {
   // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
   const fleetByType = useMemo(() => {
     const m = new Map<string, number>();
-    fleetItems.forEach((it) => m.set(it.tipo, (m.get(it.tipo) ?? 0) + 1));
+    fleetItems.forEach((it) => { const t = canonTipo(it.tipo) || 'Sin tipo'; m.set(t, (m.get(t) ?? 0) + 1); });
     return Array.from(m.entries())
       .map(([tipo, count]) => ({ tipo, count }))
       .sort((a, b) => (b.count - a.count) || a.tipo.localeCompare(b.tipo));
@@ -356,7 +357,7 @@ export default function ReportsScreen({ route }: any) {
         desc: m.description || '—',
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
-        tipo: m.tipo && String(m.tipo).trim() ? String(m.tipo).trim() : 'Sin tipo',
+        tipo: canonTipo(m.tipo) || 'Sin tipo',
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
       })

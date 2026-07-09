@@ -32,6 +32,12 @@ const VEHICLE_FIELDS: Field[] = [
   { key: 'expected_kml', label: 'Rendimiento (km/L)', type: 'number' },
 ];
 
+/** Tipo canónico: MAYÚSCULA, sin espacios extra y sin la "S" final, para que
+ *  "Retroexcavadora", "retroexcavadoras", "RETROEXCAVADORAS" sean el MISMO tipo
+ *  (el usuario puede escribir con o sin S). Vacío si no hay tipo. */
+export const canonTipo = (t?: string | null): string =>
+  t && t.trim() ? t.trim().toUpperCase().replace(/\s+/g, ' ').replace(/S$/, '') : '';
+
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'tipo', label: 'Tipo (Jumbo, Tractor, Chuto...)', type: 'text' },
@@ -86,7 +92,7 @@ export default function EquiposScreen({ navigation }: any) {
       : m.company_id === companyFilter;
   const matchType = (m: Machinery) => {
     if (typeFilter === '__all__') return true;
-    const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : '';
+    const t = canonTipo(m.tipo);
     return typeFilter === '__none__' ? !t : t === typeFilter;
   };
   const q = query.trim().toLowerCase();
@@ -99,7 +105,7 @@ export default function EquiposScreen({ navigation }: any) {
   const typeOptions = useMemo(() => {
     const c = new Map<string, number>();
     machinery.data.filter(matchCompany).forEach((m) => {
-      const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : '__none__';
+      const t = canonTipo(m.tipo) || '__none__';
       c.set(t, (c.get(t) ?? 0) + 1);
     });
     const entries = Array.from(c.entries()).sort((a, b) =>
@@ -366,7 +372,7 @@ export default function EquiposScreen({ navigation }: any) {
     // Filtro por tipos seleccionados (vacío = todos).
     const src = reportTypes.size === 0
       ? srcAll
-      : srcAll.filter((m) => reportTypes.has(m.tipo && m.tipo.trim() ? m.tipo.trim() : 'Sin tipo'));
+      : srcAll.filter((m) => reportTypes.has(canonTipo(m.tipo) || 'Sin tipo'));
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const k = it.company_id ?? '__none__';
@@ -394,7 +400,7 @@ export default function EquiposScreen({ navigation }: any) {
         : machinery.data.filter((m) => m.company_id === reportCompany);
     const c = new Map<string, number>();
     srcAll.forEach((m) => {
-      const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : 'Sin tipo';
+      const t = canonTipo(m.tipo) || 'Sin tipo';
       c.set(t, (c.get(t) ?? 0) + 1);
     });
     return Array.from(c.entries())
@@ -405,7 +411,7 @@ export default function EquiposScreen({ navigation }: any) {
   const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
     const c = new Map<string, Machinery[]>();
     items.forEach((it) => {
-      const t = it.tipo && it.tipo.trim() ? it.tipo.trim() : 'Sin tipo';
+      const t = canonTipo(it.tipo) || 'Sin tipo';
       if (!c.has(t)) c.set(t, []);
       c.get(t)!.push(it);
     });
