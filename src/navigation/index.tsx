@@ -17,6 +17,7 @@ import EquiposScreen from '../screens/EquiposScreen';
 import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MargenGananciaScreen from '../screens/MargenGananciaScreen';
+import OperatorScreen from '../screens/OperatorScreen';
 import MapScreen from '../screens/MapScreen';
 import {
   TanksScreen,
@@ -162,7 +163,7 @@ function Tabs() {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked } = useAuth();
+  const { session, configured, locked, role } = useAuth();
   const { colors } = useTheme();
   const navTheme = {
     ...DefaultTheme,
@@ -183,6 +184,9 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
+      ) : role === 'operador' ? (
+        // El operador tiene su propia vista (independiente de la administración).
+        <OperatorScreen />
       ) : (
         <Tabs />
       )}

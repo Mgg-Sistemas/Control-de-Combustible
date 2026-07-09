@@ -62,6 +62,7 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
+  { key: 'operator_id', label: 'Operador asignado (rol operador)', type: 'lookup', table: 'profiles', labelCol: 'full_name', filter: { role: 'operador' } },
 ];
 
 export default function EquiposScreen({ navigation }: any) {

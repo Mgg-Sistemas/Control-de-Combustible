@@ -31,6 +31,8 @@ export type Field =
       /** Si se define, el selector es buscable y permite crear una opción nueva
        *  escribiendo su valor (se guarda en `createColumn` de la tabla). */
       createColumn?: string;
+      /** Filtro de igualdad opcional para acotar las opciones (p. ej. { role: 'operador' }). */
+      filter?: Record<string, string | number | boolean>;
       showIf?: ShowIf;
     };
 
@@ -123,7 +125,9 @@ export function RecordForm({
     // Cargar opciones de los campos lookup
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
-        const { data } = await supabase.from(f.table).select(`id, ${f.labelCol}`);
+        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}`);
+        if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
+        const { data } = await qb;
         setLookups((prev) => ({
           ...prev,
           [f.key]: (data ?? []).map((r: any) => ({ label: String(r[f.labelCol]), value: r.id })),

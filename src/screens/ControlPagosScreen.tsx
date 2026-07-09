@@ -619,6 +619,22 @@ export default function ControlPagosScreen({ navigation }: any) {
           {selected ? (
             <>
               <SectionTitle>{selected.company}</SectionTitle>
+              {/* Botón de abono/pago ARRIBA para acceso rápido. */}
+              {selected.fullyPaid ? (
+                <Card style={{ borderColor: colors.success }}>
+                  <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Pagada por completo</Text>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>Total abonado: ${money(selected.paidAmount)}</Text>
+                </Card>
+              ) : (
+                <TouchableOpacity
+                  style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}
+                  onPress={() => openPay(selected)}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>
+                    {selected.paidAmount > 0 ? `＋ Registrar abono · resta $${money(selected.saldo)}` : '＋ Registrar abono / pago'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
                   Semana {selected.weekStart} → {selected.weekEnd}
@@ -692,26 +708,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                 </>
               ) : null}
 
-              {selected.fullyPaid ? (
-                <Card style={{ borderColor: colors.success, marginTop: spacing.sm }}>
-                  <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Pagada por completo</Text>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>
-                    Total abonado: ${money(selected.paidAmount)}
-                  </Text>
-                </Card>
-              ) : (
-                <TouchableOpacity
-                  style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}
-                  onPress={() => openPay(selected)}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>
-                    {selected.paidAmount > 0 ? `＋ Registrar abono · resta $${money(selected.saldo)}` : '＋ Registrar abono / pago'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
               <TouchableOpacity
-                style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+                style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
                 onPress={() => setSelected(null)}
               >
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
