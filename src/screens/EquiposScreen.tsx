@@ -11,6 +11,7 @@ import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
+import { machineQrUrl, qrSvg, svgDataUri } from '../lib/qr';
 import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -96,6 +97,9 @@ export default function EquiposScreen({ navigation }: any) {
   const [regFuelEnd, setRegFuelEnd] = useState('');
   const [regSaving, setRegSaving] = useState(false);
   const [tanks, setTanks] = useState<{ id: string; name: string; fuel: string }[]>([]);
+  // QR de la máquina
+  const [qrFor, setQrFor] = useState<Machinery | null>(null);
+  const [qrStr, setQrStr] = useState<string>('');
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -283,6 +287,32 @@ export default function EquiposScreen({ navigation }: any) {
     if (error) return Alert.alert('Aviso', error.message);
     setRegOpen(false);
     await openFuel(fuelFor); // recarga la traza y totales
+  };
+
+  // Abre el QR de una máquina (lo genera como SVG) y permite imprimirlo.
+  const openQr = async (m: Machinery) => {
+    setQrFor(m);
+    setQrStr('');
+    try { setQrStr(await qrSvg(machineQrUrl(m.id), 260)); } catch {}
+  };
+  const printQr = async () => {
+    if (!qrFor || !qrStr) return;
+    const url = machineQrUrl(qrFor.id);
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title></title>
+      <style>@page{margin:1.5cm}*{box-sizing:border-box}body{font-family:Tahoma,Geneva,Verdana,sans-serif;text-align:center;color:#111}
+      .name{font-size:28px;font-weight:800;margin:6px 0 2px;color:#16324F}
+      .sub{color:#555;font-size:14px;margin-bottom:16px}
+      .qr{width:340px;height:340px;margin:0 auto}
+      .u{color:#999;font-size:10px;margin-top:10px;word-break:break-all}
+      .hint{margin-top:16px;font-size:12px;color:#333}</style></head>
+      <body>
+        <div class="name">${qrFor.code}</div>
+        <div class="sub">${(qrFor.tipo || '')}${qrFor.referencia ? ' · ' + qrFor.referencia : ''}</div>
+        <div class="qr">${qrStr}</div>
+        <div class="hint">Escanea este código para registrar <b>combustible</b>, <b>ubicación</b> o <b>avería</b> de la máquina.</div>
+        <div class="u">${url}</div>
+      </body></html>`;
+    await exportPdf(html);
   };
 
   const openFuel = async (m: Machinery) => {
@@ -656,6 +686,7 @@ export default function EquiposScreen({ navigation }: any) {
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} textColor={colors.primaryContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
+        <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
       </View>
     </Card>
@@ -869,6 +900,34 @@ export default function EquiposScreen({ navigation }: any) {
           ) : null}
         </>
       )}
+
+      {/* QR de la máquina */}
+      <Modal visible={!!qrFor} transparent animationType="fade" onRequestClose={() => setQrFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{qrFor?.code}</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>Código QR de la máquina</Text>
+            {qrStr ? (
+              <View style={{ backgroundColor: '#fff', padding: spacing.sm, borderRadius: radius.md }}>
+                <Image source={{ uri: svgDataUri(qrStr) }} style={{ width: 240, height: 240 }} resizeMode="contain" />
+              </View>
+            ) : (
+              <Text style={{ color: colors.muted, marginVertical: spacing.lg }}>Generando…</Text>
+            )}
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
+              Al escanearlo se abre el sistema con las acciones de esta máquina (combustible, mapa y avería).
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, alignSelf: 'stretch' }}>
+              <TouchableOpacity onPress={() => setQrFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={printQr} disabled={!qrStr} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>🖨️ Imprimir</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Carga por lote: pegar varias líneas */}
       <Modal visible={batchOpen} animationType="slide" transparent onRequestClose={() => setBatchOpen(false)}>

@@ -671,5 +671,29 @@ alter table public.machinery add column if not exists operator_id uuid reference
 comment on column public.machinery.operator_id is 'Operador asignado por defecto (rol operador). El operador ve/gestiona esta máquina en su vista.';
 
 -- ============================================================================
+-- MANTENIMIENTO DE MAQUINARIA: el operador (al escanear el QR de la máquina)
+-- solicita el cambio de un material (caucho, aceite, filtro, repuesto) con la
+-- cantidad necesaria. El supervisor lo marca como realizado desde el sistema.
+-- ============================================================================
+create table if not exists public.maintenance_requests (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  material text not null,               -- 'caucho' | 'aceite' | 'filtro' | 'repuesto'
+  quantity numeric(12,2),               -- cantidad del material a cambiar
+  notes text,
+  status text not null default 'pendiente', -- 'pendiente' | 'realizado'
+  requested_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  resolved_by uuid references public.profiles(id) on delete set null,
+  resolved_at timestamptz
+);
+alter table public.maintenance_requests enable row level security;
+create policy mr_maint_read on public.maintenance_requests for select to authenticated using (true);
+create policy mr_maint_insert on public.maintenance_requests for insert to authenticated with check (true);
+create policy mr_maint_update on public.maintenance_requests for update to authenticated using (true) with check (true);
+create index if not exists idx_maint_machine on public.maintenance_requests(machinery_id);
+create index if not exists idx_maint_status on public.maintenance_requests(status);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

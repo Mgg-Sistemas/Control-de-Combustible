@@ -19,6 +19,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Consumos', route: 'Dispatches', desc: 'Despachos a vehículos y maquinaria', icon: '⛽', module: 'consumos' },
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
+  { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅', module: 'autorizaciones' },
   { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄', module: 'traslados' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },

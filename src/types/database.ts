@@ -220,6 +220,22 @@ export interface Dispatch {
   created_at: string;
 }
 
+export type MaintenanceMaterial = 'caucho' | 'aceite' | 'filtro' | 'repuesto';
+export type MaintenanceStatus = 'pendiente' | 'realizado';
+
+export interface MaintenanceRequest {
+  id: string;
+  machinery_id: string;
+  material: MaintenanceMaterial | string;
+  quantity: number | null;
+  notes: string | null;
+  status: MaintenanceStatus;
+  requested_by: string | null;
+  created_at: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+}
+
 export interface Transfer {
   id: string;
   transfer_date: string;

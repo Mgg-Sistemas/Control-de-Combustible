@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity, View, Image } from 'react-native';
+import { Text, TouchableOpacity, View, Image, Platform } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -17,7 +17,9 @@ import EquiposScreen from '../screens/EquiposScreen';
 import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MargenGananciaScreen from '../screens/MargenGananciaScreen';
+import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScreen';
 import OperatorScreen from '../screens/OperatorScreen';
+import MachineQuickScreen from '../screens/MachineQuickScreen';
 import MapScreen from '../screens/MapScreen';
 import {
   TanksScreen,
@@ -108,6 +110,7 @@ function MoreStack() {
       <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
       <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
+      <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
@@ -162,8 +165,33 @@ function Tabs() {
   );
 }
 
+/** Lee el parámetro ?maquina=<id> de la URL (solo web) para abrir la vista rápida del QR. */
+function useQrMachineId(): [string | null, () => void] {
+  const read = (): string | null => {
+    if (Platform.OS !== 'web') return null;
+    try {
+      const w: any = globalThis;
+      return new URLSearchParams(w.location.search).get('maquina');
+    } catch {
+      return null;
+    }
+  };
+  const [id, setId] = React.useState<string | null>(read);
+  const clear = () => {
+    if (Platform.OS === 'web') {
+      try {
+        const w: any = globalThis;
+        w.history.replaceState({}, '', w.location.pathname);
+      } catch {}
+    }
+    setId(null);
+  };
+  return [id, clear];
+}
+
 export default function RootNavigator() {
   const { session, configured, locked, role } = useAuth();
+  const [qrMachineId, clearQr] = useQrMachineId();
   const { colors } = useTheme();
   const navTheme = {
     ...DefaultTheme,
@@ -184,6 +212,9 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
+      ) : qrMachineId && session ? (
+        // Se abrió por QR de una máquina: vista rápida (combustible/mapa/avería).
+        <MachineQuickScreen machineId={qrMachineId} onExit={clearQr} />
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />
