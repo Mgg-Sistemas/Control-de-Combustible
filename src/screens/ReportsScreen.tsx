@@ -208,6 +208,7 @@ export default function ReportsScreen({ route }: any) {
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
+  const [fleetWithPrices, setFleetWithPrices] = useState(true);
 
   const fleetByCompany = useMemo(() => {
     const m = new Map<string, FleetCompany>();
@@ -471,22 +472,25 @@ export default function ReportsScreen({ route }: any) {
     setFleetPreview(true);
   };
 
-  const downloadFleetPdf = async (onlyCompany?: string) => {
+  const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
     const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
+    // Encabezados y celdas de precio se incluyen sólo si withPrices.
+    const priceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total</th>' : '';
     const companyBlocks = companies
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Horas</th><th style="text-align:right">Total</th></tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right">${i.worked} h</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td></tr>`
+                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
             )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td></tr></tfoot></table>`
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="3">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
       )
       .join('');
-    const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general';
+    const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
+    const sub = (onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general') + priceTag;
     // Reporte general (solo en el reporte completo, no cuando se filtra una empresa).
     const typeAgg = new Map<string, { count: number; worked: number; amount: number }>();
     companies.forEach((c) =>
@@ -499,30 +503,32 @@ export default function ReportsScreen({ route }: any) {
     const grandWorked = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.worked, 0), 0);
     const grandAmount = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.amount, 0), 0);
     const phStr = (amount: number, worked: number) => (worked > 0 ? '$' + money2(amount / worked) : '—');
+    const genPriceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : '';
+    const genColspan = withPrices ? 5 : 3;
     const typeRows = Array.from(typeAgg.entries())
       .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
       .map(
         ([tipo, a]) =>
-          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td></tr>`
+          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td>${withPrices ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td>` : ''}</tr>`
       )
       .join('');
     const companyCountRows = companies
       .map((c) => {
         const w = c.items.reduce((s, i) => s + i.worked, 0);
         const am = c.items.reduce((s, i) => s + i.amount, 0);
-        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td><td style="text-align:right">${phStr(am, w)}</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td></tr>`;
+        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td>${withPrices ? `<td style="text-align:right">${phStr(am, w)}</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td>` : ''}</tr>`;
       })
       .join('');
     const generalBlock = `
       <h2>Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
-      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${typeRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>
+      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
+      <tbody>${typeRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${companyCountRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>`;
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
+      <tbody>${companyCountRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>`;
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
@@ -957,9 +963,25 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </Card>
 
+          {/* Interruptor: con / sin precios en $ (aplica a General y Por empresa) */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+            <TouchableOpacity
+              style={[styles.quick, { backgroundColor: fleetWithPrices ? colors.primary : colors.surfaceAlt, borderColor: fleetWithPrices ? colors.primary : colors.border }]}
+              onPress={() => setFleetWithPrices(true)}
+            >
+              <Text style={{ color: fleetWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quick, { backgroundColor: !fleetWithPrices ? colors.primary : colors.surfaceAlt, borderColor: !fleetWithPrices ? colors.primary : colors.border }]}
+              onPress={() => setFleetWithPrices(false)}
+            >
+              <Text style={{ color: !fleetWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Botones de descarga arriba */}
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf()}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf(undefined, fleetWithPrices)}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ General</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -978,7 +1000,7 @@ export default function ReportsScreen({ route }: any) {
                 {fleetByCompany.map((c) => (
                   <TouchableOpacity
                     key={c.company}
-                    onPress={() => downloadFleetPdf(c.company)}
+                    onPress={() => downloadFleetPdf(c.company, fleetWithPrices)}
                     style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
                   >
                     <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
