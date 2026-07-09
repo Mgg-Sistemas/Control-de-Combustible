@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, Platform, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -8,6 +8,7 @@ import { elapsedSince } from '../lib/time';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine } from '../types/database';
+import { DateField } from '../components/DateField';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -71,38 +72,6 @@ export function shiftLabel(totalShiftHours: number): string {
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
 
 /** Campo de fecha con calendario: en web usa <input type="date">; en nativo, texto. */
-function DateField({ value, onChange, colors }: { value: string; onChange: (v: string) => void; colors: any }) {
-  if (Platform.OS === 'web') {
-    return React.createElement('input', {
-      type: 'date',
-      value: value || '',
-      onChange: (e: any) => onChange(e.target.value),
-      // Al hacer clic (o enfocar) abre directamente el calendario del navegador.
-      onClick: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
-      onFocus: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
-      style: {
-        padding: '9px',
-        borderRadius: '10px',
-        border: '1px solid ' + colors.border,
-        background: colors.surface,
-        color: colors.text,
-        fontSize: '14px',
-        width: '100%',
-        boxSizing: 'border-box',
-      },
-    });
-  }
-  return (
-    <TextInput
-      value={value}
-      onChangeText={onChange}
-      placeholder="AAAA-MM-DD"
-      placeholderTextColor={colors.muted}
-      style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
-    />
-  );
-}
-
 function todayISO(): string {
   const d = new Date();
   const m = `${d.getMonth() + 1}`.padStart(2, '0');
@@ -673,7 +642,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>◀</Text>
           </TouchableOpacity>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <DateField value={date} onChange={(v) => v && setDate(v)} colors={colors} />
+            <DateField value={date} onChange={(v) => v && setDate(v)} />
           </View>
           <TouchableOpacity
             onPress={() => setDate(shiftDay(weekStart, 7))}
@@ -710,25 +679,11 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
-                <TextInput
-                  value={sumFrom}
-                  onChangeText={setSumFrom}
-                  placeholder="AAAA-MM-DD"
-                  placeholderTextColor={colors.muted}
-                  autoCapitalize="none"
-                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surfaceAlt }}
-                />
+                <DateField value={sumFrom} onChange={setSumFrom} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
-                <TextInput
-                  value={sumTo}
-                  onChangeText={setSumTo}
-                  placeholder="AAAA-MM-DD"
-                  placeholderTextColor={colors.muted}
-                  autoCapitalize="none"
-                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surfaceAlt }}
-                />
+                <DateField value={sumTo} onChange={setSumTo} />
               </View>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -894,7 +849,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                       {active ? (
                         <View style={{ marginTop: 4, gap: 4 }}>
                           <Text style={{ color: kind === 'entry' ? colors.success : colors.text, fontSize: 11, fontWeight: '700' }}>🕒 {fmtDateTime(atVal)}</Text>
-                          <DateField value={val ?? ''} onChange={(v) => setMoveDate(m, dateField, v || null)} colors={colors} />
+                          <DateField value={val ?? ''} onChange={(v) => setMoveDate(m, dateField, v || null)} />
                         </View>
                       ) : null}
                     </View>

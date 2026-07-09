@@ -13,6 +13,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { DateField } from './DateField';
 
 /** Predicado opcional: el campo solo se muestra si devuelve true. */
 type ShowIf = (values: Record<string, string>) => boolean;
@@ -242,6 +243,8 @@ export function RecordForm({
                 </Text>
                 {f.type === 'select' ? (
                   <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+                ) : f.type === 'date' ? (
+                  <DateField value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} />
                 ) : f.type === 'lookup' ? (
                   <SearchSelect
                     options={lookups[f.key] ?? []}
@@ -258,7 +261,7 @@ export function RecordForm({
                     style={styles.input}
                     value={values[f.key] ?? ''}
                     onChangeText={(t) => set(f.key, t)}
-                    placeholder={('placeholder' in f && f.placeholder) || (f.type === 'date' ? 'AAAA-MM-DD' : '')}
+                    placeholder={('placeholder' in f && f.placeholder) || ''}
                     placeholderTextColor={colors.muted}
                     keyboardType={f.type === 'number' ? 'numeric' : 'default'}
                     autoCapitalize="none"

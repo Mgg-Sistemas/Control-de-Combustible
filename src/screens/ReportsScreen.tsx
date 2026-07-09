@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Modal,
   ScrollView,
@@ -17,6 +16,7 @@ import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
+import { DateField } from '../components/DateField';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -602,11 +602,11 @@ export default function ReportsScreen({ route }: any) {
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Text style={styles.lbl}>Desde</Text>
-            <TextInput style={styles.input} value={from} onChangeText={setFrom} placeholder="AAAA-MM-DD" placeholderTextColor={colors.muted} />
+            <DateField value={from} onChange={setFrom} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.lbl}>Hasta</Text>
-            <TextInput style={styles.input} value={to} onChangeText={setTo} placeholder="AAAA-MM-DD" placeholderTextColor={colors.muted} />
+            <DateField value={to} onChange={setTo} />
           </View>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>

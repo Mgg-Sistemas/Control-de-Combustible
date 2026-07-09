@@ -7,6 +7,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
+import { DateField } from '../components/DateField';
 import { CompanyPayment, PaymentDetail } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -869,12 +870,12 @@ export default function ControlPagosScreen({ navigation }: any) {
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Desde</Text>
-                <TextInput value={repFrom} onChangeText={setRepFrom} placeholder="AAAA-MM-DD" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: 4 }} />
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Desde</Text>
+                <DateField value={repFrom} onChange={setRepFrom} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Hasta</Text>
-                <TextInput value={repTo} onChangeText={setRepTo} placeholder="AAAA-MM-DD" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: 4 }} />
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Hasta</Text>
+                <DateField value={repTo} onChange={setRepTo} />
               </View>
             </View>
 
