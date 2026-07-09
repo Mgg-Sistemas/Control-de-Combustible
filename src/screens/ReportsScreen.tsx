@@ -745,7 +745,8 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
       <tbody>${companyCountRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>`;
-    // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
+    // GENERAL = resumen (por tipo + por empresa) + DETALLE agrupado por empresa.
+    // POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
       <div class="muted">Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
@@ -761,7 +762,9 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
-      ${generalBlock}`;
+      ${generalBlock}
+      <h2>Detalle por empresa</h2>
+      ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body));
   };
 
