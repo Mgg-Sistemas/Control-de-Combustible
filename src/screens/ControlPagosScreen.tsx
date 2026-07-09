@@ -32,6 +32,15 @@ function todayISO(): string {
   return toISO(new Date());
 }
 
+// ── Formato de dinero: SIEMPRE 2 decimales, redondeo estándar (si el 3er decimal
+//    es ≥ 5 sube el 2º). Ej.: 46,666 → 46,67 · 85895833,333 → 85.895.833,33 ──────
+function round2(n: number): number {
+  return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+}
+function money(n: number): string {
+  return round2(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const CURRENCIES = [
   { label: 'Dólares (USD)', value: 'USD' },
   { label: 'Bolívares (Bs)', value: 'Bs' },
@@ -157,12 +166,12 @@ export default function ControlPagosScreen({ navigation }: any) {
         ma.hours = hrs;
         ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
         ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
-        ma.subtotal = (ma.price ?? 0) * units;
+        ma.subtotal = round2((ma.price ?? 0) * units);
         total += ma.subtotal;
         hoursWorked += hrs;
         if (ma.price == null && hrs > 0) noPrice = true;
       });
-      g.total = total;
+      g.total = round2(total);
       g.hoursWorked = hoursWorked;
       g.noPrice = noPrice;
     });
@@ -174,8 +183,8 @@ export default function ControlPagosScreen({ navigation }: any) {
       g.abonos = payList
         .filter((p) => p.company_name === g.company && p.period_start === g.weekStart)
         .sort((a, b) => (a.paid_at < b.paid_at ? -1 : 1));
-      g.paidAmount = g.abonos.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      g.saldo = Math.max(0, g.total - g.paidAmount);
+      g.paidAmount = round2(g.abonos.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+      g.saldo = Math.max(0, round2(g.total - g.paidAmount));
       g.fullyPaid = g.total > 0 && g.paidAmount >= g.total - 0.01;
     });
 
@@ -281,7 +290,7 @@ export default function ControlPagosScreen({ navigation }: any) {
   const deleteAbono = async (p: CompanyPayment) => {
     const ok = await confirm({
       title: 'Eliminar abono',
-      message: `¿Eliminar el abono de ${p.currency} ${Number(p.amount).toLocaleString()}? El saldo volverá a incluir ese monto.`,
+      message: `¿Eliminar el abono de ${p.currency} ${money(Number(p.amount))}? El saldo volverá a incluir ese monto.`,
       confirmText: 'Eliminar',
       cancelText: 'Cancelar',
     });
@@ -305,9 +314,9 @@ export default function ControlPagosScreen({ navigation }: any) {
     const sections = inRange
       .map((g) => {
         const estado = g.fullyPaid
-          ? `PAGADA ($${g.paidAmount.toLocaleString()})`
+          ? `PAGADA ($${money(g.paidAmount)})`
           : g.paidAmount > 0
-          ? `ABONADA · pagado $${g.paidAmount.toLocaleString()} · resta $${g.saldo.toLocaleString()}`
+          ? `ABONADA · pagado $${money(g.paidAmount)} · resta $${money(g.saldo)}`
           : 'PENDIENTE';
         const machs = machinesOf(g);
         const mrows = machs
@@ -317,8 +326,8 @@ export default function ControlPagosScreen({ navigation }: any) {
               `<td style="text-align:right">${m.dayHours.toLocaleString()} h</td>` +
               `<td style="text-align:right">${m.nightHours.toLocaleString()} h</td>` +
               `<td style="text-align:right;font-weight:700">${m.hours.toLocaleString()} h</td>` +
-              `<td style="text-align:right">${m.price != null ? '$' + m.price.toLocaleString() : '—'}</td>` +
-              `<td style="text-align:right;font-weight:700">$${m.subtotal.toLocaleString()}</td></tr>`
+              `<td style="text-align:right">${m.price != null ? '$' + money(m.price) : '—'}</td>` +
+              `<td style="text-align:right;font-weight:700">$${money(m.subtotal)}</td></tr>`
           )
           .join('');
         const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
@@ -326,7 +335,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
           <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/jornada</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
-          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${g.total.toLocaleString()}</td></tr></tfoot></table>`;
+          <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${money(g.total)}</td></tr></tfoot></table>`;
       })
       .join('');
     const totalPend = inRange.reduce((s, g) => s + g.saldo, 0);
@@ -344,7 +353,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         .muted{color:#666;font-size:12px}`,
       body: `
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div class="tot"><b>Total pendiente:</b> $${totalPend.toLocaleString()} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${totalPag.toLocaleString()}</div>`,
+      <div class="tot"><b>Total pendiente:</b> $${money(totalPend)} &nbsp;·&nbsp; <b>Total pagado (rango):</b> $${money(totalPag)}</div>`,
     });
     await exportPdf(html);
   };
@@ -371,7 +380,7 @@ export default function ControlPagosScreen({ navigation }: any) {
           </Text>
           {outstandingByCompany.map(([c, amt]) => (
             <Text key={c} style={{ color: '#fff', fontSize: 13 }}>
-              • Se le deben <Text style={{ fontWeight: '800' }}>${amt.toLocaleString()}</Text> a {c}
+              • Se le deben <Text style={{ fontWeight: '800' }}>${money(amt)}</Text> a {c}
             </Text>
           ))}
         </Card>
@@ -418,7 +427,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
-                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${debt.toLocaleString()}</Text>
+                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(debt)}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machineSet.size} máquina(s) con jornada · {weeks.length} semana(s)</Text>
@@ -436,7 +445,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                         Semana {g.weekStart} → {g.weekEnd}
                       </Text>
                       <Text style={{ color: g.fullyPaid ? colors.success : colors.primary, fontWeight: '800' }}>
-                        ${g.total.toLocaleString()}
+                        ${money(g.total)}
                       </Text>
                     </View>
                     <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
@@ -446,11 +455,11 @@ export default function ControlPagosScreen({ navigation }: any) {
                     </View>
                     {g.fullyPaid ? (
                       <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.xs, fontWeight: '700' }}>
-                        ✓ Pagada · abonado ${g.paidAmount.toLocaleString()}
+                        ✓ Pagada · abonado ${money(g.paidAmount)}
                       </Text>
                     ) : partial ? (
                       <Text style={{ color: colors.warning, fontSize: 12, marginTop: spacing.xs, fontWeight: '700' }}>
-                        🟡 Abonado ${g.paidAmount.toLocaleString()} · resta ${g.saldo.toLocaleString()}
+                        🟡 Abonado ${money(g.paidAmount)} · resta ${money(g.saldo)}
                       </Text>
                     ) : (
                       <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
@@ -486,18 +495,18 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>${selected.total.toLocaleString()}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>${money(selected.total)}</Text>
                   </View>
                 </View>
                 {/* Abonado y saldo pendiente */}
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Abonado</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>${selected.paidAmount.toLocaleString()}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>${money(selected.paidAmount)}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Saldo pendiente</Text>
-                    <Text style={{ color: selected.saldo > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 20 }}>${selected.saldo.toLocaleString()}</Text>
+                    <Text style={{ color: selected.saldo > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 20 }}>${money(selected.saldo)}</Text>
                   </View>
                 </View>
               </Card>
@@ -509,10 +518,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card key={m.machine}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{m.machine}</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800' }}>${m.subtotal.toLocaleString()}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800' }}>${money(m.subtotal)}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    ⏱️ {m.hours.toLocaleString()} h · {m.price != null ? `$${m.price.toLocaleString()}/jornada` : '⚠️ sin precio'}
+                    ⏱️ {m.hours.toLocaleString()} h · {m.price != null ? `$${money(m.price)}/jornada` : '⚠️ sin precio'}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     ☀️ Día: {m.dayHours.toLocaleString()} h · 🌙 Noche: {m.nightHours.toLocaleString()} h
@@ -531,7 +540,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '700' }}>
-                            🟢 Abono {i + 1} · {p.currency} {Number(p.amount).toLocaleString()}
+                            🟢 Abono {i + 1} · {p.currency} {money(Number(p.amount))}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>{p.paid_at?.slice(0, 10)}</Text>
                         </View>
@@ -548,7 +557,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card style={{ borderColor: colors.success, marginTop: spacing.sm }}>
                   <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Pagada por completo</Text>
                   <Text style={{ color: colors.text, fontSize: 13 }}>
-                    Total abonado: ${selected.paidAmount.toLocaleString()}
+                    Total abonado: ${money(selected.paidAmount)}
                   </Text>
                 </Card>
               ) : (
@@ -557,7 +566,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   onPress={() => openPay(selected)}
                 >
                   <Text style={{ color: '#fff', fontWeight: '800' }}>
-                    {selected.paidAmount > 0 ? `＋ Registrar abono · resta $${selected.saldo.toLocaleString()}` : '＋ Registrar abono / pago'}
+                    {selected.paidAmount > 0 ? `＋ Registrar abono · resta $${money(selected.saldo)}` : '＋ Registrar abono / pago'}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -584,7 +593,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   {payFor.company} · Semana {payFor.weekStart} → {payFor.weekEnd}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                  Total ${payFor.total.toLocaleString()} · abonado ${payFor.paidAmount.toLocaleString()} · <Text style={{ color: colors.primary, fontWeight: '800' }}>saldo ${payFor.saldo.toLocaleString()}</Text>
+                  Total ${money(payFor.total)} · abonado ${money(payFor.paidAmount)} · <Text style={{ color: colors.primary, fontWeight: '800' }}>saldo ${money(payFor.saldo)}</Text>
                 </Text>
               </>
             ) : null}
@@ -639,7 +648,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>🏢 {p.company_name}</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800' }}>{p.currency} {Number(p.amount).toLocaleString()}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800' }}>{p.currency} {money(Number(p.amount))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     Semana {p.period_start} → {p.period_end} · pagado {p.paid_at?.slice(0, 10)}
@@ -664,7 +673,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Semana {histSel.period_start} → {histSel.period_end}</Text>
                 <Text style={{ color: colors.success, fontWeight: '800', fontSize: 22, marginTop: 4 }}>
-                  {histSel.currency} {Number(histSel.amount).toLocaleString()}
+                  {histSel.currency} {money(Number(histSel.amount))}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Pagado el {histSel.paid_at?.slice(0, 10)}</Text>
               </Card>
@@ -676,10 +685,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card key={i}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>{m.machine}</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800' }}>${Number(m.subtotal).toLocaleString()}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800' }}>${money(Number(m.subtotal))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    ⏱️ {Number(m.hours).toLocaleString()} h × ${Number(m.price).toLocaleString()}/h
+                    ⏱️ {Number(m.hours).toLocaleString()} h × ${money(Number(m.price))}/h
                   </Text>
                 </Card>
               ))}
@@ -687,7 +696,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>TOTAL calculado</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800' }}>${Number(histSel.detail.total).toLocaleString()}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>${money(Number(histSel.detail.total))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>{Number(histSel.detail.totalHours).toLocaleString()} h trabajadas</Text>
                 </Card>
