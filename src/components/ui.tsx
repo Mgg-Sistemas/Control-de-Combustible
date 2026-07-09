@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
   ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,15 +20,58 @@ export function Screen({
   scroll?: boolean;
 }) {
   const { colors } = useTheme();
-  const Container: any = scroll ? ScrollView : View;
+  const scrollRef = React.useRef<ScrollView>(null);
+  const [showTop, setShowTop] = React.useState(false);
+
+  if (!scroll) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>{children}</View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
-      <Container
+      <ScrollView
+        ref={scrollRef}
         style={{ flex: 1, backgroundColor: colors.background }}
-        contentContainerStyle={scroll ? { padding: spacing.md, gap: spacing.md } : undefined}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          const y = e.nativeEvent.contentOffset.y;
+          setShowTop((prev) => (prev !== y > 400 ? y > 400 : prev));
+        }}
       >
         {children}
-      </Container>
+      </ScrollView>
+      {showTop ? (
+        <TouchableOpacity
+          onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+          activeOpacity={0.8}
+          accessibilityLabel="Volver al inicio"
+          style={{
+            position: 'absolute',
+            right: spacing.md,
+            bottom: spacing.lg,
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: colors.primary,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderWidth: 1,
+            borderColor: colors.primary,
+            shadowColor: '#000',
+            shadowOpacity: 0.25,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 3 },
+            elevation: 5,
+          }}
+        >
+          <Text style={{ color: colors.primaryContrast, fontSize: 22, fontWeight: '900', marginTop: -2 }}>↑</Text>
+        </TouchableOpacity>
+      ) : null}
     </SafeAreaView>
   );
 }
