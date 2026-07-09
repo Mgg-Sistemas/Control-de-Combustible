@@ -15,12 +15,6 @@ function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
   return 'success';
 }
 
-function todayISO(): string {
-  const d = new Date();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
 
 /** Tarjeta de métrica: se puede tocar para ir al módulo con la info real. */
 function StatCard({
@@ -66,8 +60,8 @@ export default function DashboardScreen({ navigation }: any) {
 
   const loadCounts = useCallback(async () => {
     const [{ data: rounds }, { count: locCount }, { count: machCount }, { count: vehCount }] = await Promise.all([
-      // Rondas "en verde" (operativas) de hoy → máquinas activas hoy.
-      supabase.from('machine_rounds').select('machinery_id').eq('round_date', todayISO()).eq('status', 'operativa'),
+      // Máquinas con rondas abiertas (jornadas aún no cerradas) → activas en el período en curso.
+      supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       // Máquinas con coordenadas → mismas que muestra el mapa.
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
       // Catálogo: maquinaria + maquinaria pesada activa.
