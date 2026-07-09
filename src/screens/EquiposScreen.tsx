@@ -14,12 +14,6 @@ import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
-/** Formatea una fecha ISO "AAAA-MM-DD" como "DD/MM/AAAA" (día, mes, año). */
-function fmtDMY(iso: string): string {
-  const [y, m, d] = (iso || '').split('-');
-  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
-}
-
 type FuelRow = { date: string; liters: number; tank: string };
 
 type Kind = 'vehiculo' | 'maquinaria';
@@ -246,7 +240,7 @@ export default function EquiposScreen({ navigation }: any) {
     if (!fuelFor) return;
     const consumed = fuelConsumed;
     const rows = fuelTrace
-      .map((t) => `<tr><td>${fmtDMY(t.date)}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
+      .map((t) => `<tr><td>${t.date}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
       .join('');
     const html = pdfDocument({
       title: 'Traza de combustible',
@@ -897,7 +891,7 @@ export default function EquiposScreen({ navigation }: any) {
                     fuelTrace.map((t, i) => (
                       <Card key={i}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ color: colors.text, fontWeight: '700' }}>{fmtDMY(t.date)}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>{t.date}</Text>
                           <Text style={{ color: colors.success, fontWeight: '800' }}>{t.liters.toLocaleString()} L</Text>
                         </View>
                         {t.tank ? <Text style={{ color: colors.muted, fontSize: 12 }}>Tanque: {t.tank}</Text> : null}

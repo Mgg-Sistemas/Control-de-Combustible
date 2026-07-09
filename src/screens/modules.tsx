@@ -5,12 +5,6 @@ import { Field } from '../components/RecordForm';
 import { Badge } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 
-/** Formatea una fecha ISO "AAAA-MM-DD" como "DD/MM/AAAA" (día, mes, año). */
-function fmtDMY(iso?: string | null): string {
-  const [y, m, d] = (iso || '').split('-');
-  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
-}
-
 const FUEL_OPTIONS = [
   { label: 'Diésel', value: 'diesel' },
   { label: 'Gasolina', value: 'gasolina' },
@@ -100,7 +94,7 @@ export function IntakesScreen() {
             <ItemTitle>{Number(i.liters).toLocaleString()} L</ItemTitle>
             <Badge label={i.fuel} />
           </View>
-          <Row label="Fecha" value={fmtDMY(i.intake_date)} />
+          <Row label="Fecha" value={i.intake_date} />
           {i.supplier ? <Row label="Proveedor" value={i.supplier} /> : null}
           {i.invoice_no ? <Row label="Factura" value={i.invoice_no} /> : null}
           {i.total_cost != null ? (
@@ -140,7 +134,7 @@ export function DispatchesScreen() {
             <ItemTitle>{Number(d.liters).toLocaleString()} L</ItemTitle>
             <Badge label={d.asset_kind} />
           </View>
-          <Row label="Fecha" value={fmtDMY(d.dispatch_date)} />
+          <Row label="Fecha" value={d.dispatch_date} />
           {d.driver_operator ? <Row label="Conductor/Operador" value={d.driver_operator} /> : null}
           {d.odometer_km != null ? <Row label="Odómetro" value={`${d.odometer_km} km`} /> : null}
           {d.hourmeter_h != null ? <Row label="Horómetro" value={`${d.hourmeter_h} h`} /> : null}
@@ -202,7 +196,7 @@ export function TransfersScreen() {
       renderItem={(t) => (
         <>
           <ItemTitle>{Number(t.liters).toLocaleString()} L</ItemTitle>
-          <Row label="Fecha" value={fmtDMY(t.transfer_date)} />
+          <Row label="Fecha" value={t.transfer_date} />
           {t.notes ? <Row label="Notas" value={t.notes} /> : null}
         </>
       )}

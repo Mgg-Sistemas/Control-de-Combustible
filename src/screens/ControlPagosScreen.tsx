@@ -37,11 +37,6 @@ function daysBetween(aISO: string, bISO: string): number {
   const b = new Date(bISO + 'T12:00:00').getTime();
   return Math.round((b - a) / 86400000);
 }
-/** Formatea una fecha ISO "AAAA-MM-DD" como "DD/MM/AAAA" (día, mes, año). */
-function fmtDMY(iso?: string | null): string {
-  const [y, m, d] = (iso || '').split('-');
-  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
-}
 
 // ── Formato de dinero: SIEMPRE 2 decimales, redondeo estándar (si el 3er decimal
 //    es ≥ 5 sube el 2º). Ej.: 46,666 → 46,67 · 85895833,333 → 85.895.833,33 ──────
@@ -344,7 +339,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         key = '__apartado__'; label = 'Fecha de llegada → 05/07/2026'; end = CUTOFF_APARTADO; order = 0;
       } else {
         const ws = weekStartISO(r.round_date); end = addDaysISO(ws, 6);
-        key = ws; label = `Semana ${fmtDMY(ws)} → ${fmtDMY(end)}`; order = Number(ws.replace(/-/g, ''));
+        key = ws; label = `Semana ${ws} → ${end}`; order = Number(ws.replace(/-/g, ''));
       }
       const p = periods.get(key) ?? { key, label, end, order, companies: new Map() };
       const cname = m.company?.name ?? 'Sin empresa';
@@ -463,7 +458,7 @@ export default function ControlPagosScreen({ navigation }: any) {
           .join('');
         const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
         const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
-        return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${fmtDMY(g.weekStart)} → ${fmtDMY(g.weekEnd)} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
+        return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
           <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/jornada</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
           <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${money(g.total)}</td></tr></tfoot></table>`;
@@ -474,7 +469,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const title = repCompany === '__all__' ? 'Todas las empresas' : repCompany;
     const html = pdfDocument({
       title: 'Control de pagos por maquinaria',
-      subtitle: `${title} · del ${fmtDMY(repFrom)} al ${fmtDMY(repTo)}`,
+      subtitle: `${title} · del ${repFrom} al ${repTo}`,
       extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
@@ -580,7 +575,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <Card style={g.fullyPaid ? { borderColor: colors.success } : partial ? { borderColor: colors.warning } : undefined}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
-                        Semana {fmtDMY(g.weekStart)} → {fmtDMY(g.weekEnd)}
+                        Semana {g.weekStart} → {g.weekEnd}
                       </Text>
                       <Text style={{ color: g.fullyPaid ? colors.success : colors.primary, fontWeight: '800' }}>
                         ${money(g.total)}
@@ -620,7 +615,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               <SectionTitle>{selected.company}</SectionTitle>
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
-                  Semana {fmtDMY(selected.weekStart)} → {fmtDMY(selected.weekEnd)}
+                  Semana {selected.weekStart} → {selected.weekEnd}
                 </Text>
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
@@ -680,7 +675,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                           <Text style={{ color: colors.text, fontWeight: '700' }}>
                             🟢 Abono {i + 1} · {p.currency} {money(Number(p.amount))}
                           </Text>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(p.paid_at?.slice(0, 10))}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>{p.paid_at?.slice(0, 10)}</Text>
                         </View>
                         <TouchableOpacity onPress={() => deleteAbono(p)} style={{ padding: spacing.xs }}>
                           <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
@@ -728,7 +723,7 @@ export default function ControlPagosScreen({ navigation }: any) {
             {payFor ? (
               <>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>
-                  {payFor.company} · Semana {fmtDMY(payFor.weekStart)} → {fmtDMY(payFor.weekEnd)}
+                  {payFor.company} · Semana {payFor.weekStart} → {payFor.weekEnd}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
                   Total ${money(payFor.total)} · abonado ${money(payFor.paidAmount)} · <Text style={{ color: colors.primary, fontWeight: '800' }}>saldo ${money(payFor.saldo)}</Text>
@@ -789,7 +784,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.success, fontWeight: '800' }}>{p.currency} {money(Number(p.amount))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    Semana {fmtDMY(p.period_start)} → {fmtDMY(p.period_end)} · pagado {fmtDMY(p.paid_at?.slice(0, 10))}
+                    Semana {p.period_start} → {p.period_end} · pagado {p.paid_at?.slice(0, 10)}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Toca para ver el detalle</Text>
                 </Card>
@@ -809,11 +804,11 @@ export default function ControlPagosScreen({ navigation }: any) {
             <>
               <SectionTitle>{histSel.company_name}</SectionTitle>
               <Card>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Semana {fmtDMY(histSel.period_start)} → {fmtDMY(histSel.period_end)}</Text>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Semana {histSel.period_start} → {histSel.period_end}</Text>
                 <Text style={{ color: colors.success, fontWeight: '800', fontSize: 22, marginTop: 4 }}>
                   {histSel.currency} {money(Number(histSel.amount))}
                 </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Pagado el {fmtDMY(histSel.paid_at?.slice(0, 10))}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Pagado el {histSel.paid_at?.slice(0, 10)}</Text>
               </Card>
 
               <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
