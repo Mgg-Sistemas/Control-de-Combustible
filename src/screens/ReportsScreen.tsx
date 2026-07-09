@@ -359,7 +359,8 @@ export default function ReportsScreen({ route }: any) {
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
-  const [roundsCompanySel, setRoundsCompanySel] = useState<string>('__all__'); // filtro de empresa en modo Jornada
+  // Empresas marcadas para filtrar CUALQUIER reporte (vacío = todas / general).
+  const [repCompanies, setRepCompanies] = useState<string[]>([]);
   // Estado de la flota (para el bloque final del informe por jornada).
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
@@ -430,12 +431,15 @@ export default function ReportsScreen({ route }: any) {
       tank: d.tank?.name ?? '—',
       company: d.machinery?.company?.name ?? (d.vehicle ? 'Vehículos' : 'Sin empresa'),
     }));
-    setRows(mapped);
+    // Filtro por empresa (vacío = todas).
+    const shown = repCompanies.length ? mapped.filter((r) => repCompanies.includes(r.company)) : mapped;
+    setRows(shown);
     setLoading(false);
     setPreview(true);
   };
 
-  const generateRounds = async (fromArg: string = from, toArg: string = to, companyArg?: string | null) => {
+  const generateRounds = async (fromArg: string = from, toArg: string = to, companiesArg?: string[] | null) => {
+    const cos = companiesArg && companiesArg.length ? companiesArg : null;
     setLoading(true);
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
@@ -470,7 +474,7 @@ export default function ReportsScreen({ route }: any) {
     // por eso restamos paradas: así Jornada y Maquinaria cuadran con el Excel.
     const groups = new Map<string, RoundCompany>();
     accs.forEach((a) => {
-      if (companyArg && a.company !== companyArg) return; // sincronía con Control
+      if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       let dayH = 0, nightH = 0, totalH = 0, days = 0;
       a.byDate.forEach(({ d, n, s, o }) => {
         const w = workedFromShifts(d, n, s, o);
@@ -495,7 +499,7 @@ export default function ReportsScreen({ route }: any) {
     // el total de la flota (activas + inactivas), según el alcance del informe.
     const machAll = await selectAllRows('machinery', 'active, company:company_id(name)');
     const inScope = (machAll ?? []).filter((m: any) =>
-      !companyArg || (m.company?.name ?? 'Sin empresa') === companyArg
+      !cos || cos.includes(m.company?.name ?? 'Sin empresa')
     );
     const totalActivos = inScope.filter((m: any) => m.active).length;
     const inactivos = inScope.filter((m: any) => !m.active).length;
@@ -508,7 +512,7 @@ export default function ReportsScreen({ route }: any) {
       totalFlota: inScope.length,
     });
 
-    setRoundsCompany(companyArg ?? null);
+    setRoundsCompany(cos ? (cos.length === 1 ? cos[0] : `${cos.length} empresas`) : null);
     setRoundGroups(list);
     setLoading(false);
     setRoundsPreview(true);
@@ -624,7 +628,7 @@ export default function ReportsScreen({ route }: any) {
         pricePerHour: 0,
       })
     );
-    setFleetItems(items);
+    setFleetItems(repCompanies.length ? items.filter((it) => repCompanies.includes(it.company)) : items);
     setLoading(false);
     setFleetPreview(true);
   };
@@ -649,13 +653,15 @@ export default function ReportsScreen({ route }: any) {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
     });
-    const list = (mach ?? []).map((m: any) => ({
+    const listAll = (mach ?? []).map((m: any) => ({
       code: m.code as string,
       tipo: canonTipo(m.tipo) || 'SIN TIPO',
       active: m.active !== false,
       company: m.company?.name || 'Sin empresa',
       hours: mHours.get(m.id) ?? 0,
     }));
+    // Filtro por empresa (vacío = todas).
+    const list = repCompanies.length ? listAll.filter((m) => repCompanies.includes(m.company)) : listAll;
     // Agregado por empresa (todas las máquinas, con y sin horas).
     const coMap = new Map<string, { company: string; count: number; hours: number }>();
     list.forEach((m) => { const a = coMap.get(m.company) ?? { company: m.company, count: 0, hours: 0 }; a.count++; a.hours += m.hours; coMap.set(m.company, a); });
@@ -776,7 +782,9 @@ export default function ReportsScreen({ route }: any) {
       setMode('rounds');
       setFrom(d);
       setTo(d2);
-      generateRounds(d, d2, p.company ?? null);
+      const cos = p.company ? [p.company] : [];
+      setRepCompanies(cos);
+      generateRounds(d, d2, cos);
     }
     // 'nonce' cambia en cada navegación para permitir re-abrir el reporte.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -900,32 +908,48 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </>
         )}
-        {mode === 'rounds' && (
-          <>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Empresa</Text>
-            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-              {['__all__', ...companyList].map((c) => {
-                const on = roundsCompanySel === c;
-                return (
-                  <TouchableOpacity
-                    key={c}
-                    onPress={() => setRoundsCompanySel(c)}
-                    style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
-                  >
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: on ? '700' : '400' }}>{c === '__all__' ? '🏢 Todas' : c}</Text>
-                  </TouchableOpacity>
-                );
-              })}
+        {/* Filtro por empresa (multi-selección con checks) — aplica a TODOS los reportes. */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas (marca una o varias)</Text>
+          {repCompanies.length > 0 ? (
+            <TouchableOpacity onPress={() => setRepCompanies([])}>
+              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <View style={{ marginTop: spacing.xs }}>
+          <TouchableOpacity
+            onPress={() => setRepCompanies([])}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+          >
+            <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.primary : colors.border, backgroundColor: repCompanies.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+              {repCompanies.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
             </View>
-          </>
-        )}
+            <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>🏢 Todas (general)</Text>
+          </TouchableOpacity>
+          {companyList.map((c) => {
+            const checked = repCompanies.includes(c);
+            return (
+              <TouchableOpacity
+                key={c}
+                onPress={() => setRepCompanies((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                </View>
+                <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{c}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>
             mode === 'fuel'
               ? generate()
               : mode === 'rounds'
-              ? generateRounds(from, to, roundsCompanySel === '__all__' ? null : roundsCompanySel)
+              ? generateRounds(from, to, repCompanies)
               : mode === 'fleet'
               ? generateFleet()
               : generateDeploy()
