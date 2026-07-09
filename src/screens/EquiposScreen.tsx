@@ -136,6 +136,13 @@ export default function EquiposScreen({ navigation }: any) {
   // Reportes de maquinaria (por empresa o general) con vista previa.
   const [reportOpen, setReportOpen] = useState(false);
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+  const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // tipos seleccionados (vacío = todos)
+  const toggleReportType = (t: string) =>
+    setReportTypes((prev) => {
+      const n = new Set(prev);
+      n.has(t) ? n.delete(t) : n.add(t);
+      return n;
+    });
 
   const openEdit = (item: any) => {
     setEditing(item);
@@ -350,12 +357,16 @@ export default function EquiposScreen({ navigation }: any) {
 
   // Grupos para el REPORTE (por EMPRESA) según el alcance elegido.
   const groupsForScope = (scope: string) => {
-    const src =
+    const srcAll =
       scope === '__all__'
         ? machinery.data
         : scope === '__none__'
         ? machinery.data.filter((m) => !m.company_id)
         : machinery.data.filter((m) => m.company_id === scope);
+    // Filtro por tipos seleccionados (vacío = todos).
+    const src = reportTypes.size === 0
+      ? srcAll
+      : srcAll.filter((m) => reportTypes.has(m.tipo && m.tipo.trim() ? m.tipo.trim() : 'Sin tipo'));
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const k = it.company_id ?? '__none__';
@@ -372,7 +383,24 @@ export default function EquiposScreen({ navigation }: any) {
       a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name)
     );
   };
-  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, machinery.data, companyName]);
+  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, machinery.data, companyName]);
+  // Tipos disponibles en el alcance elegido (con conteo), para el checklist.
+  const reportTypeOptions = useMemo(() => {
+    const srcAll =
+      reportCompany === '__all__'
+        ? machinery.data
+        : reportCompany === '__none__'
+        ? machinery.data.filter((m) => !m.company_id)
+        : machinery.data.filter((m) => m.company_id === reportCompany);
+    const c = new Map<string, number>();
+    srcAll.forEach((m) => {
+      const t = m.tipo && m.tipo.trim() ? m.tipo.trim() : 'Sin tipo';
+      c.set(t, (c.get(t) ?? 0) + 1);
+    });
+    return Array.from(c.entries())
+      .map(([tipo, count]) => ({ tipo, count }))
+      .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : a.tipo.localeCompare(b.tipo)));
+  }, [reportCompany, machinery.data]);
   // Subgrupos por TIPO dentro de un conjunto: [['Jumbo', items], ...] con "Sin tipo" al final.
   const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
     const c = new Map<string, Machinery[]>();
@@ -424,9 +452,10 @@ export default function EquiposScreen({ navigation }: any) {
           <div class="subtotal">Total ${esc(g.name)}: ${g.items.length}</div>`;
       })
       .join('');
+    const tipoFilterNote = reportTypes.size > 0 ? ` · Tipos: ${Array.from(reportTypes).join(', ')}` : '';
     return pdfDocument({
       title: titleForScope(scope),
-      subtitle: `Total de máquinas: ${total}`,
+      subtitle: `Total de máquinas: ${total}${tipoFilterNote}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
         table{width:100%;border-collapse:collapse;margin-top:2px;font-size:11px}
@@ -937,6 +966,36 @@ export default function EquiposScreen({ navigation }: any) {
                 );
               })}
           </View>
+
+          {/* Checklist de TIPOS (multi-selección). Vacío = todos. */}
+          {reportTypeOptions.length > 0 ? (
+            <View style={{ marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por tipo (marca varios)</Text>
+                {reportTypes.size > 0 ? (
+                  <TouchableOpacity onPress={() => setReportTypes(new Set())}>
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({reportTypes.size})</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {reportTypeOptions.map((o) => {
+                  const on = reportTypes.has(o.tipo);
+                  return (
+                    <TouchableOpacity
+                      key={o.tipo}
+                      onPress={() => toggleReportType(o.tipo)}
+                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                    >
+                      <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.tipo}</Text>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
 
           <TouchableOpacity
             style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
