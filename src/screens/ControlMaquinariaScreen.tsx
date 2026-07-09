@@ -29,6 +29,18 @@ export const SHIFT_OPTS: { label: string; hours: number }[] = [
  * pertenecen a este período y no deben sumarse.
  */
 export const PERIODO_CORTE = '2026-07-05';
+/** Inicio de la semana base del período a facturar (26/06 → 05/07). */
+export const PERIODO_INICIO = '2026-06-26';
+/** Suma (o resta) días a una fecha ISO "AAAA-MM-DD" sin depender de la zona horaria. */
+export function addDaysISO(iso: string, delta: number): string {
+  const [y, mo, d] = (iso || '').split('-').map((n) => parseInt(n, 10));
+  if (!y || !mo || !d) return iso;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  const mm = `${dt.getUTCMonth() + 1}`.padStart(2, '0');
+  const dd = `${dt.getUTCDate()}`.padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+}
 /** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
   Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
@@ -147,6 +159,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
   const [summaryOpen, setSummaryOpen] = useState(false); // panel de chips del reporte resumen
+  const [sumFrom, setSumFrom] = useState(PERIODO_INICIO); // rango editable del reporte resumen
+  const [sumTo, setSumTo] = useState(PERIODO_CORTE);
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
@@ -475,22 +489,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   // Reporte RESUMEN de la semana actual: total de horas por empresa, por máquina (sin detalle) y total en $.
   // scope: '__all__' (general) o un company_id.
-  const openSummary = async (scope: string) => {
+  const openSummary = async (scope: string, fromArg: string = sumFrom, toArg: string = sumTo) => {
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    // Resumen = histórico COMPLETO (todas las fechas, incluidas las jornadas ya cerradas),
-    // no solo la semana en pantalla. Así el reporte general muestra TODAS las empresas.
+    // Resumen por RANGO de fecha (editable): incluye todas las empresas con
+    // actividad en el rango, sumando también las jornadas ya cerradas.
     // Paginado: con >1000 rondas una consulta simple se truncaba (faltaban empresas/horas).
-    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.lte('round_date', PERIODO_CORTE));
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', fromArg).lte('round_date', toArg));
     // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
     const byMD = new Map<string, any>();
-    let minD = '';
-    let maxD = '';
     (allRounds ?? []).forEach((b: any) => {
       byMD.set(`${b.machinery_id}|${b.round_date}`, b);
-      if (b.round_date) {
-        if (!minD || b.round_date < minD) minD = b.round_date;
-        if (!maxD || b.round_date > maxD) maxD = b.round_date;
-      }
     });
     const workedByMachine = new Map<string, number>();
     byMD.forEach((b) => {
@@ -536,10 +544,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       .join('');
 
     const scopeLabel = scope === '__all__' ? 'General — todas las empresas' : scope === '__none__' ? 'Sin empresa' : companies[scope] ?? 'Empresa';
-    const rangeLabel = minD ? `${dayLabel(minD)} → ${dayLabel(maxD)}` : 'sin registros';
+    const rangeLabel = `${dayLabel(fromArg)} → ${dayLabel(toArg)}`;
     const html = pdfDocument({
       title: 'Resumen de maquinaria',
-      subtitle: `${scopeLabel} · histórico completo · ${rangeLabel}`,
+      subtitle: `${scopeLabel} · del ${rangeLabel}`,
       extraCss: `
         h3.emp{font-size:13px;font-weight:800;color:#1E3A5F;margin:16px 0 4px}
         table.sum{width:100%;border-collapse:collapse;font-size:11px}
@@ -696,8 +704,45 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         {summaryOpen ? (
           <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-              Resumen de la semana: total de horas por empresa y por máquina (sin detalle) + total en $. Toca un chip para ver la previa del PDF.
+              Resumen por rango de fecha: total de horas por empresa y por máquina (sin detalle) + total en $. Toca un chip para ver la previa del PDF.
             </Text>
+            {/* Rango editable del reporte (por defecto la semana base 26/06 → 05/07). */}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+                <TextInput
+                  value={sumFrom}
+                  onChangeText={setSumFrom}
+                  placeholder="AAAA-MM-DD"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="none"
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surfaceAlt }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+                <TextInput
+                  value={sumTo}
+                  onChangeText={setSumTo}
+                  placeholder="AAAA-MM-DD"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="none"
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, color: colors.text, backgroundColor: colors.surfaceAlt }}
+                />
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+              {[
+                { label: 'Semana base', fn: () => { setSumFrom(PERIODO_INICIO); setSumTo(PERIODO_CORTE); } },
+                { label: '− 1 día', fn: () => setSumTo((t) => addDaysISO(t, -1)) },
+                { label: '+ 1 día', fn: () => setSumTo((t) => addDaysISO(t, 1)) },
+                { label: '+ 1 semana', fn: () => setSumTo((t) => addDaysISO(t, 7)) },
+              ].map((b) => (
+                <TouchableOpacity key={b.label} onPress={b.fn} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontSize: 12 }}>{b.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
               {([{ label: '📊 General', value: '__all__' }, ...companyOptions
                 .filter((o) => o.value !== '__all__' && o.count > 0)
