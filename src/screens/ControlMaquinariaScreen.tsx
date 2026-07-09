@@ -470,18 +470,34 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   // scope: '__all__' (general) o un company_id.
   const openSummary = async (scope: string) => {
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // Resumen = histórico COMPLETO (todas las fechas, incluidas las jornadas ya cerradas),
+    // no solo la semana en pantalla. Así el reporte general muestra TODAS las empresas.
+    const { data: allRounds } = await supabase
+      .from('machine_rounds')
+      .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
+    // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
+    const byMD = new Map<string, any>();
+    let minD = '';
+    let maxD = '';
+    (allRounds ?? []).forEach((b: any) => {
+      byMD.set(`${b.machinery_id}|${b.round_date}`, b);
+      if (b.round_date) {
+        if (!minD || b.round_date < minD) minD = b.round_date;
+        if (!maxD || b.round_date > maxD) maxD = b.round_date;
+      }
+    });
+    const workedByMachine = new Map<string, number>();
+    byMD.forEach((b) => {
+      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      if (w > 0) workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
+    });
     const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope));
     // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
     type Row = { name: string; serial: string | null; worked: number; amount: number };
     const groups = new Map<string, { company: string; rows: Row[]; worked: number; amount: number }>();
     for (const m of inScope) {
-      let worked = 0;
-      for (const d of weekDays) {
-        const b = rounds[rkey(m.id, d)];
-        if (!b) continue;
-        worked += workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
-      }
-      if (worked <= 0) continue; // solo máquinas con actividad en la semana
+      const worked = workedByMachine.get(m.id) ?? 0;
+      if (worked <= 0) continue; // solo máquinas con actividad registrada
       const amount = (worked / 12) * (m.price_per_hour ?? 0); // horas trabajadas × precio/hora
       const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
       const g = groups.get(cname) ?? { company: cname, rows: [], worked: 0, amount: 0 };
@@ -514,9 +530,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       .join('');
 
     const scopeLabel = scope === '__all__' ? 'General — todas las empresas' : scope === '__none__' ? 'Sin empresa' : companies[scope] ?? 'Empresa';
+    const rangeLabel = minD ? `${dayLabel(minD)} → ${dayLabel(maxD)}` : 'sin registros';
     const html = pdfDocument({
       title: 'Resumen de maquinaria',
-      subtitle: `${scopeLabel} · ${dayLabel(weekStart)} → ${dayLabel(weekEnd)} · ${dayCount} día(s)`,
+      subtitle: `${scopeLabel} · histórico completo · ${rangeLabel}`,
       extraCss: `
         h3.emp{font-size:13px;font-weight:800;color:#1E3A5F;margin:16px 0 4px}
         table.sum{width:100%;border-collapse:collapse;font-size:11px}
