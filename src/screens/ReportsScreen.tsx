@@ -57,8 +57,15 @@ type FleetItem = {
   referencia: string | null;
   company: string;
   liters: number;
+  worked: number; // horas trabajadas acumuladas hasta el 05/07/2026
+  amount: number; // total a pagar por esas horas (horas × precio/hora)
 };
 type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
+
+// Corte para las horas trabajadas acumuladas que se muestran en el reporte de flota.
+const FLEET_HOURS_CUTOFF = '2026-07-05';
+// Dinero con 2 decimales y redondeo estándar.
+const money2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -336,14 +343,19 @@ export default function ReportsScreen({ route }: any) {
 
   const generateFleet = async () => {
     setLoading(true);
-    const [{ data: mach }, { data: vehs }, { data: disp }] = await Promise.all([
-      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, referencia, company:company_id(name)'),
+    const [{ data: mach }, { data: vehs }, { data: disp }, { data: rnds }] = await Promise.all([
+      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, referencia, price_per_hour, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       supabase
         .from('dispatches')
         .select('machinery_id, vehicle_id, liters')
         .gte('dispatch_date', from)
         .lte('dispatch_date', to),
+      // Horas trabajadas HASTA el 05/07/2026 (día + noche − parada + extras).
+      supabase
+        .from('machine_rounds')
+        .select('machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours')
+        .lte('round_date', FLEET_HOURS_CUTOFF),
     ]);
     const mLit = new Map<string, number>();
     const vLit = new Map<string, number>();
@@ -351,8 +363,18 @@ export default function ReportsScreen({ route }: any) {
       if (d.machinery_id) mLit.set(d.machinery_id, (mLit.get(d.machinery_id) ?? 0) + Number(d.liters));
       if (d.vehicle_id) vLit.set(d.vehicle_id, (vLit.get(d.vehicle_id) ?? 0) + Number(d.liters));
     });
+    // Horas por máquina (dedupe por máquina+día).
+    const byMD = new Map<string, any>();
+    (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+    const mHours = new Map<string, number>();
+    byMD.forEach((r) => {
+      const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+      if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
+    });
     const items: FleetItem[] = [];
-    (mach ?? []).forEach((m: any) =>
+    (mach ?? []).forEach((m: any) => {
+      const worked = mHours.get(m.id) ?? 0;
+      const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
       items.push({
         name: m.code,
         desc: m.description || '—',
@@ -362,8 +384,10 @@ export default function ReportsScreen({ route }: any) {
         referencia: m.referencia || null,
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
-      })
-    );
+        worked,
+        amount: (worked / 12) * price,
+      });
+    });
     (vehs ?? []).forEach((v: any) =>
       items.push({
         name: v.plate,
@@ -374,6 +398,8 @@ export default function ReportsScreen({ route }: any) {
         referencia: null,
         company: 'Vehículos',
         liters: vLit.get(v.id) ?? 0,
+        worked: 0,
+        amount: 0,
       })
     );
     setFleetItems(items);
@@ -398,25 +424,40 @@ export default function ReportsScreen({ route }: any) {
       .join('');
     const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general';
     // Reporte general (solo en el reporte completo, no cuando se filtra una empresa).
-    const typeCounts = new Map<string, number>();
-    companies.forEach((c) => c.items.forEach((i) => typeCounts.set(i.tipo, (typeCounts.get(i.tipo) ?? 0) + 1)));
-    const typeRows = Array.from(typeCounts.entries())
-      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
-      .map(([tipo, count]) => `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${count}</td></tr>`)
+    const typeAgg = new Map<string, { count: number; worked: number; amount: number }>();
+    companies.forEach((c) =>
+      c.items.forEach((i) => {
+        const a = typeAgg.get(i.tipo) ?? { count: 0, worked: 0, amount: 0 };
+        a.count += 1; a.worked += i.worked; a.amount += i.amount;
+        typeAgg.set(i.tipo, a);
+      })
+    );
+    const grandWorked = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.worked, 0), 0);
+    const grandAmount = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.amount, 0), 0);
+    const typeRows = Array.from(typeAgg.entries())
+      .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
+      .map(
+        ([tipo, a]) =>
+          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td></tr>`
+      )
       .join('');
     const companyCountRows = companies
-      .map((c) => `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+      .map((c) => {
+        const w = c.items.reduce((s, i) => s + i.worked, 0);
+        const am = c.items.reduce((s, i) => s + i.amount, 0);
+        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td></tr>`;
+      })
       .join('');
     const generalBlock = `
       <h2>Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
-      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td></tr></tfoot></table>
+      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${typeRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
-      <tbody>${companyCountRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td></tr></tfoot></table>`;
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${companyCountRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>`;
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
