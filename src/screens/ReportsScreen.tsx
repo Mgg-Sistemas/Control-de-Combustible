@@ -191,7 +191,7 @@ export default function ReportsScreen({ route }: any) {
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   // Estado de la flota (para el bloque final del informe por jornada).
-  const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number }>({ total: 0, operativa: 0, transito: 0 });
+  const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
@@ -319,15 +319,23 @@ export default function ReportsScreen({ route }: any) {
     );
     list.forEach((g) => g.machines.sort((x, y) => x.tipo.localeCompare(y.tipo) || x.machine.localeCompare(y.machine)));
 
-    // Estado de la flota: total de activos, en producción (trabajaron) y en tránsito
-    // (activas que aún no trabajaron = pendientes de incorporación), según el alcance.
+    // Estado de la flota: total de activos, en producción (trabajaron), en tránsito
+    // (activas que aún no trabajaron = pendientes de incorporación), inactivas y
+    // el total de la flota (activas + inactivas), según el alcance del informe.
     const machAll = await selectAllRows('machinery', 'active, company:company_id(name)');
     const inScope = (machAll ?? []).filter((m: any) =>
-      m.active && (!companyArg || (m.company?.name ?? 'Sin empresa') === companyArg)
+      !companyArg || (m.company?.name ?? 'Sin empresa') === companyArg
     );
-    const totalActivos = inScope.length;
+    const totalActivos = inScope.filter((m: any) => m.active).length;
+    const inactivos = inScope.filter((m: any) => !m.active).length;
     const enProduccion = list.reduce((s, g) => s + g.machines.length, 0);
-    setFleetStatus({ total: totalActivos, operativa: enProduccion, transito: Math.max(0, totalActivos - enProduccion) });
+    setFleetStatus({
+      total: totalActivos,
+      operativa: enProduccion,
+      transito: Math.max(0, totalActivos - enProduccion),
+      inactivos,
+      totalFlota: inScope.length,
+    });
 
     setRoundsCompany(companyArg ?? null);
     setRoundGroups(list);
@@ -376,7 +384,10 @@ export default function ReportsScreen({ route }: any) {
         <tr><td style="width:70%"><b>Total de activos</b></td><td style="text-align:right;font-weight:800">${fleetStatus.total} unidades</td></tr>
         <tr><td><b>Capacidad operativa actual</b><br/><span class="muted">Operativas y en producción (con jornada en el período)</span></td><td style="text-align:right;font-weight:800">${fleetStatus.operativa} unidades${fleetStatus.total > 0 ? ` (${Math.round((fleetStatus.operativa / fleetStatus.total) * 100)}%)` : ''}</td></tr>
         <tr><td><b>Unidades en tránsito</b><br/><span class="muted">En camino a las instalaciones / pendientes de incorporación</span></td><td style="text-align:right;font-weight:800">${fleetStatus.transito} unidades</td></tr>
-      </tbody></table>
+        <tr><td><b>Unidades inactivas</b><br/><span class="muted">Fuera de servicio / dadas de baja</span></td><td style="text-align:right;font-weight:800">${fleetStatus.inactivos} unidades</td></tr>
+      </tbody>
+      <tfoot><tr><td style="font-weight:800;border-top:2px solid #1E3A5F">TOTAL DE LA FLOTA <span class="muted" style="font-weight:400">(activas + inactivas)</span></td><td style="text-align:right;font-weight:800;border-top:2px solid #1E3A5F">${fleetStatus.totalFlota} unidades</td></tr></tfoot>
+      </table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
     await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
   };
@@ -861,6 +872,14 @@ export default function ReportsScreen({ route }: any) {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>Unidades en tránsito{'\n'}<Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>En camino / pendientes de incorporación</Text></Text>
                 <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 13 }}>{fleetStatus.transito} unidades</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>Unidades inactivas{'\n'}<Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>Fuera de servicio / dadas de baja</Text></Text>
+                <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>{fleetStatus.inactivos} unidades</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 2, borderTopColor: colors.primary }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>TOTAL DE LA FLOTA</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{fleetStatus.totalFlota} unidades</Text>
               </View>
             </Card>
           ) : null}
