@@ -38,6 +38,11 @@ function daysBetween(aISO: string, bISO: string): number {
   const b = new Date(bISO + 'T12:00:00').getTime();
   return Math.round((b - a) / 86400000);
 }
+/** Fecha ISO "AAAA-MM-DD" → "DD/MM/AAAA" (para los PDF). */
+function fmtDMY(iso?: string | null): string {
+  const [y, m, d] = (iso || '').split('-');
+  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
+}
 
 // ── Formato de dinero: SIEMPRE 2 decimales, redondeo estándar (si el 3er decimal
 //    es ≥ 5 sube el 2º). Ej.: 46,666 → 46,67 · 85895833,333 → 85.895.833,33 ──────
@@ -340,7 +345,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         key = '__apartado__'; label = 'Fecha de llegada → 05/07/2026'; end = CUTOFF_APARTADO; order = 0;
       } else {
         const ws = weekStartISO(r.round_date); end = addDaysISO(ws, 6);
-        key = ws; label = `Semana ${ws} → ${end}`; order = Number(ws.replace(/-/g, ''));
+        key = ws; label = `Semana ${fmtDMY(ws)} → ${fmtDMY(end)}`; order = Number(ws.replace(/-/g, ''));
       }
       const p = periods.get(key) ?? { key, label, end, order, companies: new Map() };
       const cname = m.company?.name ?? 'Sin empresa';
@@ -459,7 +464,7 @@ export default function ControlPagosScreen({ navigation }: any) {
           .join('');
         const totDay = machs.reduce((s, m) => s + m.dayHours, 0);
         const totNight = machs.reduce((s, m) => s + m.nightHours, 0);
-        return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${g.weekStart} → ${g.weekEnd} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
+        return `<h3 style="margin:16px 0 2px;color:#1E3A5F">${g.company} · Semana ${fmtDMY(g.weekStart)} → ${fmtDMY(g.weekEnd)} <span style="color:#666;font-weight:400">· ${estado}</span></h3>
           <table><thead><tr><th>Máquina</th><th>☀️ Día</th><th>🌙 Noche</th><th>Horas trab.</th><th>Precio/jornada</th><th>Subtotal</th></tr></thead>
           <tbody>${mrows || '<tr><td colspan="6" style="text-align:center">Sin máquinas</td></tr>'}</tbody>
           <tfoot><tr><td style="font-weight:700">TOTAL</td><td style="text-align:right;font-weight:700">${totDay.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${totNight.toLocaleString()} h</td><td style="text-align:right;font-weight:700">${g.hoursWorked.toLocaleString()} h</td><td></td><td style="text-align:right;font-weight:800">$${money(g.total)}</td></tr></tfoot></table>`;
@@ -470,7 +475,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const title = repCompany === '__all__' ? 'Todas las empresas' : repCompany;
     const html = pdfDocument({
       title: 'Control de pagos por maquinaria',
-      subtitle: `${title} · del ${repFrom} al ${repTo}`,
+      subtitle: `${title} · del ${fmtDMY(repFrom)} al ${fmtDMY(repTo)}`,
       extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:4px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}

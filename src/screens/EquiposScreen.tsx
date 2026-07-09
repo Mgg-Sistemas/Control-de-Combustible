@@ -15,6 +15,12 @@ import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
+/** Fecha ISO "AAAA-MM-DD" → "DD/MM/AAAA" (para los PDF). */
+function fmtDMY(iso: string): string {
+  const [y, m, d] = (iso || '').split('-');
+  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
+}
+
 type FuelRow = { date: string; liters: number; tank: string; km?: number | null; gasto?: number | null };
 
 type Kind = 'vehiculo' | 'maquinaria';
@@ -316,7 +322,7 @@ export default function EquiposScreen({ navigation }: any) {
     if (!fuelFor) return;
     const consumed = fuelConsumed;
     const rows = fuelTrace
-      .map((t) => `<tr><td>${t.date}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
+      .map((t) => `<tr><td>${fmtDMY(t.date)}</td><td>${t.tank || '—'}</td><td style="text-align:right">${t.liters.toLocaleString()} L</td></tr>`)
       .join('');
     const html = pdfDocument({
       title: 'Traza de combustible',

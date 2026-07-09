@@ -88,6 +88,17 @@ function addDaysISO(iso: string, delta: number): string {
   return `${dt.getUTCFullYear()}-${mm}-${dd}`;
 }
 
+/** Fecha ISO "AAAA-MM-DD" → "DD/MM/AAAA" (para los PDF). */
+function fmtDMY(iso: string): string {
+  const [y, m, d] = (iso || '').split('-');
+  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
+}
+/** Fecha ISO "AAAA-MM-DD" → "DD/MM" (etiquetas cortas en PDF). */
+function fmtDM(iso: string): string {
+  const [, m, d] = (iso || '').split('-');
+  return m && d ? `${d}/${m}` : (iso || '');
+}
+
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 function nowStamp(): string {
   const d = new Date();
@@ -378,7 +389,7 @@ export default function ReportsScreen({ route }: any) {
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
     const content = `
-      <div class="muted">Informe por jornada · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
       <h2 style="margin-top:20px">Estado de la flota de maquinaria</h2>
@@ -515,7 +526,7 @@ export default function ReportsScreen({ route }: any) {
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
-      <div class="muted">Del ${from} al ${to}</div>
+      <div class="muted">Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -523,7 +534,7 @@ export default function ReportsScreen({ route }: any) {
       <h2>Detalle de la empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`
       : `
-      <div class="muted">Del ${from} al ${to}</div>
+      <div class="muted">Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -562,7 +573,7 @@ export default function ReportsScreen({ route }: any) {
 
   const downloadPdf = async () => {
     const dayBars = byDay
-      .map((r) => `<div class="col"><div class="bar" style="height:${Math.round((r.liters / maxDay) * 120)}px"></div><div class="lbl">${r.label.slice(5)}</div><div class="val">${r.liters.toLocaleString()}</div></div>`)
+      .map((r) => `<div class="col"><div class="bar" style="height:${Math.round((r.liters / maxDay) * 120)}px"></div><div class="lbl">${fmtDM(r.label)}</div><div class="val">${r.liters.toLocaleString()}</div></div>`)
       .join('');
     const assetRows = byAsset
       .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
@@ -577,10 +588,10 @@ export default function ReportsScreen({ route }: any) {
       )
       .join('');
     const dayRows = byDay
-      .map((r) => `<tr><td>${r.label}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
+      .map((r) => `<tr><td>${fmtDMY(r.label)}</td><td style="text-align:right">${r.liters.toLocaleString()} L</td></tr>`)
       .join('');
     const body = `
-      <div class="muted">Consumo del ${from} al ${to}</div>
+      <div class="muted">Consumo del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary"><div><span class="k">Total</span><b>${total.toLocaleString()} L</b></div>
         <div><span class="k">Despachos</span><b>${all.length}</b></div></div>
       <h2>Consumo por día</h2>
