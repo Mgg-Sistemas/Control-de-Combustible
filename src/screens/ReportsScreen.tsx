@@ -77,6 +77,17 @@ function isoDaysAgo(days: number): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
+/** Suma (o resta) días a una fecha ISO "AAAA-MM-DD" sin depender de la zona horaria. */
+function addDaysISO(iso: string, delta: number): string {
+  const [y, mo, d] = (iso || '').split('-').map((n) => parseInt(n, 10));
+  if (!y || !mo || !d) return iso;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + delta);
+  const mm = `${dt.getUTCMonth() + 1}`.padStart(2, '0');
+  const dd = `${dt.getUTCDate()}`.padStart(2, '0');
+  return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+}
+
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 function nowStamp(): string {
   const d = new Date();
@@ -256,11 +267,11 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
-    type Acc = { machine: string; tipo: string; serial: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number }> };
+    type Acc = { machine: string; tipo: string; serial: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -273,19 +284,27 @@ export default function ReportsScreen({ route }: any) {
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
         byDate: new Map(),
       };
-      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0 };
+      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0 };
       cur.d = Math.max(cur.d, Number(r.day_hours) || 0);
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
+      cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
+      cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
     // Segundo paso: agrupar por empresa → máquina con totales.
+    // Horas trabajadas = día + noche − parada + extras (igual que el reporte de Maquinaria),
+    // por eso restamos paradas: así Jornada y Maquinaria cuadran con el Excel.
     const groups = new Map<string, RoundCompany>();
     accs.forEach((a) => {
       if (companyArg && a.company !== companyArg) return; // sincronía con Control
-      let dayH = 0, nightH = 0, days = 0;
-      a.byDate.forEach(({ d, n }) => { dayH += d; nightH += n; if (d + n > 0) days += 1; });
-      const totalH = dayH + nightH;
+      let dayH = 0, nightH = 0, totalH = 0, days = 0;
+      a.byDate.forEach(({ d, n, s, o }) => {
+        const w = workedFromShifts(d, n, s, o);
+        dayH += d; nightH += n; totalH += w;
+        if (w > 0) days += 1; // solo jornadas con horas trabajadas > 0
+      });
+      if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       const totalUSD = a.price != null ? (totalH / 12) * a.price : 0;
       const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, serial: a.serial, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0 };
@@ -305,10 +324,12 @@ export default function ReportsScreen({ route }: any) {
 
   const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
+  // Promedio = horas trabajadas ÷ jornadas trabajadas (los equipos/jornadas en 0 no cuentan).
+  const avgHJ = (h: number, d: number) => (d > 0 ? `${Number((h / d).toFixed(2)).toLocaleString()} h/j` : '—');
 
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/jornada (12h)</th><th>Total $</th></tr>`;
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Prom. h/jornada</th><th>Precio/jornada (12h)</th><th>Total $</th></tr>`;
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -320,6 +341,7 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
               `<td style="text-align:center">${nH(m.nightH)}</td>` +
               `<td style="text-align:center;font-weight:700">${nH(m.totalH)}</td>` +
+              `<td style="text-align:center">${avgHJ(m.totalH, m.days)}</td>` +
               `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada) : '—'}</td>` +
               `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
           )
@@ -330,16 +352,19 @@ export default function ReportsScreen({ route }: any) {
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
+            <td style="text-align:center;font-weight:800">${avgHJ(g.totalH, g.days)}</td>
             <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>`;
       })
       .join('');
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
+    const grandDays = roundGroups.reduce((s, g) => s + g.days, 0);
+    const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
     const content = `
       <div class="muted">Informe por jornada · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
-      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${nH(grandH)} · ${usd(grandUSD)}</div>
-      <p class="muted" style="margin-top:8px">Total $ = (total de horas ÷ 12) × precio por jornada de 12 h. Total horas = horas de día + horas de noche.</p>`;
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · Prom. ${avgHJ(grandH, grandDays)} · ${usd(grandUSD)}</div>
+      <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Promedio = horas trabajadas ÷ jornadas trabajadas. Total $ = (horas trabajadas ÷ 12) × precio por jornada de 12 h.</p>`;
     await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
   };
 
@@ -353,9 +378,9 @@ export default function ReportsScreen({ route }: any) {
         .select('machinery_id, vehicle_id, liters')
         .gte('dispatch_date', from)
         .lte('dispatch_date', to),
-      // Horas trabajadas HASTA el 05/07/2026 (día + noche − parada + extras).
+      // Horas trabajadas dentro del rango del reporte (día + noche − parada + extras).
       // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas (HBS quedaba corto).
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.lte('round_date', FLEET_HOURS_CUTOFF)),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
     ]);
     const mLit = new Map<string, number>();
     const vLit = new Map<string, number>();
@@ -416,7 +441,7 @@ export default function ReportsScreen({ route }: any) {
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total</th></tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Horas</th><th style="text-align:right">Total</th></tr></thead><tbody>${c.items
             .map(
               (i) =>
                 `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right">${i.worked} h</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td></tr>`
@@ -454,17 +479,17 @@ export default function ReportsScreen({ route }: any) {
     const generalBlock = `
       <h2>Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
-      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
       <tbody>${typeRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
       <tbody>${companyCountRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>`;
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
-      <div class="muted">Del ${FLEET_HOURS_START} al ${FLEET_HOURS_CUTOFF}</div>
+      <div class="muted">Del ${from} al ${to}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -472,7 +497,7 @@ export default function ReportsScreen({ route }: any) {
       <h2>Detalle de la empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`
       : `
-      <div class="muted">Del ${FLEET_HOURS_START} al ${FLEET_HOURS_CUTOFF}</div>
+      <div class="muted">Del ${from} al ${to}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -552,9 +577,9 @@ export default function ReportsScreen({ route }: any) {
               key={t.v}
               onPress={() => {
                 setMode(t.v);
-                // La Jornada resume el mismo período que Maquinaria (26/06 → 05/07)
-                // para que ambos reportes cuadren con el Excel.
-                if (t.v === 'rounds') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
+                // Jornada y Maquinaria arrancan en la semana base (26/06 → 05/07);
+                // el usuario puede ampliar el rango (añadir días) con los botones.
+                if (t.v === 'rounds' || t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
               }}
               style={{
                 flex: 1,
@@ -591,6 +616,27 @@ export default function ReportsScreen({ route }: any) {
             </TouchableOpacity>
           ))}
         </View>
+        {mode !== 'fuel' && (
+          <>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
+              Semana del reporte · añade o quita días al final
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+              <TouchableOpacity style={styles.quick} onPress={() => { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }}>
+                <Text style={{ color: colors.text, fontSize: 13 }}>Semana base</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quick} onPress={() => setTo((t) => addDaysISO(t, -1))}>
+                <Text style={{ color: colors.text, fontSize: 13 }}>− 1 día</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quick} onPress={() => setTo((t) => addDaysISO(t, 1))}>
+                <Text style={{ color: colors.text, fontSize: 13 }}>+ 1 día</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quick} onPress={() => setTo((t) => addDaysISO(t, 7))}>
+                <Text style={{ color: colors.text, fontSize: 13 }}>+ 1 semana</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() => (mode === 'fuel' ? generate() : mode === 'rounds' ? generateRounds() : generateFleet())}
@@ -742,7 +788,10 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
-              {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
+              {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+              Promedio: {avgHJ(roundGroups.reduce((s, g) => s + g.totalH, 0), roundGroups.reduce((s, g) => s + g.days, 0))} · solo equipos que trabajaron
             </Text>
           </Card>
 
@@ -771,6 +820,7 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.muted, fontSize: 12 }}>☀️ {nH(m.dayH)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🌙 {nH(m.nightH)}</Text>
                       <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Σ {nH(m.totalH)}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>⌀ {avgHJ(m.totalH, m.days)}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>Precio/jornada: {m.priceJornada != null ? usd(m.priceJornada) : '⚠️ sin precio'}</Text>
@@ -780,7 +830,7 @@ export default function ReportsScreen({ route }: any) {
                 ))}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>TOTAL {g.company}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · {usd(g.totalUSD)}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · ⌀ {avgHJ(g.totalH, g.days)} · {usd(g.totalUSD)}</Text>
                 </View>
               </View>
             ))
@@ -807,7 +857,7 @@ export default function ReportsScreen({ route }: any) {
           <SectionTitle>Maquinaria/Vehículo por empresa</SectionTitle>
           <ReportHeader title="REPORTE DE MAQUINARIA/VEHÍCULOS" colors={colors} />
           <Card>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {FLEET_HOURS_START} al {FLEET_HOURS_CUTOFF}</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
               <View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
