@@ -82,9 +82,9 @@ function nowStamp(): string {
 const PDF_ACCENT = '#1E3A5F'; // azul oscuro
 const PDF_INK = '#1E3A5F';
 const PDF_CSS = `
-  @page{margin:0}
+  @page{margin:2cm}
   *{box-sizing:border-box}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:2cm}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0}
   .top{display:flex;justify-content:space-between;align-items:flex-start}
   .brand{display:flex;gap:16px;align-items:center}
   .brand img{height:70px;width:auto}

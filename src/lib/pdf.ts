@@ -18,12 +18,12 @@ export function nowStamp(): string {
 }
 
 const PDF_ACCENT = '#1E3A5F';
-/** CSS común del membrete. `@page{margin:0}` elimina el encabezado/pie que el
- *  navegador inyecta al imprimir (fecha + nombre de la pestaña). */
+/** CSS común del membrete. `@page{margin:2cm}` da 2 cm en todos los lados de
+ *  CADA página; el `<title>` vacío evita el título del navegador. */
 export const PDF_BASE_CSS = `
-  @page{margin:0}
+  @page{margin:2cm}
   *{box-sizing:border-box}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:2cm}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0}
   .top{display:flex;justify-content:space-between;align-items:flex-start}
   .brand{display:flex;gap:16px;align-items:center}
   .brand img{height:70px;width:auto}
