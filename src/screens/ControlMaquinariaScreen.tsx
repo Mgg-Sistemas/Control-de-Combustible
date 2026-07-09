@@ -130,6 +130,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
+  const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
@@ -629,21 +630,43 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             const b = rounds[rkey(m.id, d)];
             return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
           }, 0);
+          const isOpen = cardOpen[m.id] ?? true;
           return (
             <Card key={m.id}>
-              <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)}>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
-                  {m.code} <Text style={{ color: colors.primary, fontSize: 13 }}>✎</Text>
-                </Text>
-                <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
-                  🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / hora · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
-                </Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
+                <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)} style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
+                    {m.code} <Text style={{ color: colors.primary, fontSize: 13 }}>✎</Text>
+                  </Text>
+                  <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
+                    🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / hora · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setCardOpen((p) => ({ ...p, [m.id]: !isOpen }))}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={{ width: 34, height: 34, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '800' }}>{isOpen ? '▾' : '▸'}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Resumen compacto cuando la tarjeta está colapsada. */}
+              {!isOpen ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
+                  <Text style={{ color: m.entry_at && !m.exit_at ? colors.success : colors.muted, fontSize: 12, fontWeight: '700' }}>
+                    {m.entry_at && !m.exit_at ? '▶ En obra' : '⏹ Sin entrada activa'}
+                  </Text>
+                  <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 14 }}>{weekWorked} h</Text>
+                </View>
+              ) : null}
 
               {/* La entrada se MANTIENE hasta la salida, aunque cambie la semana o se cierre. */}
+              {isOpen ? (<>
               {m.entry_at && !m.exit_at ? (
                 <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 3, borderLeftColor: colors.success, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: spacing.xs }}>
                   <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>
@@ -762,6 +785,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Total del bloque ({dayCount} día(s))</Text>
                 <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16 }}>{weekWorked} h</Text>
               </View>
+              </>) : null}
             </Card>
           );
               }) : null}
