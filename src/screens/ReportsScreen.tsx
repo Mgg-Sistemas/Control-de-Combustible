@@ -190,6 +190,8 @@ export default function ReportsScreen({ route }: any) {
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
+  const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
+  const [roundsCompanySel, setRoundsCompanySel] = useState<string>('__all__'); // filtro de empresa en modo Jornada
   // Estado de la flota (para el bloque final del informe por jornada).
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
@@ -532,6 +534,13 @@ export default function ReportsScreen({ route }: any) {
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
   // "Ver reporte" en Control de maquinaria → reporte de rondas de ese día).
+  // Carga la lista de empresas para el selector del reporte por jornada.
+  useEffect(() => {
+    supabase.from('companies').select('name').order('name').then(({ data }) => {
+      setCompanyList((data ?? []).map((c: any) => c.name).filter(Boolean));
+    });
+  }, []);
+
   useEffect(() => {
     const p = route?.params;
     if (p?.autoReport === 'rounds') {
@@ -661,9 +670,28 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </>
         )}
+        {mode === 'rounds' && (
+          <>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Empresa</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+              {['__all__', ...companyList].map((c) => {
+                const on = roundsCompanySel === c;
+                return (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => setRoundsCompanySel(c)}
+                    style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: on ? '700' : '400' }}>{c === '__all__' ? '🏢 Todas' : c}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
         <TouchableOpacity
           style={styles.genBtn}
-          onPress={() => (mode === 'fuel' ? generate() : mode === 'rounds' ? generateRounds() : generateFleet())}
+          onPress={() => (mode === 'fuel' ? generate() : mode === 'rounds' ? generateRounds(from, to, roundsCompanySel === '__all__' ? null : roundsCompanySel) : generateFleet())}
           disabled={loading}
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
