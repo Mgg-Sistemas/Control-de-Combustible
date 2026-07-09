@@ -52,6 +52,7 @@ type FleetItem = {
   desc: string;
   plate: string | null;
   kind: string;
+  tipo: string;
   company: string;
   liters: number;
 };
@@ -187,6 +188,14 @@ export default function ReportsScreen({ route }: any) {
     [fleetItems]
   );
   const fleetTotalLiters = fleetItems.reduce((s, it) => s + it.liters, 0);
+  // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
+  const fleetByType = useMemo(() => {
+    const m = new Map<string, number>();
+    fleetItems.forEach((it) => m.set(it.tipo, (m.get(it.tipo) ?? 0) + 1));
+    return Array.from(m.entries())
+      .map(([tipo, count]) => ({ tipo, count }))
+      .sort((a, b) => (b.count - a.count) || a.tipo.localeCompare(b.tipo));
+  }, [fleetItems]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -331,7 +340,7 @@ export default function ReportsScreen({ route }: any) {
   const generateFleet = async () => {
     setLoading(true);
     const [{ data: mach }, { data: vehs }, { data: disp }] = await Promise.all([
-      supabase.from('machinery').select('id, code, description, plate, machinery_type, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       supabase
         .from('dispatches')
@@ -352,6 +361,7 @@ export default function ReportsScreen({ route }: any) {
         desc: m.description || '—',
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
+        tipo: m.tipo && String(m.tipo).trim() ? String(m.tipo).trim() : 'Sin tipo',
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
       })
@@ -362,6 +372,7 @@ export default function ReportsScreen({ route }: any) {
         desc: [v.brand, v.model].filter(Boolean).join(' ') || '—',
         plate: v.plate,
         kind: 'vehiculo',
+        tipo: 'Vehículo',
         company: 'Vehículos',
         liters: vLit.get(v.id) ?? 0,
       })
@@ -395,6 +406,26 @@ export default function ReportsScreen({ route }: any) {
       )
       .join('');
     const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Inventario por empresa';
+    // Reporte general (solo en el reporte completo, no cuando se filtra una empresa).
+    const typeCounts = new Map<string, number>();
+    companies.forEach((c) => c.items.forEach((i) => typeCounts.set(i.tipo, (typeCounts.get(i.tipo) ?? 0) + 1)));
+    const typeRows = Array.from(typeCounts.entries())
+      .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+      .map(([tipo, count]) => `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${count}</td></tr>`)
+      .join('');
+    const companyCountRows = companies
+      .map((c) => `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+      .join('');
+    const generalBlock = `
+      <h2>Reporte general</h2>
+      <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
+      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td></tr></tfoot></table>
+      <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
+      <tbody>${companyCountRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td></tr></tfoot></table>`;
     const body = `
       <div class="muted">Consumo del ${from} al ${to}</div>
       <div class="summary">
@@ -402,6 +433,7 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
         <div><span class="k">Consumo total</span><b>${totalLiters.toLocaleString()} L</b></div>
       </div>
+      ${generalBlock}
       <h2>Por empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}
       <h2>${onlyCompany ? 'Máquinas de la empresa y sus totales' : 'Genérico — todas las máquinas y sus totales'}</h2>
@@ -721,6 +753,13 @@ export default function ReportsScreen({ route }: any) {
       {/* Vista previa: flota / inventario por empresa */}
       <Modal visible={fleetPreview} animationType="slide" onRequestClose={() => setFleetPreview(false)}>
         <Screen>
+          <TouchableOpacity
+            onPress={() => setFleetPreview(false)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>Flota por empresa</SectionTitle>
           <ReportHeader title="REPORTE DE FLOTA" colors={colors} />
           <Card>
@@ -740,6 +779,36 @@ export default function ReportsScreen({ route }: any) {
               </View>
             </View>
           </Card>
+
+          {/* Reporte general: total por tipo de maquinaria + totales de equipos por empresa. */}
+          {fleetItems.length > 0 ? (
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Total por tipo de maquinaria</Text>
+              {fleetByType.map((t) => (
+                <View key={t.tipo} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>{t.tipo}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{t.count}</Text>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{fleetItems.length}</Text>
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 2 }}>Totales de equipos por empresa</Text>
+              {fleetByCompany.map((c) => (
+                <View key={c.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>{c.company}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{c.count}</Text>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{fleetItems.length}</Text>
+              </View>
+            </Card>
+          ) : null}
 
           {fleetByCompany.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Sin equipos registrados.</Text></Card>
