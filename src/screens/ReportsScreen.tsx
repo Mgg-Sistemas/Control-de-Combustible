@@ -183,11 +183,6 @@ export default function ReportsScreen({ route }: any) {
     });
     return Array.from(m.values()).sort((a, b) => b.count - a.count);
   }, [fleetItems]);
-  const fleetGeneric = useMemo(
-    () => [...fleetItems].sort((a, b) => b.liters - a.liters),
-    [fleetItems]
-  );
-  const fleetTotalLiters = fleetItems.reduce((s, it) => s + it.liters, 0);
   // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
   const fleetByType = useMemo(() => {
     const m = new Map<string, number>();
@@ -384,28 +379,20 @@ export default function ReportsScreen({ route }: any) {
 
   const downloadFleetPdf = async (onlyCompany?: string) => {
     const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
-    const generic = onlyCompany ? fleetGeneric.filter((i) => i.company === onlyCompany) : fleetGeneric;
-    const totalLiters = companies.reduce((s, c) => s + c.liters, 0);
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
     const companyBlocks = companies
       .map(
         (c) =>
-          `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s) · ${c.liters.toLocaleString()} L</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:right">Litros</th></tr></thead><tbody>${c.items
+          `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:left">Tipo</th></tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td style="text-align:right">${i.liters.toLocaleString()} L</td></tr>`
+                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td>${i.tipo}</td></tr>`
             )
             .join('')}</tbody></table>`
       )
       .join('');
-    const genericRows = generic
-      .map(
-        (i) =>
-          `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.company}</td><td style="text-align:right">${i.liters.toLocaleString()} L</td></tr>`
-      )
-      .join('');
-    const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Inventario por empresa';
+    const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general';
     // Reporte general (solo en el reporte completo, no cuando se filtra una empresa).
     const typeCounts = new Map<string, number>();
     companies.forEach((c) => c.items.forEach((i) => typeCounts.set(i.tipo, (typeCounts.get(i.tipo) ?? 0) + 1)));
@@ -426,20 +413,23 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
       <tbody>${companyCountRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td></tr></tfoot></table>`;
-    const body = `
-      <div class="muted">Consumo del ${from} al ${to}</div>
+    // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
+    const body = onlyCompany
+      ? `
+      <div class="muted">Del ${from} al ${to}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
-        <div><span class="k">Consumo total</span><b>${totalLiters.toLocaleString()} L</b></div>
       </div>
-      ${generalBlock}
-      <h2>Por empresa</h2>
-      ${companyBlocks || '<span class="muted">Sin datos</span>'}
-      <h2>${onlyCompany ? 'Máquinas de la empresa y sus totales' : 'Genérico — todas las máquinas y sus totales'}</h2>
-      <table><thead><tr><th>Equipo</th><th>Descripción</th><th>Empresa</th><th style="text-align:right">Litros</th></tr></thead>
-      <tbody>${genericRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td colspan="3" style="text-align:right">TOTAL</td><td style="text-align:right">${totalLiters.toLocaleString()} L</td></tr></tfoot></table>`;
+      <h2>Detalle de la empresa</h2>
+      ${companyBlocks || '<span class="muted">Sin datos</span>'}`
+      : `
+      <div class="muted">Del ${from} al ${to}</div>
+      <div class="summary">
+        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
+        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
+      </div>
+      ${generalBlock}`;
     await exportPdf(pdfShell('REPORTE DE FLOTA', sub, body));
   };
 
@@ -773,12 +763,41 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas</Text>
                 <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetByCompany.length}</Text>
               </View>
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Consumo total</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotalLiters.toLocaleString()} L</Text>
-              </View>
             </View>
           </Card>
+
+          {/* Botones de descarga arriba */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf()}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ General</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.primary : colors.surfaceAlt }]}
+              onPress={() => setShowCompanyBtns((v) => !v)}
+            >
+              <Text style={{ color: showCompanyBtns ? colors.primaryContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
+            </TouchableOpacity>
+          </View>
+          {showCompanyBtns ? (
+            <View>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Toca una empresa para descargar su informe:
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {fleetByCompany.map((c) => (
+                  <TouchableOpacity
+                    key={c.company}
+                    onPress={() => downloadFleetPdf(c.company)}
+                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                      {c.company} ({c.count})
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           {/* Reporte general: total por tipo de maquinaria + totales de equipos por empresa. */}
           {fleetItems.length > 0 ? (
@@ -812,87 +831,11 @@ export default function ReportsScreen({ route }: any) {
 
           {fleetByCompany.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Sin equipos registrados.</Text></Card>
-          ) : (
-            fleetByCompany.map((c) => (
-              <Card key={c.company}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{c.company}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '700' }}>{c.count} equipo(s)</Text>
-                </View>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                  Consumo del grupo: {c.liters.toLocaleString()} L
-                </Text>
-                {c.items.map((i, idx) => (
-                  <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderTopWidth: idx ? 1 : 0, borderTopColor: colors.border }}>
-                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{i.name}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>
-                        {i.desc}{i.plate ? ` · ${i.plate}` : ''}
-                      </Text>
-                    </View>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>{i.liters.toLocaleString()} L</Text>
-                  </View>
-                ))}
-              </Card>
-            ))
-          )}
+          ) : null}
 
-          <Card>
-            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: spacing.xs }}>
-              Genérico — todas las máquinas y sus totales
-            </Text>
-            {fleetGeneric.map((i, idx) => (
-              <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
-                <Text style={{ color: colors.text, fontSize: 13, flex: 1, paddingRight: spacing.sm }}>
-                  {i.name} <Text style={{ color: colors.muted }}>· {i.desc}</Text>
-                </Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>{i.liters.toLocaleString()} L</Text>
-              </View>
-            ))}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.sm, marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>TOTAL</Text>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>{fleetTotalLiters.toLocaleString()} L</Text>
-            </View>
-          </Card>
-
-          <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
-            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf()}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ General</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.primary : colors.surfaceAlt }]}
-                onPress={() => setShowCompanyBtns((v) => !v)}
-              >
-                <Text style={{ color: showCompanyBtns ? colors.primaryContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
-              </TouchableOpacity>
-            </View>
-
-            {showCompanyBtns ? (
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                  Toca una empresa para descargar su informe:
-                </Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                  {fleetByCompany.map((c) => (
-                    <TouchableOpacity
-                      key={c.company}
-                      onPress={() => downloadFleetPdf(c.company)}
-                      style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
-                    >
-                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
-                        {c.company} ({c.count})
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setFleetPreview(false)}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt, marginTop: spacing.md }]} onPress={() => setFleetPreview(false)}>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+          </TouchableOpacity>
         </Screen>
       </Modal>
     </Screen>
