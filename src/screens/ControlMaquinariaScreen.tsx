@@ -386,6 +386,34 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       },
       { day: 0, night: 0, stopped: 0, extra: 0, worked: 0, amount: 0 }
     );
+    // Totales por EMPRESA (día, noche, total horas, trabajadas y monto).
+    const byCompany = new Map<string, { day: number; night: number; worked: number; amount: number; machs: Set<string> }>();
+    for (const m of machs) {
+      const key = m.company || 'Sin empresa';
+      const price = priceOf(m);
+      const g = byCompany.get(key) ?? { day: 0, night: 0, worked: 0, amount: 0, machs: new Set<string>() };
+      g.day += Number(m.dayHours) || 0;
+      g.night += Number(m.nightHours) || 0;
+      g.worked += Number(m.worked) || 0;
+      g.amount += payUnitsFromShifts(m.dayHours ?? 0, m.nightHours ?? 0) * price;
+      g.machs.add(m.machineId || m.serial || m.code);
+      byCompany.set(key, g);
+    }
+    const companyRows = [...byCompany.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([name, g]) =>
+        `<tr><td style="font-weight:700">${name}</td>` +
+        `<td style="text-align:center">${g.machs.size}</td>` +
+        `<td style="text-align:center">${g.day} h</td>` +
+        `<td style="text-align:center">${g.night} h</td>` +
+        `<td style="text-align:center;font-weight:700">${g.worked} h</td>` +
+        `<td style="text-align:right;font-weight:700">${usd(g.amount)}</td></tr>`
+      )
+      .join('');
+    const byCompanyHtml = `
+      <h2 style="margin-top:18px;font-size:14px;color:#1E3A5F">Totales por empresa</h2>
+      <table class="empresas"><thead><tr><th>Empresa</th><th>Máquinas</th><th>☀️ Total día</th><th>🌙 Total noche</th><th>Total horas</th><th>Monto ($)</th></tr></thead>
+      <tbody>${companyRows}</tbody></table>`;
     const foot = `<tfoot><tr>
       <td colspan="3" style="text-align:right;font-weight:800">TOTALES</td>
       <td style="text-align:center;font-weight:800">${tot.day} h</td><td></td>
@@ -408,7 +436,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         .totals .c.pay{background:#1E3A5F;border-color:#1E3A5F}
         .totals .c.pay .k,.totals .c.pay .v{color:#fff}
         .totals .k{color:#6B7280;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
-        .totals .v{font-weight:800;font-size:20px;color:#1E3A5F;margin-top:2px}`,
+        .totals .v{font-weight:800;font-size:20px;color:#1E3A5F;margin-top:2px}
+        table.empresas{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
+        table.empresas th,table.empresas td{border:1px solid #ccc;padding:5px 8px;text-align:left}
+        table.empresas th{background:#1E3A5F;color:#fff}`,
       body: `
       <table><thead><tr><th>Fecha</th><th>Máquina</th><th>Empresa</th>
         <th>☀️ Día</th><th>Operador día</th><th>🌙 Noche</th><th>Operador noche</th>
@@ -420,6 +451,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <div class="c"><div class="k">🌙 Total horas de noche</div><div class="v">${tot.night} h</div></div>
         <div class="c pay"><div class="k">💵 Total a pagar</div><div class="v">${usd(tot.amount)}</div></div>
       </div>
+      ${byCompanyHtml}
       <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Monto = precio por jornada: turno completo (12 h) = precio, medio turno (6 h) = mitad</p>`,
     });
     await exportPdf(html);
