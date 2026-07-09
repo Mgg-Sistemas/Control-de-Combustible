@@ -9,7 +9,7 @@ import {
   StyleSheet,
   Image,
 } from 'react-native';
-import { Screen, Card, SectionTitle, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
@@ -19,14 +19,22 @@ import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaSc
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-type RoundRow = {
-  round_date: string;
+// Máquina agregada en el informe por rondas (por empresa → maquinaria).
+type RoundMachine = {
   machine: string;
+  tipo: string;
+  serial: string | null;
+  days: number;         // días (jornadas) que trabajó
+  dayH: number;         // total horas de día
+  nightH: number;       // total horas de noche
+  totalH: number;       // total de horas (día + noche)
+  priceJornada: number | null; // precio por jornada de 12 h
+  totalUSD: number;     // total $ = totalH / 12 × precio por jornada
+};
+type RoundCompany = {
   company: string;
-  day: number;      // turno de día (h)
-  night: number;    // turno de noche (h)
-  hours_stopped: number;
-  overtime: number;
+  machines: RoundMachine[];
+  days: number; dayH: number; nightH: number; totalH: number; totalUSD: number;
 };
 
 type Row = {
@@ -156,7 +164,7 @@ export default function ReportsScreen({ route }: any) {
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet'>('fuel');
-  const [roundRows, setRoundRows] = useState<RoundRow[]>([]);
+  const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
@@ -232,53 +240,92 @@ export default function ReportsScreen({ route }: any) {
     setLoading(true);
     const { data } = await supabase
       .from('machine_rounds')
-      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(code, company:company_id(name))')
+      .select('round_date, day_hours, night_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))')
       .gte('round_date', fromArg)
       .lte('round_date', toArg)
       .order('round_date', { ascending: true });
-    const map = new Map<string, RoundRow>();
+    // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
+    type Acc = { machine: string; tipo: string; serial: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number }> };
+    const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
-      const machine = r.machinery?.code ?? '—';
-      const company = r.machinery?.company?.name ?? 'Sin empresa';
-      const k = `${r.round_date}|${machine}`;
-      const row = map.get(k) ?? { round_date: r.round_date, machine, company, day: 0, night: 0, hours_stopped: 0, overtime: 0 };
-      row.day = Math.max(row.day, Number(r.day_hours) || 0);
-      row.night = Math.max(row.night, Number(r.night_hours) || 0);
-      row.hours_stopped = Math.max(row.hours_stopped, Number(r.hours_stopped) || 0);
-      row.overtime = Math.max(row.overtime, Number(r.overtime_hours) || 0);
-      map.set(k, row);
+      const mm = r.machinery || {};
+      const key = (mm.id || mm.serial || mm.code) as string;
+      const a = accs.get(key) ?? {
+        machine: mm.code ?? '—',
+        tipo: (mm.tipo && String(mm.tipo).trim()) || 'Sin tipo',
+        serial: mm.serial ?? null,
+        company: mm.company?.name ?? 'Sin empresa',
+        price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
+        byDate: new Map(),
+      };
+      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0 };
+      cur.d = Math.max(cur.d, Number(r.day_hours) || 0);
+      cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
+      a.byDate.set(r.round_date, cur);
+      accs.set(key, a);
     });
-    let list = Array.from(map.values()).sort((a, b) =>
-      a.round_date === b.round_date ? a.machine.localeCompare(b.machine) : a.round_date.localeCompare(b.round_date)
+    // Segundo paso: agrupar por empresa → máquina con totales.
+    const groups = new Map<string, RoundCompany>();
+    accs.forEach((a) => {
+      if (companyArg && a.company !== companyArg) return; // sincronía con Control
+      let dayH = 0, nightH = 0, days = 0;
+      a.byDate.forEach(({ d, n }) => { dayH += d; nightH += n; if (d + n > 0) days += 1; });
+      const totalH = dayH + nightH;
+      const totalUSD = a.price != null ? (totalH / 12) * a.price : 0;
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, serial: a.serial, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
+      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0 };
+      g.machines.push(rm);
+      g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
+      groups.set(a.company, g);
+    });
+    const list = Array.from(groups.values()).sort((x, y) =>
+      x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : x.company.localeCompare(y.company)
     );
-    // Sincronía con Control de maquinaria: si viene una empresa, filtra solo sus máquinas.
-    if (companyArg) list = list.filter((r) => r.company === companyArg);
+    list.forEach((g) => g.machines.sort((x, y) => x.tipo.localeCompare(y.tipo) || x.machine.localeCompare(y.machine)));
     setRoundsCompany(companyArg ?? null);
-    setRoundRows(list);
+    setRoundGroups(list);
     setLoading(false);
     setRoundsPreview(true);
   };
 
-  const hCell = (h: number) => (h ? `${h} h` : '—');
+  const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
 
   const downloadRoundsPdf = async () => {
-    const head = `<tr><th style="text-align:left">Fecha</th><th style="text-align:left">Máquina</th><th>☀️ TURNO<br/>DÍA</th><th>🌙 TURNO<br/>NOCHE</th><th>TURNO</th><th>HORAS<br/>PARADA</th><th>HORAS<br/>EXTRA</th><th>HORAS<br/>TRABAJADAS</th></tr>`;
-    const body = roundRows
-      .map(
-        (r) =>
-          `<tr><td>${r.round_date}</td><td>${r.machine}</td>` +
-          `<td style="text-align:center">${hCell(r.day)}</td><td style="text-align:center">${hCell(r.night)}</td>` +
-          `<td style="text-align:center">${shiftLabel(r.day + r.night)}</td>` +
-          `<td style="text-align:center">${r.hours_stopped ? r.hours_stopped.toLocaleString() : '—'}</td>` +
-          `<td style="text-align:center">${r.overtime ? r.overtime.toLocaleString() : '—'}</td>` +
-          `<td style="text-align:center;font-weight:700">${workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</td></tr>`
-      )
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/jornada (12h)</th><th>Total $</th></tr>`;
+    const sections = roundGroups
+      .map((g) => {
+        const rows = g.machines
+          .map(
+            (m) =>
+              `<tr><td>${esc(m.machine)}${m.serial ? `<br/><span style="color:#888">${esc(m.serial)}</span>` : ''}</td>` +
+              `<td>${esc(m.tipo)}</td>` +
+              `<td style="text-align:center">${m.days}</td>` +
+              `<td style="text-align:center">${nH(m.dayH)}</td>` +
+              `<td style="text-align:center">${nH(m.nightH)}</td>` +
+              `<td style="text-align:center;font-weight:700">${nH(m.totalH)}</td>` +
+              `<td style="text-align:right">${m.priceJornada != null ? usd(m.priceJornada) : '—'}</td>` +
+              `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
+          )
+          .join('');
+        return `<h2>🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
+          <table><thead>${head}</thead><tbody>${rows}</tbody>
+          <tfoot><tr><td colspan="3" style="text-align:right;font-weight:800">TOTAL ${esc(g.company)}</td>
+            <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
+            <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
+            <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
+            <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>`;
+      })
       .join('');
+    const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+    const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const content = `
-      <div class="muted">Turnos del ${from} al ${to} · Turno completo ${SHIFT_HOURS} h · Medio 6 h${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
-      <table style="margin-top:10px"><thead>${head}</thead><tbody>${body || '<tr><td colspan="8" style="text-align:center">Sin datos</td></tr>'}</tbody></table>
-      <p class="muted" style="margin-top:8px">Horas trabajadas = (turno día + turno noche) − parada + extras · Medio turno 6 h · Turno completo 12 h · Turno y medio 18 h · Dos turnos 24 h</p>`;
-    await exportPdf(pdfShell('CONTROL DE MAQUINARIA', 'Turnos por día', content));
+      <div class="muted">Informe por rondas · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      ${sections || '<p class="muted">Sin datos en el rango.</p>'}
+      <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${nH(grandH)} · ${usd(grandUSD)}</div>
+      <p class="muted" style="margin-top:8px">Total $ = (total de horas ÷ 12) × precio por jornada de 12 h. Total horas = horas de día + horas de noche.</p>`;
+    await exportPdf(pdfShell('INFORME POR RONDAS', 'Por empresa y maquinaria', content));
   };
 
   const generateFleet = async () => {
@@ -607,45 +654,51 @@ export default function ReportsScreen({ route }: any) {
       {/* Vista previa: control de rondas */}
       <Modal visible={roundsPreview} animationType="slide" onRequestClose={() => setRoundsPreview(false)}>
         <Screen>
-          <SectionTitle>Control de máquinas (turnos)</SectionTitle>
-          <ReportHeader title="CONTROL DE MAQUINARIA" colors={colors} />
+          <SectionTitle>Informe por rondas</SectionTitle>
+          <ReportHeader title="INFORME POR RONDAS" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
-            <Text style={{ color: colors.text, fontWeight: '700', marginTop: 2 }}>{roundRows.length} registro(s)</Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
-              Trabajadas = (turno día + noche) − parada + extras
+            <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
+              {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
             </Text>
           </Card>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View>
-              <View style={{ flexDirection: 'row', backgroundColor: colors.surfaceAlt }}>
-                <Text style={[styles.th, { width: 84 }]}>Fecha</Text>
-                <Text style={[styles.th, { width: 90 }]}>Máquina</Text>
-                <Text style={[styles.th, { width: 56 }]}>☀️ Día</Text>
-                <Text style={[styles.th, { width: 56 }]}>🌙 Noche</Text>
-                <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}parada</Text>
-                <Text style={[styles.th, { width: 56 }]}>Horas{'\n'}extra</Text>
-                <Text style={[styles.th, { width: 64 }]}>Horas{'\n'}trabaj.</Text>
+          {roundGroups.length === 0 ? (
+            <EmptyState title="Sin datos" subtitle="No hay rondas en el rango seleccionado." />
+          ) : (
+            roundGroups.map((g) => (
+              <View key={g.company} style={{ marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
+                  🏢 {g.company} ({g.machines.length})
+                </Text>
+                {g.machines.map((m, i) => (
+                  <Card key={i}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{m.machine}{m.serial ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.serial}</Text> : null}</Text>
+                      <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                        <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{m.tipo}</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {m.days} jornada(s)</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>☀️ {nH(m.dayH)}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🌙 {nH(m.nightH)}</Text>
+                      <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Σ {nH(m.totalH)}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Precio/jornada: {m.priceJornada != null ? usd(m.priceJornada) : '⚠️ sin precio'}</Text>
+                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{m.priceJornada != null ? usd(m.totalUSD) : '—'}</Text>
+                    </View>
+                  </Card>
+                ))}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>TOTAL {g.company}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · {usd(g.totalUSD)}</Text>
+                </View>
               </View>
-              {roundRows.length === 0 ? (
-                <Text style={{ color: colors.muted, padding: spacing.md }}>Sin datos en el rango.</Text>
-              ) : (
-                roundRows.map((r, idx) => (
-                  <View key={idx} style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={[styles.td, { width: 84, color: colors.text }]}>{r.round_date.slice(5)}</Text>
-                    <Text style={[styles.td, { width: 90, color: colors.text }]}>{r.machine}</Text>
-                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.day || '—'}</Text>
-                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.night || '—'}</Text>
-                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.hours_stopped || '—'}</Text>
-                    <Text style={[styles.td, { width: 56, textAlign: 'center', color: colors.text }]}>{r.overtime || '—'}</Text>
-                    <Text style={[styles.td, { width: 64, textAlign: 'center', color: colors.success, fontWeight: '700' }]}>{workedFromShifts(r.day, r.night, r.hours_stopped, r.overtime)} h</Text>
-                  </View>
-                ))
-              )}
-            </View>
-          </ScrollView>
+            ))
+          )}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setRoundsPreview(false)}>
