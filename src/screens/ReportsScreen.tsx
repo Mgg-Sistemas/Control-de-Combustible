@@ -167,6 +167,163 @@ function pdfShell(title: string, sub: string, body: string): string {
   </body></html>`;
 }
 
+// ── Reporte "Despliegue de Maquinaria" (infográfico apaisado, mismo diseño que
+//    el resumen operativo). Se imprime a PDF en láminas 1280×720 (landscape).
+type DeployData = {
+  periodLabel: string;
+  byCo: { company: string; count: number; hours: number }[];
+  byTp: { tipo: string; count: number; hours: number }[];
+  inact: { code: string; tipo: string; company: string }[];
+  totals: { equipos: number; horas: number; activos: number; inactivos: number; empresas: number; tipos: number };
+};
+/** Número con punto de miles (17.075). */
+const fmtMiles = (n: number) => Math.round(n).toLocaleString('de-DE');
+/** HTML del infográfico de despliegue de maquinaria (4 láminas landscape). */
+function deployInfographicHtml(d: DeployData): string {
+  const { byCo, byTp, inact, totals, periodLabel } = d;
+  const maxCo = Math.max(1, ...byCo.map((c) => c.hours));
+  const maxTp = Math.max(1, ...byTp.map((t) => t.hours));
+  const style = `<style>
+  @page { size: 13.333in 7.5in; margin: 0; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  :root { --navy:#16324F; --gold:#B4924E; --gold-soft:#EFE7D6; --ink:#1a1c20; --muted:#6b7280; --line:#e3e6ea; --bg:#ffffff; --panel:#F7F5F1; }
+  body { font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:var(--ink); background:#54606b; }
+  .slide { width:1280px; height:720px; background:var(--bg); position:relative; overflow:hidden; page-break-after:always; margin:0 auto; }
+  .slide:last-child { page-break-after:auto; }
+  .pad { padding:54px 64px; height:100%; display:flex; flex-direction:column; }
+  .brand { display:flex; align-items:center; gap:16px; }
+  .brand img { height:56px; width:56px; object-fit:contain; border-radius:8px; }
+  .brand .co { font-weight:800; font-size:16px; letter-spacing:.3px; color:var(--navy); line-height:1.1; }
+  .brand .rif { font-size:12px; color:var(--muted); margin-top:2px; }
+  .top { display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid var(--gold); padding-bottom:18px; }
+  .top .period { text-align:right; }
+  .top .period .lbl { font-size:11px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; }
+  .top .period .val { font-size:15px; font-weight:700; color:var(--navy); margin-top:2px; }
+  h1.title { font-size:52px; font-weight:800; color:var(--ink); line-height:1.02; letter-spacing:-.5px; }
+  h1.title .sub2 { display:block; font-size:30px; font-weight:600; color:var(--gold); margin-top:6px; letter-spacing:0; }
+  h2.stitle { font-size:34px; font-weight:800; color:var(--navy); letter-spacing:-.3px; }
+  h2.stitle .accent { color:var(--gold); }
+  .stitle-row { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+  .stitle-row .hint { font-size:13px; color:var(--muted); }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:22px; margin-top:8px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-top:5px solid var(--gold); border-radius:14px; padding:26px 24px; }
+  .kpi .k { font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  .kpi .v { font-size:44px; font-weight:800; color:var(--navy); margin-top:10px; line-height:1; }
+  .kpi .note { font-size:12px; color:var(--muted); margin-top:8px; }
+  .cover-lead { font-size:16px; color:var(--muted); max-width:840px; line-height:1.5; margin-top:4px; }
+  table.emp { width:100%; border-collapse:collapse; margin-top:14px; }
+  table.emp th { text-align:left; font-size:12px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); padding:0 12px 10px; border-bottom:2px solid var(--line); }
+  table.emp th.num { text-align:right; }
+  table.emp td { padding:13px 12px; border-bottom:1px solid var(--line); font-size:16px; vertical-align:middle; }
+  table.emp td.rank { color:var(--gold); font-weight:800; width:34px; }
+  table.emp td.name { font-weight:700; color:var(--ink); width:270px; }
+  table.emp td.num { text-align:right; width:90px; font-weight:600; }
+  table.emp tfoot td { border-top:2px solid var(--navy); border-bottom:none; font-weight:800; font-size:17px; padding-top:14px; }
+  .bar-cell { min-width:260px; }
+  .bar-track { display:inline-block; width:200px; height:12px; background:var(--gold-soft); border-radius:6px; overflow:hidden; vertical-align:middle; }
+  .bar-fill { height:100%; background:linear-gradient(90deg,var(--gold),#caa968); border-radius:6px; }
+  .bar-val { font-size:14px; color:var(--muted); margin-left:10px; font-weight:600; }
+  .tcols { display:grid; grid-template-columns:1fr 1fr; gap:34px; margin-top:16px; }
+  table.tipos { width:100%; border-collapse:collapse; }
+  table.tipos th { text-align:left; font-size:11px; letter-spacing:.8px; text-transform:uppercase; color:var(--muted); padding:0 10px 8px; border-bottom:2px solid var(--line); }
+  table.tipos th.tnum { text-align:right; }
+  table.tipos td { padding:9px 10px; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:middle; }
+  td.tname { font-weight:700; color:var(--ink); }
+  td.tnum { text-align:right; font-weight:800; color:var(--gold); width:40px; }
+  td.thrs { color:var(--muted); font-size:12.5px; white-space:nowrap; width:130px; }
+  .mini { display:inline-block; width:52px; height:6px; background:var(--gold-soft); border-radius:3px; overflow:hidden; vertical-align:middle; margin-right:8px; }
+  .mini > span { display:block; height:100%; background:var(--gold); }
+  .foot { margin-top:auto; padding-top:16px; display:flex; justify-content:space-between; align-items:center; font-size:11.5px; color:var(--muted); border-top:1px solid var(--line); }
+  .foot .sys { font-weight:700; color:var(--navy); }
+  .pill { display:inline-block; background:var(--navy); color:#fff; font-size:12px; font-weight:700; padding:6px 14px; border-radius:999px; letter-spacing:.5px; }
+</style>`;
+  const header = (lbl = 'Período') => `  <div class="top">
+    <div class="brand"><img src="${LOGO_DATA_URI}" alt="logo"/><div><div class="co">${COMPANY_NAME}</div><div class="rif">RIF ${COMPANY_RIF}</div></div></div>
+    <div class="period"><div class="lbl">${lbl}</div><div class="val">${periodLabel}</div></div>
+  </div>`;
+  const sys = 'Sistema de Control de Combustible y Maquinaria';
+  const slide1 = `<section class="slide"><div class="pad">
+${header('Período del reporte')}
+  <div style="margin-top:34px">
+    <div class="pill">RESUMEN OPERATIVO</div>
+    <h1 class="title" style="margin-top:16px">Despliegue de Maquinaria<span class="sub2">Fuerza de Despeje, Transporte y Reconstrucción</span></h1>
+    <p class="cover-lead" style="margin-top:14px">Consolidado de horas trabajadas por empresa contratista y por tipo de equipo, e incluye el estado de la flota (equipos activos e inactivos), según los registros de jornada del sistema de control interno.</p>
+  </div>
+  <div class="kpis" style="margin-top:32px">
+    <div class="kpi"><div class="k">Equipos totales</div><div class="v">${totals.equipos}</div><div class="note">flota completa en inventario</div></div>
+    <div class="kpi"><div class="k">Horas trabajadas</div><div class="v">${fmtMiles(totals.horas)}</div><div class="note">día + noche − paradas + extras</div></div>
+    <div class="kpi"><div class="k">Equipos activos</div><div class="v">${totals.activos}</div><div class="note">${totals.inactivos} inactivo(s)</div></div>
+    <div class="kpi"><div class="k">Empresas</div><div class="v">${totals.empresas}</div><div class="note">${totals.tipos} tipos de equipo</div></div>
+  </div>
+  <div class="foot"><span class="sys">${sys}</span><span>Documento generado por el sistema de control interno · ${periodLabel}</span></div>
+</div></section>`;
+  const empRows = byCo.map((c, i) => `    <tr>
+      <td class="rank">${i + 1}</td>
+      <td class="name">${c.company}</td>
+      <td class="num">${c.count}</td>
+      <td class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:${c.hours > 0 ? Math.max(4, (c.hours / maxCo) * 100) : 0}%"></div></div><span class="bar-val">${fmtMiles(c.hours)} h</span></td>
+    </tr>`).join('\n');
+  const slide2 = `<section class="slide"><div class="pad">
+${header()}
+  <div class="stitle-row" style="margin-top:24px">
+    <h2 class="stitle">Fuerza por <span class="accent">Empresa</span></h2>
+    <span class="hint">Todas las empresas · barra proporcional a horas</span>
+  </div>
+  <table class="emp">
+    <thead><tr><th></th><th>Empresa</th><th class="num">Equipos</th><th>Horas trabajadas</th></tr></thead>
+    <tbody>
+${empRows || '<tr><td colspan="4" style="text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
+    <tfoot><tr><td></td><td>TOTAL GENERAL</td><td class="num">${totals.equipos}</td><td>${fmtMiles(totals.horas)} h</td></tr></tfoot>
+  </table>
+  <div class="foot"><span class="sys">${sys}</span><span>Incluye equipos con y sin horas · Horas = día + noche − paradas + extras</span></div>
+</div></section>`;
+  const half = Math.ceil(byTp.length / 2);
+  const tpTable = (arr: DeployData['byTp']) => `<table class="tipos">
+    <thead><tr><th>Tipo de maquinaria</th><th class="tnum">Eq.</th><th>Horas</th></tr></thead>
+    <tbody>
+${arr.map((t) => `    <tr>
+      <td class="tname">${t.tipo}</td>
+      <td class="tnum">${t.count}</td>
+      <td class="thrs"><span class="mini"><span style="width:${t.hours > 0 ? Math.max(6, (t.hours / maxTp) * 100) : 0}%"></span></span>${fmtMiles(t.hours)} h</td>
+    </tr>`).join('\n')}</tbody></table>`;
+  const slide3 = `<section class="slide"><div class="pad">
+${header()}
+  <div class="stitle-row" style="margin-top:20px">
+    <h2 class="stitle">Capacidad por <span class="accent">Tipo de Maquinaria</span></h2>
+    <span class="hint">${totals.tipos} categorías · nº = equipos · barra = horas</span>
+  </div>
+  <div class="tcols">${tpTable(byTp.slice(0, half))}${tpTable(byTp.slice(half))}</div>
+  <div class="foot"><span class="sys">${sys}</span><span>Total: ${totals.equipos} equipos · ${fmtMiles(totals.horas)} h</span></div>
+</div></section>`;
+  const inRows = inact.map((m, i) => `    <tr>
+      <td class="rank">${i + 1}</td>
+      <td class="name">${m.code}</td>
+      <td class="num" style="text-align:left;width:auto;font-weight:600">${m.tipo}</td>
+      <td class="num" style="text-align:left;width:auto;font-weight:700;color:var(--navy)">${m.company}</td>
+    </tr>`).join('\n');
+  const slide4 = `<section class="slide"><div class="pad">
+${header()}
+  <div class="stitle-row" style="margin-top:24px">
+    <h2 class="stitle">Equipos <span class="accent">Inactivos</span></h2>
+    <span class="hint">${totals.inactivos} de ${totals.equipos} equipos · fuera de operación</span>
+  </div>
+  <table class="emp">
+    <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
+    <tbody>
+${inRows || '    <tr><td colspan="4" style="text-align:center;color:#6b7280">Sin equipos inactivos</td></tr>'}</tbody>
+    <tfoot><tr><td></td><td>TOTAL INACTIVOS</td><td class="num">${totals.inactivos}</td><td></td></tr></tfoot>
+  </table>
+  <div class="foot"><span class="sys">${sys}</span><span>Activos: ${totals.activos} · Inactivos: ${totals.inactivos} · Total flota: ${totals.equipos}</span></div>
+</div></section>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title></title>
+${style}</head><body>
+${slide1}
+${slide2}
+${slide3}
+${slide4}
+</body></html>`;
+}
+
 /** Encabezado de la vista previa: logo + título azul + empresa (como el PDF). */
 function ReportHeader({ title, colors }: { title: string; colors: AppColors }) {
   return (
@@ -197,7 +354,7 @@ export default function ReportsScreen({ route }: any) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy'>('fuel');
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
@@ -472,6 +629,59 @@ export default function ReportsScreen({ route }: any) {
     setFleetPreview(true);
   };
 
+  // Reporte "Despliegue de Maquinaria": genera el infográfico (4 láminas) con
+  // datos EN VIVO del rango — horas trabajadas y equipos activos/inactivos.
+  const generateDeploy = async () => {
+    setLoading(true);
+    const [{ data: mach }, rnds] = await Promise.all([
+      supabase.from('machinery').select('id, code, tipo, active, company:company_id(name)'),
+      selectAllRows(
+        'machine_rounds',
+        'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours',
+        (q) => q.gte('round_date', from).lte('round_date', to)
+      ),
+    ]);
+    // Horas por máquina en el rango (dedupe por máquina+día, igual que los demás reportes).
+    const byMD = new Map<string, any>();
+    (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+    const mHours = new Map<string, number>();
+    byMD.forEach((r) => {
+      const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+      if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
+    });
+    const list = (mach ?? []).map((m: any) => ({
+      code: m.code as string,
+      tipo: canonTipo(m.tipo) || 'SIN TIPO',
+      active: m.active !== false,
+      company: m.company?.name || 'Sin empresa',
+      hours: mHours.get(m.id) ?? 0,
+    }));
+    // Agregado por empresa (todas las máquinas, con y sin horas).
+    const coMap = new Map<string, { company: string; count: number; hours: number }>();
+    list.forEach((m) => { const a = coMap.get(m.company) ?? { company: m.company, count: 0, hours: 0 }; a.count++; a.hours += m.hours; coMap.set(m.company, a); });
+    const byCo = [...coMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
+    // Agregado por tipo.
+    const tpMap = new Map<string, { tipo: string; count: number; hours: number }>();
+    list.forEach((m) => { const a = tpMap.get(m.tipo) ?? { tipo: m.tipo, count: 0, hours: 0 }; a.count++; a.hours += m.hours; tpMap.set(m.tipo, a); });
+    const byTp = [...tpMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
+    // Inactivos con su empresa.
+    const inact = list
+      .filter((m) => !m.active)
+      .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code))
+      .map((m) => ({ code: m.code, tipo: m.tipo, company: m.company }));
+    const totals = {
+      equipos: list.length,
+      horas: list.reduce((s, m) => s + m.hours, 0),
+      activos: list.filter((m) => m.active).length,
+      inactivos: inact.length,
+      empresas: new Set(list.map((m) => m.company)).size,
+      tipos: byTp.length,
+    };
+    setLoading(false);
+    const html = deployInfographicHtml({ periodLabel: `${fmtDMY(from)} — ${fmtDMY(to)}`, byCo, byTp, inact, totals });
+    await exportPdf(html);
+  };
+
   const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
     const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
@@ -620,6 +830,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'fuel', label: '⛽ Combustible' },
           { v: 'rounds', label: '🛠️ Jornada' },
           { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
+          { v: 'deploy', label: '🚜 Despliegue' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -630,6 +841,8 @@ export default function ReportsScreen({ route }: any) {
                 // Jornada y Maquinaria arrancan en la semana base (26/06 → 05/07);
                 // el usuario puede ampliar el rango (añadir días) con los botones.
                 if (t.v === 'rounds' || t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
+                // Despliegue arranca desde la semana base hasta HOY (editable).
+                if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
               }}
               style={{
                 flex: 1,
@@ -708,7 +921,15 @@ export default function ReportsScreen({ route }: any) {
         )}
         <TouchableOpacity
           style={styles.genBtn}
-          onPress={() => (mode === 'fuel' ? generate() : mode === 'rounds' ? generateRounds(from, to, roundsCompanySel === '__all__' ? null : roundsCompanySel) : generateFleet())}
+          onPress={() =>
+            mode === 'fuel'
+              ? generate()
+              : mode === 'rounds'
+              ? generateRounds(from, to, roundsCompanySel === '__all__' ? null : roundsCompanySel)
+              : mode === 'fleet'
+              ? generateFleet()
+              : generateDeploy()
+          }
           disabled={loading}
         >
           <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
@@ -716,7 +937,9 @@ export default function ReportsScreen({ route }: any) {
               ? '📊 Generar reporte de combustible'
               : mode === 'rounds'
               ? '🛠️ Generar reporte de jornada'
-              : '🚚 Generar reporte de maquinaria/vehículo'}
+              : mode === 'fleet'
+              ? '🚚 Generar reporte de maquinaria/vehículo'
+              : '🚜 Descargar despliegue de maquinaria (PDF)'}
           </Text>
         </TouchableOpacity>
       </Card>

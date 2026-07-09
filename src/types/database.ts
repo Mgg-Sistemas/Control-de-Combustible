@@ -72,6 +72,7 @@ export interface Machinery {
   initial_cost: number | null; // costo inicial de la máquina (margen de ganancia)
   useful_value: number | null; // valor útil de la máquina (margen de ganancia)
   daily_consumption_l: number | null; // consumo diario de combustible (L) — tope de surtido = 2×
+  operator_id: string | null; // operador asignado por defecto (rol operador) — para la vista de operador
   grupo: string | null;
   encargado: string | null;
   tipo: string | null; // tipo de máquina (Jumbo, Tractor, Chuto...) — para agrupar reportes

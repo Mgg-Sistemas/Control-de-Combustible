@@ -663,5 +663,13 @@ alter table public.dispatches add column if not exists fuel_end numeric(12,2);
 alter table public.machinery add column if not exists daily_consumption_l numeric(12,2);
 
 -- ============================================================================
+-- VISTA DE OPERADOR: operador asignado por defecto a cada máquina.
+-- El usuario con rol 'operador' entra a su propia pantalla y ve/gestiona la
+-- máquina cuyo operator_id es su perfil (puede cambiar a otra si hace falta).
+-- ============================================================================
+alter table public.machinery add column if not exists operator_id uuid references public.profiles(id) on delete set null;
+comment on column public.machinery.operator_id is 'Operador asignado por defecto (rol operador). El operador ve/gestiona esta máquina en su vista.';
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
