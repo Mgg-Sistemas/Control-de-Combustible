@@ -190,6 +190,8 @@ export default function ReportsScreen({ route }: any) {
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
+  // Estado de la flota (para el bloque final del informe por jornada).
+  const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number }>({ total: 0, operativa: 0, transito: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
@@ -316,6 +318,17 @@ export default function ReportsScreen({ route }: any) {
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : x.company.localeCompare(y.company)
     );
     list.forEach((g) => g.machines.sort((x, y) => x.tipo.localeCompare(y.tipo) || x.machine.localeCompare(y.machine)));
+
+    // Estado de la flota: total de activos, en producción (trabajaron) y en tránsito
+    // (activas que aún no trabajaron = pendientes de incorporación), según el alcance.
+    const machAll = await selectAllRows('machinery', 'active, company:company_id(name)');
+    const inScope = (machAll ?? []).filter((m: any) =>
+      m.active && (!companyArg || (m.company?.name ?? 'Sin empresa') === companyArg)
+    );
+    const totalActivos = inScope.length;
+    const enProduccion = list.reduce((s, g) => s + g.machines.length, 0);
+    setFleetStatus({ total: totalActivos, operativa: enProduccion, transito: Math.max(0, totalActivos - enProduccion) });
+
     setRoundsCompany(companyArg ?? null);
     setRoundGroups(list);
     setLoading(false);
@@ -358,6 +371,12 @@ export default function ReportsScreen({ route }: any) {
       <div class="muted">Informe por jornada · del ${from} al ${to}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
+      <h2 style="margin-top:20px">Estado de la flota de maquinaria</h2>
+      <table><tbody>
+        <tr><td style="width:70%"><b>Total de activos</b></td><td style="text-align:right;font-weight:800">${fleetStatus.total} unidades</td></tr>
+        <tr><td><b>Capacidad operativa actual</b><br/><span class="muted">Operativas y en producción (con jornada en el período)</span></td><td style="text-align:right;font-weight:800">${fleetStatus.operativa} unidades${fleetStatus.total > 0 ? ` (${Math.round((fleetStatus.operativa / fleetStatus.total) * 100)}%)` : ''}</td></tr>
+        <tr><td><b>Unidades en tránsito</b><br/><span class="muted">En camino a las instalaciones / pendientes de incorporación</span></td><td style="text-align:right;font-weight:800">${fleetStatus.transito} unidades</td></tr>
+      </tbody></table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
     await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
   };
@@ -826,6 +845,25 @@ export default function ReportsScreen({ route }: any) {
               </View>
             ))
           )}
+
+          {/* Estado de la flota de maquinaria */}
+          {roundGroups.length > 0 ? (
+            <Card style={{ marginTop: spacing.md }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Estado de la flota de maquinaria</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Total de activos</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fleetStatus.total} unidades</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>Capacidad operativa actual{'\n'}<Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>Operativas y en producción</Text></Text>
+                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 13 }}>{fleetStatus.operativa} unidades{fleetStatus.total > 0 ? ` (${Math.round((fleetStatus.operativa / fleetStatus.total) * 100)}%)` : ''}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>Unidades en tránsito{'\n'}<Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>En camino / pendientes de incorporación</Text></Text>
+                <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 13 }}>{fleetStatus.transito} unidades</Text>
+              </View>
+            </Card>
+          ) : null}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setRoundsPreview(false)}>
