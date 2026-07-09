@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
+import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
@@ -75,6 +76,14 @@ export default function EquiposScreen({ navigation }: any) {
   const [fuelTrace, setFuelTrace] = useState<FuelRow[]>([]);
   const [fuelSurtido, setFuelSurtido] = useState(0);
   const [fuelWorked, setFuelWorked] = useState(0);
+  // Registrar un surtido (despacho) a la máquina desde su vista de combustible.
+  const [regOpen, setRegOpen] = useState(false);
+  const [regDate, setRegDate] = useState('');
+  const [regLiters, setRegLiters] = useState('');
+  const [regTank, setRegTank] = useState('');
+  const [regOperator, setRegOperator] = useState('');
+  const [regSaving, setRegSaving] = useState(false);
+  const [tanks, setTanks] = useState<{ id: string; name: string; fuel: string }[]>([]);
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -205,6 +214,49 @@ export default function EquiposScreen({ navigation }: any) {
   // ── Traza de combustible (surtido) por máquina ───────────────────────────────
   const fuelConsumed = fuelFor?.expected_lph != null ? fuelWorked * Number(fuelFor.expected_lph) : null;
   const fuelLast = fuelTrace[0]?.date ?? null;
+
+  // Tanques disponibles (para el selector al registrar un surtido).
+  useEffect(() => {
+    supabase.from('tanks').select('id, name, fuel').order('name').then(({ data }) => {
+      setTanks((data ?? []) as { id: string; name: string; fuel: string }[]);
+    });
+  }, []);
+
+  // Fecha de hoy en ISO (para el valor por defecto del calendario).
+  const todayISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
+  };
+
+  const abrirRegistro = () => {
+    setRegDate(todayISO());
+    setRegLiters('');
+    setRegTank(tanks[0]?.id ?? '');
+    setRegOperator('');
+    setRegOpen(true);
+  };
+
+  // Inserta un despacho de combustible a la máquina actual y refresca la traza.
+  const registrarSurtido = async () => {
+    if (!fuelFor) return;
+    const liters = Number((regLiters || '').replace(',', '.'));
+    if (!isFinite(liters) || liters <= 0) return Alert.alert('Aviso', 'Ingresa los litros surtidos (mayor a 0).');
+    if (!regTank) return Alert.alert('Aviso', 'Selecciona el tanque de origen.');
+    if (!regDate) return Alert.alert('Aviso', 'Selecciona la fecha.');
+    setRegSaving(true);
+    const { error } = await supabase.from('dispatches').insert({
+      dispatch_date: regDate,
+      asset_kind: 'maquinaria',
+      machinery_id: fuelFor.id,
+      liters,
+      tank_id: regTank,
+      driver_operator: regOperator.trim() || null,
+    });
+    setRegSaving(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setRegOpen(false);
+    await openFuel(fuelFor); // recarga la traza y totales
+  };
 
   const openFuel = async (m: Machinery) => {
     setFuelFor(m);
@@ -899,7 +951,10 @@ export default function EquiposScreen({ navigation }: any) {
                     ))
                   )}
 
-                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={downloadFuelPdf}>
+                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={abrirRegistro}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>➕ Registrar surtido</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={downloadFuelPdf}>
                     <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
                   </TouchableOpacity>
                 </>
@@ -907,6 +962,62 @@ export default function EquiposScreen({ navigation }: any) {
               <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setFuelFor(null)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
+
+              {/* Formulario para registrar un surtido a esta máquina */}
+              <Modal visible={regOpen} transparent animationType="fade" onRequestClose={() => setRegOpen(false)}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+                  <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: spacing.sm }}>➕ Registrar surtido · {fuelFor.code}</Text>
+
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Fecha</Text>
+                    <DateField value={regDate} onChange={setRegDate} />
+
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Litros</Text>
+                    <TextInput
+                      value={regLiters}
+                      onChangeText={setRegLiters}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={colors.muted}
+                      style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }}
+                    />
+
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Tanque de origen</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {tanks.length === 0 ? (
+                        <Text style={{ color: colors.warning, fontSize: 12 }}>No hay tanques registrados.</Text>
+                      ) : tanks.map((tk) => {
+                        const on = regTank === tk.id;
+                        return (
+                          <TouchableOpacity key={tk.id} onPress={() => setRegTank(tk.id)}
+                            style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13 }}>{tk.name}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Conductor / Operador (opcional)</Text>
+                    <TextInput
+                      value={regOperator}
+                      onChangeText={setRegOperator}
+                      placeholder="Nombre"
+                      placeholderTextColor={colors.muted}
+                      autoCapitalize="words"
+                      style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }}
+                    />
+
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                      <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setRegOpen(false)} disabled={regSaving}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={registrarSurtido} disabled={regSaving}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{regSaving ? 'Guardando…' : 'Guardar surtido'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
             </>
           ) : null}
         </Screen>
