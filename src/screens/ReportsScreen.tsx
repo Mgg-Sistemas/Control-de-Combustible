@@ -63,7 +63,8 @@ type FleetItem = {
 };
 type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
 
-// Corte para las horas trabajadas acumuladas que se muestran en el reporte de flota.
+// Período de las jornadas que resume el reporte de flota (horas trabajadas).
+const FLEET_HOURS_START = '2026-06-26';
 const FLEET_HOURS_CUTOFF = '2026-07-05';
 // Dinero con 2 decimales y redondeo estándar.
 const money2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -465,7 +466,7 @@ export default function ReportsScreen({ route }: any) {
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
-      <div class="muted">Del ${from} al ${to}</div>
+      <div class="muted">Del ${FLEET_HOURS_START} al ${FLEET_HOURS_CUTOFF}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -473,7 +474,7 @@ export default function ReportsScreen({ route }: any) {
       <h2>Detalle de la empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`
       : `
-      <div class="muted">Del ${from} al ${to}</div>
+      <div class="muted">Del ${FLEET_HOURS_START} al ${FLEET_HOURS_CUTOFF}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
@@ -802,7 +803,7 @@ export default function ReportsScreen({ route }: any) {
           <SectionTitle>Maquinaria/Vehículo por empresa</SectionTitle>
           <ReportHeader title="REPORTE DE MAQUINARIA/VEHÍCULOS" colors={colors} />
           <Card>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Consumo del {from} al {to}</Text>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {FLEET_HOURS_START} al {FLEET_HOURS_CUTOFF}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
               <View>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
