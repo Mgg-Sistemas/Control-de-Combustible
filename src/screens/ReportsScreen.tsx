@@ -654,6 +654,13 @@ export default function ReportsScreen({ route }: any) {
       {/* Vista previa: control de rondas */}
       <Modal visible={roundsPreview} animationType="slide" onRequestClose={() => setRoundsPreview(false)}>
         <Screen>
+          <TouchableOpacity
+            onPress={() => setRoundsPreview(false)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, alignSelf: 'flex-start', paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>Informe por rondas</SectionTitle>
           <ReportHeader title="INFORME POR RONDAS" colors={colors} />
           <Card>

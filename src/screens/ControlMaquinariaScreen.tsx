@@ -131,6 +131,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
+  const [summaryOpen, setSummaryOpen] = useState(false); // panel de chips del reporte resumen
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
 
@@ -457,6 +458,73 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     await exportPdf(html);
   };
 
+  // Reporte RESUMEN de la semana actual: total de horas por empresa, por máquina (sin detalle) y total en $.
+  // scope: '__all__' (general) o un company_id.
+  const openSummary = async (scope: string) => {
+    const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope));
+    // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
+    type Row = { name: string; serial: string | null; worked: number; amount: number };
+    const groups = new Map<string, { company: string; rows: Row[]; worked: number; amount: number }>();
+    for (const m of inScope) {
+      let worked = 0, units = 0;
+      for (const d of weekDays) {
+        const b = rounds[rkey(m.id, d)];
+        if (!b) continue;
+        worked += workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+        units += payUnitsFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0));
+      }
+      if (worked <= 0 && units <= 0) continue; // solo máquinas con actividad en la semana
+      const amount = units * (m.price_per_hour ?? 0);
+      const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
+      const g = groups.get(cname) ?? { company: cname, rows: [], worked: 0, amount: 0 };
+      g.rows.push({ name: m.code, serial: m.serial ?? null, worked, amount });
+      g.worked += worked; g.amount += amount;
+      groups.set(cname, g);
+    }
+    const companyList = [...groups.values()].sort((a, b) => a.company.localeCompare(b.company));
+    companyList.forEach((g) => g.rows.sort((a, b) => b.worked - a.worked));
+    const grandH = companyList.reduce((s, g) => s + g.worked, 0);
+    const grandUSD = companyList.reduce((s, g) => s + g.amount, 0);
+
+    const sections = companyList
+      .map((g) => {
+        const rows = g.rows
+          .map((r) =>
+            `<tr><td>${r.name}${r.serial ? `<br/><span style="color:#888;font-size:9px">${r.serial}</span>` : ''}</td>` +
+            `<td style="text-align:center;font-weight:700">${r.worked} h</td>` +
+            `<td style="text-align:right;font-weight:700">${r.amount ? usd(r.amount) : '—'}</td></tr>`
+          )
+          .join('');
+        return `
+        <h3 class="emp">🏢 ${g.company} — ${g.rows.length} máquina(s) · ${g.worked} h · ${usd(g.amount)}</h3>
+        <table class="sum"><thead><tr><th>Máquina</th><th>Total horas</th><th>Total $</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL ${g.company}</td>
+          <td style="text-align:center;font-weight:800">${g.worked} h</td>
+          <td style="text-align:right;font-weight:800">${usd(g.amount)}</td></tr></tfoot></table>`;
+      })
+      .join('');
+
+    const scopeLabel = scope === '__all__' ? 'General — todas las empresas' : scope === '__none__' ? 'Sin empresa' : companies[scope] ?? 'Empresa';
+    const html = pdfDocument({
+      title: 'Resumen de maquinaria',
+      subtitle: `${scopeLabel} · ${dayLabel(weekStart)} → ${dayLabel(weekEnd)} · ${dayCount} día(s)`,
+      extraCss: `
+        h3.emp{font-size:13px;font-weight:800;color:#1E3A5F;margin:16px 0 4px}
+        table.sum{width:100%;border-collapse:collapse;font-size:11px}
+        table.sum th,table.sum td{border:1px solid #ccc;padding:5px 8px;text-align:left}
+        table.sum th{background:#1E3A5F;color:#fff}
+        table.sum tfoot td{background:#EEF2F7}
+        .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
+      body: `
+        ${sections || '<p style="text-align:center;color:#888">Sin máquinas con actividad en la semana.</p>'}
+        <div class="grand">Total general: ${grandH} h · ${usd(grandUSD)}</div>
+        <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas.</p>`,
+    });
+    await exportPdf(html);
+  };
+
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {
     const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
     if (error) return Alert.alert('Aviso', error.message);
@@ -587,12 +655,35 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '700' }}>📅 Esta semana</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => navigation?.navigate('More', { screen: 'Reports', params: { autoReport: 'rounds', date: weekStart, dateTo: weekEnd, company: reportCompanyName, nonce: Date.now() } })}
+            onPress={() => setSummaryOpen((v) => !v)}
             style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: 'center' }}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte{reportCompanyName ? ' · empresa' : ''}</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte {summaryOpen ? '▴' : '▾'}</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Reporte resumen: chips (General + por empresa) → abren la previa del PDF (horas y $, sin detalle). */}
+        {summaryOpen ? (
+          <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+              Resumen de la semana: total de horas por empresa y por máquina (sin detalle) + total en $. Toca un chip para ver la previa del PDF.
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+              {([{ label: '📊 General', value: '__all__' }, ...companyOptions
+                .filter((o) => o.value !== '__all__' && o.count > 0)
+                .map((o) => ({ label: `🏢 ${o.label}`, value: o.value }))]).map((chip) => (
+                <TouchableOpacity
+                  key={chip.value}
+                  onPress={() => openSummary(chip.value)}
+                  activeOpacity={0.7}
+                  style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, backgroundColor: chip.value === '__all__' ? colors.primary : colors.surfaceAlt }}
+                >
+                  <Text style={{ color: chip.value === '__all__' ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{chip.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        ) : null}
         {/* Días del bloque: por defecto 7, pero se pueden añadir (8, 10, …). */}
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>Días en el bloque: {dayCount}</Text>
