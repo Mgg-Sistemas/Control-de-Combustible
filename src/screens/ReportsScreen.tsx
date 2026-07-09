@@ -59,6 +59,7 @@ type FleetItem = {
   liters: number;
   worked: number; // horas trabajadas acumuladas hasta el 05/07/2026
   amount: number; // total a pagar por esas horas (horas × precio/hora)
+  pricePerHour: number; // precio por hora = precio jornada ÷ 12
 };
 type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
 
@@ -386,6 +387,7 @@ export default function ReportsScreen({ route }: any) {
         liters: mLit.get(m.id) ?? 0,
         worked,
         amount: (worked / 12) * price,
+        pricePerHour: price / 12,
       });
     });
     (vehs ?? []).forEach((v: any) =>
@@ -400,6 +402,7 @@ export default function ReportsScreen({ route }: any) {
         liters: vLit.get(v.id) ?? 0,
         worked: 0,
         amount: 0,
+        pricePerHour: 0,
       })
     );
     setFleetItems(items);
@@ -414,12 +417,12 @@ export default function ReportsScreen({ route }: any) {
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Descripción</th><th style="text-align:left">Placa</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th></tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total</th></tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.desc}</td><td>${i.plate ?? '—'}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td></tr>`
+                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right">${i.worked} h</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td></tr>`
             )
-            .join('')}</tbody></table>`
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td></tr></tfoot></table>`
       )
       .join('');
     const sub = onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general';
@@ -434,30 +437,31 @@ export default function ReportsScreen({ route }: any) {
     );
     const grandWorked = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.worked, 0), 0);
     const grandAmount = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.amount, 0), 0);
+    const phStr = (amount: number, worked: number) => (worked > 0 ? '$' + money2(amount / worked) : '—');
     const typeRows = Array.from(typeAgg.entries())
       .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
       .map(
         ([tipo, a]) =>
-          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td></tr>`
+          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td></tr>`
       )
       .join('');
     const companyCountRows = companies
       .map((c) => {
         const w = c.items.reduce((s, i) => s + i.worked, 0);
         const am = c.items.reduce((s, i) => s + i.amount, 0);
-        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td></tr>`;
+        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td><td style="text-align:right">${phStr(am, w)}</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td></tr>`;
       })
       .join('');
     const generalBlock = `
       <h2>Reporte general</h2>
       <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
-      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${typeRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>
+      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${typeRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${companyCountRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>`;
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas ≤05/07</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${companyCountRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td><td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td></tr></tfoot></table>`;
     // GENERAL = solo resumen (por tipo + por empresa). POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
       ? `
