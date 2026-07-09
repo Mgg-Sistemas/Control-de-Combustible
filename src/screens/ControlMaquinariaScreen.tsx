@@ -141,6 +141,11 @@ function dayLabel(iso: string): string {
   const dow = (d.getDay() + 6) % 7;
   return `${DOW_LABELS[dow]} ${`${d.getDate()}`.padStart(2, '0')}/${`${d.getMonth() + 1}`.padStart(2, '0')}`;
 }
+/** Formatea una fecha ISO "AAAA-MM-DD" como "DD/MM/AAAA" (día, mes, año). */
+function fmtDMY(iso: string): string {
+  const [y, m, d] = (iso || '').split('-');
+  return y && m && d ? `${d}/${m}/${y}` : (iso || '');
+}
 
 export default function ControlMaquinariaScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -343,7 +348,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         } as ClosureMachine;
       });
     const uniqueMachines = new Set(snapshot.map((s) => s.machineId || s.serial || s.code)).size;
-    const rangeTxt = from === to ? `del ${from}` : `del ${from} al ${to}`;
+    const rangeTxt = from === to ? `del ${fmtDMY(from)}` : `del ${fmtDMY(from)} al ${fmtDMY(to)}`;
     setClosing(false);
     const ok = await confirm({
       title: 'Cerrar control',
@@ -381,8 +386,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Si el cierre se abrió desde una empresa, el PDF sale solo con sus máquinas.
     const machs = (c.detail?.machines ?? []).filter((m) => !closureCompany || (m.company || 'Sin empresa') === closureCompany);
     const range = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
-      ? `del ${c.detail.dateFrom} al ${c.detail.dateTo}`
-      : `del ${c.detail?.dateFrom ?? c.closure_date}`;
+      ? `del ${fmtDMY(c.detail.dateFrom)} al ${fmtDMY(c.detail.dateTo)}`
+      : `del ${fmtDMY(c.detail?.dateFrom ?? c.closure_date)}`;
     // Precio POR JORNADA (12 h) de cada máquina. Monto = precio × unidades (12h=1, 6h=0.5).
     const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
@@ -544,7 +549,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       .join('');
 
     const scopeLabel = scope === '__all__' ? 'General — todas las empresas' : scope === '__none__' ? 'Sin empresa' : companies[scope] ?? 'Empresa';
-    const rangeLabel = `${dayLabel(fromArg)} → ${dayLabel(toArg)}`;
+    const rangeLabel = `${fmtDMY(fromArg)} → ${fmtDMY(toArg)}`;
     const html = pdfDocument({
       title: 'Resumen de maquinaria',
       subtitle: `${scopeLabel} · del ${rangeLabel}`,
@@ -1167,8 +1172,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   </Text>
                   {g.items.map(({ c, machines }) => {
                     const rng = c.detail?.dateFrom && c.detail?.dateTo && c.detail.dateFrom !== c.detail.dateTo
-                      ? `${c.detail.dateFrom} → ${c.detail.dateTo}`
-                      : c.detail?.dateFrom ?? c.closure_date;
+                      ? `${fmtDMY(c.detail.dateFrom)} → ${fmtDMY(c.detail.dateTo)}`
+                      : fmtDMY(c.detail?.dateFrom ?? c.closure_date);
                     return (
                       <TouchableOpacity key={g.company + c.id} activeOpacity={0.7} onPress={() => { setClosureSearch(''); setClosureExpanded({}); setClosureCompany(g.company); setClosureSel(c); }}>
                         <Card>
@@ -1202,8 +1207,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               </TouchableOpacity>
               <SectionTitle>
                 Control {closureSel.detail?.dateFrom && closureSel.detail?.dateTo && closureSel.detail.dateFrom !== closureSel.detail.dateTo
-                  ? `del ${closureSel.detail.dateFrom} al ${closureSel.detail.dateTo}`
-                  : `del ${closureSel.detail?.dateFrom ?? closureSel.closure_date}`}
+                  ? `del ${fmtDMY(closureSel.detail.dateFrom)} al ${fmtDMY(closureSel.detail.dateTo)}`
+                  : `del ${fmtDMY(closureSel.detail?.dateFrom ?? closureSel.closure_date)}`}
               </SectionTitle>
               {closureCompany ? (
                 <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800', marginBottom: 2 }}>🏢 {closureCompany}</Text>
