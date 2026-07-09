@@ -938,6 +938,14 @@ export default function EquiposScreen({ navigation }: any) {
               })}
           </View>
 
+          <TouchableOpacity
+            style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
+            onPress={() => downloadReportPdf()}
+            disabled={reportTotal === 0}
+          >
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+          </TouchableOpacity>
+
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{reportTitle}</Text>
             <Text style={{ color: colors.muted, fontSize: 12 }}>{reportTotal} máquina(s)</Text>
@@ -996,13 +1004,6 @@ export default function EquiposScreen({ navigation }: any) {
             )}
           </ScrollView>
 
-          <TouchableOpacity
-            style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1 }}
-            onPress={() => downloadReportPdf()}
-            disabled={reportTotal === 0}
-          >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
-          </TouchableOpacity>
           <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setReportOpen(false)}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
