@@ -13,8 +13,10 @@ create extension if not exists "uuid-ossp";
 -- ENUMS
 -- ============================================================================
 do $$ begin
-  create type user_role as enum ('admin', 'supervisor', 'operador', 'conductor');
+  create type user_role as enum ('admin', 'supervisor', 'analista', 'operador', 'conductor');
 exception when duplicate_object then null; end $$;
+-- 'analista' se agregó después: por si el enum ya existía.
+alter type user_role add value if not exists 'analista';
 
 do $$ begin
   create type fuel_type as enum ('gasolina', 'diesel');
@@ -66,6 +68,11 @@ $$;
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  -- No crear perfil para usuarios ANÓNIMOS (los que solo escanean el QR). El
+  -- perfil del operador se crea al iniciar jornada (set_self_operator).
+  if coalesce(new.is_anonymous, false) then
+    return new;
+  end if;
   insert into public.profiles (id, full_name)
   values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email))
   on conflict (id) do nothing;
@@ -786,10 +793,11 @@ create policy oa_update on public.operator_assignments for update to authenticat
 create or replace function public.set_self_operator(p_full_name text)
 returns void language plpgsql security definer set search_path = public as $$
 begin
-  update public.profiles
-    set full_name = coalesce(nullif(trim(p_full_name), ''), full_name),
-        role = 'operador', active = true
-  where id = auth.uid();
+  insert into public.profiles (id, full_name, role, active)
+  values (auth.uid(), nullif(trim(p_full_name), ''), 'operador', true)
+  on conflict (id) do update
+    set full_name = coalesce(nullif(trim(excluded.full_name), ''), public.profiles.full_name),
+        role = 'operador', active = true;
 end $$;
 grant execute on function public.set_self_operator(text) to authenticated, anon;
 

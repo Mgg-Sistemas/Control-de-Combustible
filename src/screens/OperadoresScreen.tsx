@@ -44,7 +44,7 @@ type Asg = {
   machinery_id: string; company_name: string | null;
   work_date: string; shift: string | null;
   worked_hours: number | null; horometro_inicial: number | null; horometro_final: number | null;
-  code: string;
+  code: string; plate: string | null; serial: string | null;
 };
 type OperatorGroup = { cedula: string; name: string; rows: Asg[] };
 
@@ -60,6 +60,7 @@ export default function OperadoresScreen() {
   const [rows, setRows] = useState<Asg[]>([]);
   const [q, setQ] = useState('');
   const [ws, setWs] = useState<string>(() => weekStart(caracasISO(new Date())));
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // cédula → desplegado
 
   const weekEnd = addDays(ws, 6);
 
@@ -68,7 +69,7 @@ export default function OperadoresScreen() {
     try {
       const data = await selectAllRows(
         'operator_assignments',
-        'id, first_name, last_name, cedula, machinery_id, company_name, work_date, shift, worked_hours, horometro_inicial, horometro_final, machinery:machinery_id(code)',
+        'id, first_name, last_name, cedula, machinery_id, company_name, work_date, shift, worked_hours, horometro_inicial, horometro_final, machinery:machinery_id(code, plate, serial)',
         (query) => query.gte('work_date', ws).lte('work_date', weekEnd),
       );
       const mapped: Asg[] = (data ?? []).map((r: any) => ({
@@ -76,6 +77,7 @@ export default function OperadoresScreen() {
         machinery_id: r.machinery_id, company_name: r.company_name, work_date: r.work_date,
         shift: r.shift, worked_hours: r.worked_hours, horometro_inicial: r.horometro_inicial,
         horometro_final: r.horometro_final, code: r.machinery?.code ?? '—',
+        plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null,
       }));
       setRows(mapped);
     } catch {
@@ -110,14 +112,15 @@ export default function OperadoresScreen() {
         const trs = g.rows
           .map(
             (r) =>
-              `<tr><td>${esc(dayName(r.work_date))} ${esc(fmtDMY(r.work_date))}</td><td>${esc(r.code)}</td><td>${esc(r.company_name || '—')}</td><td>${esc(r.shift ? (SHIFT_LBL[r.shift] || r.shift) : '—')}</td><td style="text-align:right">${r.worked_hours != null ? r.worked_hours + ' h' : '—'}</td><td style="text-align:right">${r.horometro_inicial ?? '—'} → ${r.horometro_final ?? '—'}</td></tr>`,
+              `<tr><td>${esc(dayName(r.work_date))} ${esc(fmtDMY(r.work_date))}</td><td>${esc(r.code)}</td><td>${esc(r.plate || r.serial || '—')}</td><td>${esc(r.company_name || '—')}</td><td>${esc(r.shift ? (SHIFT_LBL[r.shift] || r.shift) : '—')}</td><td style="text-align:right">${r.horometro_inicial ?? '—'}</td><td style="text-align:right">${r.horometro_final ?? '—'}</td><td style="text-align:right;font-weight:700">${r.worked_hours != null ? r.worked_hours + ' h' : '—'}</td></tr>`,
           )
           .join('');
         const maquinas = new Set(g.rows.map((r) => r.code)).size;
-        const horas = g.rows.reduce((s, r) => s + (Number(r.worked_hours) || 0), 0);
-        return `<h3 class="op">👷 ${esc(g.name)} <span class="ci">· C.I ${esc(g.cedula)}</span> <span class="mm">— ${maquinas} máquina(s) · ${horas} h</span></h3>
-          <table><thead><tr><th>Día</th><th>Máquina</th><th>Empresa</th><th>Jornada</th><th>Horas</th><th>Horómetro</th></tr></thead>
-          <tbody>${trs}</tbody></table>`;
+        const horas = Math.round(g.rows.reduce((s, r) => s + (Number(r.worked_hours) || 0), 0) * 100) / 100;
+        return `<h3 class="op">👷 ${esc(g.name)} <span class="ci">· C.I ${esc(g.cedula)}</span> <span class="mm">— ${maquinas} máquina(s) · ${g.rows.length} jornada(s)</span></h3>
+          <table><thead><tr><th>Día</th><th>Máquina</th><th>Placa/Serial</th><th>Empresa</th><th>Jornada</th><th style="text-align:right">HI</th><th style="text-align:right">HF</th><th style="text-align:right">Total</th></tr></thead>
+          <tbody>${trs}</tbody>
+          <tfoot><tr><td colspan="7" style="text-align:right;font-weight:800">TOTAL HORAS SEMANA</td><td style="text-align:right;font-weight:800">${horas} h</td></tr></tfoot></table>`;
       })
       .join('');
     const html = pdfDocument({
@@ -192,25 +195,36 @@ export default function OperadoresScreen() {
         groups.map((g) => {
           const maquinas = new Set(g.rows.map((r) => r.code)).size;
           const horas = g.rows.reduce((s, r) => s + (Number(r.worked_hours) || 0), 0);
+          const open = expanded[g.cedula] ?? false;
           return (
             <Card key={g.cedula}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>👷 {g.name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>C.I {g.cedula}</Text>
-              </View>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>{maquinas} máquina(s) esta semana · {horas} h</Text>
-              {g.rows.map((r) => (
-                <View key={r.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 6 }}>
+              {/* Cabecera: toca para desplegar el detalle del operador. */}
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setExpanded((p) => ({ ...p, [g.cedula]: !open }))}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>👷 {g.name}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>C.I {g.cedula}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{maquinas} máquina(s) · {g.rows.length} jornada(s)</Text>
+                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>Total semana: {Math.round(horas * 100) / 100} h {open ? '▴' : '▾'}</Text>
+                </View>
+              </TouchableOpacity>
+
+              {open ? g.rows.map((r) => (
+                <View key={r.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 6, marginTop: 4 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }}>{dayName(r.work_date)} {fmtDMY(r.work_date)}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{r.shift ? (SHIFT_LBL[r.shift] || r.shift) : ''}{r.worked_hours != null ? ` · ${r.worked_hours} h` : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{r.shift ? (SHIFT_LBL[r.shift] || r.shift) : ''}</Text>
                   </View>
                   <Text style={{ color: colors.text, fontSize: 13 }}>🚜 {r.code} <Text style={{ color: colors.muted }}>· {r.company_name || 'Sin empresa'}</Text></Text>
-                  {r.horometro_inicial != null || r.horometro_final != null ? (
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Horómetro: {r.horometro_inicial ?? '—'} → {r.horometro_final ?? '—'}</Text>
+                  {r.plate || r.serial ? (
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {r.plate ? `Placa: ${r.plate}` : ''}{r.plate && r.serial ? ' · ' : ''}{r.serial ? `Serial: ${r.serial}` : ''}</Text>
                   ) : null}
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    🕒 Horómetro: {r.horometro_inicial ?? '—'} → {r.horometro_final ?? '—'} · <Text style={{ color: colors.success, fontWeight: '700' }}>Total: {r.worked_hours != null ? `${r.worked_hours} h` : '—'}</Text>
+                  </Text>
                 </View>
-              ))}
+              )) : null}
             </Card>
           );
         })

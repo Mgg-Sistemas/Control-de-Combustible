@@ -2,7 +2,7 @@
 // Para regenerar automáticamente desde el esquema:
 //   npx supabase gen types typescript --project-id <ref> > src/types/supabase.ts
 
-export type UserRole = 'admin' | 'supervisor' | 'operador' | 'conductor';
+export type UserRole = 'admin' | 'supervisor' | 'analista' | 'operador' | 'conductor';
 export type FuelType = 'gasolina' | 'diesel';
 export type AuthorizationStatus = 'pendiente' | 'aprobado' | 'rechazado';
 export type AssetKind = 'vehiculo' | 'maquinaria';

@@ -111,21 +111,18 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       // poder leer la máquina y registrar la jornada.
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
-      const [{ data: m }, { data: prof }, { data: tk }, { data: asgRow }] = await Promise.all([
+      const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
         supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
-        supabase.from('operator_assignments').select('*').eq('machinery_id', machineId).is('ended_at', null).order('started_at', { ascending: false }).limit(1).maybeSingle(),
       ]);
       setMachine(m ? ({ ...(m as any), companyName: (m as any).company?.name ?? 'Sin empresa' }) : null);
-      // Jornada activa = tiene entrada y aún no ha marcado salida (o la salida es previa a la entrada).
-      const eAt = (m as any)?.entry_at as string | null;
-      const xAt = (m as any)?.exit_at as string | null;
-      const active = !!eAt && (!xAt || new Date(xAt) < new Date(eAt));
-      setJornadaActive(active);
-      setJornadaStartAt(active ? eAt : null);
-      setJornadaStartDate(active ? ((m as any)?.entry_date ?? caracasParts(new Date(eAt as string)).iso) : null);
-      setAsg((asgRow as OperatorAssignment) ?? null);
+      // Al escanear SIEMPRE se muestra "INICIO DE JORNADA": cada operador empieza
+      // su propia jornada (no se hereda el estado de la máquina ni de otro operador).
+      setJornadaActive(false);
+      setJornadaStartAt(null);
+      setJornadaStartDate(null);
+      setAsg(null);
       setFullName((prof as any)?.full_name ?? '');
       const tks = (tk ?? []) as { id: string; name: string; fuel: string }[];
       setTanks(tks);
