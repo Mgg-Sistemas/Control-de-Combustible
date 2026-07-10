@@ -12,6 +12,10 @@ export type MapPin = {
   active: string;        // "tiempo activa" ya formateado
   operational: boolean;
   company: string;       // empresa (para colorear el pin y la leyenda)
+  tipo?: string | null;          // modelo
+  clasificacion?: string | null; // clasificación
+  plate?: string | null;         // placa
+  serial?: string | null;        // serial
   route: [number, number][];
 };
 
@@ -78,8 +82,16 @@ function buildHtml(pins: MapPin[]): string {
     }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)});
     // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
+    var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var placaSerial = [p.plate ? 'Placa: '+esc(p.plate) : '', p.serial ? 'Serial: '+esc(p.serial) : ''].filter(Boolean).join(' · ');
     var div = document.createElement('div');
-    div.innerHTML = '<b>'+p.name+'</b><br/>🏢 '+co+'<br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa');
+    div.innerHTML = '<b>'+esc(p.name)+'</b><br/>🏢 '+esc(co)
+      + (p.tipo ? '<br/>🏷️ Modelo: '+esc(p.tipo) : '')
+      + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
+      + (placaSerial ? '<br/>🔖 '+placaSerial : '')
+      + '<br/>📍 '+p.lat+', '+p.lng
+      + '<br/>Activa: '+esc(p.active)
+      + '<br/>Estado: '+(p.operational?'Operativa':'No operativa');
     var btn = document.createElement('button');
     btn.textContent = '🗑️ Eliminar ubicación';
     btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
@@ -208,6 +220,11 @@ export function VenezuelaMap({ pins, onDelete }: { pins: MapPin[]; onDelete?: (i
               </Text>
             </View>
             <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
+            {p.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {p.tipo}</Text> : null}
+            {p.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {p.clasificacion}</Text> : null}
+            {p.plate || p.serial ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`].filter(Boolean).join(' · ')}</Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity

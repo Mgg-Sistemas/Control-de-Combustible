@@ -35,7 +35,7 @@ export default function MapScreen() {
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
       .from('machinery')
-      .select('id, code, latitude, longitude, location_at, operational, company:company_id(name)')
+      .select('id, code, tipo, clasificacion, plate, serial, latitude, longitude, location_at, operational, company:company_id(name)')
       .not('latitude', 'is', null);
     const { data: history } = await supabase
       .from('machinery_locations')
@@ -58,6 +58,10 @@ export default function MapScreen() {
       active: elapsedSince(m.location_at),
       operational: m.operational,
       company: m.company?.name ?? 'Sin empresa',
+      tipo: m.tipo ?? null,
+      clasificacion: m.clasificacion ?? null,
+      plate: m.plate ?? null,
+      serial: m.serial ?? null,
       route: routes.get(m.id) ?? [],
     }));
     setPins(built);
