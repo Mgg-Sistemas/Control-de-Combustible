@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { Machinery, MaintenanceMaterial } from '../types/database';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
-import { captureLocation } from '../lib/location';
+import { captureLocation, warmLocation } from '../lib/location';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -92,6 +92,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     const t = setInterval(() => setNowTick(new Date()), 20000);
     return () => clearInterval(t);
   }, []);
+  // Pre-calienta el GPS para que "MAPA" marque la ubicación al instante.
+  useEffect(() => { warmLocation(); }, []);
 
   useEffect(() => {
     (async () => {

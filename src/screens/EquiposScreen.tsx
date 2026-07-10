@@ -6,7 +6,7 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { captureLocation } from '../lib/location';
+import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -111,6 +111,9 @@ export default function EquiposScreen({ navigation }: any) {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
   }, [companies.data]);
+
+  // Pre-calienta el GPS al entrar para que "Marcar ubicación" sea instantáneo.
+  useEffect(() => { warmLocation(); }, []);
 
   // Carga el guardia/militar actual de cada máquina para mostrarlo en la ficha.
   useEffect(() => {
@@ -237,8 +240,14 @@ export default function EquiposScreen({ navigation }: any) {
 
   const run = async (key: string, fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(key);
-    const res = await fn();
-    setBusy(null);
+    let res: { ok: boolean; error?: string } = { ok: false };
+    try {
+      res = await fn();
+    } catch (e: any) {
+      res = { ok: false, error: e?.message ?? 'Ocurrió un error inesperado.' };
+    } finally {
+      setBusy(null); // pase lo que pase, se quita el "Ubicando…" (nunca se cuelga)
+    }
     if (!res.ok && res.error) setNotice('⚠️ ' + res.error);
     if (res.ok) machinery.refetch();
   };
