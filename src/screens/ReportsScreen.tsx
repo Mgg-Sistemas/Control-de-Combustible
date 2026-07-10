@@ -749,7 +749,7 @@ export default function ReportsScreen({ route }: any) {
   const downloadCamionesPdf = async () => {
     if (!camData) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3)}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
+    const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3).toUpperCase()}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
     const cell = `<td class="c"><div class="ln">E</div><div class="ln">S</div></td>`;
     const weeksHtml = camData.weeks
       .map((w) => {
@@ -769,13 +769,15 @@ export default function ReportsScreen({ route }: any) {
     const body = `<style>
       .wk{background:#1E3A5F;color:#fff;font-size:13px;padding:7px 10px;border-radius:5px;margin:16px 0 6px}
       .emp{font-size:12px;color:#1E3A5F;font-weight:800;margin:10px 0 2px}
-      table.cam{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px;margin-bottom:6px}
-      table.cam th,table.cam td{border:1px solid #bbb;padding:2px 3px;text-align:left}
-      table.cam th{background:#1E3A5F;color:#fff}
-      table.cam th.nm,table.cam td.nm{width:14%} table.cam th.ps,table.cam td.ps{width:12%}
-      .dt{font-weight:400;font-size:8px}
+      table.cam{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:6px}
+      table.cam th,table.cam td{border:1px solid #bbb;padding:2px 2px;font-size:8px;line-height:1.05;overflow:hidden;word-break:break-word;vertical-align:middle}
+      table.cam th{background:#1E3A5F;color:#fff;text-align:center}
+      table.cam th.nm,table.cam td.nm{width:18%;text-align:left}
+      table.cam th.ps,table.cam td.ps{width:15%;text-align:left}
+      table.cam th.d,table.cam td.c{width:9.5%;text-align:center}
+      .dt{font-weight:400;font-size:7px}
       table.cam td.c{height:34px;vertical-align:top}
-      table.cam td.c .ln{border-bottom:1px solid #999;font-size:8px;color:#999;padding:1px 2px;height:15px}
+      table.cam td.c .ln{border-bottom:1px solid #999;font-size:7px;color:#999;padding:1px 2px;height:15px;text-align:left}
     </style>
     <div class="muted">${esc(camData.monthLabel)} · Entrada (E) y Salida (S) por día — hoja para registrar</div>
     ${weeksHtml || '<p class="muted">Sin camiones registrados.</p>'}`;
