@@ -77,6 +77,7 @@ export interface Machinery {
   encargado: string | null;
   tipo: string | null; // tipo de máquina (Jumbo, Tractor, Chuto...) — para agrupar reportes
   referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes
+  last_horometro: number | null; // última lectura de horómetro (se arrastra al próximo inicio)
   created_at: string;
 }
 
@@ -133,6 +134,31 @@ export interface MachineRound {
   closed: boolean;
   notes: string | null;
   recorded_by: string | null;
+  horometro_inicial: number | null; // lectura del horómetro al iniciar la jornada
+  horometro_final: number | null;   // lectura del horómetro al finalizar (horas = HF − HI)
+  horometro_photo: string | null;   // foto del horómetro al iniciar
+  created_at: string;
+}
+
+/** Asignación de una máquina a un operador en un día (módulo OPERADORES).
+ *  Regla: 1 máquina por operador por día (único por cédula + fecha). En una
+ *  semana un operador sí puede tener varias máquinas, pero no en el mismo día. */
+export interface OperatorAssignment {
+  id: string;
+  first_name: string;
+  last_name: string;
+  cedula: string;
+  machinery_id: string;
+  company_name: string | null; // empresa de la máquina (para el reporte)
+  work_date: string;           // día de la jornada (ISO Caracas)
+  shift: 'day' | 'night' | null;
+  started_at: string;
+  ended_at: string | null;
+  worked_hours: number | null;
+  horometro_inicial: number | null;
+  horometro_final: number | null;
+  horometro_photo: string | null;
+  created_by: string | null;
   created_at: string;
 }
 

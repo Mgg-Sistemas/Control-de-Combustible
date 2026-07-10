@@ -14,6 +14,9 @@ export type RoundPatch = Partial<{
   day_operator_ci: string | null;
   night_operator: string | null;
   night_operator_ci: string | null;
+  horometro_inicial: number | null;
+  horometro_final: number | null;
+  horometro_photo: string | null;
 }>;
 
 /**
@@ -48,6 +51,9 @@ export async function upsertMachineRound(
     day_operator_ci: ex?.day_operator_ci ?? null,
     night_operator: ex?.night_operator ?? null,
     night_operator_ci: ex?.night_operator_ci ?? null,
+    horometro_inicial: ex?.horometro_inicial ?? null,
+    horometro_final: ex?.horometro_final ?? null,
+    horometro_photo: ex?.horometro_photo ?? null,
     ...patch,
   };
   if (recordedBy && !ex) payload.recorded_by = recordedBy;

@@ -20,6 +20,40 @@ function decodeB64(b64: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Toma/selecciona una foto (p. ej. del horómetro) y la sube al bucket 'machinery'
+ * en una subcarpeta, devolviendo la URL pública. NO modifica la máquina.
+ * Intenta abrir la cámara; si no hay permiso/soporte, cae a la galería.
+ */
+export async function captureAndUploadPhoto(
+  machineryId: string,
+  folder = 'horometro'
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  let res: ImagePicker.ImagePickerResult | null = null;
+  try {
+    const cam = await ImagePicker.requestCameraPermissionsAsync();
+    if (cam.granted) {
+      res = await ImagePicker.launchCameraAsync({ quality: 0.5, base64: true });
+    }
+  } catch {
+    res = null;
+  }
+  // Sin cámara disponible o permiso denegado → galería / selector de archivo.
+  if (!res || res.canceled || !res.assets?.[0]?.base64) {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return { ok: false, error: 'Permiso de cámara/galería denegado.' };
+    res = await ImagePicker.launchImageLibraryAsync({ quality: 0.5, base64: true });
+  }
+  if (!res || res.canceled || !res.assets?.[0]?.base64) return { ok: false };
+
+  const bytes = decodeB64(res.assets[0].base64);
+  const path = `${machineryId}/${folder}/${Date.now()}.jpg`;
+  const up = await supabase.storage.from('machinery').upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
+  if (up.error) return { ok: false, error: up.error.message };
+  const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+  return { ok: true, url: data.publicUrl };
+}
+
 /** Selecciona una imagen, la sube al bucket 'machinery' y guarda la URL en la máquina. */
 export async function pickAndUploadPhoto(
   machineryId: string

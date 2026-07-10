@@ -738,5 +738,47 @@ create index if not exists idx_guard_machine on public.machine_guards(machinery_
 create index if not exists idx_guard_active on public.machine_guards(active);
 
 -- ============================================================================
+-- HORÓMETRO por jornada: se captura al iniciar (inicial + foto) y al finalizar
+-- (final). Horas de la jornada = HF − HI. El HF se arrastra como próximo HI
+-- (machinery.last_horometro). Sirve para el consumo por horómetro (litros/horas).
+-- ============================================================================
+alter table public.machinery       add column if not exists last_horometro   numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_inicial numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_final   numeric(12,2);
+alter table public.machine_rounds  add column if not exists horometro_photo   text;
+
+-- ============================================================================
+-- OPERADORES: asignación de una máquina a un operador en un día. Al iniciar
+-- jornada (vista QR) se pide nombre/apellido/cédula (sin login). Regla: 1
+-- máquina por operador por día (único cédula+fecha); en una semana sí puede
+-- tener varias máquinas, pero no el mismo día. Guarda empresa y horómetro.
+-- ============================================================================
+create table if not exists public.operator_assignments (
+  id uuid primary key default gen_random_uuid(),
+  first_name text not null,
+  last_name text not null,
+  cedula text not null,
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  company_name text,
+  work_date date not null,
+  shift text,                            -- 'day' | 'night'
+  started_at timestamptz not null default now(),
+  ended_at timestamptz,
+  worked_hours numeric(6,2),
+  horometro_inicial numeric(12,2),
+  horometro_final numeric(12,2),
+  horometro_photo text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists uq_operator_day on public.operator_assignments(cedula, work_date);
+create index if not exists idx_opasg_machine on public.operator_assignments(machinery_id);
+create index if not exists idx_opasg_date on public.operator_assignments(work_date);
+alter table public.operator_assignments enable row level security;
+create policy oa_read on public.operator_assignments for select to authenticated using (true);
+create policy oa_insert on public.operator_assignments for insert to authenticated with check (true);
+create policy oa_update on public.operator_assignments for update to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
