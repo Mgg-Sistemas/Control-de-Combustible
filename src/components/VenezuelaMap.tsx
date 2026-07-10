@@ -66,16 +66,17 @@ function buildHtml(pins: MapPin[]): string {
     companyCount[co] = (companyCount[co] || 0) + 1;
   });
 
-  // Grupo con TODAS las rutas (para poder verlas/ocultarlas con un botón).
+  // Marcadores y rutas guardados con su empresa, para poder FILTRAR por empresa.
   var routeGroup = L.layerGroup();
-  var bounds = [];
+  var allMarkers = []; // {marker, company, latlng}
+  var allRoutes = [];  // {layer, company}
   pins.forEach(function(p){
     var co = p.company || 'Sin empresa';
     var color = companyColor[co];
     if (p.route && p.route.length > 1){
-      L.polyline(p.route, {color:color, weight:3, opacity:0.7}).addTo(routeGroup);
+      allRoutes.push({ layer: L.polyline(p.route, {color:color, weight:3, opacity:0.7}), company: co });
     }
-    var mk = L.marker([p.lat, p.lng], {icon: pin(color)}).addTo(map);
+    var mk = L.marker([p.lat, p.lng], {icon: pin(color)});
     // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
     var div = document.createElement('div');
     div.innerHTML = '<b>'+p.name+'</b><br/>🏢 '+co+'<br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa');
@@ -86,15 +87,30 @@ function buildHtml(pins: MapPin[]): string {
     div.appendChild(document.createElement('br'));
     div.appendChild(btn);
     mk.bindPopup(div);
-    bounds.push([p.lat, p.lng]);
+    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng] });
   });
-  if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
+
+  // Estado del filtro: empresa seleccionada (null = todas) y si las rutas están visibles.
+  var currentCompany = null;
+  var routesOn = true;
+  // Aplica el filtro: muestra solo los pines/rutas de la empresa elegida (o todas) y reencuadra.
+  function refresh(){
+    var bounds = [];
+    allMarkers.forEach(function(o){
+      if (currentCompany === null || o.company === currentCompany){ o.marker.addTo(map); bounds.push(o.latlng); }
+      else { map.removeLayer(o.marker); }
+    });
+    routeGroup.clearLayers();
+    allRoutes.forEach(function(o){
+      if (currentCompany === null || o.company === currentCompany){ o.layer.addTo(routeGroup); }
+    });
+    if (routesOn){ routeGroup.addTo(map); } else { map.removeLayer(routeGroup); }
+    if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
+  }
 
   // ── Botón VER / OCULTAR RUTA (icono de ojo, SVG — no emoji) ──────────────
-  routeGroup.addTo(map); // rutas visibles por defecto
   var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
   var EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-  var routesOn = true;
   var RouteToggle = L.Control.extend({
     options: { position: 'topright' },
     onAdd: function(){
@@ -107,35 +123,58 @@ function buildHtml(pins: MapPin[]): string {
       L.DomEvent.on(a, 'click', function(e){
         L.DomEvent.stop(e);
         routesOn = !routesOn;
-        if (routesOn){ routeGroup.addTo(map); a.innerHTML = EYE; a.title = 'Ocultar ruta'; }
-        else { map.removeLayer(routeGroup); a.innerHTML = EYE_OFF; a.title = 'Ver ruta'; }
+        a.innerHTML = routesOn ? EYE : EYE_OFF;
+        a.title = routesOn ? 'Ocultar ruta' : 'Ver ruta';
+        refresh();
       });
       return c;
     }
   });
   map.addControl(new RouteToggle());
 
-  // ── LEYENDA por empresa: color + cantidad de máquinas ubicadas ───────────
+  // ── LEYENDA por empresa (clicable): filtra el mapa a esa empresa; "General" = todas ──
   var Legend = L.Control.extend({
     options: { position: 'bottomleft' },
     onAdd: function(){
       var c = L.DomUtil.create('div', '');
-      c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:190px;overflow:auto;min-width:150px';
-      var total = pins.length;
-      var rows = companyOrder.slice().sort(function(a,b){ return companyCount[b]-companyCount[a] || a.localeCompare(b); }).map(function(co){
-        return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'
-          + '<span style="width:12px;height:12px;border-radius:50%;background:'+companyColor[co]+';border:1px solid #0003;flex:0 0 auto"></span>'
-          + '<span style="flex:1">'+co+'</span>'
-          + '<b style="margin-left:6px">'+companyCount[co]+'</b></div>';
-      }).join('');
-      c.innerHTML = '<div style="font-weight:800;margin-bottom:4px">Máquinas por empresa</div>'+rows
-        + '<div style="border-top:1px solid #ddd;margin-top:5px;padding-top:4px;display:flex;justify-content:space-between"><span>Total ubicadas</span><b>'+total+'</b></div>';
+      c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:210px;overflow:auto;min-width:170px';
+      var ordered = companyOrder.slice().sort(function(a,b){ return companyCount[b]-companyCount[a] || a.localeCompare(b); });
+      function render(){
+        var total = pins.length;
+        var genActive = currentCompany === null;
+        var gen = '<div data-co="__all__" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px;'+(genActive?'background:#1E3A5F;color:#fff;':'')+'">'
+          + '<span style="width:12px;height:12px;border-radius:50%;background:#1E3A5F;border:1px solid #0003;flex:0 0 auto"></span>'
+          + '<span style="flex:1;font-weight:700">🌐 General (todas)</span>'
+          + '<b style="margin-left:6px">'+total+'</b></div>';
+        var rows = ordered.map(function(co){
+          var active = currentCompany === co;
+          return '<div data-co="'+encodeURIComponent(co)+'" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px;'+(active?'background:'+companyColor[co]+';color:#fff;':'')+'">'
+            + '<span style="width:12px;height:12px;border-radius:50%;background:'+companyColor[co]+';border:1px solid #0003;flex:0 0 auto"></span>'
+            + '<span style="flex:1">'+co+'</span>'
+            + '<b style="margin-left:6px">'+companyCount[co]+'</b></div>';
+        }).join('');
+        var shownN = genActive ? total : (companyCount[currentCompany] || 0);
+        c.innerHTML = '<div style="font-weight:800;margin-bottom:4px">Máquinas por empresa</div>'+gen+rows
+          + '<div style="border-top:1px solid #ddd;margin-top:5px;padding-top:4px;display:flex;justify-content:space-between"><span>'+(genActive?'Total ubicadas':'Mostrando')+'</span><b>'+shownN+'</b></div>';
+      }
+      render();
+      L.DomEvent.on(c, 'click', function(e){
+        var el = e.target;
+        while (el && el !== c && !(el.getAttribute && el.getAttribute('data-co'))) el = el.parentNode;
+        if (!el || el === c) return;
+        var co = el.getAttribute('data-co');
+        currentCompany = (co === '__all__') ? null : decodeURIComponent(co);
+        render();
+        refresh();
+      });
       L.DomEvent.disableClickPropagation(c);
       L.DomEvent.disableScrollPropagation(c);
       return c;
     }
   });
   map.addControl(new Legend());
+
+  refresh(); // pinta todo al inicio (todas las empresas)
 </script></body></html>`;
 }
 
