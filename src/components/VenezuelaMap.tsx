@@ -11,6 +11,7 @@ export type MapPin = {
   lng: number;
   active: string;        // "tiempo activa" ya formateado
   operational: boolean;
+  company: string;       // empresa (para colorear el pin y la leyenda)
   route: [number, number][];
 };
 
@@ -56,18 +57,28 @@ function buildHtml(pins: MapPin[]): string {
   }
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
+  // Paleta de colores por EMPRESA (cada empresa un color distinto).
+  var PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#DB2777','#0891B2','#65A30D','#EA580C','#0D9488','#9333EA','#CA8A04','#4F46E5','#BE123C','#15803D','#B45309'];
+  var companyColor = {}; var companyCount = {}; var companyOrder = [];
+  pins.forEach(function(p){
+    var co = p.company || 'Sin empresa';
+    if (!(co in companyColor)) { companyColor[co] = PALETTE[companyOrder.length % PALETTE.length]; companyOrder.push(co); }
+    companyCount[co] = (companyCount[co] || 0) + 1;
+  });
+
   // Grupo con TODAS las rutas (para poder verlas/ocultarlas con un botón).
   var routeGroup = L.layerGroup();
   var bounds = [];
   pins.forEach(function(p){
-    var color = p.operational ? '#15803D' : '#B91C1C';
+    var co = p.company || 'Sin empresa';
+    var color = companyColor[co];
     if (p.route && p.route.length > 1){
-      L.polyline(p.route, {color:'#2563EB', weight:3, opacity:0.7}).addTo(routeGroup);
+      L.polyline(p.route, {color:color, weight:3, opacity:0.7}).addTo(routeGroup);
     }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)}).addTo(map);
     // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
     var div = document.createElement('div');
-    div.innerHTML = '<b>'+p.name+'</b><br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa');
+    div.innerHTML = '<b>'+p.name+'</b><br/>🏢 '+co+'<br/>'+p.lat+', '+p.lng+'<br/>Activa: '+p.active+'<br/>Estado: '+(p.operational?'Operativa':'No operativa');
     var btn = document.createElement('button');
     btn.textContent = '🗑️ Eliminar ubicación';
     btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
@@ -103,6 +114,28 @@ function buildHtml(pins: MapPin[]): string {
     }
   });
   map.addControl(new RouteToggle());
+
+  // ── LEYENDA por empresa: color + cantidad de máquinas ubicadas ───────────
+  var Legend = L.Control.extend({
+    options: { position: 'bottomleft' },
+    onAdd: function(){
+      var c = L.DomUtil.create('div', '');
+      c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:190px;overflow:auto;min-width:150px';
+      var total = pins.length;
+      var rows = companyOrder.slice().sort(function(a,b){ return companyCount[b]-companyCount[a] || a.localeCompare(b); }).map(function(co){
+        return '<div style="display:flex;align-items:center;gap:6px;margin:2px 0">'
+          + '<span style="width:12px;height:12px;border-radius:50%;background:'+companyColor[co]+';border:1px solid #0003;flex:0 0 auto"></span>'
+          + '<span style="flex:1">'+co+'</span>'
+          + '<b style="margin-left:6px">'+companyCount[co]+'</b></div>';
+      }).join('');
+      c.innerHTML = '<div style="font-weight:800;margin-bottom:4px">Máquinas por empresa</div>'+rows
+        + '<div style="border-top:1px solid #ddd;margin-top:5px;padding-top:4px;display:flex;justify-content:space-between"><span>Total ubicadas</span><b>'+total+'</b></div>';
+      L.DomEvent.disableClickPropagation(c);
+      L.DomEvent.disableScrollPropagation(c);
+      return c;
+    }
+  });
+  map.addControl(new Legend());
 </script></body></html>`;
 }
 
@@ -135,6 +168,7 @@ export function VenezuelaMap({ pins, onDelete }: { pins: MapPin[]; onDelete?: (i
                 {p.operational ? 'Operativa' : 'No operativa'}
               </Text>
             </View>
+            <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
             <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity
