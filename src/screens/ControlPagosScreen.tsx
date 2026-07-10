@@ -546,14 +546,27 @@ export default function ControlPagosScreen({ navigation }: any) {
       a.total += g.total; a.pag += g.paidAmount; a.saldo += g.saldo;
       byCompany.set(g.company, a);
     });
+    // Nómina por empresa (se descuenta de la cuenta general) y neto final.
+    const nominaOf = (c: string) => nominaByCompany.get(c)?.total ?? 0;
+    let totalNomina = 0;
+    let totalNeto = 0;
     const resumenRows = [...byCompany.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([c, v]) => `<tr><td>${c}</td><td style="text-align:right">$${money(v.total)}</td><td style="text-align:right;color:#087443;font-weight:700">$${money(v.pag)}</td><td style="text-align:right;font-weight:700">$${money(v.saldo)}</td></tr>`)
+      .map(([c, v]) => {
+        const nom = nominaOf(c);
+        const neto = round2(v.saldo - nom);
+        totalNomina += nom; totalNeto += neto;
+        return `<tr><td>${c}</td><td style="text-align:right">$${money(v.total)}</td>` +
+          `<td style="text-align:right;color:#087443;font-weight:700">$${money(v.pag)}</td>` +
+          `<td style="text-align:right;color:#B42318;font-weight:700">${nom > 0 ? '−$' + money(nom) : '—'}</td>` +
+          `<td style="text-align:right;font-weight:800">$${money(neto)}</td></tr>`;
+      })
       .join('');
+    totalNomina = round2(totalNomina); totalNeto = round2(totalNeto);
     const resumenHtml = `<h2 class="res">Resumen ${allCompanies ? 'general por empresa' : repCompanies.length === 1 ? 'de la empresa' : 'por empresa'}</h2>
-      <table><thead><tr><th>Empresa</th><th style="text-align:right">Facturado</th><th style="text-align:right">Abonado</th><th style="text-align:right">Saldo</th></tr></thead>
-      <tbody>${resumenRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">$${money(totalFact)}</td><td style="text-align:right;font-weight:800">$${money(totalPag)}</td><td style="text-align:right;font-weight:800">$${money(totalPend)}</td></tr></tfoot></table>`;
+      <table><thead><tr><th>Empresa</th><th style="text-align:right">Facturado</th><th style="text-align:right">Abonado</th><th style="text-align:right">Pago de nómina</th><th style="text-align:right">Neto a pagar</th></tr></thead>
+      <tbody>${resumenRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">$${money(totalFact)}</td><td style="text-align:right;font-weight:800">$${money(totalPag)}</td><td style="text-align:right;font-weight:800">−$${money(totalNomina)}</td><td style="text-align:right;font-weight:800">$${money(totalNeto)}</td></tr></tfoot></table>`;
     const html = pdfDocument({
       title: 'Control de pagos por maquinaria',
       subtitle: `${title} · del ${fmtDMY(repFrom)} al ${fmtDMY(repTo)}`,
@@ -571,7 +584,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       body: `
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       ${resumenHtml}
-      <div class="tot"><b>Total facturado:</b> $${money(totalFact)} &nbsp;·&nbsp; <b>Total abonado:</b> $${money(totalPag)} &nbsp;·&nbsp; <b>Total pendiente:</b> $${money(totalPend)}</div>`,
+      <div class="tot"><b>Total facturado:</b> $${money(totalFact)} &nbsp;·&nbsp; <b>Total abonado:</b> $${money(totalPag)} &nbsp;·&nbsp; <b>Pago de nómina:</b> −$${money(totalNomina)} &nbsp;·&nbsp; <b>Total neto a pagar:</b> $${money(totalNeto)}</div>`,
     });
     await exportPdf(html);
   };
