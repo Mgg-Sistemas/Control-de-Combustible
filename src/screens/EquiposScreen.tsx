@@ -106,6 +106,33 @@ export default function EquiposScreen({ navigation }: any) {
   // Guardia / militar encargado actual por máquina (historial acumulable).
   const { session } = useAuth();
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
+  // Operadores que ha tenido cada máquina (desplegable en la ficha). Una máquina puede tener varios.
+  type OpItem = { key: string; name: string; cedula: string; last: string; days: number };
+  const [opsOpen, setOpsOpen] = useState<Record<string, boolean>>({}); // machineId → desplegado
+  const [opsByMachine, setOpsByMachine] = useState<Record<string, OpItem[] | 'loading'>>({});
+  const toggleOps = async (machineId: string) => {
+    const willOpen = !opsOpen[machineId];
+    setOpsOpen((p) => ({ ...p, [machineId]: willOpen }));
+    if (willOpen && opsByMachine[machineId] === undefined) {
+      setOpsByMachine((p) => ({ ...p, [machineId]: 'loading' }));
+      const { data } = await supabase
+        .from('operator_assignments')
+        .select('first_name, last_name, cedula, work_date')
+        .eq('machinery_id', machineId)
+        .order('work_date', { ascending: false });
+      // Agrupar por cédula: un operador aparece una vez, con su última fecha y nº de jornadas.
+      const byCed = new Map<string, OpItem>();
+      (data ?? []).forEach((r: any) => {
+        const key = String(r.cedula ?? `${r.first_name} ${r.last_name}`).trim();
+        const g = byCed.get(key) ?? { key, name: `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || '—', cedula: r.cedula ?? '', last: r.work_date, days: 0 };
+        g.days += 1;
+        if (r.work_date > g.last) g.last = r.work_date;
+        byCed.set(key, g);
+      });
+      const list = Array.from(byCed.values()).sort((a, b) => (a.last < b.last ? 1 : -1));
+      setOpsByMachine((p) => ({ ...p, [machineId]: list }));
+    }
+  };
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
@@ -722,6 +749,34 @@ export default function EquiposScreen({ navigation }: any) {
 
       {/* Guardia / militar encargado (asignable aquí y en las rondas; historial acumulable). */}
       <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
+
+      {/* Operadores asignados: una máquina puede tener varios; se despliega la lista. */}
+      <TouchableOpacity
+        onPress={() => toggleOps(m.id)}
+        activeOpacity={0.7}
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}
+      >
+        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>👷 Operadores asignados</Text>
+        <Text style={{ color: colors.muted, fontSize: 13 }}>{opsOpen[m.id] ? '▴' : '▾'}</Text>
+      </TouchableOpacity>
+      {opsOpen[m.id] ? (
+        <View style={{ marginTop: spacing.xs, paddingLeft: spacing.sm }}>
+          {opsByMachine[m.id] === 'loading' ? (
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Cargando…</Text>
+          ) : (opsByMachine[m.id] as OpItem[])?.length ? (
+            (opsByMachine[m.id] as OpItem[]).map((op) => (
+              <View key={op.key} style={{ paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{op.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  {op.cedula ? `C.I. ${op.cedula} · ` : ''}Última: {fmtDMY(op.last)} · {op.days} jornada{op.days === 1 ? '' : 's'}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Sin operadores registrados.</Text>
+          )}
+        </View>
+      ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
