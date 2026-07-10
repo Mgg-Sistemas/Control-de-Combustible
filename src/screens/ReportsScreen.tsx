@@ -99,6 +99,36 @@ function fmtDM(iso: string): string {
   return m && d ? `${d}/${m}` : (iso || '');
 }
 
+// ── Semanas del mes (domingo → sábado, como "semana 2 del 05 al 11/07") ──────
+const MES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const isoUTC = (d: Date) => `${d.getUTCFullYear()}-${`${d.getUTCMonth() + 1}`.padStart(2, '0')}-${`${d.getUTCDate()}`.padStart(2, '0')}`;
+type MonthWeek = { n: number; from: string; to: string; days: { name: string; iso: string }[] };
+/** Semanas (dom→sáb) que intersectan el mes dado (0-based). Numeradas 1..N. */
+function weeksOfMonth(year: number, month0: number): MonthWeek[] {
+  const first = new Date(Date.UTC(year, month0, 1));
+  const last = new Date(Date.UTC(year, month0 + 1, 0));
+  // Domingo en/antes del día 1 (getUTCDay: 0=domingo).
+  const start = new Date(first);
+  start.setUTCDate(first.getUTCDate() - first.getUTCDay());
+  const weeks: MonthWeek[] = [];
+  let cur = start;
+  let n = 0;
+  while (cur <= last) {
+    n += 1;
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(cur);
+      d.setUTCDate(cur.getUTCDate() + i);
+      return { name: DIAS_SEMANA[i], iso: isoUTC(d) };
+    });
+    weeks.push({ n, from: days[0].iso, to: days[6].iso, days });
+    const nx = new Date(cur);
+    nx.setUTCDate(cur.getUTCDate() + 7);
+    cur = nx;
+  }
+  return weeks;
+}
+
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 function nowStamp(): string {
   const d = new Date();
@@ -354,7 +384,13 @@ export default function ReportsScreen({ route }: any) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones'>('fuel');
+  // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
+  const nowRef = new Date();
+  const [camYear, setCamYear] = useState(nowRef.getFullYear());
+  const [camMonth0, setCamMonth0] = useState(nowRef.getMonth());
+  const [camPreview, setCamPreview] = useState(false);
+  const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
@@ -693,6 +729,59 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(html);
   };
 
+  // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
+  // (dom→sáb) del mes elegido. Hoja para registrar entrada/salida por día.
+  const generateCamiones = async () => {
+    setLoading(true);
+    const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, company:company_id(name)');
+    const trucks = (mach ?? [])
+      .filter((m: any) => (canonTipo(m.tipo) || '').toUpperCase().includes('CAMION'))
+      .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
+      .sort((a, b) => a.company.localeCompare(b.company) || (a.code || '').localeCompare(b.code || ''));
+    const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
+    trucks.forEach((t) => { const a = map.get(t.company) ?? []; a.push({ code: t.code, plate: t.plate, serial: t.serial }); map.set(t.company, a); });
+    const companies = [...map.entries()].map(([company, items]) => ({ company, items }));
+    setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: weeksOfMonth(camYear, camMonth0), companies });
+    setLoading(false);
+    setCamPreview(true);
+  };
+
+  const downloadCamionesPdf = async () => {
+    if (!camData) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3)}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
+    const cell = `<td class="c"><div class="ln">E</div><div class="ln">S</div></td>`;
+    const weeksHtml = camData.weeks
+      .map((w) => {
+        const companiesHtml = camData.companies
+          .map((co) => {
+            const rows = co.items
+              .map((t) => `<tr><td class="nm">${esc(t.code)}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
+              .join('');
+            return `<h3 class="emp">🏢 ${esc(co.company)} — ${co.items.length} camión(es)</h3>
+              <table class="cam"><thead><tr><th class="nm">Máquina</th><th class="ps">Placa/Serial</th>${w.days.map(dayTh).join('')}</tr></thead>
+              <tbody>${rows || '<tr><td colspan="9" style="text-align:center">Sin camiones</td></tr>'}</tbody></table>`;
+          })
+          .join('');
+        return `<h2 class="wk">Semana ${w.n} · del ${fmtDMY(w.from)} al ${fmtDMY(w.to)}</h2>${companiesHtml}`;
+      })
+      .join('');
+    const body = `<style>
+      .wk{background:#1E3A5F;color:#fff;font-size:13px;padding:7px 10px;border-radius:5px;margin:16px 0 6px}
+      .emp{font-size:12px;color:#1E3A5F;font-weight:800;margin:10px 0 2px}
+      table.cam{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9px;margin-bottom:6px}
+      table.cam th,table.cam td{border:1px solid #bbb;padding:2px 3px;text-align:left}
+      table.cam th{background:#1E3A5F;color:#fff}
+      table.cam th.nm,table.cam td.nm{width:14%} table.cam th.ps,table.cam td.ps{width:12%}
+      .dt{font-weight:400;font-size:8px}
+      table.cam td.c{height:34px;vertical-align:top}
+      table.cam td.c .ln{border-bottom:1px solid #999;font-size:8px;color:#999;padding:1px 2px;height:15px}
+    </style>
+    <div class="muted">${esc(camData.monthLabel)} · Entrada (E) y Salida (S) por día — hoja para registrar</div>
+    ${weeksHtml || '<p class="muted">Sin camiones registrados.</p>'}`;
+    await exportPdf(pdfShell('CONTROL CAMIONES ENTRADAS/SALIDAS', camData.monthLabel, body));
+  };
+
   const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
     const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
@@ -847,12 +936,13 @@ export default function ReportsScreen({ route }: any) {
       <ConfigBanner />
       <SectionTitle>Reportes</SectionTitle>
 
-      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
         {([
           { v: 'fuel', label: '⛽ Combustible' },
           { v: 'rounds', label: '🛠️ Jornada' },
           { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
           { v: 'deploy', label: '🚜 Despliegue' },
+          { v: 'camiones', label: '🚛 Camiones E/S' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -867,7 +957,9 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
               }}
               style={{
-                flex: 1,
+                flexGrow: 1,
+                flexBasis: '30%',
+                minWidth: 110,
                 paddingVertical: spacing.md,
                 borderRadius: radius.md,
                 alignItems: 'center',
@@ -876,13 +968,38 @@ export default function ReportsScreen({ route }: any) {
                 backgroundColor: active ? colors.primary : colors.surfaceAlt,
               }}
             >
-              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700' }}>{t.label}</Text>
+              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
       <Card>
+        {/* Selector de MES para el reporte de camiones */}
+        {mode === 'camiones' ? (
+          <View>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>Mes del reporte (muestra sus 4–5 semanas)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <TouchableOpacity
+                onPress={() => { const m = camMonth0 - 1; if (m < 0) { setCamMonth0(11); setCamYear((y) => y - 1); } else setCamMonth0(m); }}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>◀</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{MES_NOMBRES[camMonth0]} {camYear}</Text>
+              <TouchableOpacity
+                onPress={() => { const m = camMonth0 + 1; if (m > 11) { setCamMonth0(0); setCamYear((y) => y + 1); } else setCamMonth0(m); }}
+                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>▶</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
+              Solo camiones · agrupados por empresa · hoja para registrar Entrada (E) y Salida (S) por día.
+            </Text>
+          </View>
+        ) : (
+        <>
         <Text style={{ color: colors.muted, fontSize: 13 }}>Rango de fechas</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
@@ -986,6 +1103,8 @@ export default function ReportsScreen({ route }: any) {
             </View>
           </>
         ) : null}
+        </>
+        )}
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>
@@ -995,7 +1114,9 @@ export default function ReportsScreen({ route }: any) {
               ? generateRounds(from, to, repCompanies)
               : mode === 'fleet'
               ? generateFleet()
-              : generateDeploy()
+              : mode === 'deploy'
+              ? generateDeploy()
+              : generateCamiones()
           }
           disabled={loading}
         >
@@ -1006,7 +1127,9 @@ export default function ReportsScreen({ route }: any) {
               ? '🛠️ Generar reporte de jornada'
               : mode === 'fleet'
               ? '🚚 Generar reporte de maquinaria/vehículo'
-              : '🚜 Descargar despliegue de maquinaria (PDF)'}
+              : mode === 'deploy'
+              ? '🚜 Descargar despliegue de maquinaria (PDF)'
+              : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
       </Card>
@@ -1339,6 +1462,61 @@ export default function ReportsScreen({ route }: any) {
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt, marginTop: spacing.md }]} onPress={() => setFleetPreview(false)}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
           </TouchableOpacity>
+        </Screen>
+      </Modal>
+
+      {/* Vista previa: Control camiones Entradas/Salidas (por mes → semanas) */}
+      <Modal visible={camPreview} animationType="slide" onRequestClose={() => setCamPreview(false)}>
+        <Screen>
+          <TouchableOpacity onPress={() => setCamPreview(false)} style={{ alignSelf: 'flex-start', paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>← Volver</Text>
+          </TouchableOpacity>
+          <SectionTitle>Control camiones Entradas/Salidas</SectionTitle>
+          <ReportHeader title="CONTROL CAMIONES ENTRADAS/SALIDAS" colors={colors} />
+          {camData ? (
+            <>
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{camData.monthLabel}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                  {camData.weeks.length} semana(s) · {camData.companies.reduce((s, c) => s + c.items.length, 0)} camión(es) · {camData.companies.length} empresa(s)
+                </Text>
+              </Card>
+
+              <TouchableOpacity style={[styles.genBtn, { marginTop: 0 }]} onPress={downloadCamionesPdf}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF (todas las semanas)</Text>
+              </TouchableOpacity>
+
+              {/* Semanas del mes */}
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>Semanas del mes</Text>
+                {camData.weeks.map((w) => (
+                  <View key={w.n} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Semana {w.n}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>del {fmtDMY(w.from)} al {fmtDMY(w.to)}</Text>
+                  </View>
+                ))}
+              </Card>
+
+              {/* Camiones por empresa */}
+              {camData.companies.map((co) => (
+                <Card key={co.company}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🏢 {co.company} — {co.items.length} camión(es)</Text>
+                  {co.items.map((t) => (
+                    <View key={t.code} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{t.code}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{t.plate || t.serial || '—'}</Text>
+                    </View>
+                  ))}
+                </Card>
+              ))}
+              {camData.companies.length === 0 ? (
+                <Card><Text style={{ color: colors.muted }}>No hay camiones registrados.</Text></Card>
+              ) : null}
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+                En el PDF, cada semana trae una tabla por empresa con columnas por día (E = entrada, S = salida) para registrar a mano.
+              </Text>
+            </>
+          ) : null}
         </Screen>
       </Modal>
     </Screen>

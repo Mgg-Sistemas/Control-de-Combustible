@@ -11,7 +11,8 @@ import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
-import { machineQrUrl, qrSvg, svgDataUri } from '../lib/qr';
+import { machineQrUrl, qrSvg } from '../lib/qr';
+import QrImage from '../components/QrImage';
 import { Machinery, Vehicle, Company } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -910,7 +911,7 @@ export default function EquiposScreen({ navigation }: any) {
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>Código QR de la máquina</Text>
             {qrStr ? (
               <View style={{ backgroundColor: '#fff', padding: spacing.sm, borderRadius: radius.md }}>
-                <Image source={{ uri: svgDataUri(qrStr) }} style={{ width: 240, height: 240 }} resizeMode="contain" />
+                <QrImage svg={qrStr} size={240} />
               </View>
             ) : (
               <Text style={{ color: colors.muted, marginVertical: spacing.lg }}>Generando…</Text>
