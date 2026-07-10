@@ -24,6 +24,17 @@ export type Field =
   | {
       key: string;
       label: string;
+      type: 'suggest';
+      /** Tabla y columna de TEXTO de donde se leen los valores ya usados (para el desplegable). */
+      table: string;
+      column: string;
+      required?: boolean;
+      placeholder?: string;
+      showIf?: ShowIf;
+    }
+  | {
+      key: string;
+      label: string;
       type: 'lookup';
       table: string;
       labelCol: string;
@@ -122,7 +133,7 @@ export function RecordForm({
     }
     setError(null);
     setAskDelete(false);
-    // Cargar opciones de los campos lookup
+    // Cargar opciones de los campos lookup y las sugerencias de los campos "suggest".
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
         let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}`);
@@ -132,6 +143,16 @@ export function RecordForm({
           ...prev,
           [f.key]: (data ?? []).map((r: any) => ({ label: String(r[f.labelCol]), value: r.id })),
         }));
+      } else if (f.type === 'suggest') {
+        const { data } = await supabase.from(f.table).select(f.column);
+        // Valores distintos (MAYÚS, sin espacios extra), ordenados alfabéticamente.
+        const set = new Map<string, string>();
+        (data ?? []).forEach((r: any) => {
+          const v = String(r[f.column] ?? '').trim();
+          if (v) set.set(v.toUpperCase(), v.toUpperCase());
+        });
+        const opts = Array.from(set.values()).sort((a, b) => a.localeCompare(b)).map((v) => ({ label: v, value: v }));
+        setLookups((prev) => ({ ...prev, [f.key]: opts }));
       }
     });
   }, [visible, record]);
@@ -247,6 +268,8 @@ export function RecordForm({
                 </Text>
                 {f.type === 'select' ? (
                   <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+                ) : f.type === 'suggest' ? (
+                  <SuggestSelect options={lookups[f.key] ?? []} value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
                 ) : f.type === 'date' ? (
                   <DateField value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} />
                 ) : f.type === 'lookup' ? (
@@ -419,6 +442,56 @@ function SearchSelect({
         </TouchableOpacity>
       ) : null}
       {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
+    </View>
+  );
+}
+
+/** Campo de texto con desplegable de valores ya usados (reutilizables) y opción de escribir uno nuevo.
+ *  El valor guardado es el TEXTO (no un id), pensado para columnas de texto como `clasificacion`. */
+function SuggestSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+}: {
+  options: Option[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { colors, typography } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const q = (value ?? '').trim().toLowerCase();
+  // Al escribir, filtra las sugerencias; si el campo está vacío las muestra todas.
+  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const exactExists = options.some((o) => o.label.toLowerCase() === q);
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={(t) => onChange(t.toUpperCase())}
+        placeholder={placeholder || 'Escribe o elige una…'}
+        placeholderTextColor={colors.muted}
+        autoCapitalize="characters"
+      />
+      {filtered.length > 0 ? (
+        <View style={styles.grid}>
+          {filtered.slice(0, 30).map((o) => {
+            const active = o.label.toLowerCase() === q;
+            return (
+              <TouchableOpacity key={o.value} onPress={() => onChange(o.label)} style={[styles.gridBtn, active && styles.gridBtnActive]}>
+                <Text numberOfLines={2} style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14, fontWeight: '600', textAlign: 'center' }}>
+                  {o.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+      {q && !exactExists ? (
+        <Text style={[typography.muted, { fontSize: 12 }]}>Se guardará como nueva: “{value.trim()}”.</Text>
+      ) : null}
     </View>
   );
 }

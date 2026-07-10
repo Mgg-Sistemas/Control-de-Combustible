@@ -55,9 +55,18 @@ export const canonTipo = (t?: string | null): string => {
   return up.endsWith('US') ? up : up.replace(/S$/, '');
 };
 
+/** Dimensión por la que se puede agrupar/filtrar la maquinaria: Modelo o Clasificación.
+ *  El "Modelo" se guarda en la columna `tipo` (histórica) y la "Clasificación" en `clasificacion`. */
+export type GroupDim = 'modelo' | 'clasificacion';
+export const DIM_LABEL: Record<GroupDim, string> = { modelo: 'Modelo', clasificacion: 'Clasificación' };
+export const dimRaw = (m: Machinery, dim: GroupDim): string | null | undefined => (dim === 'modelo' ? m.tipo : m.clasificacion);
+/** Valor canónico de la dimensión (MAYÚS, sin plural) para agrupar sin duplicar. */
+export const canonDim = (m: Machinery, dim: GroupDim): string => canonTipo(dimRaw(m, dim));
+
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
-  { key: 'tipo', label: 'Tipo (Jumbo, Tractor, Chuto...)', type: 'text' },
+  { key: 'tipo', label: 'Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
+  { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
   { key: 'referencia', label: 'Referencia / Ubicación', type: 'text' },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
@@ -79,7 +88,8 @@ export default function EquiposScreen({ navigation }: any) {
   const [query, setQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
-  const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | tipo | '__none__'
+  const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
+  const [catDim, setCatDim] = useState<GroupDim>('modelo'); // agrupar el catálogo por Modelo o Clasificación
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
   // Traza de combustible por máquina
@@ -174,20 +184,20 @@ export default function EquiposScreen({ navigation }: any) {
       : m.company_id === companyFilter;
   const matchType = (m: Machinery) => {
     if (typeFilter === '__all__') return true;
-    const t = canonTipo(m.tipo);
+    const t = canonDim(m, catDim);
     return typeFilter === '__none__' ? !t : t === typeFilter;
   };
   const q = query.trim().toLowerCase();
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => String(v).toLowerCase().includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   const machineryList = machinery.data.filter(
-    (m) => matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, companyName(m.company_id)])
+    (m) => matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id)])
   );
-  // Opciones del filtro por tipo (según la empresa elegida), con conteo.
+  // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
     const c = new Map<string, number>();
     machinery.data.filter(matchCompany).forEach((m) => {
-      const t = canonTipo(m.tipo) || '__none__';
+      const t = canonDim(m, catDim) || '__none__';
       c.set(t, (c.get(t) ?? 0) + 1);
     });
     const entries = Array.from(c.entries()).sort((a, b) =>
@@ -195,7 +205,7 @@ export default function EquiposScreen({ navigation }: any) {
     );
     return entries;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machinery.data, companyFilter]);
+  }, [machinery.data, companyFilter, catDim]);
   const vehicleList = vehicles.data.filter((v) => matchQ([v.plate, v.brand, v.model, v.vehicle_type]));
   const totalResults = machineryList.length + vehicleList.length;
   const loading = machinery.loading || vehicles.loading;
@@ -225,7 +235,8 @@ export default function EquiposScreen({ navigation }: any) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportWithPrices, setReportWithPrices] = useState(true); // con $ / sin $
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
-  const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // tipos seleccionados (vacío = todos)
+  const [reportDim, setReportDim] = useState<GroupDim>('modelo'); // agrupar el reporte por Modelo o Clasificación
+  const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // valores seleccionados (vacío = todos)
   const toggleReportType = (t: string) =>
     setReportTypes((prev) => {
       const n = new Set(prev);
@@ -576,10 +587,11 @@ export default function EquiposScreen({ navigation }: any) {
         : scope === '__none__'
         ? machinery.data.filter((m) => !m.company_id)
         : machinery.data.filter((m) => m.company_id === scope);
-    // Filtro por tipos seleccionados (vacío = todos).
+    // Filtro por valores seleccionados de la dimensión activa (vacío = todos).
+    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
     const src = reportTypes.size === 0
       ? srcAll
-      : srcAll.filter((m) => reportTypes.has(canonTipo(m.tipo) || 'Sin tipo'));
+      : srcAll.filter((m) => reportTypes.has(canonDim(m, reportDim) || sinLabel));
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const k = it.company_id ?? '__none__';
@@ -596,8 +608,8 @@ export default function EquiposScreen({ navigation }: any) {
       a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name)
     );
   };
-  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, machinery.data, companyName]);
-  // Tipos disponibles en el alcance elegido (con conteo), para el checklist.
+  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, reportDim, machinery.data, companyName]);
+  // Valores disponibles de la dimensión activa en el alcance elegido (con conteo), para el checklist.
   const reportTypeOptions = useMemo(() => {
     const srcAll =
       reportCompany === '__all__'
@@ -605,25 +617,27 @@ export default function EquiposScreen({ navigation }: any) {
         : reportCompany === '__none__'
         ? machinery.data.filter((m) => !m.company_id)
         : machinery.data.filter((m) => m.company_id === reportCompany);
+    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
     const c = new Map<string, number>();
     srcAll.forEach((m) => {
-      const t = canonTipo(m.tipo) || 'Sin tipo';
+      const t = canonDim(m, reportDim) || sinLabel;
       c.set(t, (c.get(t) ?? 0) + 1);
     });
     return Array.from(c.entries())
       .map(([tipo, count]) => ({ tipo, count }))
-      .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : a.tipo.localeCompare(b.tipo)));
-  }, [reportCompany, machinery.data]);
-  // Subgrupos por TIPO dentro de un conjunto: [['Jumbo', items], ...] con "Sin tipo" al final.
+      .sort((a, b) => (a.tipo === sinLabel ? 1 : b.tipo === sinLabel ? -1 : a.tipo.localeCompare(b.tipo)));
+  }, [reportCompany, reportDim, machinery.data]);
+  // Subgrupos por la dimensión activa dentro de un conjunto, con "Sin …" al final.
   const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
+    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
     const c = new Map<string, Machinery[]>();
     items.forEach((it) => {
-      const t = canonTipo(it.tipo) || 'Sin tipo';
+      const t = canonDim(it, reportDim) || sinLabel;
       if (!c.has(t)) c.set(t, []);
       c.get(t)!.push(it);
     });
     return Array.from(c.entries()).sort((a, b) =>
-      a[0] === 'Sin tipo' ? 1 : b[0] === 'Sin tipo' ? -1 : a[0].localeCompare(b[0])
+      a[0] === sinLabel ? 1 : b[0] === sinLabel ? -1 : a[0].localeCompare(b[0])
     );
   };
   const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
@@ -685,7 +699,7 @@ export default function EquiposScreen({ navigation }: any) {
           <div class="subtotal">Total ${esc(g.name)}: ${g.items.length} máquina(s) · ${gHours} h${withPrices ? ` · $${money(gAmount)}` : ''}</div>`;
       })
       .join('');
-    const tipoFilterNote = reportTypes.size > 0 ? ` · Tipos: ${Array.from(reportTypes).join(', ')}` : '';
+    const tipoFilterNote = ` · Agrupado por ${DIM_LABEL[reportDim]}` + (reportTypes.size > 0 ? ` (${Array.from(reportTypes).join(', ')})` : '');
     return pdfDocument({
       title: titleForScope(scope),
       subtitle: `Total de máquinas: ${total}${tipoFilterNote}`,
@@ -734,6 +748,8 @@ export default function EquiposScreen({ navigation }: any) {
               </Text>
             </View>
             {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+            {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
+            {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
@@ -904,11 +920,24 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Filtro por tipo de maquinaria (chips) */}
+      {/* Filtro por Modelo / Clasificación (chips), con selector de dimensión */}
       <View style={{ marginTop: spacing.sm }}>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tipo</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por {DIM_LABEL[catDim].toLowerCase()}</Text>
+          <View style={{ flexDirection: 'row', gap: 4 }}>
+            {(['modelo', 'clasificacion'] as GroupDim[]).map((d) => {
+              const on = catDim === d;
+              return (
+                <TouchableOpacity key={d} onPress={() => { setCatDim(d); setTypeFilter('__all__'); }}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{DIM_LABEL[d]}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-          {([['__all__', 'Todos'], ...typeOptions.map(([t]) => [t, t === '__none__' ? 'Sin tipo' : t] as [string, string])] as [string, string][]).map(([val, label]) => {
+          {([['__all__', 'Todos'], ...typeOptions.map(([t]) => [t, t === '__none__' ? `Sin ${DIM_LABEL[catDim].toLowerCase()}` : t] as [string, string])] as [string, string][]).map(([val, label]) => {
             const active = typeFilter === val;
             const count = val === '__all__' ? typeOptions.reduce((s, [, n]) => s + n, 0) : (typeOptions.find(([t]) => t === val)?.[1] ?? 0);
             return (
@@ -1375,11 +1404,25 @@ export default function EquiposScreen({ navigation }: any) {
               })}
           </View>
 
-          {/* Checklist de TIPOS (multi-selección). Vacío = todos. */}
+          {/* Agrupar el reporte por Modelo o por Clasificación (uno u otro). */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Agrupar por</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {(['modelo', 'clasificacion'] as GroupDim[]).map((d) => {
+              const on = reportDim === d;
+              return (
+                <TouchableOpacity key={d} onPress={() => { setReportDim(d); setReportTypes(new Set()); }}
+                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{DIM_LABEL[d]}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Checklist de la dimensión activa (multi-selección). Vacío = todos. */}
           {reportTypeOptions.length > 0 ? (
             <View style={{ marginBottom: spacing.sm }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por tipo (marca varios)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por {DIM_LABEL[reportDim].toLowerCase()} (marca varios)</Text>
                 {reportTypes.size > 0 ? (
                   <TouchableOpacity onPress={() => setReportTypes(new Set())}>
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({reportTypes.size})</Text>

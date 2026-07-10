@@ -568,8 +568,12 @@ alter table public.machinery add column if not exists price_per_hour numeric(12,
 alter table public.machinery add column if not exists grupo text;
 alter table public.machinery add column if not exists encargado text;
 
--- Tipo de máquina (Jumbo, Tractor, Chuto...) — agrupa los reportes por tipo.
+-- MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — agrupa reportes por modelo.
+-- (La columna se llama `tipo` por historia; hoy representa el MODELO.)
 alter table public.machinery add column if not exists tipo text;
+
+-- CLASIFICACIÓN de la máquina (Manejo de cargas, Remoción y excavación...) — agrupa reportes por clasificación.
+alter table public.machinery add column if not exists clasificacion text;
 
 -- Referencia / UBICACIÓN de la máquina — se muestra en los reportes.
 alter table public.machinery add column if not exists referencia text;

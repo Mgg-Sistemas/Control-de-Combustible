@@ -75,7 +75,8 @@ export interface Machinery {
   operator_id: string | null; // operador asignado por defecto (rol operador) — para la vista de operador
   grupo: string | null;
   encargado: string | null;
-  tipo: string | null; // tipo de máquina (Jumbo, Tractor, Chuto...) — para agrupar reportes
+  tipo: string | null; // MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — para agrupar
+  clasificacion: string | null; // CLASIFICACIÓN de la máquina (Excavadora, Volteo, Retro...) — para agrupar
   referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes
   last_horometro: number | null; // última lectura de horómetro (se arrastra al próximo inicio)
   created_at: string;
