@@ -15,12 +15,18 @@ import { useTheme } from '../theme/ThemeContext';
 export function Screen({
   children,
   scroll = true,
+  scrollRef: extRef,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
+  scrollRef?: React.MutableRefObject<ScrollView | null>;
 }) {
   const { colors } = useTheme();
   const scrollRef = React.useRef<ScrollView>(null);
+  const setScrollRef = (node: ScrollView | null) => {
+    scrollRef.current = node;
+    if (extRef) extRef.current = node;
+  };
   const [showTop, setShowTop] = React.useState(false);
 
   if (!scroll) {
@@ -34,7 +40,7 @@ export function Screen({
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <ScrollView
-        ref={scrollRef}
+        ref={setScrollRef}
         style={{ flex: 1, backgroundColor: colors.background }}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
         scrollEventThrottle={16}
