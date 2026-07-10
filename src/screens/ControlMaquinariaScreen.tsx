@@ -553,6 +553,82 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     await exportPdf(html, 'Control de Maquinaria - Ver reporte');
   };
 
+  // Reporte tipo CALENDARIO: días como columnas, empresas como filas. Cada celda = nº de
+  // equipos de esa empresa que trabajaron ese día. Última columna = total de equipos de la
+  // empresa que trabajaron en el rango. scope: '__all__' | '__none__' | company_id.
+  const openCalendar = async (scope: string, fromArg: string = sumFrom, toArg: string = sumTo) => {
+    // Lista de días del rango (tope de seguridad: 62 columnas).
+    const days: string[] = [];
+    for (let d = fromArg; d <= toArg && days.length < 62; d = addDaysISO(d, 1)) days.push(d);
+    // Rondas del rango (paginado por si hay >1000).
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (qb) => qb.gte('round_date', fromArg).lte('round_date', toArg));
+    // Una fila por (máquina, fecha) para no duplicar; solo cuenta si trabajó ese día.
+    const byMD = new Map<string, any>();
+    (allRounds ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
+    // Empresa de cada máquina (respetando el alcance elegido).
+    const inScope = (m: Machinery) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope);
+    const companyOf = new Map<string, string>();
+    machines.forEach((m) => { if (inScope(m)) companyOf.set(m.id, m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa'); });
+    // company → day → set de máquinas que trabajaron; company → set total de máquinas.
+    const grid = new Map<string, Map<string, Set<string>>>();
+    const totalByCompany = new Map<string, Set<string>>();
+    const totalByDay = new Map<string, Set<string>>();
+    byMD.forEach((b) => {
+      const worked = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      if (worked <= 0) return;
+      const cname = companyOf.get(b.machinery_id);
+      if (!cname) return; // máquina fuera del alcance
+      const day = b.round_date;
+      if (!grid.has(cname)) grid.set(cname, new Map());
+      const dm = grid.get(cname)!;
+      if (!dm.has(day)) dm.set(day, new Set());
+      dm.get(day)!.add(b.machinery_id);
+      if (!totalByCompany.has(cname)) totalByCompany.set(cname, new Set());
+      totalByCompany.get(cname)!.add(b.machinery_id);
+      if (!totalByDay.has(day)) totalByDay.set(day, new Set());
+      totalByDay.get(day)!.add(b.machinery_id);
+    });
+    const companyList = [...grid.keys()].sort((a, b) => (a === 'Sin empresa' ? 1 : b === 'Sin empresa' ? -1 : a.localeCompare(b)));
+    const dayTh = days.map((d) => `<th>${dayLabel(d).replace(' ', '<br/>')}</th>`).join('');
+    const rowsHtml = companyList
+      .map((cname) => {
+        const dm = grid.get(cname)!;
+        const cells = days
+          .map((d) => {
+            const n = dm.get(d)?.size ?? 0;
+            return `<td style="text-align:center${n ? ';font-weight:700;background:#EAF2FB' : ';color:#bbb'}">${n || '·'}</td>`;
+          })
+          .join('');
+        return `<tr><td style="font-weight:700">🏢 ${cname}</td>${cells}<td style="text-align:center;font-weight:800;background:#1E3A5F;color:#fff">${totalByCompany.get(cname)!.size}</td></tr>`;
+      })
+      .join('');
+    const footCells = days.map((d) => `<td style="text-align:center;font-weight:800">${totalByDay.get(d)?.size ?? 0}</td>`).join('');
+    const grandTotal = new Set<string>();
+    totalByCompany.forEach((set) => set.forEach((id) => grandTotal.add(id)));
+    const scopeLabel = scope === '__all__' ? 'Todas las empresas' : scope === '__none__' ? 'Sin empresa' : companies[scope] ?? 'Empresa';
+    const html = pdfDocument({
+      title: 'Calendario de trabajo por empresa',
+      subtitle: `${scopeLabel} · del ${fmtDMY(fromArg)} al ${fmtDMY(toArg)} · ${days.length} día(s)`,
+      extraCss: `
+        @page{size:landscape;margin:1cm}
+        table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
+        th,td{border:1px solid #ccc;padding:5px 6px}
+        th{background:#1E3A5F;color:#fff;text-align:center;font-size:10px}
+        tfoot td{background:#EEF2F7}
+        .note{color:#666;font-size:11px;margin-top:10px}
+        .legend{margin-top:6px;color:#444;font-size:11px}`,
+      body: `
+      <table>
+        <thead><tr><th style="text-align:left">Empresa</th>${dayTh}<th>Total<br/>equipos</th></tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="${days.length + 2}" style="text-align:center">Sin equipos con trabajo en el rango.</td></tr>`}</tbody>
+        <tfoot><tr><td style="text-align:right;font-weight:800">Equipos por día →</td>${footCells}<td style="text-align:center;font-weight:800;background:#1E3A5F;color:#fff">${grandTotal.size}</td></tr></tfoot>
+      </table>
+      <p class="legend">Cada celda = nº de equipos de la empresa que trabajaron ese día. La última columna es el total de equipos distintos que trabajaron en el rango.</p>
+      <p class="note">Un equipo "trabajó" un día si tuvo horas de turno (día o noche) registradas. Rango: ${fmtDMY(fromArg)} → ${fmtDMY(toArg)}.</p>`,
+    });
+    await exportPdf(html, 'Control de Maquinaria - Calendario de empresas');
+  };
+
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {
     const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
     if (error) return Alert.alert('Aviso', error.message);
@@ -733,6 +809,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* Reporte tipo CALENDARIO: empresas que trabajaron y nº de equipos por día. */}
+            <TouchableOpacity
+              onPress={() => openCalendar(companyFilter, sumFrom, sumTo)}
+              activeOpacity={0.8}
+              style={{ marginTop: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E3A5F' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🗓️ Calendario de empresas (equipos por día)</Text>
+              <Text style={{ color: '#CFE0F5', fontSize: 11, marginTop: 2 }}>Días en columnas · empresas en filas · total de equipos</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
         {/* Días del bloque: por defecto 7, pero se pueden añadir (8, 10, …). */}
