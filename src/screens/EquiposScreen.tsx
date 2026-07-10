@@ -341,6 +341,7 @@ export default function EquiposScreen({ navigation }: any) {
       .hint{margin-top:16px;font-size:12px;color:#333}</style></head>
       <body>
         <div class="name">${qrFor.code}</div>
+        <div class="sub">🏢 ${qrFor.company_id ? (companyName(qrFor.company_id) || 'Sin empresa') : 'Sin empresa'}</div>
         <div class="sub">${(qrFor.tipo || '')}${qrFor.referencia ? ' · ' + qrFor.referencia : ''}</div>
         <div class="qr">${qrStr}</div>
         <div class="hint">Escanea este código para registrar <b>combustible</b>, <b>ubicación</b> o <b>avería</b> de la máquina.</div>
@@ -946,7 +947,10 @@ export default function EquiposScreen({ navigation }: any) {
       <Modal visible={!!qrFor} transparent animationType="fade" onRequestClose={() => setQrFor(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{qrFor?.code}</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>{qrFor?.code}</Text>
+            {qrFor?.company_id ? (
+              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>🏢 {companyName(qrFor.company_id) || 'Sin empresa'}</Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>Código QR de la máquina</Text>
             {qrStr ? (
               <View style={{ backgroundColor: '#fff', padding: spacing.sm, borderRadius: radius.md }}>
