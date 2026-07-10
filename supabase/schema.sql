@@ -779,6 +779,20 @@ create policy oa_read on public.operator_assignments for select to authenticated
 create policy oa_insert on public.operator_assignments for insert to authenticated with check (true);
 create policy oa_update on public.operator_assignments for update to authenticated using (true) with check (true);
 
+-- Al escanear el QR se entra SIN login (sesión anónima). Al iniciar jornada, el
+-- operador se marca a sí mismo como USUARIO con rol OPERADOR (nombre/apellido).
+-- Función security-definer: solo puede fijar rol 'operador' y solo su propia fila.
+-- (Requiere habilitar "Anonymous sign-ins" en Auth del proyecto.)
+create or replace function public.set_self_operator(p_full_name text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.profiles
+    set full_name = coalesce(nullif(trim(p_full_name), ''), full_name),
+        role = 'operador', active = true
+  where id = auth.uid();
+end $$;
+grant execute on function public.set_self_operator(text) to authenticated, anon;
+
 -- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

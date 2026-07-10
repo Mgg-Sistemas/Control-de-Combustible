@@ -195,9 +195,13 @@ function useQrMachineId(): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role } = useAuth();
+  const { session, configured, locked, role, signOut } = useAuth();
   const [qrMachineId, clearQr] = useQrMachineId();
   const { colors } = useTheme();
+  // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
+  const isAnon = !!(session as any)?.user?.is_anonymous;
+  // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
+  const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); }, [isAnon, signOut, clearQr]);
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -209,17 +213,18 @@ export default function RootNavigator() {
       primary: colors.primary,
     },
   };
-  // En modo demo (sin Supabase) o con sesión activa, mostramos la app.
-  const showApp = !configured || !!session;
+  // En modo demo (sin Supabase) o con sesión NO anónima, mostramos la app.
+  const showApp = !configured || (!!session && !isAnon);
   return (
     <NavigationContainer theme={navTheme}>
-      {!showApp ? (
+      {qrMachineId ? (
+        // Se abrió por QR de una máquina: vista rápida SIN login (la pantalla
+        // inicia una sesión anónima para poder registrar la jornada).
+        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} />
+      ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
-      ) : qrMachineId && session ? (
-        // Se abrió por QR de una máquina: vista rápida (combustible/mapa/avería).
-        <MachineQuickScreen machineId={qrMachineId} onExit={clearQr} />
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />

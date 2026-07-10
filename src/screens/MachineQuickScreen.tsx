@@ -107,6 +107,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
 
   useEffect(() => {
     (async () => {
+      // Sin login: si no hay sesión (se abrió por QR), iniciar una ANÓNIMA para
+      // poder leer la máquina y registrar la jornada.
+      const { data: s } = await supabase.auth.getSession();
+      if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }, { data: asgRow }] = await Promise.all([
         supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
@@ -251,6 +255,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       supabase.from('machinery').update({ entry_at: now.toISOString(), entry_date: iso, exit_at: null, exit_date: null }).eq('id', machine.id),
       upsertMachineRound(machine.id, iso, roundPatch, uid),
     ]);
+    // Registrar a esta persona como USUARIO con rol OPERADOR (nombre + apellido).
+    try { await supabase.rpc('set_self_operator', { p_full_name: full }); } catch {}
     setJornadaBusy(false);
     if (eAsg || e2 || r3.error) { setNotice('❌ ' + (eAsg?.message || e2?.message || r3.error)); return; }
     setJornadaActive(true);
@@ -358,7 +364,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           </TouchableOpacity>
 
           {big('#D22B2B', '⛽', 'COMBUSTIBLE', () => { setNotice(null); setView('fuel'); })}
-          {big('#1E9E4A', '🗺️', 'MAPA', () => { setNotice(null); marcarUbicacion(); })}
+          {big('#EA7317', '🗺️', 'MAPA', () => { setNotice(null); marcarUbicacion(); })}
           {big('#2563EB', '🛠️', 'AVERÍA DE MAQUINARIA', () => { setNotice(null); setView('maint'); })}
           {locating ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, justifyContent: 'center' }}>
