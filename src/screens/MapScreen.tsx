@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
@@ -7,9 +7,10 @@ import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
-import { spacing } from '../theme';
+import { spacing, radius } from '../theme';
 
-type TraceRow = { id: string; code: string; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string };
+type TraceRow = { id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string };
+type RoutePoint = { id: string; latitude: number | null; longitude: number | null; note: string | null; recorded_at: string };
 
 function fmt(ts: string): string {
   try {
@@ -24,6 +25,9 @@ export default function MapScreen() {
   const confirm = useConfirm();
   const [pins, setPins] = useState<MapPin[] | null>(null);
   const [trace, setTrace] = useState<TraceRow[]>([]);
+  // Ruta de una máquina (al tocar un registro): puntos por fecha y hora.
+  const [routeFor, setRouteFor] = useState<{ code: string; company: string; plate: string | null; serial: string | null } | null>(null);
+  const [routePoints, setRoutePoints] = useState<RoutePoint[] | null>(null);
 
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
@@ -57,13 +61,16 @@ export default function MapScreen() {
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
       .from('machinery_locations')
-      .select('id, note, latitude, longitude, recorded_at, machinery:machinery_id(code)')
+      .select('id, note, latitude, longitude, recorded_at, machinery:machinery_id(code, plate, serial, company:company_id(name))')
       .order('recorded_at', { ascending: false })
       .limit(40);
     setTrace(
       (tr ?? []).map((r: any) => ({
         id: r.id,
         code: r.machinery?.code ?? '—',
+        company: r.machinery?.company?.name ?? 'Sin empresa',
+        plate: r.machinery?.plate ?? null,
+        serial: r.machinery?.serial ?? null,
         note: r.note,
         latitude: r.latitude,
         longitude: r.longitude,
@@ -104,6 +111,27 @@ export default function MapScreen() {
     [confirm, load]
   );
 
+  // Abre la RUTA de una máquina (todos sus registros de ubicación, por fecha/hora).
+  const openRoute = React.useCallback(async (t: TraceRow) => {
+    setRouteFor({ code: t.code, company: t.company, plate: t.plate, serial: t.serial });
+    setRoutePoints(null);
+    // Ubicamos la máquina por su registro (para traer TODO su historial).
+    const { data: base } = await supabase
+      .from('machinery_locations')
+      .select('machinery_id')
+      .eq('id', t.id)
+      .maybeSingle();
+    const machId = (base as any)?.machinery_id;
+    if (!machId) { setRoutePoints([]); return; }
+    const { data } = await supabase
+      .from('machinery_locations')
+      .select('id, latitude, longitude, note, recorded_at')
+      .eq('machinery_id', machId)
+      .order('recorded_at', { ascending: false })
+      .limit(500);
+    setRoutePoints((data ?? []) as RoutePoint[]);
+  }, []);
+
   // Web: el popup del mapa (iframe) avisa por postMessage al pulsar "Eliminar ubicación".
   useEffect(() => {
     if (typeof window === 'undefined' || !window.addEventListener) return;
@@ -137,22 +165,80 @@ export default function MapScreen() {
         trace.map((t) => {
           const deleted = !!t.note;
           return (
-            <Card key={t.id}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>📍 {t.code}</Text>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
-              </View>
-              {deleted ? (
-                <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>🗑️ {t.note}</Text>
-              ) : (
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                  {t.latitude}, {t.longitude}
-                </Text>
-              )}
-            </Card>
+            <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => openRoute(t)}>
+              <Card>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>📍 {t.code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
+                </View>
+                <Text style={{ color: colors.primary, fontSize: 12, marginTop: 2 }}>🏢 {t.company}</Text>
+                {t.plate || t.serial ? (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    🔖 {t.plate ? `Placa: ${t.plate}` : ''}{t.plate && t.serial ? ' · ' : ''}{t.serial ? `Serial: ${t.serial}` : ''}
+                  </Text>
+                ) : null}
+                {deleted ? (
+                  <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>🗑️ {t.note}</Text>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    {t.latitude}, {t.longitude}
+                  </Text>
+                )}
+                <Text style={{ color: colors.primary, fontSize: 11, marginTop: 4, fontWeight: '700' }}>Toca para ver la ruta por fecha y hora →</Text>
+              </Card>
+            </TouchableOpacity>
           );
         })
       )}
+
+      {/* Ruta de la máquina: historial de ubicaciones por fecha y hora. */}
+      <Modal visible={!!routeFor} animationType="slide" transparent onRequestClose={() => setRouteFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            <View style={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🧭 Ruta · {routeFor?.code}</Text>
+              <Text style={{ color: colors.primary, fontSize: 13 }}>🏢 {routeFor?.company}</Text>
+              {routeFor?.plate || routeFor?.serial ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  🔖 {routeFor?.plate ? `Placa: ${routeFor.plate}` : ''}{routeFor?.plate && routeFor?.serial ? ' · ' : ''}{routeFor?.serial ? `Serial: ${routeFor.serial}` : ''}
+                </Text>
+              ) : null}
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+              {routePoints === null ? (
+                <Loading />
+              ) : routePoints.length === 0 ? (
+                <Text style={{ color: colors.muted }}>Sin registros de ubicación.</Text>
+              ) : (
+                routePoints.map((p, i) => (
+                  <View key={p.id} style={{ flexDirection: 'row', gap: spacing.sm, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, width: 30 }}>{routePoints.length - i}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{fmt(p.recorded_at)}</Text>
+                      {p.note ? (
+                        <Text style={{ color: colors.danger, fontSize: 12 }}>🗑️ {p.note}</Text>
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>{p.latitude}, {p.longitude}</Text>
+                      )}
+                    </View>
+                    {p.latitude != null && p.longitude != null ? (
+                      <Text
+                        onPress={() => { const w: any = globalThis; try { w.open?.(`https://www.google.com/maps?q=${p.latitude},${p.longitude}`, '_blank'); } catch {} }}
+                        style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}
+                      >
+                        Mapa ↗
+                      </Text>
+                    ) : null}
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setRouteFor(null)} style={{ margin: spacing.lg, marginTop: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
