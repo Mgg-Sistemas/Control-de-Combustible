@@ -13,7 +13,10 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
-import { Machinery, Vehicle, Company } from '../types/database';
+import { GuardButton } from '../components/GuardButton';
+import { fetchActiveGuards } from '../lib/guards';
+import { useAuth } from '../context/AuthContext';
+import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -101,10 +104,28 @@ export default function EquiposScreen({ navigation }: any) {
   // QR de la máquina
   const [qrFor, setQrFor] = useState<Machinery | null>(null);
   const [qrStr, setQrStr] = useState<string>('');
+  // Guardia / militar encargado actual por máquina (historial acumulable).
+  const { session } = useAuth();
+  const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
   const companyName = useMemo(() => {
     const m = new Map(companies.data.map((c) => [c.id, c.name]));
     return (id: string | null) => (id ? m.get(id) ?? '' : '');
   }, [companies.data]);
+
+  // Carga el guardia/militar actual de cada máquina para mostrarlo en la ficha.
+  useEffect(() => {
+    const ids = machinery.data.map((m) => m.id);
+    if (ids.length === 0) { setGuards({}); return; }
+    fetchActiveGuards(ids).then(setGuards).catch(() => {});
+  }, [machinery.data]);
+  const refreshGuard = async (machineId: string) => {
+    const map = await fetchActiveGuards([machineId]);
+    setGuards((p) => {
+      const next = { ...p };
+      if (map[machineId]) next[machineId] = map[machineId]; else delete next[machineId];
+      return next;
+    });
+  };
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -594,6 +615,8 @@ export default function EquiposScreen({ navigation }: any) {
                 const worked = workedOf(m);
                 const amount = amountOf(m);
                 tHours += worked; tAmount += amount;
+                const gd = guards[m.id];
+                const guardTxt = gd ? `${gd.rank ? gd.rank + ' ' : ''}${gd.guard_name}` : '—';
                 return `<tr>
                   <td style="text-align:center;font-weight:700">${item}</td>
                   <td>${esc(m.identifier || '—')}</td>
@@ -602,6 +625,7 @@ export default function EquiposScreen({ navigation }: any) {
                   <td>${esc(m.serial || '—')}</td>
                   <td>${esc((m as any).referencia || '—')}</td>
                   <td>${esc(m.encargado || '—')}</td>
+                  <td>🪖 ${esc(guardTxt)}</td>
                   <td>${esc(m.grupo || '—')}</td>
                   <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
                   <td style="text-align:center;font-weight:700">${worked} h</td>
@@ -611,9 +635,9 @@ export default function EquiposScreen({ navigation }: any) {
               .join('');
             gHours += tHours; gAmount += tAmount;
             return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
-              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th>${withPrices ? '<th>Total $</th>' : ''}</tr></thead>
+              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Guardia</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th>${withPrices ? '<th>Total $</th>' : ''}</tr></thead>
               <tbody>${rows}</tbody>
-              <tfoot><tr><td colspan="9" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td>${withPrices ? `<td style="text-align:right;font-weight:800">$${money(tAmount)}</td>` : ''}</tr></tfoot></table>`;
+              <tfoot><tr><td colspan="10" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td>${withPrices ? `<td style="text-align:right;font-weight:800">$${money(tAmount)}</td>` : ''}</tr></tfoot></table>`;
           })
           .join('');
         grandHours += gHours; grandAmount += gAmount;
@@ -683,6 +707,9 @@ export default function EquiposScreen({ navigation }: any) {
           </View>
         </View>
       </TouchableOpacity>
+
+      {/* Guardia / militar encargado (asignable aquí y en las rondas; historial acumulable). */}
+      <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />

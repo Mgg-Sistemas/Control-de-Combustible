@@ -16,6 +16,7 @@ import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
+import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -60,6 +61,7 @@ type FleetItem = {
   worked: number; // horas trabajadas acumuladas hasta el 05/07/2026
   amount: number; // total a pagar por esas horas (horas × precio/hora)
   pricePerHour: number; // precio por hora = precio jornada ÷ 12
+  guard: string | null; // guardia/militar encargado actual (para el reporte)
 };
 type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
 
@@ -637,10 +639,13 @@ export default function ReportsScreen({ route }: any) {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
     });
+    // Guardia/militar actual de cada máquina, para mostrarlo en el reporte.
+    const guardMap = await fetchActiveGuards((mach ?? []).map((m: any) => m.id));
     const items: FleetItem[] = [];
     (mach ?? []).forEach((m: any) => {
       const worked = mHours.get(m.id) ?? 0;
       const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+      const gd = guardMap[m.id];
       items.push({
         name: m.code,
         desc: m.description || '—',
@@ -653,6 +658,7 @@ export default function ReportsScreen({ route }: any) {
         worked,
         amount: (worked / 12) * price,
         pricePerHour: price / 12,
+        guard: gd ? `${gd.rank ? gd.rank + ' ' : ''}${gd.guard_name}` : null,
       });
     });
     (vehs ?? []).forEach((v: any) =>
@@ -668,6 +674,7 @@ export default function ReportsScreen({ route }: any) {
         worked: 0,
         amount: 0,
         pricePerHour: 0,
+        guard: null,
       })
     );
     const filtered = items.filter(
@@ -802,12 +809,12 @@ export default function ReportsScreen({ route }: any) {
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
+                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
             )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="3">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
       )
       .join('');
     const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
