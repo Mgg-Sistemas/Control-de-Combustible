@@ -695,5 +695,23 @@ create index if not exists idx_maint_machine on public.maintenance_requests(mach
 create index if not exists idx_maint_status on public.maintenance_requests(status);
 
 -- ============================================================================
+-- NÓMINA por empresa: monto que se descuenta de la cuenta general de la empresa
+-- en Control de Pagos (total neto = facturado − abonos − nómina).
+-- ============================================================================
+create table if not exists public.payrolls (
+  id uuid primary key default gen_random_uuid(),
+  company_name text not null,
+  amount numeric(14,2) not null,
+  note text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.payrolls enable row level security;
+create policy pr_read on public.payrolls for select to authenticated using (true);
+create policy pr_insert on public.payrolls for insert to authenticated with check (true);
+create policy pr_delete on public.payrolls for delete to authenticated using (true);
+create index if not exists idx_payroll_company on public.payrolls(company_name);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

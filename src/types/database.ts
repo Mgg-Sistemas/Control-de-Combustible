@@ -220,6 +220,15 @@ export interface Dispatch {
   created_at: string;
 }
 
+export interface Payroll {
+  id: string;
+  company_name: string;
+  amount: number;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export type MaintenanceMaterial = 'caucho' | 'aceite' | 'filtro' | 'repuesto';
 export type MaintenanceStatus = 'pendiente' | 'realizado';
 

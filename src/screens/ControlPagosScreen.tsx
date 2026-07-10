@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { DateField } from '../components/DateField';
-import { CompanyPayment, PaymentDetail } from '../types/database';
+import { CompanyPayment, PaymentDetail, Payroll } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -102,7 +102,13 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<Group[]>([]);
   const [payments, setPayments] = useState<CompanyPayment[]>([]);
+  const [payrolls, setPayrolls] = useState<Payroll[]>([]); // nóminas por empresa
   const [selected, setSelected] = useState<Group | null>(null);
+  // Nómina
+  const [nominaFor, setNominaFor] = useState<string | null>(null); // empresa
+  const [nominaAmount, setNominaAmount] = useState('');
+  const [nominaNote, setNominaNote] = useState('');
+  const [savingNomina, setSavingNomina] = useState(false);
   const [query, setQuery] = useState('');
   const [expandedCompany, setExpandedCompany] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
@@ -125,13 +131,14 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const load = async () => {
     setLoading(true);
-    const [rounds, { data: pays }] = await Promise.all([
+    const [rounds, { data: pays }, { data: prs }] = await Promise.all([
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
         'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))'
       ),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
+      supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
     ]);
 
     const map = new Map<string, Group>();
@@ -205,7 +212,46 @@ export default function ControlPagosScreen({ navigation }: any) {
     list.sort((a, b) => (a.weekStart === b.weekStart ? a.company.localeCompare(b.company) : b.weekStart.localeCompare(a.weekStart)));
     setGroups(list);
     setPayments(payList);
+    setPayrolls((prs ?? []) as Payroll[]);
     setLoading(false);
+  };
+
+  // Nómina total por empresa (se descuenta de la cuenta general).
+  const nominaByCompany = useMemo(() => {
+    const m = new Map<string, { total: number; items: Payroll[] }>();
+    payrolls.forEach((p) => {
+      const a = m.get(p.company_name) ?? { total: 0, items: [] };
+      a.total = round2(a.total + (Number(p.amount) || 0));
+      a.items.push(p);
+      m.set(p.company_name, a);
+    });
+    return m;
+  }, [payrolls]);
+
+  const openNomina = (company: string) => {
+    setNominaFor(company);
+    setNominaAmount('');
+    setNominaNote('');
+  };
+  const saveNomina = async () => {
+    if (!nominaFor) return;
+    const amt = Number((nominaAmount || '').replace(/\./g, '').replace(',', '.'));
+    if (!isFinite(amt) || amt <= 0) return;
+    setSavingNomina(true);
+    const { error } = await supabase.from('payrolls').insert({
+      company_name: nominaFor,
+      amount: amt,
+      note: nominaNote.trim() || null,
+      created_by: session?.user?.id ?? null,
+    });
+    setSavingNomina(false);
+    if (error) return;
+    setNominaFor(null);
+    load();
+  };
+  const deleteNomina = async (p: Payroll) => {
+    await supabase.from('payrolls').delete().eq('id', p.id);
+    load();
   };
 
   useEffect(() => {
@@ -597,6 +643,10 @@ export default function ControlPagosScreen({ navigation }: any) {
           const open = !!expandedCompany[company];
           // Total que se debe = suma de los SALDOS pendientes (descontando abonos).
           const debt = weeks.reduce((s, g) => s + g.saldo, 0);
+          // Nómina de la empresa: se descuenta de la cuenta general.
+          const nomina = nominaByCompany.get(company);
+          const nominaTotal = nomina?.total ?? 0;
+          const neto = round2(debt - nominaTotal);
           // Máquinas con jornada = máquinas distintas que trabajaron en la empresa.
           const machineSet = new Set<string>();
           weeks.forEach((g) => machinesOf(g).forEach((m) => machineSet.add(m.machine)));
@@ -606,14 +656,44 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
-                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(debt)}</Text>
+                    <Text style={{ color: neto > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(neto)}</Text>
                   </View>
+                  {nominaTotal > 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                      Facturado ${money(debt)} · 🧾 Nómina −${money(nominaTotal)}
+                    </Text>
+                  ) : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machineSet.size} máquina(s) con jornada · {weeks.length} semana(s)</Text>
                     <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                   </View>
                 </Card>
               </TouchableOpacity>
+
+              {/* Botón NÓMINA (descuenta de la cuenta general de la empresa) */}
+              <TouchableOpacity
+                onPress={() => openNomina(company)}
+                style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 NÓMINA</Text>
+              </TouchableOpacity>
+              {open && nomina && nomina.items.length > 0 ? (
+                <Card>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, marginBottom: spacing.xs }}>🧾 Nóminas de {company}</Text>
+                  {nomina.items.map((p) => (
+                    <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>−${money(Number(p.amount))}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{(p.created_at || '').slice(0, 10)}{p.note ? ` · ${p.note}` : ''}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => deleteNomina(p)} style={{ padding: spacing.xs }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  <Text style={{ color: colors.text, fontWeight: '800', marginTop: spacing.xs }}>Total nómina: −${money(nominaTotal)}</Text>
+                </Card>
+              ) : null}
               {open ? weeks.map((g) => {
                 const partial = g.paidAmount > 0 && !g.fullyPaid;
                 return (
@@ -652,6 +732,43 @@ export default function ControlPagosScreen({ navigation }: any) {
           );
         })
       )}
+
+      {/* ── Nómina de la empresa ── */}
+      <Modal visible={!!nominaFor} transparent animationType="fade" onRequestClose={() => setNominaFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>🧾 Nómina · {nominaFor}</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>
+              El monto se descuenta de la cuenta general de la empresa.
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Monto de la nómina</Text>
+            <TextInput
+              value={nominaAmount}
+              onChangeText={setNominaAmount}
+              keyboardType="numeric"
+              placeholder="0,00"
+              placeholderTextColor={colors.muted}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 18, fontWeight: '700' }}
+            />
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
+            <TextInput
+              value={nominaNote}
+              onChangeText={setNominaNote}
+              placeholder="Detalle…"
+              placeholderTextColor={colors.muted}
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+              <TouchableOpacity onPress={() => setNominaFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveNomina} disabled={savingNomina} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{savingNomina ? 'Guardando…' : 'Registrar nómina'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Detalle de la cuenta (empresa + semana) ── */}
       <Modal visible={!!selected} animationType="slide" onRequestClose={() => setSelected(null)}>
