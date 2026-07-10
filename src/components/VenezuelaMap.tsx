@@ -105,6 +105,7 @@ function buildHtml(pins: MapPin[]): string {
   // Estado del filtro: empresa seleccionada (null = todas) y si las rutas están visibles.
   var currentCompany = null;
   var routesOn = true;
+  var legendCollapsed = false;
   // Aplica el filtro: muestra solo los pines/rutas de la empresa elegida (o todas) y reencuadra.
   function refresh(){
     var bounds = [];
@@ -154,6 +155,12 @@ function buildHtml(pins: MapPin[]): string {
       function render(){
         var total = pins.length;
         var genActive = currentCompany === null;
+        // Encabezado con botón para ocultar/mostrar (colapsar) la lista.
+        var head = '<div data-toggle="1" style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-weight:800;'+(legendCollapsed?'':'margin-bottom:4px')+'">'
+          + '<span>Máquinas por empresa</span>'
+          + '<span style="font-size:14px;color:#1E3A5F">'+(legendCollapsed?'▸':'▾')+'</span></div>';
+        if (legendCollapsed){ c.style.overflow='visible'; c.innerHTML = head; return; }
+        c.style.overflow='auto';
         var gen = '<div data-co="__all__" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px;'+(genActive?'background:#1E3A5F;color:#fff;':'')+'">'
           + '<span style="width:12px;height:12px;border-radius:50%;background:#1E3A5F;border:1px solid #0003;flex:0 0 auto"></span>'
           + '<span style="flex:1;font-weight:700">🌐 General (todas)</span>'
@@ -166,12 +173,16 @@ function buildHtml(pins: MapPin[]): string {
             + '<b style="margin-left:6px">'+companyCount[co]+'</b></div>';
         }).join('');
         var shownN = genActive ? total : (companyCount[currentCompany] || 0);
-        c.innerHTML = '<div style="font-weight:800;margin-bottom:4px">Máquinas por empresa</div>'+gen+rows
+        c.innerHTML = head+gen+rows
           + '<div style="border-top:1px solid #ddd;margin-top:5px;padding-top:4px;display:flex;justify-content:space-between"><span>'+(genActive?'Total ubicadas':'Mostrando')+'</span><b>'+shownN+'</b></div>';
       }
       render();
       L.DomEvent.on(c, 'click', function(e){
         var el = e.target;
+        // ¿Se tocó el encabezado? → ocultar/mostrar la lista.
+        var t = e.target;
+        while (t && t !== c && !(t.getAttribute && t.getAttribute('data-toggle'))) t = t.parentNode;
+        if (t && t !== c){ legendCollapsed = !legendCollapsed; render(); return; }
         while (el && el !== c && !(el.getAttribute && el.getAttribute('data-co'))) el = el.parentNode;
         if (!el || el === c) return;
         var co = el.getAttribute('data-co');
