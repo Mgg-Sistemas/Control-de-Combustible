@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Machinery, MaintenanceMaterial } from '../types/database';
 import { insertMachineDispatch } from '../lib/dispatches';
+import { upsertMachineRound } from '../lib/machineRounds';
 import { captureLocation } from '../lib/location';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -14,6 +15,27 @@ function todayISO(): string {
   const m = `${d.getMonth() + 1}`.padStart(2, '0');
   const day = `${d.getDate()}`.padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+// ── Hora real de Caracas (America/Caracas, UTC−4, sin horario de verano) ──────
+const CARACAS_TZ = 'America/Caracas';
+/** Fecha ISO y hora (0–23) del momento `d` en Caracas. */
+function caracasParts(d: Date): { iso: string; hour: number; minute: number } {
+  const p: any = new Intl.DateTimeFormat('en-US', {
+    timeZone: CARACAS_TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d).reduce((a: any, x) => { a[x.type] = x.value; return a; }, {});
+  return { iso: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24, minute: Number(p.minute) };
+}
+/** Reloj de Caracas en formato 12 h con a. m./p. m. (ej. "06:45 p. m."). */
+function caracasClock(d: Date): string {
+  return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(d);
+}
+/** Jornada según la hora de inicio: día 6:00–17:59, noche el resto. */
+function shiftOf(hour: number): { key: 'day' | 'night'; label: string } {
+  return hour >= 6 && hour < 18
+    ? { key: 'day', label: '☀️ Jornada de día' }
+    : { key: 'night', label: '🌙 Jornada de noche' };
 }
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 
@@ -59,14 +81,33 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const [maintNote, setMaintNote] = useState('');
   const [savingMaint, setSavingMaint] = useState(false);
 
+  // Jornada (INICIO / FIN) sincronizada con Control de maquinaria.
+  const [jornadaActive, setJornadaActive] = useState(false);
+  const [jornadaStartAt, setJornadaStartAt] = useState<string | null>(null);   // entry_at (ISO UTC)
+  const [jornadaStartDate, setJornadaStartDate] = useState<string | null>(null); // día (ISO Caracas) de la ronda
+  const [jornadaBusy, setJornadaBusy] = useState(false);
+  const [nowTick, setNowTick] = useState<Date>(new Date());
+  // Reloj en vivo (refresca cada 20 s) para mostrar la hora de Caracas y la jornada.
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(new Date()), 20000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     (async () => {
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, entry_at, exit_at, entry_date, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
       setMachine(m ? ({ ...(m as any), companyName: (m as any).company?.name ?? 'Sin empresa' }) : null);
+      // Jornada activa = tiene entrada y aún no ha marcado salida (o la salida es previa a la entrada).
+      const eAt = (m as any)?.entry_at as string | null;
+      const xAt = (m as any)?.exit_at as string | null;
+      const active = !!eAt && (!xAt || new Date(xAt) < new Date(eAt));
+      setJornadaActive(active);
+      setJornadaStartAt(active ? eAt : null);
+      setJornadaStartDate(active ? ((m as any)?.entry_date ?? caracasParts(new Date(eAt as string)).iso) : null);
       setFullName((prof as any)?.full_name ?? '');
       const tks = (tk ?? []) as { id: string; name: string; fuel: string }[];
       setTanks(tks);
@@ -124,6 +165,50 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     setView('home');
   };
 
+  // ── INICIO DE JORNADA: marca la entrada (hora real) y la sincroniza con
+  //    Control de maquinaria (queda "En obra"). La jornada (día/noche) se define
+  //    por la hora de Caracas de inicio.
+  const iniciarJornada = async () => {
+    if (!machine) return;
+    setJornadaBusy(true); setNotice(null);
+    const now = new Date();
+    const { iso, hour } = caracasParts(now);
+    const patch = { entry_at: now.toISOString(), entry_date: iso, exit_at: null, exit_date: null };
+    const { error } = await supabase.from('machinery').update(patch).eq('id', machine.id);
+    setJornadaBusy(false);
+    if (error) { setNotice('❌ ' + error.message); return; }
+    setJornadaActive(true);
+    setJornadaStartAt(now.toISOString());
+    setJornadaStartDate(iso);
+    setNotice(`✅ Jornada iniciada a las ${caracasClock(now)} (Caracas) · ${shiftOf(hour).label}.`);
+  };
+
+  // ── FIN DE JORNADA: marca la salida y registra las horas trabajadas en la
+  //    ronda del día (turno día o noche según la hora de inicio) + operador.
+  const finalizarJornada = async () => {
+    if (!machine || !jornadaStartAt) return;
+    setJornadaBusy(true); setNotice(null);
+    const now = new Date();
+    const start = new Date(jornadaStartAt);
+    let hours = (now.getTime() - start.getTime()) / 3600000;
+    if (!isFinite(hours) || hours < 0) hours = 0;
+    const sh = shiftOf(caracasParts(start).hour);
+    const roundDate = jornadaStartDate || caracasParts(start).iso;
+    const shiftHours = Math.round(Math.min(12, hours) * 100) / 100; // una jornada no excede 12 h por turno
+    const patch = sh.key === 'day'
+      ? { day_hours: shiftHours, day_operator: fullName || null }
+      : { night_hours: shiftHours, night_operator: fullName || null };
+    const [{ error: e1 }, r2] = await Promise.all([
+      supabase.from('machinery').update({ exit_at: now.toISOString(), exit_date: roundDate }).eq('id', machine.id),
+      upsertMachineRound(machine.id, roundDate, patch, uid),
+    ]);
+    setJornadaBusy(false);
+    if (e1 || r2.error) { setNotice('❌ ' + (e1?.message || r2.error)); return; }
+    setJornadaActive(false);
+    setJornadaStartAt(null);
+    setNotice(`✅ Jornada finalizada a las ${caracasClock(now)} (Caracas) · ${sh.label} · ${shiftHours} h registradas en Control de maquinaria.`);
+  };
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><Loading /></Screen>;
@@ -164,6 +249,24 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
 
       {view === 'home' ? (
         <View style={{ marginTop: spacing.md }}>
+          {/* INICIO / FIN DE JORNADA — verde cuando está en obra, gris cuando no. */}
+          <TouchableOpacity
+            onPress={jornadaActive ? finalizarJornada : iniciarJornada}
+            disabled={jornadaBusy}
+            activeOpacity={0.85}
+            style={{ backgroundColor: jornadaActive ? '#1E9E4A' : '#6B7280', borderRadius: radius.lg, paddingVertical: spacing.xl, alignItems: 'center', marginBottom: spacing.md, opacity: jornadaBusy ? 0.7 : 1 }}
+          >
+            <Text style={{ fontSize: 40 }}>{jornadaActive ? '🟢' : '⏱️'}</Text>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 18, marginTop: spacing.xs, letterSpacing: 0.5 }}>
+              {jornadaBusy ? 'GUARDANDO…' : jornadaActive ? 'FIN DE JORNADA' : 'INICIO DE JORNADA'}
+            </Text>
+            <Text style={{ color: '#fff', opacity: 0.95, fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+              {jornadaActive && jornadaStartAt
+                ? `En obra desde ${caracasClock(new Date(jornadaStartAt))} · ${shiftOf(caracasParts(new Date(jornadaStartAt)).hour).label}`
+                : `Caracas: ${caracasClock(nowTick)} · ${shiftOf(caracasParts(nowTick).hour).label}`}
+            </Text>
+          </TouchableOpacity>
+
           {big('#D22B2B', '⛽', 'COMBUSTIBLE', () => { setNotice(null); setView('fuel'); })}
           {big('#1E9E4A', '🗺️', 'MAPA', () => { setNotice(null); marcarUbicacion(); })}
           {big('#2563EB', '🛠️', 'AVERÍA DE MAQUINARIA', () => { setNotice(null); setView('maint'); })}
