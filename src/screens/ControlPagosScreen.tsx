@@ -480,7 +480,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         <div class="grand">TOTAL GENERAL: ${grandWorked} h · $${money(grandAmount)}</div>
         <p style="color:#666;font-size:11px;margin-top:8px">Horas = (día + noche) − parada + extras · Pago = horas trabajadas × precio por hora (precio jornada ÷ 12) · Días transcurridos = desde la fecha de llegada hasta el fin del período.</p>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, 'Control de Pagos - Reporte por empresa y tipo');
   };
 
   // ── Reporte PDF por empresa y rango de fechas ────────────────────────────────
@@ -586,7 +586,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       ${resumenHtml}
       <div class="tot"><b>Total facturado:</b> $${money(totalFact)} &nbsp;·&nbsp; <b>Total abonado:</b> $${money(totalPag)} &nbsp;·&nbsp; <b>Pago de nómina:</b> −$${money(totalNomina)} &nbsp;·&nbsp; <b>Total neto a pagar:</b> $${money(totalNeto)}</div>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, 'Control de Pagos - Reporte');
   };
 
   if (!canSee('control_pagos')) {

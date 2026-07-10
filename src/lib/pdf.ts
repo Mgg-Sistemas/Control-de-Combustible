@@ -66,19 +66,28 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
  *   solo imprime la página actual, por eso usamos el iframe.
  * - Nativo: genera el archivo y abre la hoja para compartir/guardar.
  */
-export async function exportPdf(html: string): Promise<void> {
+export async function exportPdf(html: string, fileName?: string): Promise<void> {
+  // Nombre sugerido del archivo (sin extensión). En web el navegador lo toma
+  // del título del documento que se imprime; por eso lo pasamos al iframe.
+  const name = sanitizeFileName(fileName);
   if (Platform.OS === 'web') {
-    await printHtmlWeb(html);
+    await printHtmlWeb(html, name);
     return;
   }
   const { uri } = await Print.printToFileAsync({ html });
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Reporte' });
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: name || 'Reporte' });
   }
 }
 
+/** Deja un nombre de archivo válido (sin caracteres prohibidos por el SO). */
+function sanitizeFileName(name?: string): string {
+  if (!name) return '';
+  return name.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
 /** Imprime un HTML propio (no la pantalla) usando un iframe oculto. */
-function printHtmlWeb(html: string): Promise<void> {
+function printHtmlWeb(html: string, fileName?: string): Promise<void> {
   return new Promise((resolve) => {
     const d: any = (globalThis as any).document;
     if (!d || !d.body) {
@@ -95,6 +104,15 @@ function printHtmlWeb(html: string): Promise<void> {
     cdoc.write(html);
     cdoc.close();
 
+    // El navegador usa el título del documento como nombre de archivo sugerido
+    // al "Guardar como PDF". Lo fijamos en el iframe y (respaldo) en la página,
+    // restaurando el de la página al terminar.
+    const prevTitle = d.title;
+    if (fileName) {
+      try { cdoc.title = fileName; } catch (e) {}
+      try { d.title = fileName; } catch (e) {}
+    }
+
     const done = () => {
       try {
         cw.focus();
@@ -106,6 +124,7 @@ function printHtmlWeb(html: string): Promise<void> {
         try {
           iframe.remove();
         } catch (e) {}
+        if (fileName) { try { d.title = prevTitle; } catch (e) {} }
         resolve();
       }, 1000);
     };

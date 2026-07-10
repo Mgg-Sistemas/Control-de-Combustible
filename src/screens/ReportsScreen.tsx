@@ -606,7 +606,7 @@ export default function ReportsScreen({ route }: any) {
       <tfoot><tr><td style="font-weight:800;border-top:2px solid #1E3A5F">TOTAL DE LA FLOTA <span class="muted" style="font-weight:400">(activas + inactivas)</span></td><td style="text-align:right;font-weight:800;border-top:2px solid #1E3A5F">${fleetStatus.totalFlota} unidades</td></tr></tfoot>
       </table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
-    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content));
+    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content), 'Reportes - Jornada');
   };
 
   const generateFleet = async () => {
@@ -730,7 +730,7 @@ export default function ReportsScreen({ route }: any) {
     };
     setLoading(false);
     const html = deployInfographicHtml({ periodLabel: `${fmtDMY(from)} — ${fmtDMY(to)}`, byCo, byTp, inact, totals });
-    await exportPdf(html);
+    await exportPdf(html, 'Reportes - Despliegue');
   };
 
   // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
@@ -750,12 +750,15 @@ export default function ReportsScreen({ route }: any) {
     setCamPreview(true);
   };
 
-  const downloadCamionesPdf = async () => {
+  // weekN: número de semana a imprimir; si es undefined, imprime todas.
+  const downloadCamionesPdf = async (weekN?: number) => {
     if (!camData) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3).toUpperCase()}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
     const cell = `<td class="c"><div class="ln">E</div><div class="ln">S</div></td>`;
-    const weeksHtml = camData.weeks
+    const weeksToPrint = weekN == null ? camData.weeks : camData.weeks.filter((w) => w.n === weekN);
+    const sel = weekN == null ? null : weeksToPrint[0] || null;
+    const weeksHtml = weeksToPrint
       .map((w) => {
         const companiesHtml = camData.companies
           .map((co) => {
@@ -783,9 +786,11 @@ export default function ReportsScreen({ route }: any) {
       table.cam td.c{height:34px;vertical-align:top}
       table.cam td.c .ln{border-bottom:1px solid #999;font-size:7px;color:#999;padding:1px 2px;height:15px;text-align:left}
     </style>
-    <div class="muted">${esc(camData.monthLabel)} · Entrada (E) y Salida (S) por día — hoja para registrar</div>
+    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Entrada (E) y Salida (S) por día — hoja para registrar</div>
     ${weeksHtml || '<p class="muted">Sin camiones registrados.</p>'}`;
-    await exportPdf(pdfShell('CONTROL CAMIONES ENTRADAS/SALIDAS', camData.monthLabel, body));
+    const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
+    const fileLabel = sel ? `Reportes - Camiones E-S Semana ${sel.n}` : 'Reportes - Camiones E-S';
+    await exportPdf(pdfShell('CONTROL CAMIONES ENTRADAS/SALIDAS', subLabel, body), fileLabel);
   };
 
   const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
@@ -865,7 +870,7 @@ export default function ReportsScreen({ route }: any) {
       ${generalBlock}
       <h2>Detalle por empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
-    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body));
+    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body), 'Reportes - Maquinaria-Vehículo');
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -934,7 +939,7 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th>Equipo/Máquina</th><th style="text-align:right">Litros</th></tr></thead><tbody>${assetRows}</tbody></table>
       <h2>Consumo por empresa supervisora</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
-    await exportPdf(pdfShell('REPORTE DE COMBUSTIBLE', 'Consumo de combustible', body));
+    await exportPdf(pdfShell('REPORTE DE COMBUSTIBLE', 'Consumo de combustible', body), 'Reportes - Combustible');
   };
 
   return (
@@ -1001,7 +1006,7 @@ export default function ReportsScreen({ route }: any) {
               </TouchableOpacity>
             </View>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
-              Solo camiones · agrupados por empresa · hoja para registrar Entrada (E) y Salida (S) por día.
+              Solo camiones · agrupados por empresa · puedes descargar el PDF de cada semana por separado (E = entrada, S = salida por día).
             </Text>
           </View>
         ) : (
@@ -1488,20 +1493,28 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
               </Card>
 
-              <TouchableOpacity style={[styles.genBtn, { marginTop: 0 }]} onPress={downloadCamionesPdf}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF (todas las semanas)</Text>
-              </TouchableOpacity>
-
-              {/* Semanas del mes */}
+              {/* Descarga por SEMANA (una hoja por semana) */}
               <Card>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>Semanas del mes</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>Descargar por semana</Text>
                 {camData.weeks.map((w) => (
-                  <View key={w.n} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Semana {w.n}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>del {fmtDMY(w.from)} al {fmtDMY(w.to)}</Text>
+                  <View key={w.n} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Semana {w.n}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>del {fmtDMY(w.from)} al {fmtDMY(w.to)}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => downloadCamionesPdf(w.n)}
+                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md }}
+                    >
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
               </Card>
+
+              <TouchableOpacity style={[styles.genBtn, { marginTop: 0, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }]} onPress={() => downloadCamionesPdf()}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>⬇️ Descargar todo el mes (todas las semanas)</Text>
+              </TouchableOpacity>
 
               {/* Camiones por empresa */}
               {camData.companies.map((co) => (

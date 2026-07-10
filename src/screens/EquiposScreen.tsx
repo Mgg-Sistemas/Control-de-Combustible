@@ -314,7 +314,7 @@ export default function EquiposScreen({ navigation }: any) {
         <div class="hint">Escanea este código para registrar <b>combustible</b>, <b>ubicación</b> o <b>avería</b> de la máquina.</div>
         <div class="u">${url}</div>
       </body></html>`;
-    await exportPdf(html);
+    await exportPdf(html, `Catálogo - QR ${qrFor.code}`);
   };
 
   const openFuel = async (m: Machinery) => {
@@ -382,7 +382,7 @@ export default function EquiposScreen({ navigation }: any) {
       <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin surtidos registrados</td></tr>'}</tbody>
       <tfoot><tr><td colspan="2" style="text-align:right"><b>Total surtido</b></td><td style="text-align:right"><b>${fuelSurtido.toLocaleString()} L</b></td></tr></tfoot></table>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, `Catálogo - Traza de combustible ${fuelFor.code}`);
   };
 
   const saveBatch = async () => {
@@ -642,7 +642,7 @@ export default function EquiposScreen({ navigation }: any) {
     });
   };
   const downloadReportPdf = async (scope: string = reportCompany, withPrices: boolean = true) => {
-    await exportPdf(buildReportHtml(scope, withPrices));
+    await exportPdf(buildReportHtml(scope, withPrices), `Catálogo - Reporte${withPrices ? '' : ' (sin $)'}`);
   };
 
   const renderMachineCard = (m: Machinery) => {

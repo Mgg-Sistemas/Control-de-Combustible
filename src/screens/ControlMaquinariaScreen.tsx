@@ -458,7 +458,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       ${byCompanyHtml}
       <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Monto = horas trabajadas × precio por hora (precio por jornada ÷ 12). Las horas paradas se descuentan del pago.</p>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, 'Control de Maquinaria - Cerrar control');
   };
 
   // Reporte RESUMEN de la semana actual: total de horas por empresa, por máquina (sin detalle) y total en $.
@@ -534,7 +534,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <div class="grand">Total general: ${grandH} h · ${usd(grandUSD)}</div>
         <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas.</p>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, 'Control de Maquinaria - Ver reporte');
   };
 
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {

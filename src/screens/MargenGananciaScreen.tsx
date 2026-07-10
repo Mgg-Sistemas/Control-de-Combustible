@@ -145,7 +145,7 @@ export default function MargenGananciaScreen() {
         <div class="grand">TOTAL GENERAL · Costo: $${money(grand.totalCost)} · Valor útil: $${money(grand.totalValue)} · Margen: ${pctStr(grand.pct)}</div>
         <p class="muted">% de ganancia = (Valor útil − Costo inicial) ÷ Costo inicial × 100. El % por empresa/general solo considera máquinas con ambos datos cargados.</p>`,
     });
-    await exportPdf(html);
+    await exportPdf(html, 'Margen de Ganancia - Reporte');
   };
 
   if (!canSee('margen_ganancia')) {
