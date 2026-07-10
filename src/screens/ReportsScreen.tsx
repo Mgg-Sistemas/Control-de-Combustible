@@ -359,6 +359,8 @@ export default function ReportsScreen({ route }: any) {
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
+  const [typeList, setTypeList] = useState<string[]>([]); // tipos de maquinaria para el filtro
+  const [fleetTypes, setFleetTypes] = useState<string[]>([]); // tipos marcados (vacío = todos)
   // Empresas marcadas para filtrar CUALQUIER reporte (vacío = todas / general).
   const [repCompanies, setRepCompanies] = useState<string[]>([]);
   // Estado de la flota (para el bloque final del informe por jornada).
@@ -628,7 +630,10 @@ export default function ReportsScreen({ route }: any) {
         pricePerHour: 0,
       })
     );
-    setFleetItems(repCompanies.length ? items.filter((it) => repCompanies.includes(it.company)) : items);
+    const filtered = items.filter(
+      (it) => (repCompanies.length === 0 || repCompanies.includes(it.company)) && (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
+    );
+    setFleetItems(filtered);
     setLoading(false);
     setFleetPreview(true);
   };
@@ -774,6 +779,12 @@ export default function ReportsScreen({ route }: any) {
   useEffect(() => {
     supabase.from('companies').select('name').order('name').then(({ data }) => {
       setCompanyList((data ?? []).map((c: any) => c.name).filter(Boolean));
+    });
+    // Lista de tipos de maquinaria (canónicos) para el filtro por tipo.
+    selectAllRows('machinery', 'tipo').then((rows) => {
+      const set = new Set<string>();
+      (rows ?? []).forEach((m: any) => { const t = canonTipo(m.tipo); if (t) set.add(t); });
+      setTypeList(Array.from(set).sort((a, b) => a.localeCompare(b)));
     });
   }, []);
 
@@ -946,6 +957,35 @@ export default function ReportsScreen({ route }: any) {
             );
           })}
         </View>
+
+        {/* Filtro por TIPO de maquinaria (checks) — solo en Maquinaria/Vehículo */}
+        {mode === 'fleet' && typeList.length > 0 ? (
+          <>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo de maquinaria (marca uno o varios)</Text>
+              {fleetTypes.length > 0 ? (
+                <TouchableOpacity onPress={() => setFleetTypes([])}>
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({fleetTypes.length})</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+              {typeList.map((t) => {
+                const on = fleetTypes.includes(t);
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    onPress={() => setFleetTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{t}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
         <TouchableOpacity
           style={styles.genBtn}
           onPress={() =>

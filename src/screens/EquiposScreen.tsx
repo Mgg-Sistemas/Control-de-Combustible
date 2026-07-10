@@ -172,6 +172,7 @@ export default function EquiposScreen({ navigation }: any) {
 
   // Reportes de maquinaria (por empresa o general) con vista previa.
   const [reportOpen, setReportOpen] = useState(false);
+  const [reportWithPrices, setReportWithPrices] = useState(true); // con $ / sin $
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // tipos seleccionados (vacío = todos)
   const toggleReportType = (t: string) =>
@@ -569,7 +570,7 @@ export default function EquiposScreen({ navigation }: any) {
     scope === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(scope) || 'Sin empresa'}`;
   const reportTitle = titleForScope(reportCompany);
 
-  const buildReportHtml = (scope: string) => {
+  const buildReportHtml = (scope: string, withPrices: boolean = true) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const groups = groupsForScope(scope);
     const total = groups.reduce((s, g) => s + g.items.length, 0);
@@ -603,21 +604,21 @@ export default function EquiposScreen({ navigation }: any) {
                   <td>${esc(m.grupo || '—')}</td>
                   <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
                   <td style="text-align:center;font-weight:700">${worked} h</td>
-                  <td style="text-align:right;font-weight:700">${amount ? '$' + money(amount) : '—'}</td>
+                  ${withPrices ? `<td style="text-align:right;font-weight:700">${amount ? '$' + money(amount) : '—'}</td>` : ''}
                 </tr>`;
               })
               .join('');
             gHours += tHours; gAmount += tAmount;
             return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
-              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th><th>Total $</th></tr></thead>
+              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th>${withPrices ? '<th>Total $</th>' : ''}</tr></thead>
               <tbody>${rows}</tbody>
-              <tfoot><tr><td colspan="9" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td><td style="text-align:right;font-weight:800">$${money(tAmount)}</td></tr></tfoot></table>`;
+              <tfoot><tr><td colspan="9" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td>${withPrices ? `<td style="text-align:right;font-weight:800">$${money(tAmount)}</td>` : ''}</tr></tfoot></table>`;
           })
           .join('');
         grandHours += gHours; grandAmount += gAmount;
         return `<h2>🏢 ${esc(g.name.toUpperCase())} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
           ${tipoBlocks}
-          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length} máquina(s) · ${gHours} h · $${money(gAmount)}</div>`;
+          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length} máquina(s) · ${gHours} h${withPrices ? ` · $${money(gAmount)}` : ''}</div>`;
       })
       .join('');
     const tipoFilterNote = reportTypes.size > 0 ? ` · Tipos: ${Array.from(reportTypes).join(', ')}` : '';
@@ -635,12 +636,12 @@ export default function EquiposScreen({ navigation }: any) {
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body:
         (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
-        `<div class="grand">Total de máquinas: ${total} · Horas trabajadas (≤ 05/07/2026): ${grandHours} h · Total a pagar: $${money(grandAmount)}</div>
-         <p class="muted" style="margin-top:6px">Horas = (día + noche) − parada + extras, acumuladas hasta el 05/07/2026 · Total $ = horas trabajadas × precio por hora (precio jornada ÷ 12).</p>`,
+        `<div class="grand">Total de máquinas: ${total} · Horas trabajadas (≤ 05/07/2026): ${grandHours} h${withPrices ? ` · Total a pagar: $${money(grandAmount)}` : ''}</div>
+         <p class="muted" style="margin-top:6px">Horas = (día + noche) − parada + extras, acumuladas hasta el 05/07/2026${withPrices ? ' · Total $ = horas trabajadas × precio por hora (precio jornada ÷ 12).' : '.'}</p>`,
     });
   };
-  const downloadReportPdf = async (scope: string = reportCompany) => {
-    await exportPdf(buildReportHtml(scope));
+  const downloadReportPdf = async (scope: string = reportCompany, withPrices: boolean = true) => {
+    await exportPdf(buildReportHtml(scope, withPrices));
   };
 
   const renderMachineCard = (m: Machinery) => {
@@ -1257,7 +1258,7 @@ export default function EquiposScreen({ navigation }: any) {
                 return (
                   <TouchableOpacity
                     key={o.value}
-                    onPress={() => { setReportCompany(o.value); downloadReportPdf(o.value); }}
+                    onPress={() => { setReportCompany(o.value); downloadReportPdf(o.value, reportWithPrices); }}
                     style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                   >
                     <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
@@ -1297,12 +1298,28 @@ export default function EquiposScreen({ navigation }: any) {
             </View>
           ) : null}
 
+          {/* Con precios ($) / sin precios */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+            <TouchableOpacity
+              onPress={() => setReportWithPrices(true)}
+              style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: reportWithPrices ? colors.primary : colors.border, backgroundColor: reportWithPrices ? colors.primary : colors.surfaceAlt }}
+            >
+              <Text style={{ color: reportWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setReportWithPrices(false)}
+              style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: !reportWithPrices ? colors.primary : colors.border, backgroundColor: !reportWithPrices ? colors.primary : colors.surfaceAlt }}
+            >
+              <Text style={{ color: !reportWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
             style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
-            onPress={() => downloadReportPdf()}
+            onPress={() => downloadReportPdf(reportCompany, reportWithPrices)}
             disabled={reportTotal === 0}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF {reportWithPrices ? '(con $)' : '(sin $)'}</Text>
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
