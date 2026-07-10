@@ -252,8 +252,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       supabase.from('machinery').update({ entry_at: now.toISOString(), entry_date: iso, exit_at: null, exit_date: null }).eq('id', machine.id),
       upsertMachineRound(machine.id, iso, roundPatch, uid),
     ]);
-    // Registrar a esta persona como USUARIO con rol OPERADOR (nombre + apellido).
-    try { await supabase.rpc('set_self_operator', { p_full_name: full }); } catch {}
+    // Los operadores NO tienen usuario: solo quedan registrados en el módulo
+    // OPERADORES (tabla operator_assignments), no en la lista de Usuarios.
     setJornadaBusy(false);
     if (eAsg || e2 || r3.error) { setNotice('❌ ' + (eAsg?.message || e2?.message || r3.error)); return; }
     setJornadaActive(true);

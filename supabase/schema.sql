@@ -786,20 +786,28 @@ create policy oa_read on public.operator_assignments for select to authenticated
 create policy oa_insert on public.operator_assignments for insert to authenticated with check (true);
 create policy oa_update on public.operator_assignments for update to authenticated using (true) with check (true);
 
--- Al escanear el QR se entra SIN login (sesión anónima). Al iniciar jornada, el
--- operador se marca a sí mismo como USUARIO con rol OPERADOR (nombre/apellido).
--- Función security-definer: solo puede fijar rol 'operador' y solo su propia fila.
+-- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
+-- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos
+-- QUIRÚRGICOS a la sesión anónima para lo que hace el operador desde el QR.
 -- (Requiere habilitar "Anonymous sign-ins" en Auth del proyecto.)
-create or replace function public.set_self_operator(p_full_name text)
-returns void language plpgsql security definer set search_path = public as $$
-begin
-  insert into public.profiles (id, full_name, role, active)
-  values (auth.uid(), nullif(trim(p_full_name), ''), 'operador', true)
-  on conflict (id) do update
-    set full_name = coalesce(nullif(trim(excluded.full_name), ''), public.profiles.full_name),
-        role = 'operador', active = true;
-end $$;
-grant execute on function public.set_self_operator(text) to authenticated, anon;
+create or replace function public.is_anon()
+returns boolean language sql stable set search_path = public as $$
+  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false)
+$$;
+
+-- Operador anónimo: marcar jornada (entrada/salida/horómetro en machinery),
+-- ubicación (machinery_locations) y combustible (dispatches).
+drop policy if exists machinery_anon_update on public.machinery;
+create policy machinery_anon_update on public.machinery for update to authenticated
+  using (public.is_anon()) with check (public.is_anon());
+drop policy if exists ml_anon_insert on public.machinery_locations;
+create policy ml_anon_insert on public.machinery_locations for insert to authenticated
+  with check (public.is_anon());
+drop policy if exists dispatches_anon_insert on public.dispatches;
+create policy dispatches_anon_insert on public.dispatches for insert to authenticated
+  with check (public.is_anon());
+-- machine_rounds, maintenance_requests y operator_assignments ya permiten a
+-- cualquier autenticado (incluye la sesión anónima).
 
 -- ============================================================================
 -- FIN DEL ESQUEMA
