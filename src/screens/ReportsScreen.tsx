@@ -104,7 +104,9 @@ const MES_NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Jul
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const isoUTC = (d: Date) => `${d.getUTCFullYear()}-${`${d.getUTCMonth() + 1}`.padStart(2, '0')}-${`${d.getUTCDate()}`.padStart(2, '0')}`;
 type MonthWeek = { n: number; from: string; to: string; days: { name: string; iso: string }[] };
-/** Semanas (dom→sáb) que intersectan el mes dado (0-based). Numeradas 1..N. */
+/** Semanas (dom→sáb) del mes dado (0-based). Los días se RECORTAN al mes: la
+ *  primera y última semana solo muestran los días que caen dentro del mes, así
+ *  no aparecen fechas de otro mes. Numeradas 1..N. */
 function weeksOfMonth(year: number, month0: number): MonthWeek[] {
   const first = new Date(Date.UTC(year, month0, 1));
   const last = new Date(Date.UTC(year, month0 + 1, 0));
@@ -115,13 +117,15 @@ function weeksOfMonth(year: number, month0: number): MonthWeek[] {
   let cur = start;
   let n = 0;
   while (cur <= last) {
-    n += 1;
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(cur);
       d.setUTCDate(cur.getUTCDate() + i);
-      return { name: DIAS_SEMANA[i], iso: isoUTC(d) };
-    });
-    weeks.push({ n, from: days[0].iso, to: days[6].iso, days });
+      return { name: DIAS_SEMANA[i], iso: isoUTC(d), inMonth: d.getUTCMonth() === month0 && d.getUTCFullYear() === year };
+    }).filter((d) => d.inMonth).map(({ name, iso }) => ({ name, iso }));
+    if (days.length) {
+      n += 1;
+      weeks.push({ n, from: days[0].iso, to: days[days.length - 1].iso, days });
+    }
     const nx = new Date(cur);
     nx.setUTCDate(cur.getUTCDate() + 7);
     cur = nx;
