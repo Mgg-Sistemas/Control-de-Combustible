@@ -815,6 +815,11 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
                     🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
                   </Text>
+                  {m.plate || m.serial ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>
+                      🔖 {m.plate ? `Placa: ${m.plate}` : ''}{m.plate && m.serial ? ' · ' : ''}{m.serial ? `Serial: ${m.serial}` : ''}
+                    </Text>
+                  ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
                   </Text>
