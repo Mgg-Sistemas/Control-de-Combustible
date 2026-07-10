@@ -56,11 +56,13 @@ function buildHtml(pins: MapPin[]): string {
   }
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
+  // Grupo con TODAS las rutas (para poder verlas/ocultarlas con un botón).
+  var routeGroup = L.layerGroup();
   var bounds = [];
   pins.forEach(function(p){
     var color = p.operational ? '#15803D' : '#B91C1C';
     if (p.route && p.route.length > 1){
-      L.polyline(p.route, {color:'#2563EB', weight:3, opacity:0.7}).addTo(map);
+      L.polyline(p.route, {color:'#2563EB', weight:3, opacity:0.7}).addTo(routeGroup);
     }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)}).addTo(map);
     // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
@@ -76,6 +78,31 @@ function buildHtml(pins: MapPin[]): string {
     bounds.push([p.lat, p.lng]);
   });
   if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
+
+  // ── Botón VER / OCULTAR RUTA (icono de ojo, SVG — no emoji) ──────────────
+  routeGroup.addTo(map); // rutas visibles por defecto
+  var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  var routesOn = true;
+  var RouteToggle = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd: function(){
+      var c = L.DomUtil.create('div', 'leaflet-bar');
+      var a = L.DomUtil.create('a', '', c);
+      a.href = '#';
+      a.title = 'Ver / ocultar ruta';
+      a.style.cssText = 'width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff';
+      a.innerHTML = EYE;
+      L.DomEvent.on(a, 'click', function(e){
+        L.DomEvent.stop(e);
+        routesOn = !routesOn;
+        if (routesOn){ routeGroup.addTo(map); a.innerHTML = EYE; a.title = 'Ocultar ruta'; }
+        else { map.removeLayer(routeGroup); a.innerHTML = EYE_OFF; a.title = 'Ver ruta'; }
+      });
+      return c;
+    }
+  });
+  map.addControl(new RouteToggle());
 </script></body></html>`;
 }
 
