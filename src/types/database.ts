@@ -229,6 +229,22 @@ export interface Payroll {
   created_at: string;
 }
 
+/** Guardia / militar encargado de una máquina. El historial es ACUMULABLE:
+ *  al cambiar de militar, el registro anterior se cierra (ended_at + active=false)
+ *  y se inserta uno nuevo activo, para que quede la traza de quién la cuidó. */
+export interface MachineGuard {
+  id: string;
+  machinery_id: string;
+  guard_name: string;      // nombre del militar/guardia
+  rank: string | null;     // grado / rango (opcional)
+  note: string | null;
+  assigned_at: string;     // inicio del período de custodia
+  ended_at: string | null; // fin (null = actual/activo)
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
 export type MaintenanceMaterial = 'caucho' | 'aceite' | 'filtro' | 'repuesto';
 export type MaintenanceStatus = 'pendiente' | 'realizado';
 

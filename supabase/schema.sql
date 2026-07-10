@@ -713,5 +713,30 @@ create policy pr_delete on public.payrolls for delete to authenticated using (tr
 create index if not exists idx_payroll_company on public.payrolls(company_name);
 
 -- ============================================================================
+-- GUARDIA / MILITAR ENCARGADO por máquina (historial ACUMULABLE).
+-- Se asigna desde las rondas (Control de maquinaria). Al cambiar de militar,
+-- el registro activo se cierra (ended_at + active=false) y se abre uno nuevo,
+-- así queda la traza de todos los que custodiaron la máquina.
+-- ============================================================================
+create table if not exists public.machine_guards (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  guard_name text not null,             -- nombre del militar/guardia
+  rank text,                            -- grado / rango (opcional)
+  note text,
+  assigned_at timestamptz not null default now(),
+  ended_at timestamptz,                 -- null = período de custodia actual
+  active boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.machine_guards enable row level security;
+create policy mg_read on public.machine_guards for select to authenticated using (true);
+create policy mg_insert on public.machine_guards for insert to authenticated with check (true);
+create policy mg_update on public.machine_guards for update to authenticated using (true) with check (true);
+create index if not exists idx_guard_machine on public.machine_guards(machinery_id);
+create index if not exists idx_guard_active on public.machine_guards(active);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

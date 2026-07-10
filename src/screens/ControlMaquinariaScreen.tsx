@@ -7,8 +7,10 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
-import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine } from '../types/database';
+import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard } from '../types/database';
 import { DateField } from '../components/DateField';
+import { GuardButton } from '../components/GuardButton';
+import { fetchActiveGuards } from '../lib/guards';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -122,6 +124,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const { session } = useAuth();
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
+  const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [loading, setLoading] = useState(true);
@@ -163,6 +166,17 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   const rkey = (mId: string, d: string) => `${mId}|${d}`;
 
+  // Refresca el guardia/militar actual de una sola máquina tras asignar/cambiar.
+  const refreshGuard = useCallback(async (machineId: string) => {
+    const map = await fetchActiveGuards([machineId]);
+    setGuards((p) => {
+      const next = { ...p };
+      if (map[machineId]) next[machineId] = map[machineId];
+      else delete next[machineId];
+      return next;
+    });
+  }, []);
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     const ws = weekStartISO(date);
@@ -174,6 +188,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         supabase.from('companies').select('id, name'),
       ]);
       setMachines((m ?? []) as Machinery[]);
+      // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
+      fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
       const cmap: Record<string, string> = {};
       (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
       setCompanies(cmap);
@@ -196,7 +212,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 300); };
     const ch = supabase.channel('rt-control-maquinaria');
-    ['machine_rounds', 'machinery'].forEach((t) =>
+    ['machine_rounds', 'machinery', 'machine_guards'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
@@ -861,6 +877,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   );
                 })}
               </View>
+
+              {/* Guardia / militar encargado de esta máquina (historial acumulable). */}
+              <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
 
               {/* Bloque de la semana: un sub-bloque por cada día. */}
               <View style={{ marginTop: spacing.sm, gap: spacing.sm }}>
