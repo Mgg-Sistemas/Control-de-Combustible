@@ -788,6 +788,10 @@ export default function ControlPagosScreen({ navigation }: any) {
         <Screen>
           {selected ? (
             <>
+              <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
               <SectionTitle>{selected.company}</SectionTitle>
               {/* Botón de abono/pago ARRIBA para acceso rápido. */}
               {selected.fullyPaid ? (
@@ -946,6 +950,10 @@ export default function ControlPagosScreen({ navigation }: any) {
       {/* ── Histórico de pagos ── */}
       <Modal visible={histOpen} animationType="slide" onRequestClose={() => setHistOpen(false)}>
         <Screen>
+          <TouchableOpacity onPress={() => setHistOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>Histórico de pagos</SectionTitle>
           {payments.length === 0 ? (
             <EmptyState title="Sin pagos" subtitle="Aquí aparecerán todos los pagos hechos a las empresas." />
@@ -976,6 +984,10 @@ export default function ControlPagosScreen({ navigation }: any) {
         <Screen>
           {histSel ? (
             <>
+              <TouchableOpacity onPress={() => setHistSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+              </TouchableOpacity>
               <SectionTitle>{histSel.company_name}</SectionTitle>
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Semana {histSel.period_start} → {histSel.period_end}</Text>

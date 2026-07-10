@@ -1156,6 +1156,10 @@ export default function ReportsScreen({ route }: any) {
 
       <Modal visible={preview} animationType="slide" onRequestClose={() => setPreview(false)}>
         <Screen>
+          <TouchableOpacity onPress={() => setPreview(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
           <SectionTitle>Vista previa del reporte</SectionTitle>
           <ReportHeader title="REPORTE DE COMBUSTIBLE" colors={colors} />
           <Card>
