@@ -20,6 +20,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'control_pagos', label: 'Control de Pagos' },
   { key: 'margen_ganancia', label: 'Margen de ganancia' },
   { key: 'mantenimiento', label: 'Mantenimiento maquinaria' },
+  { key: 'operadores', label: 'Operadores' },
   { key: 'autorizaciones', label: 'Autorizaciones' },
   { key: 'traslados', label: 'Traslados' },
   { key: 'mapa', label: 'Mapa' },

@@ -261,6 +261,8 @@ export default function EquiposScreen({ navigation }: any) {
 
   // ── Traza de combustible (surtido) por máquina ───────────────────────────────
   const fuelConsumed = fuelFor?.expected_lph != null ? fuelWorked * Number(fuelFor.expected_lph) : null;
+  // Consumo REAL por horómetro = litros ingresados ÷ horas operadas (horas por horómetro).
+  const fuelPerHour = fuelWorked > 0 ? Math.round((fuelSurtido / fuelWorked) * 100) / 100 : null;
   const fuelLast = fuelTrace[0]?.date ?? null;
 
   // Tanques disponibles (para el selector al registrar un surtido).
@@ -404,9 +406,10 @@ export default function EquiposScreen({ navigation }: any) {
       <div class="cards">
         <div class="c"><div class="k">Última vez surtida</div><div class="v">${fuelLast ?? '—'}</div></div>
         <div class="c"><div class="k">Total surtido</div><div class="v">${fuelSurtido.toLocaleString()} L</div></div>
+        <div class="c"><div class="k">Consumo por horómetro</div><div class="v">${fuelPerHour != null ? fuelPerHour.toLocaleString() + ' L/h' : '—'}</div></div>
         <div class="c"><div class="k">Consumo estimado</div><div class="v">${consumed != null ? consumed.toLocaleString() + ' L' : '—'}</div></div>
       </div>
-      <p class="muted" style="margin-top:6px">Consumo estimado = ${fuelWorked.toLocaleString()} h trabajadas × ${fuelFor.expected_lph != null ? Number(fuelFor.expected_lph).toLocaleString() + ' L/h' : 'sin rendimiento'}</p>
+      <p class="muted" style="margin-top:6px">Consumo por horómetro (real) = ${fuelSurtido.toLocaleString()} L ÷ ${fuelWorked.toLocaleString()} h operadas${fuelFor.last_horometro != null ? ` · Último horómetro: ${fuelFor.last_horometro}` : ''}. Consumo estimado = ${fuelWorked.toLocaleString()} h × ${fuelFor.expected_lph != null ? Number(fuelFor.expected_lph).toLocaleString() + ' L/h' : 'sin rendimiento'}.</p>
       <h2>Traza de surtidos</h2>
       <table><thead><tr><th>Fecha</th><th>Tanque origen</th><th style="text-align:right">Litros</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin surtidos registrados</td></tr>'}</tbody>
@@ -1063,6 +1066,15 @@ export default function EquiposScreen({ navigation }: any) {
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
                     Consumo estimado = {fuelWorked.toLocaleString()} h trabajadas × {fuelFor.expected_lph != null ? `${Number(fuelFor.expected_lph).toLocaleString()} L/h` : 'sin rendimiento (defínelo al editar la máquina)'}
                   </Text>
+
+                  {/* Consumo REAL por horómetro: litros ÷ horas operadas. */}
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Consumo por horómetro (real)</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>{fuelPerHour != null ? `${fuelPerHour.toLocaleString()} L/h` : '—'}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>
+                      {fuelSurtido.toLocaleString()} L ÷ {fuelWorked.toLocaleString()} h operadas{fuelFor.last_horometro != null ? ` · Último horómetro: ${fuelFor.last_horometro}` : ''}
+                    </Text>
+                  </View>
 
                   <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.md, marginBottom: spacing.xs }}>Traza de surtidos</Text>
                   {fuelTrace.length === 0 ? (

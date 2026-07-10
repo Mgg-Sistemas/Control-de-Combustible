@@ -953,6 +953,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                           />
                         </View>
                       </View>
+                      {/* Horómetro de la jornada (registrado por el operador al iniciar/finalizar). */}
+                      {b?.horometro_inicial != null || b?.horometro_final != null ? (
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+                          🕒 Horómetro: {b?.horometro_inicial ?? '—'} → {b?.horometro_final ?? '—'}
+                          {b?.horometro_inicial != null && b?.horometro_final != null ? ` = ${Math.round((Number(b.horometro_final) - Number(b.horometro_inicial)) * 100) / 100} h` : ''}
+                        </Text>
+                      ) : null}
                     </View>
                   );
                 })}
