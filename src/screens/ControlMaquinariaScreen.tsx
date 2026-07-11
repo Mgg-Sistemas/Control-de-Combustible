@@ -661,7 +661,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Cada máquina puede ingresar en una fecha distinta (la elige en su tarjeta; por defecto hoy).
     const d = recibirDate[m.id] || todayISO();
     setBusyRecibir(m.id);
-    const patch = { operational: true, entry_date: d, entry_at: new Date(`${d}T12:00:00`).toISOString() };
+    // Recibir = sale de "en espera", queda Operativa y se guarda la fecha de entrada al control.
+    const patch = { en_espera: false, operational: true, entry_date: d, entry_at: new Date(`${d}T12:00:00`).toISOString() };
     const { error } = await supabase.from('machinery').update(patch).eq('id', m.id);
     setBusyRecibir(null);
     if (error) return Alert.alert('Aviso', error.message);
@@ -669,12 +670,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setNotice(`✅ ${m.code} recibida · entrada ${d}. Ya está en el control.`);
   };
 
-  // Manda una máquina a "En espera" (la pone No operativa). Sale del control activo.
+  // Manda una máquina a "En espera por recepción". Sale del control activo (no toca No operativa).
   const ponerEnEspera = async (m: Machinery) => {
-    const { error } = await supabase.from('machinery').update({ operational: false }).eq('id', m.id);
+    const { error } = await supabase.from('machinery').update({ en_espera: true }).eq('id', m.id);
     if (error) return Alert.alert('Aviso', error.message);
-    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, operational: false } as Machinery) : x)));
-    setNotice(`🕓 ${m.code} puesta en espera (por recibir).`);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, en_espera: true } as Machinery) : x)));
+    setNotice(`🕓 ${m.code} puesta en espera (por recepción).`);
   };
 
   const openPrice = (m: Machinery) => {
@@ -699,10 +700,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     m.code.toLowerCase().includes(q) ||
     (m.serial ?? '').toLowerCase().includes(q) ||
     (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false);
-  // El control activo NO muestra las máquinas en espera (No operativas): esas van a su sección.
-  const shown = machines.filter((m) => m.operational !== false && matchCompany(m) && matchText(m));
-  // Máquinas EN ESPERA (por recibir) = No operativas, agrupadas por empresa.
-  const enEspera = machines.filter((m) => m.operational === false && matchCompany(m) && matchText(m));
+  // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
+  const shown = machines.filter((m) => !m.en_espera && matchCompany(m) && matchText(m));
+  // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
+  const enEspera = machines.filter((m) => m.en_espera && matchCompany(m) && matchText(m));
   const enEsperaByCompany = (() => {
     const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
     enEspera.forEach((it) => {
@@ -925,7 +926,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           {esperaOpen ? (
             <View style={{ marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-                Máquinas No operativas. Al recibir una, pasa a Operativa, se guarda la fecha de entrada (hoy) y entra al control.
+                Máquinas en espera por recepción. Al recibir una, pasa a Operativa, se guarda su fecha de entrada y entra al control.
               </Text>
               {enEsperaByCompany.map((g) => (
                 <View key={g.key} style={{ marginBottom: spacing.sm }}>
@@ -943,7 +944,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                             </Text>
                           ) : null}
                           {m.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 {m.encargado}</Text> : null}
-                          <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>● No operativa</Text>
+                          <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 2 }}>🕓 En espera por recepción{m.operational === false ? ' · No operativa' : ''}</Text>
                         </View>
                       </View>
                       {/* Fecha de entrada de ESTA máquina (cada una puede ingresar en fecha distinta). */}
@@ -1081,12 +1082,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               {/* Guardia / militar encargado de esta máquina (historial acumulable). */}
               <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
 
-              {/* Manda la máquina a "En espera" (No operativa): sale del control activo. */}
+              {/* Manda la máquina a "En espera por recepción": sale del control activo. */}
               <TouchableOpacity
                 onPress={() => ponerEnEspera(m)}
                 style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt }}
               >
-                <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>🕓 Poner en espera (por recibir)</Text>
+                <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>🕓 Poner en espera (por recepción)</Text>
               </TouchableOpacity>
 
               {/* Bloque de la semana: un sub-bloque por cada día. */}

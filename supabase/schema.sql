@@ -469,6 +469,8 @@ alter table public.machinery add column if not exists serial      text;
 alter table public.machinery add column if not exists photo_url   text;
 alter table public.machinery add column if not exists company_id  uuid references public.companies(id);
 alter table public.machinery add column if not exists operational boolean not null default true;
+-- 3er estado de la máquina: "En espera por recepción" (aún no recibida en el control activo).
+alter table public.machinery add column if not exists en_espera   boolean not null default false;
 alter table public.machinery add column if not exists latitude    numeric(9,6);
 alter table public.machinery add column if not exists longitude   numeric(9,6);
 alter table public.machinery add column if not exists location_at timestamptz;

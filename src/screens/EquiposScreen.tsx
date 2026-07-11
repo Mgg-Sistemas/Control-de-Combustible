@@ -295,6 +295,12 @@ export default function EquiposScreen({ navigation }: any) {
       const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
       return { ok: !error, error: error?.message };
     });
+  // 3er estado: "En espera por recepción" (independiente de Operativa / No operativa).
+  const toggleEspera = (m: Machinery) =>
+    run(m.id + '-esp', async () => {
+      const { error } = await supabase.from('machinery').update({ en_espera: !m.en_espera }).eq('id', m.id);
+      return { ok: !error, error: error?.message };
+    });
 
   // ── Traza de combustible (surtido) por máquina ───────────────────────────────
   const fuelConsumed = fuelFor?.expected_lph != null ? fuelWorked * Number(fuelFor.expected_lph) : null;
@@ -680,7 +686,7 @@ export default function EquiposScreen({ navigation }: any) {
                   <td>${esc(m.encargado || '—')}</td>
                   <td>🪖 ${esc(guardTxt)}</td>
                   <td>${esc(m.grupo || '—')}</td>
-                  <td style="color:${m.operational ? '#15803D' : '#B91C1C'}">${m.operational ? 'Operativa' : 'No operativa'}</td>
+                  <td style="color:${m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C'}">${m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}</td>
                   <td style="text-align:center;font-weight:700">${worked} h</td>
                   ${withPrices ? `<td style="text-align:right;font-weight:700">${amount ? '$' + money(amount) : '—'}</td>` : ''}
                 </tr>`;
@@ -743,8 +749,8 @@ export default function EquiposScreen({ navigation }: any) {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
-              <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                {m.operational ? '● Operativa' : '● No operativa'}
+              <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
               </Text>
             </View>
             {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
@@ -800,6 +806,7 @@ export default function EquiposScreen({ navigation }: any) {
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+        <BigBtn label={m.en_espera ? '📥 Quitar espera' : '🕓 En espera'} onPress={() => toggleEspera(m)} color={m.en_espera ? colors.success : colors.warning} disabled={busy === m.id + '-esp'} />
       </View>
     </Card>
     );
@@ -1349,8 +1356,8 @@ export default function EquiposScreen({ navigation }: any) {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
-                        <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                          {m.operational ? '● Operativa' : '● No operativa'}
+                        <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                          {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
                         </Text>
                       </View>
                       {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
@@ -1505,8 +1512,8 @@ export default function EquiposScreen({ navigation }: any) {
                                       <Text style={{ color: colors.muted }}>{n}. </Text>
                                       {m.identifier ? `${m.identifier} · ` : ''}{m.code}
                                     </Text>
-                                    <Text style={{ color: m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
-                                      {m.operational ? 'Operativa' : 'No operativa'}
+                                    <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
+                                      {m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}
                                     </Text>
                                   </View>
                                   <Text style={{ color: colors.muted, fontSize: 11 }}>

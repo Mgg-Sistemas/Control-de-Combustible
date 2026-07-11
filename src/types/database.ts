@@ -60,6 +60,7 @@ export interface Machinery {
   company_id: string | null;
   active: boolean;
   operational: boolean;
+  en_espera: boolean; // 3er estado: "En espera por recepción" (aún no recibida en control)
   latitude: number | null;
   longitude: number | null;
   location_at: string | null;
