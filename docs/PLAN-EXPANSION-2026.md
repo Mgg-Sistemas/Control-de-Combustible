@@ -45,6 +45,40 @@
    **ganancia neta** (ingresos − gastos). Panel financiero con filtros por rango de
    fecha y empresa.
 7. **Panel / Dashboard ejecutivo:** KPIs simples y claros en la pantalla de inicio.
+8. **Combustible en un solo módulo:** unificar Tanques, Ingresos, Consumos y Traslados
+   —hoy son 4 secciones separadas— bajo un único módulo **"Combustible"** con
+   sub-pestañas. Simplifica el menú y agrupa lo que es un mismo tema.
+
+---
+
+## 1-bis. Evaluación: unificar Combustible en un módulo
+
+**Hoy:** Tanques, Ingresos, Consumos y Traslados son 4 entradas separadas en el menú.
+Funcionan bien y comparten los mismos datos (saldos derivados de `stock_movements`).
+
+**Propuesta:** un módulo **Combustible** (una sola entrada en el menú) con 4 sub-pestañas
+internas:
+
+```
+⛽ Combustible
+   ├─ Tanques      (existencias)
+   ├─ Ingresos     (entra combustible)
+   ├─ Consumos     (sale a máquinas/vehículos)
+   └─ Traslados    (entre tanques)
+```
+
+- **No requiere cambios en la base de datos** (mismas tablas). Es reorganización de
+  navegación + una pantalla contenedora con pestañas.
+- **Ventajas:** menú más corto, todo el combustible en un lugar, más fácil para el
+  usuario nuevo. Se puede añadir arriba un mini-resumen ("hoy entraron X L, salieron Y L,
+  saldo total Z L").
+- **Permisos:** se mantiene el control por sub-sección (un permiso "combustible" general,
+  o los actuales por sub-módulo).
+- **Esfuerzo:** bajo (~2–3 días). **Recomendado hacerlo en F7 (pulido)** junto con el
+  resto del rediseño del menú, para no distraer las fases con valor nuevo.
+
+> Recomendación: **sí unificar**, pero como parte del pulido de UX (F7), no antes —
+> primero entregar los módulos que aún no existen.
 
 ---
 
@@ -225,6 +259,8 @@ empresa.
 
 - Revisión visual transversal: mismos botones, mismos colores, textos en lenguaje simple.
 - **Menú de inicio por rol**: cada quien ve solo lo suyo, con íconos grandes.
+- **Unificar Combustible** (Tanques + Ingresos + Consumos + Traslados) en un solo módulo
+  con sub-pestañas (ver punto 1-bis). Sin cambios de base de datos.
 - **Manual de usuario** (ver `MANUAL-USUARIO.md`) actualizado con los módulos nuevos.
 - Capacitación corta (guías de 1 página por tarea) + videos opcionales.
 - QA, permisos por módulo revisados, respaldo y verificación en producción.
