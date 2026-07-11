@@ -232,7 +232,7 @@ export default function RootNavigator() {
       theme={navTheme}
       // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
-      documentTitle={{ formatter: () => 'SOSGUAIRA' }}
+      documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
     >
       {qrEmployeeId ? (
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo lectura).
