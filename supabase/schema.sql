@@ -853,6 +853,7 @@ create table if not exists public.purchase_requests (
   company_id uuid references public.companies(id),
   requested_by uuid references auth.users(id),
   needed_for text,
+  category text,                                 -- repuestos|oficina|limpieza|herramientas|servicios|otros
   note text,
   items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
   estimated_total numeric not null default 0,
@@ -873,6 +874,7 @@ create table if not exists public.purchase_orders (
   request_id uuid references public.purchase_requests(id) on delete set null,
   supplier_id uuid references public.suppliers(id),
   company_id uuid references public.companies(id),
+  category text,                                 -- heredada de la solicitud
   note text,
   items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
   total numeric not null default 0,
@@ -892,6 +894,84 @@ create policy pord_write on public.purchase_orders for all to authenticated
 
 create index if not exists idx_preq_status on public.purchase_requests(status);
 create index if not exists idx_pord_status on public.purchase_orders(status);
+
+-- ============================================================
+-- F4 · Inventario / Almacén
+-- Existencias DERIVADAS de inventory_movements (patrón igual a tank_levels).
+-- ============================================================
+create table if not exists public.inventory_items (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  category text,                               -- misma taxonomía que compras
+  unit text,                                   -- UND, LT, KG…
+  sku text,
+  min_stock numeric not null default 0,        -- alerta de stock mínimo
+  avg_cost numeric not null default 0,          -- Precio Medio Ponderado (PMP), recalculado en cada entrada
+  company_id uuid references public.companies(id),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.inventory_items enable row level security;
+drop policy if exists inv_items_select on public.inventory_items;
+create policy inv_items_select on public.inventory_items for select to authenticated using (true);
+drop policy if exists inv_items_write on public.inventory_items;
+create policy inv_items_write on public.inventory_items for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
+create table if not exists public.inventory_movements (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.inventory_items(id) on delete cascade,
+  kind text not null default 'entrada',        -- entrada|salida|consumo|ajuste
+  qty numeric not null default 0,              -- entrada/salida/consumo: positivo · ajuste: puede ser negativo
+  unit_cost numeric,                            -- costo unitario (valorización)
+  reason text,                                  -- motivo/destino
+  order_id uuid references public.purchase_orders(id) on delete set null,  -- trazabilidad con la compra
+  company_id uuid references public.companies(id),
+  note text,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.inventory_movements enable row level security;
+drop policy if exists inv_mov_select on public.inventory_movements;
+create policy inv_mov_select on public.inventory_movements for select to authenticated using (true);
+drop policy if exists inv_mov_write on public.inventory_movements;
+create policy inv_mov_write on public.inventory_movements for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
+create index if not exists idx_inv_mov_item on public.inventory_movements(item_id);
+create index if not exists idx_inv_mov_order on public.inventory_movements(order_id);
+
+-- Existencias actuales por producto (stock derivado de los movimientos).
+create or replace view public.inventory_levels as
+select
+  i.id, i.name, i.category, i.unit, i.sku, i.min_stock, i.avg_cost, i.company_id, i.active, i.created_at,
+  coalesce(sum(case when m.kind='entrada' then m.qty when m.kind in ('salida','consumo') then -m.qty when m.kind='ajuste' then m.qty else 0 end), 0)::numeric(14,2) as stock
+from public.inventory_items i
+left join public.inventory_movements m on m.item_id = i.id
+group by i.id;
+
+-- PMP: al insertar una ENTRADA con costo, recalcula el precio medio ponderado del producto.
+create or replace function public.inv_recalc_avg() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare prev_stock numeric; prev_avg numeric;
+begin
+  if (NEW.kind = 'entrada' and NEW.unit_cost is not null and NEW.qty > 0) then
+    select coalesce(sum(case when kind='entrada' then qty when kind in ('salida','consumo') then -qty when kind='ajuste' then qty else 0 end), 0)
+      into prev_stock from public.inventory_movements where item_id = NEW.item_id and id <> NEW.id;
+    select coalesce(avg_cost, 0) into prev_avg from public.inventory_items where id = NEW.item_id;
+    if prev_stock <= 0 then
+      update public.inventory_items set avg_cost = NEW.unit_cost where id = NEW.item_id;
+    else
+      update public.inventory_items
+        set avg_cost = round((prev_stock * prev_avg + NEW.qty * NEW.unit_cost) / (prev_stock + NEW.qty), 4)
+        where id = NEW.item_id;
+    end if;
+  end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_inv_recalc_avg on public.inventory_movements;
+create trigger trg_inv_recalc_avg after insert on public.inventory_movements
+  for each row execute function public.inv_recalc_avg();
 
 -- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
 -- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos

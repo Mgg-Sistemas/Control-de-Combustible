@@ -214,6 +214,7 @@ export interface PurchaseLine {
   qty: number;
   unit: string | null;
   price: number; // estimado (solicitud) o unitario (orden)
+  item_id?: string | null; // producto de inventario enlazado (si aplica)
 }
 
 export type PurchaseRequestStatus = 'solicitada' | 'aprobada' | 'rechazada' | 'ordenada';
@@ -224,6 +225,7 @@ export interface PurchaseRequest {
   company_id: string | null;
   requested_by: string | null;
   needed_for: string | null;
+  category: string | null;
   note: string | null;
   items: PurchaseLine[];
   estimated_total: number;
@@ -241,6 +243,7 @@ export interface PurchaseOrder {
   request_id: string | null;
   supplier_id: string | null;
   company_id: string | null;
+  category: string | null;
   note: string | null;
   items: PurchaseLine[];
   total: number;
@@ -248,6 +251,41 @@ export interface PurchaseOrder {
   approved_by: string | null;
   approved_at: string | null;
   received_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+// ── Inventario / Almacén ─────────────────────────────────────────────────────
+export interface InventoryItem {
+  id: string;
+  name: string;
+  category: string | null;
+  unit: string | null;
+  sku: string | null;
+  min_stock: number;
+  avg_cost: number;       // Precio Medio Ponderado (PMP)
+  company_id: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+/** Vista de existencias: producto + stock derivado de los movimientos. */
+export interface InventoryLevel extends InventoryItem {
+  stock: number;
+}
+
+export type InventoryMovementKind = 'entrada' | 'salida' | 'consumo' | 'ajuste';
+
+export interface InventoryMovement {
+  id: string;
+  item_id: string;
+  kind: InventoryMovementKind;
+  qty: number;
+  unit_cost: number | null;
+  reason: string | null;
+  order_id: string | null;
+  company_id: string | null;
+  note: string | null;
   created_by: string | null;
   created_at: string;
 }
