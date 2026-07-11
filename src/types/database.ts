@@ -192,6 +192,7 @@ export interface ClosureMachine {
   hoursStopped: number;
   overtime?: number; // horas extras del día
   worked: number; // horas trabajadas totales del día (turnos − parada + extras)
+  price?: number; // precio por jornada CONGELADO al cerrar (semana cerrada = inmutable)
 }
 
 export interface ControlClosure {

@@ -293,7 +293,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Trae todos los turnos sin cerrar (de cualquier fecha) con sus operadores por turno.
     const { data: openRounds } = await supabase
       .from('machine_rounds')
-      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, company:company_id(name))')
+      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(name))')
       .eq('closed', false);
     const rows = (openRounds ?? []).filter(
       (r: any) => (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) > 0 || (Number(r.hours_stopped) || 0) > 0 || (Number(r.overtime_hours) || 0) > 0
@@ -330,6 +330,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           hoursStopped: stopped,
           overtime: ot,
           worked: workedFromShifts(dayH, nightH, stopped, ot),
+          // Precio CONGELADO al momento del cierre: una vez cerrada la semana,
+          // aunque cambie el precio de la máquina, el monto del cierre no se mueve.
+          price: Number(r.machinery?.price_per_hour) || 0,
         } as ClosureMachine;
       });
     const uniqueMachines = new Set(snapshot.map((s) => s.machineId || s.serial || s.code)).size;
@@ -376,7 +379,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Precio POR JORNADA (12 h) de cada máquina. Monto = precio × unidades (12h=1, 6h=0.5).
     const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
-    const priceOf = (m: ClosureMachine) => (m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0;
+    // Si el cierre ya trae el precio CONGELADO, se usa ese (semana cerrada = inmutable);
+    // si es un cierre viejo sin precio, se calcula con el precio actual de la máquina.
+    const priceOf = (m: ClosureMachine) => (m.price != null ? Number(m.price) : ((m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0));
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rows = machs
       .map((m) => {
@@ -1335,7 +1340,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                     }),
                     { day: 0, night: 0, stopped: 0, extra: 0, worked: 0 }
                   );
-                  const price = (g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0;
+                  // Precio congelado del cierre (si lo trae); si no, el actual de la máquina.
+                  const frozen = g.days.find((d) => d.price != null)?.price;
+                  const price = frozen != null ? Number(frozen) : ((g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0);
                   const amount = (t.worked / 12) * price;
                   const open = !!closureExpanded[g.key];
                   return (
