@@ -421,11 +421,17 @@ export default function ControlPagosScreen({ navigation }: any) {
     if (!syncPreview || !canEditTar) return;
     setSyncing(true);
     try {
+      // Agrupa TODAS las máquinas por precio destino para hacer el mínimo de consultas
+      // (antes era una consulta por modelo y se hacía lento / parecía colgado).
+      const byPrice = new Map<number, string[]>();
       for (const r of syncPreview.changes) {
-        const ids = r.machines.map((x) => x.id);
-        // en lotes por si son muchos
-        for (let i = 0; i < ids.length; i += 100) {
-          await supabase.from('machinery').update({ price_per_hour: r.price }).in('id', ids.slice(i, i + 100));
+        const arr = byPrice.get(r.price) ?? [];
+        r.machines.forEach((x) => arr.push(x.id));
+        byPrice.set(r.price, arr);
+      }
+      for (const [price, ids] of byPrice) {
+        for (let i = 0; i < ids.length; i += 200) {
+          await supabase.from('machinery').update({ price_per_hour: price }).in('id', ids.slice(i, i + 200));
         }
       }
       const n = syncPreview.totalChanges;
