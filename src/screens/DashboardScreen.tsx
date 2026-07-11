@@ -3,8 +3,9 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useTable } from '../hooks/useTable';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
 import { TankLevel } from '../types/database';
+import { workedFromShifts, PERIODO_INICIO, PERIODO_CORTE } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -15,21 +16,27 @@ function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
   return 'success';
 }
 
+const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Paleta para las barras de empresas.
+const PALETTE = ['#2563EB', '#16A34A', '#F59E0B', '#DC2626', '#7C3AED', '#0891B2', '#DB2777', '#65A30D', '#EA580C', '#0D9488'];
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
+}
+/** Rango [desde, hasta] según el modo (día de hoy / mes actual / año actual). */
+function rangeForMode(mode: 'dia' | 'mes' | 'anio'): [string, string] {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, '0');
+  const to = todayISO();
+  if (mode === 'dia') return [to, to];
+  if (mode === 'mes') return [`${y}-${m}-01`, to];
+  return [`${y}-01-01`, to];
+}
 
 /** Tarjeta de métrica: se puede tocar para ir al módulo con la info real. */
-function StatCard({
-  label,
-  value,
-  color,
-  onPress,
-  flex = 1,
-}: {
-  label: string;
-  value: React.ReactNode;
-  color: string;
-  onPress?: () => void;
-  flex?: number;
-}) {
+function StatCard({ label, value, color, onPress, flex = 1 }: { label: string; value: React.ReactNode; color: string; onPress?: () => void; flex?: number }) {
   const { colors } = useTheme();
   const inner = (
     <>
@@ -50,6 +57,29 @@ function StatCard({
   return <Card style={{ flex }}>{inner}</Card>;
 }
 
+/** Gráfica de barras horizontales (sin librerías): cada empresa con su ingreso. */
+function BarChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+  const { colors } = useTheme();
+  const max = Math.max(1, ...data.map((d) => d.value));
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {data.map((d, i) => (
+        <View key={d.label}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+            <Text numberOfLines={1} style={{ color: colors.text, fontWeight: i === 0 ? '800' : '600', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>
+              {i === 0 ? '🥇 ' : `${i + 1}. `}{d.label}
+            </Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{money(d.value)}</Text>
+          </View>
+          <View style={{ height: 12, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, overflow: 'hidden' }}>
+            <View style={{ height: 12, width: `${Math.max(2, (d.value / max) * 100)}%`, backgroundColor: d.color, borderRadius: radius.pill }} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function DashboardScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
@@ -57,27 +87,61 @@ export default function DashboardScreen({ navigation }: any) {
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
+  const [states, setStates] = useState<{ op: number; esp: number; no: number } | null>(null);
+
+  // Gráfica de ingreso por empresa + modo (día / mes / año).
+  const [chartMode, setChartMode] = useState<'dia' | 'mes' | 'anio'>('mes');
+  const [chart, setChart] = useState<{ label: string; value: number; color: string }[] | null>(null);
+  const [chartTotal, setChartTotal] = useState(0);
 
   const loadCounts = useCallback(async () => {
-    const [{ data: rounds }, { count: locCount }, { count: machCount }, { count: vehCount }] = await Promise.all([
-      // Máquinas con rondas abiertas (jornadas aún no cerradas) → activas en el período en curso.
+    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
-      // Máquinas con coordenadas → mismas que muestra el mapa.
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
-      // Catálogo: maquinaria + maquinaria pesada activa.
-      supabase.from('machinery').select('id', { count: 'exact', head: true }).eq('active', true),
-      // Catálogo: vehículos activos.
+      supabase.from('machinery').select('id, operational, en_espera, active').eq('active', true),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
+      supabase.from('companies').select('id, name'),
     ]);
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     setActiveLocations(locCount ?? 0);
-    setActiveAssets((machCount ?? 0) + (vehCount ?? 0));
+    let op = 0, esp = 0, no = 0;
+    (machs ?? []).forEach((m: any) => { if (m.en_espera) esp++; else if (m.operational === false) no++; else op++; });
+    setStates({ op, esp, no });
+    setActiveAssets((machs ?? []).length + (vehCount ?? 0));
+  }, []);
+
+  // Carga el ingreso por empresa para el rango del modo elegido.
+  const loadChart = useCallback(async (mode: 'dia' | 'mes' | 'anio') => {
+    const [from, to] = rangeForMode(mode);
+    const [rows, comps, machs] = await Promise.all([
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
+      supabase.from('companies').select('id, name').then((r) => r.data ?? []),
+      selectAllRows('machinery', 'id, company_id, price_per_hour'),
+    ]);
+    const cname = new Map<string, string>((comps as any[]).map((c) => [c.id, c.name]));
+    const mInfo = new Map<string, { cid: string | null; price: number }>();
+    (machs ?? []).forEach((m: any) => mInfo.set(m.id, { cid: m.company_id, price: Number(m.price_per_hour) || 0 }));
+    // Una fila por (máquina, día) para no duplicar.
+    const byMD = new Map<string, any>();
+    (rows ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
+    const byCompany = new Map<string, number>();
+    byMD.forEach((b) => {
+      const info = mInfo.get(b.machinery_id);
+      if (!info) return;
+      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      if (w <= 0) return;
+      const amount = (w / 12) * info.price;
+      const key = info.cid ? cname.get(info.cid) ?? 'Empresa' : 'Sin empresa';
+      byCompany.set(key, (byCompany.get(key) ?? 0) + amount);
+    });
+    const list = [...byCompany.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+    setChart(list.map((x, i) => ({ ...x, color: PALETTE[i % PALETTE.length] })));
+    setChartTotal(list.reduce((s, x) => s + x.value, 0));
   }, []);
 
   useEffect(() => {
     loadCounts();
-    // Sincroniza los conteos en vivo si otro usuario cambia rondas/máquinas/vehículos.
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(loadCounts, 300); };
     const ch = supabase.channel('rt-dashboard-counts');
@@ -88,9 +152,11 @@ export default function DashboardScreen({ navigation }: any) {
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [loadCounts]);
 
+  useEffect(() => { setChart(null); loadChart(chartMode); }, [chartMode, loadChart]);
+
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
   const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 30).length;
-
+  const modeLabel = chartMode === 'dia' ? 'hoy' : chartMode === 'mes' ? 'este mes' : 'este año';
 
   return (
     <Screen>
@@ -103,7 +169,64 @@ export default function DashboardScreen({ navigation }: any) {
           BAHIA SUNSET HOTEL BOUTIQUE, C.A
         </Text>
       </Card>
+
+      {/* ── Gráfica: ingreso por empresa (día / mes / año) ─────────────────── */}
+      <SectionTitle>Ingreso por empresa</SectionTitle>
+      <Card>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+          {([['dia', '📅 Día'], ['mes', '🗓️ Mes'], ['anio', '📆 Año']] as const).map(([k, lbl]) => {
+            const on = chartMode === k;
+            return (
+              <TouchableOpacity
+                key={k}
+                onPress={() => setChartMode(k)}
+                style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+              >
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{lbl}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Total {modeLabel}</Text>
+          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{money(chartTotal)}</Text>
+        </View>
+        {chart === null ? (
+          <Loading />
+        ) : chart.length === 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.md }}>
+            Sin ingresos registrados {modeLabel}.
+          </Text>
+        ) : (
+          <BarChart data={chart} />
+        )}
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
+          Ingreso = horas trabajadas × precio por jornada. Toca Día/Mes/Año para cambiar el período.
+        </Text>
+      </Card>
+
       <SectionTitle>Resumen</SectionTitle>
+
+      {/* Estados de las máquinas */}
+      <TouchableOpacity activeOpacity={0.7} onPress={() => navigation?.navigate('Equipos')}>
+        <Card>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Estado de las máquinas</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ color: colors.success, fontWeight: '800', fontSize: 22 }}>{states ? states.op : '…'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>🟢 Operativas</Text>
+            </View>
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 22 }}>{states ? states.esp : '…'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>🕓 En espera</Text>
+            </View>
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 22 }}>{states ? states.no : '…'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>🔴 No operativa</Text>
+            </View>
+          </View>
+        </Card>
+      </TouchableOpacity>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <StatCard
@@ -125,7 +248,7 @@ export default function DashboardScreen({ navigation }: any) {
           label="Existencia total"
           value={`${totalCurrent.toLocaleString()} L`}
           color={colors.text}
-          onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}
+          onPress={() => navigation?.navigate('More', { screen: 'Combustible' })}
         />
         <StatCard
           label="Maquinaria/Vehículos activos"
@@ -139,7 +262,7 @@ export default function DashboardScreen({ navigation }: any) {
         label="Tanques con stock bajo"
         value={`${lowTanks} / ${tanks.length}`}
         color={lowTanks ? colors.warning : colors.success}
-        onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}
+        onPress={() => navigation?.navigate('More', { screen: 'Combustible' })}
       />
 
       <SectionTitle>Cisternas / Niveles de tanque</SectionTitle>
@@ -157,7 +280,7 @@ export default function DashboardScreen({ navigation }: any) {
           const barColor =
             tone === 'danger' ? colors.danger : tone === 'warning' ? colors.warning : colors.success;
           return (
-            <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => navigation?.navigate('More', { screen: 'Tanks' })}>
+            <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => navigation?.navigate('More', { screen: 'Combustible' })}>
               <Card>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                   <Text style={{ fontWeight: '600', color: colors.text }}>{t.name}</Text>

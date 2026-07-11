@@ -24,6 +24,7 @@ import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
+import CombustibleScreen from '../screens/CombustibleScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -107,6 +108,7 @@ function MoreStack() {
   return (
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
       <Stack.Screen name="MoreMenu" component={MoreScreen} options={{ title: 'Más' }} />
+      <Stack.Screen name="Combustible" component={CombustibleScreen} options={{ title: 'Combustible' }} />
       <Stack.Screen name="Tanks" component={TanksScreen} options={{ title: 'Tanques' }} />
       <Stack.Screen name="Intakes" component={IntakesScreen} options={{ title: 'Ingresos' }} />
       <Stack.Screen name="Dispatches" component={DispatchesScreen} options={{ title: 'Consumos' }} />

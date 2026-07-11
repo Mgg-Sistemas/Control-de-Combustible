@@ -14,16 +14,12 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
-  { label: 'Tanques', route: 'Tanks', desc: 'Depósitos de combustible y sus niveles', icon: '🛢️', module: 'tanques' },
-  { label: 'Ingresos', route: 'Intakes', desc: 'Recepción/compra de combustible', icon: '⬇️', module: 'ingresos' },
-  { label: 'Consumos', route: 'Dispatches', desc: 'Despachos a vehículos y maquinaria', icon: '⛽', module: 'consumos' },
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
   { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅', module: 'autorizaciones' },
-  { label: 'Traslados', route: 'Transfers', desc: 'Movimientos entre tanques', icon: '🔄', module: 'traslados' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
 ];
 
@@ -86,6 +82,23 @@ export default function MoreScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Más</SectionTitle>
+
+      {/* Combustible: un solo módulo (tanques + ingresos + consumos + traslados).
+          Visible si el usuario puede ver al menos una de sus sub-secciones. */}
+      {(canSee('tanques') || canSee('ingresos') || canSee('consumos') || canSee('traslados')) ? (
+        <TouchableOpacity onPress={() => navigation.navigate('Combustible')}>
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ fontSize: 26 }}>⛽</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Combustible</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Tanques, ingresos, consumos y traslados — todo en un solo lugar</Text>
+              </View>
+            </View>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
+
       {items.filter((it) => canSee(it.module)).map((it) => (
         <TouchableOpacity key={it.route} onPress={() => navigation.navigate(it.route)}>
           <Card>
