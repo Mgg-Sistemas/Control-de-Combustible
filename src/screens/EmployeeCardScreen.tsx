@@ -10,6 +10,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
 const LOGO = require('../../assets/logo.jpeg');
+const FICHA_BG = require('../../assets/ficha-bg.jpg');
 
 // Paleta fija de la ficha (estilo documento/carnet): fondo azulito como el logo,
 // tarjetas blancas y texto oscuro, sin importar el tema claro/oscuro de la app.
@@ -94,7 +95,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   );
 
   return (
-    <Screen bg={FICHA.bg}>
+    <Screen bg={FICHA.bg} bgImage={FICHA_BG} bgImageOpacity={0.08}>
       {/* Encabezado con logo */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
