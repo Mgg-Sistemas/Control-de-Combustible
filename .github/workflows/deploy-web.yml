@@ -1,0 +1,55 @@
+# Robot de despliegue: al subir código a `main`, compila la web EN LA NUBE y
+# deja la carpeta `dist` lista. DigitalOcean la publica al instante (su Build
+# Command está en None). Así el deploy es 100% automático y rápido, sin que nadie
+# tenga que compilar en su PC.
+#
+# Requiere 2 secretos del repo (Settings → Secrets and variables → Actions):
+#   EXPO_PUBLIC_SUPABASE_URL
+#   EXPO_PUBLIC_SUPABASE_ANON_KEY
+name: Compilar web (DigitalOcean)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'dist/**'          # ignora el commit que hace el propio robot (evita bucle)
+  workflow_dispatch: {}     # permite lanzarlo a mano desde la pestaña Actions
+
+permissions:
+  contents: write           # para poder commitear la dist compilada
+
+concurrency:
+  group: build-web
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la web
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npx expo export -p web
+
+      - name: Publicar dist (commit a main)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist
+          if git diff --cached --quiet; then
+            echo "Sin cambios en dist; nada que publicar."
+          else
+            git commit -m "build(web): dist automática [skip ci]"
+            git push
+          fi
