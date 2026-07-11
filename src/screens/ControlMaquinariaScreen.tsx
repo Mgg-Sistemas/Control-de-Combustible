@@ -140,6 +140,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [sumTo, setSumTo] = useState(PERIODO_CORTE);
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
+  const [esperaOpen, setEsperaOpen] = useState(false); // sección "En espera" (por recibir) desplegada
+  const [busyRecibir, setBusyRecibir] = useState<string | null>(null); // id de la máquina que se está recibiendo
+  const [recibirDate, setRecibirDate] = useState<Record<string, string>>({}); // fecha de entrada elegida por máquina al recibir
 
   // Operador por turno: máquina + fecha + turno (día/noche) que se está editando.
   const [opFor, setOpFor] = useState<{ m: Machinery; d: string; which: 'day' | 'night' } | null>(null);
@@ -651,6 +654,29 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, ...patch } as Machinery) : x)));
   };
 
+  // ── "En espera" (por recibir) ─────────────────────────────────────────────
+  // Una máquina "en espera" está No operativa: no aparece en el control activo.
+  // "Recibir" la pone operativa y guarda la fecha de entrada (hoy) para el control.
+  const recibir = async (m: Machinery) => {
+    // Cada máquina puede ingresar en una fecha distinta (la elige en su tarjeta; por defecto hoy).
+    const d = recibirDate[m.id] || todayISO();
+    setBusyRecibir(m.id);
+    const patch = { operational: true, entry_date: d, entry_at: new Date(`${d}T12:00:00`).toISOString() };
+    const { error } = await supabase.from('machinery').update(patch).eq('id', m.id);
+    setBusyRecibir(null);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, ...patch } as Machinery) : x)));
+    setNotice(`✅ ${m.code} recibida · entrada ${d}. Ya está en el control.`);
+  };
+
+  // Manda una máquina a "En espera" (la pone No operativa). Sale del control activo.
+  const ponerEnEspera = async (m: Machinery) => {
+    const { error } = await supabase.from('machinery').update({ operational: false }).eq('id', m.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, operational: false } as Machinery) : x)));
+    setNotice(`🕓 ${m.code} puesta en espera (por recibir).`);
+  };
+
   const openPrice = (m: Machinery) => {
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
@@ -668,14 +694,26 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const q = query.trim().toLowerCase();
   const matchCompany = (m: Machinery) =>
     companyFilter === '__all__' ? true : companyFilter === '__none__' ? !m.company_id : m.company_id === companyFilter;
-  const shown = machines.filter(
-    (m) =>
-      matchCompany(m) &&
-      (!q ||
-        m.code.toLowerCase().includes(q) ||
-        (m.serial ?? '').toLowerCase().includes(q) ||
-        (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false)),
-  );
+  const matchText = (m: Machinery) =>
+    !q ||
+    m.code.toLowerCase().includes(q) ||
+    (m.serial ?? '').toLowerCase().includes(q) ||
+    (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false);
+  // El control activo NO muestra las máquinas en espera (No operativas): esas van a su sección.
+  const shown = machines.filter((m) => m.operational !== false && matchCompany(m) && matchText(m));
+  // Máquinas EN ESPERA (por recibir) = No operativas, agrupadas por empresa.
+  const enEspera = machines.filter((m) => m.operational === false && matchCompany(m) && matchText(m));
+  const enEsperaByCompany = (() => {
+    const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
+    enEspera.forEach((it) => {
+      const k = it.company_id ?? '__none__';
+      const name = it.company_id ? companies[it.company_id] || 'Empresa' : 'Sin empresa';
+      const g = map.get(k) ?? { key: k, name, items: [] };
+      g.items.push(it);
+      map.set(k, g);
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  })();
 
   // Opciones de empresa (con conteo) para el filtro desplegable.
   const companyOptions = [
@@ -867,6 +905,72 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* ── Sección EN ESPERA (por recibir): máquinas No operativas, agrupadas por empresa.
+             "Recibir" las pone operativas y guarda la fecha de entrada (hoy) para el control. */}
+      {enEspera.length > 0 ? (
+        <View style={{ marginBottom: spacing.sm }}>
+          <TouchableOpacity
+            onPress={() => setEsperaOpen((v) => !v)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+              <Text style={{ color: colors.warning, fontSize: 16 }}>{esperaOpen ? '▾' : '▸'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🕓 En espera (por recibir)</Text>
+            </View>
+            <View style={{ backgroundColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{enEspera.length}</Text>
+            </View>
+          </TouchableOpacity>
+          {esperaOpen ? (
+            <View style={{ marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+                Máquinas No operativas. Al recibir una, pasa a Operativa, se guarda la fecha de entrada (hoy) y entra al control.
+              </Text>
+              {enEsperaByCompany.map((g) => (
+                <View key={g.key} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>
+                    🏢 {g.name} <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>· {g.items.length}</Text>
+                  </Text>
+                  {g.items.map((m) => (
+                    <Card key={m.id}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{m.code}</Text>
+                          {m.identifier || m.plate || m.serial ? (
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>
+                              🔖 {[m.identifier ? `ID ${m.identifier}` : '', m.plate ? `Placa ${m.plate}` : '', m.serial ? `Serial ${m.serial}` : ''].filter(Boolean).join(' · ')}
+                            </Text>
+                          ) : null}
+                          {m.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 {m.encargado}</Text> : null}
+                          <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>● No operativa</Text>
+                        </View>
+                      </View>
+                      {/* Fecha de entrada de ESTA máquina (cada una puede ingresar en fecha distinta). */}
+                      <View style={{ marginTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>📅 Fecha de entrada al control</Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
+                          <View style={{ flex: 1 }}>
+                            <DateField value={recibirDate[m.id] || todayISO()} onChange={(v) => v && setRecibirDate((p) => ({ ...p, [m.id]: v }))} />
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => recibir(m)}
+                            disabled={busyRecibir === m.id}
+                            style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.success, opacity: busyRecibir === m.id ? 0.6 : 1 }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{busyRecibir === m.id ? 'Recibiendo…' : '📥 Recibir'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </Card>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {loading && machines.length === 0 ? (
         <Loading />
       ) : shown.length === 0 ? (
@@ -976,6 +1080,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
               {/* Guardia / militar encargado de esta máquina (historial acumulable). */}
               <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
+
+              {/* Manda la máquina a "En espera" (No operativa): sale del control activo. */}
+              <TouchableOpacity
+                onPress={() => ponerEnEspera(m)}
+                style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>🕓 Poner en espera (por recibir)</Text>
+              </TouchableOpacity>
 
               {/* Bloque de la semana: un sub-bloque por cada día. */}
               <View style={{ marginTop: spacing.sm, gap: spacing.sm }}>
