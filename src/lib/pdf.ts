@@ -35,6 +35,12 @@ export const PDF_BASE_CSS = `
   .company{font-size:12px;line-height:1.6;margin-bottom:10px}
   .company b{color:${PDF_ACCENT};font-size:13px}
   .foot{margin-top:26px;padding-top:10px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
+  /* Al cortarse una tabla entre páginas, el navegador REPITE el <tfoot> (fila de
+     TOTAL) al pie de cada página. Con display:table-row-group deja de repetirse y
+     el TOTAL aparece UNA sola vez, al final real de cada agrupado. El <thead>
+     (encabezado de columnas) sí se mantiene repitiéndose en cada página. */
+  tfoot{display:table-row-group}
+  tr{page-break-inside:avoid}
 `;
 
 /**
