@@ -90,9 +90,6 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
           <Image source={LOGO} style={{ width: 34, height: 34, borderRadius: 6, backgroundColor: '#fff' }} resizeMode="contain" />
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>Ficha del trabajador</Text>
         </View>
-        <TouchableOpacity onPress={onExit} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Sistema</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Foto + nombre + cargo + estado */}
