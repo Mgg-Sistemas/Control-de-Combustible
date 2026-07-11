@@ -746,8 +746,11 @@ export default function ReportsScreen({ route }: any) {
   const generateCamiones = async () => {
     setLoading(true);
     const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, company:company_id(name)');
+    // Entran al reporte de camiones todos los modelos de transporte: camiones,
+    // chutos con volqueta/batea/lowboy, volteos y volquetas.
+    const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO/;
     const trucks = (mach ?? [])
-      .filter((m: any) => (canonTipo(m.tipo) || '').toUpperCase().includes('CAMION'))
+      .filter((m: any) => TRUCK_RE.test((canonTipo(m.tipo) || '').toUpperCase()))
       .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
       .sort((a, b) => a.company.localeCompare(b.company) || (a.code || '').localeCompare(b.code || ''));
     const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
