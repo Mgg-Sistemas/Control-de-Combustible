@@ -23,6 +23,7 @@ import OperatorScreen from '../screens/OperatorScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
+import ManualScreen from '../screens/ManualScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -119,6 +120,7 @@ function MoreStack() {
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
 }

@@ -100,6 +100,19 @@ export default function MoreScreen({ navigation }: any) {
         </TouchableOpacity>
       ))}
 
+      {/* Manual / Ayuda: visible para todos, sin permiso especial. */}
+      <TouchableOpacity onPress={() => navigation.navigate('Manual')}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Text style={{ fontSize: 26 }}>📖</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Manual / Ayuda</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Guía paso a paso para usar el sistema, en lenguaje simple</Text>
+            </View>
+          </View>
+        </Card>
+      </TouchableOpacity>
+
       {role === 'admin' ? (
         <TouchableOpacity onPress={() => navigation.navigate('Users')}>
           <Card>
