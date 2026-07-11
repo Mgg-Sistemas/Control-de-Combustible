@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radius } from '../theme';
@@ -79,10 +80,10 @@ export default function MargenGananciaScreen() {
 
   // Agrupa por empresa con totales y % general (solo máquinas con ambos datos).
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = norm(query.trim());
     const byCompany = new Map<string, Mach[]>();
     machines.forEach((m) => {
-      if (q && !m.company.toLowerCase().includes(q) && !m.code.toLowerCase().includes(q)) return;
+      if (q && !norm(m.company).includes(q) && !norm(m.code).includes(q)) return;
       const arr = byCompany.get(m.company) ?? [];
       arr.push(m);
       byCompany.set(m.company, arr);

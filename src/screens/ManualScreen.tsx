@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
+import { norm } from '../lib/text';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -208,14 +209,14 @@ export default function ManualScreen() {
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: true });
   const [query, setQuery] = useState('');
 
-  const q = query.trim().toLowerCase();
+  const q = norm(query.trim());
   // Filtra por texto de título o de cualquier bloque (para encontrar rápido un tema).
   const shown = useMemo(() => {
     if (!q) return SECTIONS.map((s, i) => ({ s, i }));
     return SECTIONS.map((s, i) => ({ s, i })).filter(({ s }) => {
-      if (s.title.toLowerCase().includes(q)) return true;
+      if (norm(s.title).includes(q)) return true;
       return s.blocks.some((b) =>
-        b.t === 'p' || b.t === 'note' ? b.text.toLowerCase().includes(q) : b.items.some((x) => x.toLowerCase().includes(q))
+        b.t === 'p' || b.t === 'note' ? norm(b.text).includes(q) : b.items.some((x) => norm(x).includes(q))
       );
     });
   }, [q]);

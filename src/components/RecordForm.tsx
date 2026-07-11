@@ -11,6 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
@@ -378,9 +379,9 @@ function SearchSelect({
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-  const exactExists = options.some((o) => o.label.toLowerCase() === q);
+  const q = norm(query.trim());
+  const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
+  const exactExists = options.some((o) => norm(o.label) === q);
   // El buscador solo aparece si hay muchas opciones o si se pueden crear nuevas.
   const showSearch = !!createColumn || options.length > 8;
 
@@ -463,10 +464,10 @@ function SuggestSelect({
 }) {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const q = (value ?? '').trim().toLowerCase();
+  const q = norm((value ?? '').trim());
   // Al escribir, filtra las sugerencias; si el campo está vacío las muestra todas.
-  const filtered = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-  const exactExists = options.some((o) => o.label.toLowerCase() === q);
+  const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
+  const exactExists = options.some((o) => norm(o.label) === q);
   return (
     <View style={{ gap: spacing.xs }}>
       <TextInput
@@ -480,7 +481,7 @@ function SuggestSelect({
       {filtered.length > 0 ? (
         <View style={styles.grid}>
           {filtered.slice(0, 30).map((o) => {
-            const active = o.label.toLowerCase() === q;
+            const active = norm(o.label) === q;
             return (
               <TouchableOpacity key={o.value} onPress={() => onChange(o.label)} style={[styles.gridBtn, active && styles.gridBtnActive]}>
                 <Text numberOfLines={2} style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14, fontWeight: '600', textAlign: 'center' }}>

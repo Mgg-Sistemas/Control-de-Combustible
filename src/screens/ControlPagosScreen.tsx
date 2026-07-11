@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'reac
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -462,8 +463,8 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   // Solo cuentas con monto por cobrar o con algún abono (evita mostrar $0 sin actividad).
   const visible = groups.filter((g) => g.total > 0 || g.paidAmount > 0);
-  const q = query.trim().toLowerCase();
-  const shown = !q ? visible : visible.filter((g) => g.company.toLowerCase().includes(q));
+  const q = norm(query.trim());
+  const shown = !q ? visible : visible.filter((g) => norm(g.company).includes(q));
 
   const byCompany = useMemo(() => {
     const m = new Map<string, Group[]>();

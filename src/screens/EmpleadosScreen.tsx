@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
@@ -60,15 +61,15 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
 
-  const q = query.trim().toLowerCase();
+  const q = norm(query.trim());
   const shown = useMemo(
     () => employees.filter((e) =>
       !q ||
-      fullName(e).toLowerCase().includes(q) ||
-      (e.cedula ?? '').toLowerCase().includes(q) ||
-      (e.ficha_number ?? '').toLowerCase().includes(q) ||
-      (e.cargo ?? '').toLowerCase().includes(q) ||
-      companyName(e.company_id).toLowerCase().includes(q)
+      norm(fullName(e)).includes(q) ||
+      norm(e.cedula).includes(q) ||
+      norm(e.ficha_number).includes(q) ||
+      norm(e.cargo).includes(q) ||
+      norm(companyName(e.company_id)).includes(q)
     ),
     [employees, q, companies]
   );

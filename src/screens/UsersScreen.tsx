@@ -12,6 +12,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../compo
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { Profile, UserRole } from '../types/database';
 import { MODULES, LEVELS, PermLevel, defaultLevel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
@@ -45,10 +46,10 @@ export default function UsersScreen() {
   }
 
   const onlineCount = users.filter((u) => onlineIds.includes(u.id)).length;
-  const q = query.trim().toLowerCase();
+  const q = norm(query.trim());
   const filtered = !q
     ? users
-    : users.filter((u) => (u.full_name ?? '').toLowerCase().includes(q) || u.role.toLowerCase().includes(q));
+    : users.filter((u) => norm(u.full_name).includes(q) || norm(u.role).includes(q));
 
   const changeRole = async (id: string, newRole: UserRole) => {
     await supabase.from('profiles').update({ role: newRole }).eq('id', id);

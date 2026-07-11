@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { Machinery } from '../types/database';
 import { upsertMachineRound, getMachineRound } from '../lib/machineRounds';
 import { insertMachineDispatch } from '../lib/dispatches';
@@ -152,8 +153,8 @@ export default function OperatorScreen() {
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
 
   const pickList = machines.filter((m) => {
-    const q = pickQuery.trim().toLowerCase();
-    return !q || (m.code || '').toLowerCase().includes(q) || (m.companyName || '').toLowerCase().includes(q);
+    const q = norm(pickQuery.trim());
+    return !q || norm(m.code).includes(q) || norm(m.companyName).includes(q);
   });
 
   return (

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius } from '../theme';
@@ -91,11 +92,11 @@ export default function MantenimientoMaquinariaScreen() {
 
   // Filtra por estado + búsqueda y agrupa por empresa → máquina.
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = norm(query.trim());
     const shown = reqs.filter((r) => (showDone ? r.status === 'realizado' : r.status === 'pendiente'));
     const byCompany = new Map<string, Map<string, Req[]>>();
     shown.forEach((r) => {
-      if (q && !r.company.toLowerCase().includes(q) && !r.code.toLowerCase().includes(q)) return;
+      if (q && !norm(r.company).includes(q) && !norm(r.code).includes(q)) return;
       const comp = byCompany.get(r.company) ?? new Map<string, Req[]>();
       const arr = comp.get(r.code) ?? [];
       arr.push(r);

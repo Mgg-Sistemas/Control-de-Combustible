@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
+import { norm } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard } from '../types/database';
@@ -692,14 +693,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setPriceFor(null);
   };
 
-  const q = query.trim().toLowerCase();
+  const q = norm(query.trim());
   const matchCompany = (m: Machinery) =>
     companyFilter === '__all__' ? true : companyFilter === '__none__' ? !m.company_id : m.company_id === companyFilter;
   const matchText = (m: Machinery) =>
     !q ||
-    m.code.toLowerCase().includes(q) ||
-    (m.serial ?? '').toLowerCase().includes(q) ||
-    (m.company_id ? (companies[m.company_id] ?? '').toLowerCase().includes(q) : false);
+    norm(m.code).includes(q) ||
+    norm(m.serial).includes(q) ||
+    (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
   const shown = machines.filter((m) => !m.en_espera && matchCompany(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
@@ -1430,9 +1431,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   g.days.push(m);
                   map.set(key, g);
                 });
-                const q = closureSearch.trim().toLowerCase();
+                const q = norm(closureSearch.trim());
                 let groups = Array.from(map.values());
-                if (q) groups = groups.filter((g) => g.code.toLowerCase().includes(q) || (g.serial || '').toLowerCase().includes(q) || g.company.toLowerCase().includes(q));
+                if (q) groups = groups.filter((g) => norm(g.code).includes(q) || norm(g.serial).includes(q) || norm(g.company).includes(q));
                 groups.sort((a, b) => a.code.localeCompare(b.code));
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;

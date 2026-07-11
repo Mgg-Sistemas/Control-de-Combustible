@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { norm } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { spacing, radius } from '../theme';
@@ -89,7 +90,7 @@ export default function OperadoresScreen() {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ws]);
 
   const groups = useMemo<OperatorGroup[]>(() => {
-    const term = q.trim().toLowerCase();
+    const term = norm(q.trim());
     const byCedula = new Map<string, OperatorGroup>();
     rows.forEach((r) => {
       const name = `${r.first_name} ${r.last_name}`.trim();
@@ -98,7 +99,7 @@ export default function OperadoresScreen() {
       byCedula.set(r.cedula, g);
     });
     let list = [...byCedula.values()];
-    if (term) list = list.filter((g) => g.name.toLowerCase().includes(term) || g.cedula.toLowerCase().includes(term));
+    if (term) list = list.filter((g) => norm(g.name).includes(term) || norm(g.cedula).includes(term));
     list.forEach((g) => g.rows.sort((a, b) => a.work_date.localeCompare(b.work_date)));
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }, [rows, q]);

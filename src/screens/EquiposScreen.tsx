@@ -9,6 +9,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
+import { norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
@@ -187,8 +188,8 @@ export default function EquiposScreen({ navigation }: any) {
     const t = canonDim(m, catDim);
     return typeFilter === '__none__' ? !t : t === typeFilter;
   };
-  const q = query.trim().toLowerCase();
-  const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => String(v).toLowerCase().includes(q));
+  const q = norm(query.trim());
+  const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => norm(v).includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
   const machineryList = machinery.data.filter(
     (m) => matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id)])
@@ -235,7 +236,7 @@ export default function EquiposScreen({ navigation }: any) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportWithPrices, setReportWithPrices] = useState(true); // con $ / sin $
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
-  const [reportDim, setReportDim] = useState<GroupDim>('modelo'); // agrupar el reporte por Modelo o Clasificación
+  const [reportDim] = useState<GroupDim>('clasificacion'); // el reporte se agrupa siempre por Clasificación
   const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // valores seleccionados (vacío = todos)
   const toggleReportType = (t: string) =>
     setReportTypes((prev) => {
@@ -1401,21 +1402,8 @@ export default function EquiposScreen({ navigation }: any) {
               })}
           </View>
 
-          {/* Agrupar el reporte por Modelo o por Clasificación (uno u otro). */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Agrupar por</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-            {(['modelo', 'clasificacion'] as GroupDim[]).map((d) => {
-              const on = reportDim === d;
-              return (
-                <TouchableOpacity key={d} onPress={() => { setReportDim(d); setReportTypes(new Set()); }}
-                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{DIM_LABEL[d]}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Checklist de la dimensión activa (multi-selección). Vacío = todos. */}
+          {/* El reporte se agrupa siempre por Clasificación. */}
+          {/* Checklist de clasificaciones (multi-selección). Vacío = todos. */}
           {reportTypeOptions.length > 0 ? (
             <View style={{ marginBottom: spacing.sm }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
