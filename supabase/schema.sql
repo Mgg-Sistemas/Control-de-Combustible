@@ -877,6 +877,19 @@ drop policy if exists employees_read on public.employees;
 create policy employees_read on public.employees for select using (true);
 drop policy if exists employees_write on public.employees;
 create policy employees_write on public.employees for all to authenticated using (true) with check (true);
+-- N° de ficha AUTOMÁTICO: correlativo de 4 dígitos (0001, 0002, …) asignado al crear
+-- cuando no se envía uno manual.
+create sequence if not exists public.employees_ficha_seq;
+create or replace function public.set_employee_ficha() returns trigger language plpgsql as $fn$
+begin
+  if new.ficha_number is null or btrim(new.ficha_number) = '' then
+    new.ficha_number := lpad(nextval('public.employees_ficha_seq')::text, 4, '0');
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists trg_employee_ficha on public.employees;
+create trigger trg_employee_ficha before insert on public.employees
+  for each row execute function public.set_employee_ficha();
 
 -- ============================================================================
 -- FIN DEL ESQUEMA

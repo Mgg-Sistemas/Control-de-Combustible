@@ -21,10 +21,10 @@ const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC
 
 // Todos los campos de la ficha del trabajador.
 const FIELDS: Field[] = [
+  // El N° de ficha es AUTOMÁTICO (correlativo de 4 dígitos que asigna la BD al crear).
   { key: 'first_name', label: 'Nombre', type: 'text', required: true },
   { key: 'last_name', label: 'Apellido', type: 'text', required: true },
   { key: 'cedula', label: 'Cédula', type: 'text' },
-  { key: 'ficha_number', label: 'N° de ficha', type: 'text' },
   { key: 'company_id', label: 'Empresa', type: 'lookup', table: 'companies', labelCol: 'name' },
   { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
@@ -198,10 +198,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         fields={FIELDS}
         record={editing as any}
         autoUserField="created_by"
-        uniqueField={[
-          { key: 'cedula', labelCol: 'cedula', labelName: 'cédula' },
-          { key: 'ficha_number', labelCol: 'ficha_number', labelName: 'número de ficha' },
-        ]}
+        uniqueField={{ key: 'cedula', labelCol: 'cedula', labelName: 'cédula' }}
         allowDelete
         onClose={() => setFormOpen(false)}
         onSaved={refetch}
