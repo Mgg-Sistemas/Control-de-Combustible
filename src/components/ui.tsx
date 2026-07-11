@@ -16,12 +16,15 @@ export function Screen({
   children,
   scroll = true,
   scrollRef: extRef,
+  bg,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   scrollRef?: React.MutableRefObject<ScrollView | null>;
+  bg?: string; // color de fondo opcional (por defecto usa el del tema)
 }) {
   const { colors } = useTheme();
+  const background = bg ?? colors.background;
   const scrollRef = React.useRef<ScrollView>(null);
   const setScrollRef = (node: ScrollView | null) => {
     scrollRef.current = node;
@@ -31,17 +34,17 @@ export function Screen({
 
   if (!scroll) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
-        <View style={{ flex: 1, backgroundColor: colors.background }}>{children}</View>
+      <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top']}>
+        <View style={{ flex: 1, backgroundColor: background }}>{children}</View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top']}>
       <ScrollView
         ref={setScrollRef}
-        style={{ flex: 1, backgroundColor: colors.background }}
+        style={{ flex: 1, backgroundColor: background }}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
         scrollEventThrottle={16}
         onScroll={(e) => {

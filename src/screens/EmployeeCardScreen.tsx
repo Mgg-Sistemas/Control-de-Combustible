@@ -11,6 +11,17 @@ import { spacing, radius } from '../theme';
 
 const LOGO = require('../../assets/logo.jpeg');
 
+// Paleta fija de la ficha (estilo documento/carnet): fondo azulito como el logo,
+// tarjetas blancas y texto oscuro, sin importar el tema claro/oscuro de la app.
+const FICHA = {
+  bg: '#EAF1FB',
+  card: '#FFFFFF',
+  brand: '#1E3A5F',
+  text: '#1F2937',
+  muted: '#6B7280',
+  border: '#D7E3F4',
+};
+
 const STATUS: Record<string, { label: string; color: string }> = {
   activo: { label: '● Activo', color: '#16A34A' },
   inactivo: { label: '● Inactivo', color: '#DC2626' },
@@ -69,43 +80,42 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
   const Row = ({ k, v }: { k: string; v?: string | null }) =>
     v ? (
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        <Text style={{ color: colors.muted, fontSize: 13 }}>{k}</Text>
-        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1, textAlign: 'right' }}>{v}</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+        <Text style={{ color: FICHA.muted, fontSize: 13 }}>{k}</Text>
+        <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700', flex: 1, textAlign: 'right' }}>{v}</Text>
       </View>
     ) : null;
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <Card>
-      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>{title}</Text>
+    <Card style={{ backgroundColor: FICHA.card, borderColor: FICHA.border }}>
+      <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>{title}</Text>
       {children}
     </Card>
   );
 
   return (
-    <Screen>
+    <Screen bg={FICHA.bg}>
       {/* Encabezado con logo */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Image source={LOGO} style={{ width: 34, height: 34, borderRadius: 6, backgroundColor: '#fff' }} resizeMode="contain" />
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>Ficha del trabajador</Text>
+          <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Ficha del trabajador</Text>
         </View>
       </View>
 
       {/* Foto + nombre + cargo + estado */}
-      <Card>
+      <Card style={{ backgroundColor: FICHA.card, borderColor: FICHA.border }}>
         <View style={{ alignItems: 'center' }}>
           {emp.photo_url ? (
-            <Image source={{ uri: emp.photo_url }} style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: colors.surfaceAlt, borderWidth: 3, borderColor: colors.primary }} resizeMode="cover" />
+            <Image source={{ uri: emp.photo_url }} style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: '#EEF2F7', borderWidth: 3, borderColor: FICHA.brand }} resizeMode="cover" />
           ) : (
-            <View style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.primary }}>
+            <View style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: FICHA.brand }}>
               <Text style={{ fontSize: 56 }}>👤</Text>
             </View>
           )}
-          <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900', marginTop: spacing.sm, textAlign: 'center' }}>{fullName(emp)}</Text>
-          <Text style={{ color: colors.muted, fontSize: 14, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>{emp.cargo || 'Trabajador'}</Text>
-          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700', marginTop: 2 }}>🏢 {emp.companyName}</Text>
-          <View style={{ marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 3 }}>
+          <Text style={{ color: FICHA.text, fontSize: 22, fontWeight: '900', marginTop: spacing.sm, textAlign: 'center' }}>{fullName(emp)}</Text>
+          <Text style={{ color: FICHA.muted, fontSize: 14, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>{emp.cargo || 'Trabajador'}</Text>
+          <View style={{ marginTop: spacing.xs, backgroundColor: '#EEF2F7', borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 3 }}>
             <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
           </View>
         </View>
@@ -139,7 +149,6 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       ) : null}
 
       <Section title="💼 Datos laborales">
-        <Row k="Empresa" v={emp.companyName} />
         <Row k="Cargo" v={emp.cargo} />
         <Row k="Departamento" v={emp.department} />
         <Row k="Grupo / zona" v={emp.grupo} />
@@ -148,12 +157,12 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
       {emp.notes ? (
         <Section title="📝 Notas">
-          <Text style={{ color: colors.text, fontSize: 13 }}>{emp.notes}</Text>
+          <Text style={{ color: FICHA.text, fontSize: 13 }}>{emp.notes}</Text>
         </Section>
       ) : null}
 
-      <TouchableOpacity onPress={imprimirCarnet} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>🪪 Imprimir carnet</Text>
+      <TouchableOpacity onPress={imprimirCarnet} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
+        <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 Imprimir carnet</Text>
       </TouchableOpacity>
       <View style={{ height: spacing.lg }} />
     </Screen>
