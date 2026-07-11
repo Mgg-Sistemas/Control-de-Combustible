@@ -93,6 +93,9 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const [opFirst, setOpFirst] = useState('');
   const [opLast, setOpLast] = useState('');
   const [opCedula, setOpCedula] = useState('');
+  // Vínculo con RRHH: al escribir la cédula, se busca en Empleados y se autocompleta.
+  const [empMatch, setEmpMatch] = useState<{ name: string; cargo: string | null } | null>(null);
+  const [empSearching, setEmpSearching] = useState(false);
   const [hIni, setHIni] = useState('');
   const [hFin, setHFin] = useState('');
   const [horPhoto, setHorPhoto] = useState<string | null>(null);
@@ -104,6 +107,33 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   }, []);
   // Pre-calienta el GPS para que "MAPA" marque la ubicación al instante.
   useEffect(() => { warmLocation(); }, []);
+
+  // Vínculo con RRHH: al escribir la cédula (solo dígitos), buscar en Empleados y
+  // autocompletar nombre/apellido. La lectura de employees es pública (sirve por QR).
+  useEffect(() => {
+    const ci = opCedula.trim();
+    if (ci.length < 6) { setEmpMatch(null); setEmpSearching(false); return; }
+    let cancel = false;
+    setEmpSearching(true);
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('employees')
+        .select('first_name, last_name, cargo, cedula')
+        .eq('cedula', ci)
+        .limit(1);
+      if (cancel) return;
+      const emp = (data && data[0]) as any;
+      if (emp) {
+        setOpFirst((emp.first_name || '').trim());
+        setOpLast((emp.last_name || '').trim());
+        setEmpMatch({ name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cargo: emp.cargo ?? null });
+      } else {
+        setEmpMatch(null);
+      }
+      setEmpSearching(false);
+    }, 450);
+    return () => { cancel = true; clearTimeout(t); };
+  }, [opCedula]);
 
   useEffect(() => {
     (async () => {
@@ -184,7 +214,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   // con la última lectura de la máquina (se arrastra del cierre anterior).
   const abrirInicio = () => {
     setNotice(null);
-    setOpFirst(''); setOpLast(''); setOpCedula('');
+    setOpFirst(''); setOpLast(''); setOpCedula(''); setEmpMatch(null);
     setHIni(machine?.last_horometro != null ? String(machine.last_horometro) : '');
     setHorPhoto(null);
     setView('jini');
@@ -374,19 +404,43 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       {view === 'jini' ? (
         <Card>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.xs, letterSpacing: 0.5 }}>⏱️ INICIO DE JORNADA</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Datos del operador (no necesita iniciar sesión).</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre</Text>
-              <TextInput value={opFirst} onChangeText={setOpFirst} placeholder="Nombre" placeholderTextColor={colors.muted} style={input} />
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Ingresa tu cédula (no necesita iniciar sesión).</Text>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula</Text>
+          <TextInput
+            value={opCedula}
+            onChangeText={(t) => setOpCedula(t.replace(/[^0-9]/g, ''))}
+            keyboardType="number-pad"
+            inputMode="numeric"
+            placeholder="Solo números"
+            placeholderTextColor={colors.muted}
+            style={input}
+          />
+          {/* Resultado del cruce con Empleados (RRHH). */}
+          {opCedula.trim().length >= 6 ? (
+            empSearching ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Buscando en empleados…</Text>
+            ) : empMatch ? (
+              <View style={{ marginTop: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.success }}>
+                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 13 }}>✓ {empMatch.name}</Text>
+                {empMatch.cargo ? <Text style={{ color: colors.muted, fontSize: 12 }}>{empMatch.cargo} · registrado en RRHH</Text> : <Text style={{ color: colors.muted, fontSize: 12 }}>Registrado en RRHH</Text>}
+              </View>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>No estás en la lista de empleados. Escribe tu nombre y apellido abajo.</Text>
+            )
+          ) : null}
+          {/* Nombre/apellido: solo si la cédula NO está en RRHH (respaldo). */}
+          {!empMatch ? (
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre</Text>
+                <TextInput value={opFirst} onChangeText={setOpFirst} placeholder="Nombre" placeholderTextColor={colors.muted} style={input} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Apellido</Text>
+                <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} style={input} />
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Apellido</Text>
-              <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} style={input} />
-            </View>
-          </View>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Cédula</Text>
-          <TextInput value={opCedula} onChangeText={setOpCedula} keyboardType="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={input} />
+          ) : null}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Horómetro inicial</Text>
           <TextInput value={hIni} onChangeText={setHIni} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {machine.last_horometro != null ? (
