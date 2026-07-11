@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+// Secuencia global: da un id único a cada instancia del hook para que su canal
+// de realtime no colisione con otro que escuche la misma tabla (dos canales con
+// el mismo nombre rompen con "cannot add postgres_changes after subscribe()").
+let rtSeq = 0;
 
 /** Lee una tabla/vista de Supabase con estado de carga, error y refetch.
  *  Se sincroniza en tiempo real: si otro usuario cambia los datos, se refresca solo. */
@@ -11,6 +16,9 @@ export function useTable<T = any>(
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Id único y estable de esta instancia (para el nombre del canal de realtime).
+  const instanceId = useRef<number>(0);
+  if (instanceId.current === 0) instanceId.current = ++rtSeq;
 
   // `silent`: recarga SIN mostrar "Cargando…" (para refrescos en tiempo real y tras
   //  guardar). Evita que la lista parpadee/re-renderice en cada cambio → app más fluida.
@@ -47,7 +55,7 @@ export function useTable<T = any>(
       clearTimeout(timer);
       timer = setTimeout(() => fetch(true), 400); // refresco SILENCIOSO (sin spinner)
     };
-    const ch = supabase.channel(`rt-${table}-${sourcesKey}`);
+    const ch = supabase.channel(`rt-${table}-${sourcesKey}-${instanceId.current}`);
     sources.forEach((src) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: src }, bump));
     ch.subscribe();
     return () => {
