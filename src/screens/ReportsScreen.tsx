@@ -315,7 +315,7 @@ ${empRows || '<tr><td colspan="4" style="text-align:center;color:#6b7280">Sin da
 </div></section>`;
   const half = Math.ceil(byTp.length / 2);
   const tpTable = (arr: DeployData['byTp']) => `<table class="tipos">
-    <thead><tr><th>Tipo de maquinaria</th><th class="tnum">Eq.</th><th>Horas</th></tr></thead>
+    <thead><tr><th>Clasificación</th><th class="tnum">Eq.</th><th>Horas</th></tr></thead>
     <tbody>
 ${arr.map((t) => `    <tr>
       <td class="tname">${t.tipo}</td>
@@ -614,7 +614,7 @@ export default function ReportsScreen({ route }: any) {
   const generateFleet = async () => {
     setLoading(true);
     const [{ data: mach }, { data: vehs }, { data: disp }, rnds] = await Promise.all([
-      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, referencia, price_per_hour, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, clasificacion, referencia, price_per_hour, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       supabase
         .from('dispatches')
@@ -651,7 +651,8 @@ export default function ReportsScreen({ route }: any) {
         desc: m.description || '—',
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
-        tipo: canonTipo(m.tipo) || 'Sin tipo',
+        // El reporte de maquinaria agrupa/filtra por CLASIFICACIÓN (no por modelo).
+        tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
         referencia: m.referencia || null,
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
@@ -887,10 +888,10 @@ export default function ReportsScreen({ route }: any) {
     supabase.from('companies').select('name').order('name').then(({ data }) => {
       setCompanyList((data ?? []).map((c: any) => c.name).filter(Boolean));
     });
-    // Lista de tipos de maquinaria (canónicos) para el filtro por tipo.
-    selectAllRows('machinery', 'tipo').then((rows) => {
+    // Lista de CLASIFICACIONES (canónicas) para el filtro del reporte de maquinaria.
+    selectAllRows('machinery', 'clasificacion').then((rows) => {
       const set = new Set<string>();
-      (rows ?? []).forEach((m: any) => { const t = canonTipo(m.tipo); if (t) set.add(t); });
+      (rows ?? []).forEach((m: any) => { const t = canonTipo(m.clasificacion); if (t) set.add(t); });
       setTypeList(Array.from(set).sort((a, b) => a.localeCompare(b)));
     });
   }, []);
@@ -1097,7 +1098,7 @@ export default function ReportsScreen({ route }: any) {
         {mode === 'fleet' && typeList.length > 0 ? (
           <>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo de maquinaria (marca uno o varios)</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Clasificación (marca una o varias)</Text>
               {fleetTypes.length > 0 ? (
                 <TouchableOpacity onPress={() => setFleetTypes([])}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({fleetTypes.length})</Text>

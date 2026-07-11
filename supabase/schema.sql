@@ -892,6 +892,50 @@ create trigger trg_employee_ficha before insert on public.employees
   for each row execute function public.set_employee_ficha();
 
 -- ============================================================================
+-- NÓMINA (Fase 2) — períodos y renglones por empleado
+-- Datos sensibles: lectura SOLO para usuarios autenticados (no anónimos).
+-- ============================================================================
+create table if not exists public.payroll_periods (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  name text not null,
+  period_start date,
+  period_end date,
+  status text not null default 'borrador',   -- borrador | aprobada | pagada
+  total_amount numeric(14,2) not null default 0,
+  currency text default 'USD',
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.payroll_items (
+  id uuid primary key default gen_random_uuid(),
+  period_id uuid not null references public.payroll_periods(id) on delete cascade,
+  employee_id uuid references public.employees(id) on delete set null,
+  employee_name text,
+  cargo text,
+  ficha_number text,
+  cedula text,
+  base_amount numeric(14,2) not null default 0,
+  additions jsonb not null default '[]'::jsonb,   -- [{label, amount}]
+  deductions jsonb not null default '[]'::jsonb,
+  net_amount numeric(14,2) not null default 0,
+  note text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_pi_period on public.payroll_items(period_id);
+create index if not exists idx_pp_company on public.payroll_periods(company_id);
+alter table public.payroll_periods enable row level security;
+alter table public.payroll_items enable row level security;
+drop policy if exists pp_read on public.payroll_periods;
+create policy pp_read on public.payroll_periods for select to authenticated using (true);
+drop policy if exists pp_write on public.payroll_periods;
+create policy pp_write on public.payroll_periods for all to authenticated using (true) with check (true);
+drop policy if exists pi_read on public.payroll_items;
+create policy pi_read on public.payroll_items for select to authenticated using (true);
+drop policy if exists pi_write on public.payroll_items;
+create policy pi_write on public.payroll_items for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- ÍNDICES DE RENDIMIENTO (filtros/joins más frecuentes)
 -- ============================================================================
 create index if not exists idx_machinery_company    on public.machinery(company_id);

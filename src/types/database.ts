@@ -158,6 +158,43 @@ export interface PriceTariff {
   updated_at: string;
 }
 
+/** Línea de asignación o deducción de un recibo de nómina. */
+export interface PayrollLine {
+  label: string;
+  amount: number;
+}
+
+/** Período de nómina de una empresa (borrador → aprobada → pagada). */
+export interface PayrollPeriod {
+  id: string;
+  company_id: string | null;
+  name: string;
+  period_start: string | null;
+  period_end: string | null;
+  status: 'borrador' | 'aprobada' | 'pagada';
+  total_amount: number;
+  currency: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Renglón de nómina por empleado. Neto = base + asignaciones − deducciones. */
+export interface PayrollItem {
+  id: string;
+  period_id: string;
+  employee_id: string | null;
+  employee_name: string | null;
+  cargo: string | null;
+  ficha_number: string | null;
+  cedula: string | null;
+  base_amount: number;
+  additions: PayrollLine[];
+  deductions: PayrollLine[];
+  net_amount: number;
+  note: string | null;
+  created_at: string;
+}
+
 export interface MachineryLocation {
   id: string;
   machinery_id: string;
