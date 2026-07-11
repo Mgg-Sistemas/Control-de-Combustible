@@ -428,8 +428,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>No estás en la lista de empleados. Escribe tu nombre y apellido abajo.</Text>
             )
           ) : null}
-          {/* Nombre/apellido: solo si la cédula NO está en RRHH (respaldo). */}
-          {!empMatch ? (
+          {/* Nombre/apellido: SOLO si se escribió una cédula que no está en RRHH (respaldo). */}
+          {opCedula.trim().length >= 6 && !empSearching && !empMatch ? (
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre</Text>
