@@ -1,0 +1,31 @@
+# Configuración de DigitalOcean App Platform (sitio estático).
+# Despliega la app web (Expo export) desde la rama main de GitHub y se
+# actualiza sola en cada push (igual que hacía Vercel).
+#
+# Cómo usarlo:
+#   Opción A (panel web): DigitalOcean → Create → Apps → GitHub →
+#     repo Mgg-Sistemas/Control-de-Combustible, rama main. Detecta este
+#     archivo automáticamente. Solo pon las 2 variables de Supabase.
+#   Opción B (terminal): doctl apps create --spec .do/app.yaml
+#
+# IMPORTANTE: las variables EXPO_PUBLIC_* se incrustan al COMPILAR, por eso
+# van con scope BUILD_TIME. Ponlas en el panel (no las dejes aquí en texto).
+name: control-de-combustible
+region: nyc
+static_sites:
+  - name: web
+    github:
+      repo: Mgg-Sistemas/Control-de-Combustible
+      branch: main
+      deploy_on_push: true
+    build_command: npx expo export -p web
+    output_dir: dist
+    # Todas las rutas caen en index.html (app de una sola página / SPA).
+    catchall_document: index.html
+    envs:
+      - key: EXPO_PUBLIC_SUPABASE_URL
+        scope: BUILD_TIME
+        value: PONER_EN_EL_PANEL
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
+        scope: BUILD_TIME
+        value: PONER_EN_EL_PANEL
