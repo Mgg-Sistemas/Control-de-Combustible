@@ -573,16 +573,23 @@ export default function EquiposScreen({ navigation }: any) {
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
 
   // Agrupar la maquinaria por empresa (para el catálogo en acordeón).
-  const machineryByCompany = useMemo(() => {
-    const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
+  // Catálogo agrupado por CLASIFICACIÓN (nivel 1) y, dentro, DETALLE POR EMPRESA (nivel 2).
+  const machineryByClasificacion = useMemo(() => {
+    const cls = new Map<string, { key: string; name: string; count: number; companies: Map<string, { key: string; name: string; items: Machinery[] }> }>();
     machineryList.forEach((it) => {
-      const k = it.company_id ?? '__none__';
-      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
-      const g = m.get(k) ?? { key: k, name, items: [] };
-      g.items.push(it);
-      m.set(k, g);
+      const cName = canonTipo(it.clasificacion) || 'Sin clasificación';
+      const ck = it.company_id ?? '__none__';
+      const coName = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      let g = cls.get(cName);
+      if (!g) { g = { key: cName, name: cName, count: 0, companies: new Map() }; cls.set(cName, g); }
+      let co = g.companies.get(ck);
+      if (!co) { co = { key: ck, name: coName, items: [] }; g.companies.set(ck, co); }
+      co.items.push(it);
+      g.count += 1;
     });
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(cls.values())
+      .map((g) => ({ ...g, companyList: Array.from(g.companies.values()).sort((a, b) => a.name.localeCompare(b.name)) }))
+      .sort((a, b) => (a.name === 'Sin clasificación' ? 1 : b.name === 'Sin clasificación' ? -1 : a.name.localeCompare(b.name)));
   }, [machineryList, companyName]);
 
   // Grupos para el REPORTE (por EMPRESA) según el alcance elegido.
@@ -927,22 +934,9 @@ export default function EquiposScreen({ navigation }: any) {
         </TouchableOpacity>
       </View>
 
-      {/* Filtro por Modelo / Clasificación (chips), con selector de dimensión */}
+      {/* Filtro por Clasificación (chips) */}
       <View style={{ marginTop: spacing.sm }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por {DIM_LABEL[catDim].toLowerCase()}</Text>
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            {(['modelo', 'clasificacion'] as GroupDim[]).map((d) => {
-              const on = catDim === d;
-              return (
-                <TouchableOpacity key={d} onPress={() => { setCatDim(d); setTypeFilter('__all__'); }}
-                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{DIM_LABEL[d]}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por clasificación</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
           {([['__all__', 'Todos'], ...typeOptions.map(([t]) => [t, t === '__none__' ? `Sin ${DIM_LABEL[catDim].toLowerCase()}` : t] as [string, string])] as [string, string][]).map(([val, label]) => {
             const active = typeFilter === val;
@@ -968,10 +962,10 @@ export default function EquiposScreen({ navigation }: any) {
         <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : (
         <>
-          {/* Maquinaria dividida por empresa (acordeón). */}
-          {machineryByCompany.map((g) => {
-            // Al buscar, las empresas quedan COMPACTADAS por defecto (el usuario despliega la que
-            // le interese). Solo se auto-abren si se filtró explícitamente una empresa o una clasificación.
+          {/* Maquinaria agrupada por CLASIFICACIÓN (acordeón) y, dentro, DETALLE POR EMPRESA. */}
+          {machineryByClasificacion.map((g) => {
+            // Al buscar, las clasificaciones quedan COMPACTADAS por defecto (el usuario despliega la
+            // que le interese). Solo se auto-abren si se filtró una empresa o una clasificación.
             const open = expanded[g.key] ?? (companyFilter !== '__all__' || typeFilter !== '__all__');
             return (
               <View key={g.key} style={{ marginBottom: spacing.xs }}>
@@ -982,13 +976,26 @@ export default function EquiposScreen({ navigation }: any) {
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
                     <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                    <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                    <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🗃️ {g.name}</Text>
                   </View>
                   <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                    <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.count}</Text>
                   </View>
                 </TouchableOpacity>
-                {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
+                {open ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    {g.companyList.map((co) => (
+                      <View key={co.key} style={{ marginBottom: spacing.xs }}>
+                        {/* Detalle por empresa dentro de la clasificación */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, marginBottom: spacing.xs, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, flex: 1 }}>🏢 {co.name}</Text>
+                          <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>{co.items.length}</Text>
+                        </View>
+                        {co.items.map(renderMachineCard)}
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             );
           })}
