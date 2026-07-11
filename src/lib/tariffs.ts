@@ -74,8 +74,9 @@ const RULES: Rule[] = [
   { modelo: 'Camion Plataforma 8 Ton', test: (c) => c.includes('plataforma') && !c.includes('grua') },
 
   // ── Respaldos genéricos (van al FINAL: solo si ningún modelo específico aplicó) ──
-  // Cualquier otro jumbo/excavadora (225, 325, 336, Sany, Case, XCMG, 323…) → precio de Jumbo genérico.
-  { modelo: 'Jumbo (otros)', test: (c, t) => t.includes('jumbo') || c.includes('jumbo') },
+  // Cualquier otro jumbo/excavadora (225, 325, 336, Sany, Case, XCMG, 323…) va con
+  // los Jumbo de $1000 (fila "Jumbo 320"); si cambia ese precio, se mueven juntos.
+  { modelo: 'Jumbo 320', test: (c, t) => t.includes('jumbo') || c.includes('jumbo') },
   // Cualquier volteo/volqueta suelto (no chuto, no Toronto) → precio de camión.
   { modelo: 'Volteo / Volqueta', test: (c, t) => t.includes('volqueta') || c.includes('volteo') || c.includes('volqueta') },
 ];
