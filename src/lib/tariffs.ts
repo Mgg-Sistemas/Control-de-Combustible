@@ -67,8 +67,8 @@ const RULES: Rule[] = [
   { modelo: 'Payloader', test: (c, t) => c.includes('payload') || c.includes('paylo') || t.includes('payloader') || t.includes('cargador') },
 
   // Transporte
-  { modelo: 'Chuto con batea', test: (c) => c.includes('batea') },
-  { modelo: 'Chuto con lowboy', test: (c) => c.includes('lowboy') || c.includes('low-boy') || c.includes('low boy') },
+  { modelo: 'Chuto con batea', test: (c, t) => c.includes('batea') || t.includes('batea') },
+  { modelo: 'Chuto con lowboy', test: (c, t) => c.includes('lowboy') || c.includes('low-boy') || c.includes('low boy') || t.includes('low-boy') || t.includes('lowboy') || t.includes('low boy') },
   { modelo: 'Chuto con Volqueta', test: (c) => c.includes('chuto') && c.includes('volqueta') },
   { modelo: 'Camion Volteo Toronto', test: (c) => c.includes('toronto') },
   { modelo: 'Camion Plataforma 8 Ton', test: (c) => c.includes('plataforma') && !c.includes('grua') },
