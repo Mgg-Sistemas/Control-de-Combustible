@@ -1,15 +1,13 @@
 # Configuración de DigitalOcean App Platform (sitio estático).
-# Despliega la app web (Expo export) desde la rama main de GitHub y se
-# actualiza sola en cada push (igual que hacía Vercel).
+# DEPLOY RÁPIDO: la web se compila en tu PC (`npm run deploy`) y se commitea la
+# carpeta `dist`. DigitalOcean NO recompila: solo sirve esa carpeta ya lista, por
+# lo que el deploy baja de ~3-5 min a ~30-60 s.
 #
-# Cómo usarlo:
-#   Opción A (panel web): DigitalOcean → Create → Apps → GitHub →
-#     repo Mgg-Sistemas/Control-de-Combustible, rama main. Detecta este
-#     archivo automáticamente. Solo pon las 2 variables de Supabase.
-#   Opción B (terminal): doctl apps create --spec .do/app.yaml
+# ⚠️ En el PANEL de DigitalOcean deja el "Build Command" VACÍO y "Output
+#    Directory" = dist. Así DO sube la carpeta compilada tal cual.
 #
-# IMPORTANTE: las variables EXPO_PUBLIC_* se incrustan al COMPILAR, por eso
-# van con scope BUILD_TIME. Ponlas en el panel (no las dejes aquí en texto).
+# Como se compila local, ya NO hacen falta las variables EXPO_PUBLIC_* en DO:
+# quedan incrustadas en `dist` al compilar (toma las de tu .env local).
 name: control-de-combustible
 region: nyc
 static_sites:
@@ -18,14 +16,7 @@ static_sites:
       repo: Mgg-Sistemas/Control-de-Combustible
       branch: main
       deploy_on_push: true
-    build_command: npx expo export -p web
+    # Sin build_command: DO sirve la carpeta `dist` ya compilada del repo.
     output_dir: dist
     # Todas las rutas caen en index.html (app de una sola página / SPA).
     catchall_document: index.html
-    envs:
-      - key: EXPO_PUBLIC_SUPABASE_URL
-        scope: BUILD_TIME
-        value: PONER_EN_EL_PANEL
-      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
-        scope: BUILD_TIME
-        value: PONER_EN_EL_PANEL

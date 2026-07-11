@@ -66,7 +66,7 @@ function Pill({ label, color }: { label: string; color: string }) {
 }
 
 // ── Editor de renglones (descripción · cantidad · unidad · precio) ───────────
-function LineEditor({ items, setItems, priceLabel, readOnly, catalog }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[] }) {
+function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }: { items: PurchaseLine[]; setItems: (l: PurchaseLine[]) => void; priceLabel: string; readOnly?: boolean; catalog?: InventoryLevel[]; noPrice?: boolean }) {
   const { colors } = useTheme();
   const [focus, setFocus] = useState<number | null>(null);
   const upd = (i: number, patch: Partial<PurchaseLine>) => setItems(items.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -95,10 +95,12 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog }: { items:
           <View style={{ flexDirection: 'row', gap: 6 }}>
             <TextInput value={l.qty ? String(l.qty) : ''} editable={!readOnly} onChangeText={(t) => upd(i, { qty: parseNum(t) })} keyboardType="numeric" placeholder="Cant." placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
             <TextInput value={l.unit ?? ''} editable={!readOnly} onChangeText={(t) => upd(i, { unit: t.toUpperCase() })} placeholder="Unidad" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[inputStyle, { flex: 1 }]} />
-            <TextInput value={l.price ? String(l.price) : ''} editable={!readOnly} onChangeText={(t) => upd(i, { price: parseNum(t) })} keyboardType="numeric" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
+            {!noPrice ? (
+              <TextInput value={l.price ? String(l.price) : ''} editable={!readOnly} onChangeText={(t) => upd(i, { price: parseNum(t) })} keyboardType="numeric" placeholder={priceLabel} placeholderTextColor={colors.muted} style={[inputStyle, { flex: 1 }]} />
+            ) : null}
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text>
+            {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12 }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text> : <View />}
             {!readOnly ? (
               <TouchableOpacity onPress={() => setItems(items.filter((_, j) => j !== i))}><Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
             ) : null}
@@ -111,7 +113,7 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog }: { items:
           <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>+ Agregar renglón</Text>
         </TouchableOpacity>
       ) : null}
-      <Text style={{ color: colors.text, fontWeight: '800', textAlign: 'right', marginTop: 2 }}>Total: {usd(linesTotal(items))}</Text>
+      {!noPrice ? <Text style={{ color: colors.text, fontWeight: '800', textAlign: 'right', marginTop: 2 }}>Total: {usd(linesTotal(items))}</Text> : null}
     </View>
   );
 }
@@ -196,12 +198,13 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
 
   const crear = async () => {
     if (!company) return Alert.alert('Aviso', 'Elige la empresa.');
-    const clean = items.filter((l) => l.description.trim());
+    // La solicitud NO lleva precio: solo qué y cuánto. El precio va en la Orden de Compra.
+    const clean = items.filter((l) => l.description.trim()).map((l) => ({ ...l, price: 0 }));
     if (!clean.length) return Alert.alert('Aviso', 'Agrega al menos un renglón con descripción.');
     setBusy(true);
     const { error } = await supabase.from('purchase_requests').insert({
       company_id: company, requested_by: session?.user?.id ?? null, category, needed_for: neededFor.trim().toUpperCase() || null,
-      note: note.trim().toUpperCase() || null, items: clean, estimated_total: linesTotal(clean), status: 'solicitada',
+      note: note.trim().toUpperCase() || null, items: clean, estimated_total: 0, status: 'solicitada',
     });
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
@@ -249,7 +252,7 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
             </View>
             <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{catInfo(r.category).icon} {catInfo(r.category).label}</Text>
             {r.needed_for ? <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Para: {r.needed_for}</Text> : null}
-            <Text style={{ color: colors.text, fontSize: 13, marginTop: 4 }}>{(r.items || []).length} renglón(es) · Estimado: {usd(r.estimated_total)}</Text>
+            <Text style={{ color: colors.text, fontSize: 13, marginTop: 4 }}>{(r.items || []).length} renglón(es)</Text>
             {(r.items || []).slice(0, 4).map((l, i) => (
               <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description}</Text>
             ))}
@@ -289,8 +292,8 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Renglones (qué se necesita)</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Al escribir, se sugieren productos ya registrados en inventario.</Text>
-              <LineEditor items={items} setItems={setItems} priceLabel="Precio est." catalog={catalog} />
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Solo qué y cuánto. El precio se coloca en la Orden de Compra. Al escribir, se sugieren productos ya registrados en inventario.</Text>
+              <LineEditor items={items} setItems={setItems} priceLabel="" catalog={catalog} noPrice />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
