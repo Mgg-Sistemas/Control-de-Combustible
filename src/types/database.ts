@@ -109,6 +109,19 @@ export interface Company {
   created_at: string;
 }
 
+/** Tabulador maestro de precios por jornada (clasificación + modelo).
+ *  Editable desde Control de pagos. La sincronización lo aplica a
+ *  machinery.price_per_hour (precios ACTUALES); los cierres viejos NO se tocan
+ *  (quedan congelados). Los cierres nuevos congelan estos precios al cerrar. */
+export interface PriceTariff {
+  id: string;
+  clasificacion: string;
+  modelo: string;        // clave única — se empareja con el code de la máquina
+  price_jornada: number; // precio por jornada (12 h)
+  sort_order: number;
+  updated_at: string;
+}
+
 export interface MachineryLocation {
   id: string;
   machinery_id: string;

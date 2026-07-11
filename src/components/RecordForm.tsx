@@ -255,8 +255,10 @@ export function RecordForm({
           {isEdit && headerImageUrl ? (
             <Image
               source={{ uri: headerImageUrl }}
-              style={{ width: '100%', height: 180, borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}
-              resizeMode="cover"
+              // contain + ancho acotado y centrado: en web el formulario es muy ancho y
+              // con "cover" la foto se recortaba en una franja. Así se ve la máquina completa.
+              style={{ width: '100%', maxWidth: 420, aspectRatio: 4 / 3, alignSelf: 'center', height: undefined, borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}
+              resizeMode="contain"
             />
           ) : null}
           <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: spacing.sm }}>

@@ -8,7 +8,8 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { DateField } from '../components/DateField';
-import { CompanyPayment, PaymentDetail, Payroll } from '../types/database';
+import { CompanyPayment, PaymentDetail, Payroll, PriceTariff } from '../types/database';
+import { matchTariffModelo } from '../lib/tariffs';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -167,6 +168,21 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [repFrom, setRepFrom] = useState(addDaysISO(todayISO(), -30));
   const [repTo, setRepTo] = useState(todayISO());
 
+  // Tabulador de precios (editable) + sincronización
+  const [tarOpen, setTarOpen] = useState(false);
+  const [tariffs, setTariffs] = useState<PriceTariff[]>([]);
+  const [tarEdits, setTarEdits] = useState<Record<string, string>>({}); // modelo → precio (texto)
+  const [tarSaving, setTarSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  // Vista previa del sync: filas emparejadas (con cuántas máquinas cambian) y sin emparejar.
+  const [syncPreview, setSyncPreview] = useState<null | {
+    changes: { modelo: string; price: number; machines: { id: string; label: string; from: number | null }[] }[];
+    unmatched: { id: string; label: string; tipo: string | null }[];
+    totalChanges: number;
+  }>(null);
+
+  const canEditTar = role === 'admin' || role === 'supervisor';
+
   const load = async () => {
     setLoading(true);
     const [rounds, { data: pays }, { data: prs }, { data: closs }] = await Promise.all([
@@ -318,6 +334,111 @@ export default function ControlPagosScreen({ navigation }: any) {
     recomputeGroup(grp);
     setGroups((prev) => [...prev]);
     if (selected?.key === grp.key) setSelected({ ...grp });
+  };
+
+  // ── Tabulador de precios ────────────────────────────────────────────────────
+  const loadTariffs = async () => {
+    const { data } = await supabase.from('price_tariffs').select('*').order('sort_order', { ascending: true });
+    const rows = (data ?? []) as PriceTariff[];
+    setTariffs(rows);
+    const edits: Record<string, string> = {};
+    rows.forEach((t) => (edits[t.modelo] = String(Number(t.price_jornada))));
+    setTarEdits(edits);
+  };
+
+  const openTabulador = async () => {
+    setSyncPreview(null);
+    await loadTariffs();
+    setTarOpen(true);
+  };
+
+  // Guarda los precios editados del tabulador.
+  const saveTariffs = async () => {
+    if (!canEditTar) return;
+    setTarSaving(true);
+    try {
+      const changed = tariffs.filter((t) => {
+        const v = Number(tarEdits[t.modelo]);
+        return Number.isFinite(v) && v !== Number(t.price_jornada);
+      });
+      for (const t of changed) {
+        await supabase
+          .from('price_tariffs')
+          .update({ price_jornada: Number(tarEdits[t.modelo]), updated_at: new Date().toISOString() })
+          .eq('id', t.id);
+      }
+      await loadTariffs();
+      await confirm({
+        title: 'Tabulador guardado',
+        message: changed.length ? `Se actualizaron ${changed.length} precio(s).` : 'No hubo cambios.',
+        confirmText: 'Ok',
+      });
+    } finally {
+      setTarSaving(false);
+    }
+  };
+
+  // Arma la vista previa del sync: empareja cada máquina activa con una fila del
+  // tabulador (por modelo) y calcula qué precios ACTUALES cambiarían.
+  const buildSyncPreview = async () => {
+    // Guarda primero cualquier edición pendiente para sincronizar con lo mostrado.
+    const priceByModelo = new Map<string, number>();
+    tariffs.forEach((t) => {
+      const v = Number(tarEdits[t.modelo]);
+      priceByModelo.set(t.modelo, Number.isFinite(v) ? v : Number(t.price_jornada));
+    });
+    const { data } = await supabase
+      .from('machinery')
+      .select('id, code, tipo, clasificacion, serial, plate, price_per_hour, active')
+      .eq('active', true);
+    const machines = (data ?? []) as any[];
+    const byModelo = new Map<string, { modelo: string; price: number; machines: { id: string; label: string; from: number | null }[] }>();
+    const unmatched: { id: string; label: string; tipo: string | null }[] = [];
+    machines.forEach((m) => {
+      const modelo = matchTariffModelo(m);
+      const label = `${m.code}${m.serial ? ` · ${m.serial}` : m.plate ? ` · ${m.plate}` : ''}`;
+      if (!modelo || !priceByModelo.has(modelo)) {
+        unmatched.push({ id: m.id, label, tipo: m.tipo ?? null });
+        return;
+      }
+      const price = priceByModelo.get(modelo)!;
+      const from = m.price_per_hour != null ? Number(m.price_per_hour) : null;
+      if (from === price) return; // ya está en el precio del tabulador
+      const row = byModelo.get(modelo) ?? { modelo, price, machines: [] };
+      row.machines.push({ id: m.id, label, from });
+      byModelo.set(modelo, row);
+    });
+    const changes = Array.from(byModelo.values())
+      .filter((r) => r.machines.length > 0)
+      .sort((a, b) => a.modelo.localeCompare(b.modelo));
+    const totalChanges = changes.reduce((s, r) => s + r.machines.length, 0);
+    setSyncPreview({ changes, unmatched, totalChanges });
+  };
+
+  // Aplica la sincronización: escribe el precio del tabulador en machinery.price_per_hour.
+  // Solo toca precios ACTUALES; los cierres viejos quedan congelados.
+  const applySync = async () => {
+    if (!syncPreview || !canEditTar) return;
+    setSyncing(true);
+    try {
+      for (const r of syncPreview.changes) {
+        const ids = r.machines.map((x) => x.id);
+        // en lotes por si son muchos
+        for (let i = 0; i < ids.length; i += 100) {
+          await supabase.from('machinery').update({ price_per_hour: r.price }).in('id', ids.slice(i, i + 100));
+        }
+      }
+      const n = syncPreview.totalChanges;
+      setSyncPreview(null);
+      await confirm({
+        title: 'Sincronización aplicada',
+        message: `Se actualizaron los precios actuales de ${n} equipo(s). Los cierres anteriores no se tocaron.`,
+        confirmText: 'Ok',
+      });
+      await load();
+    } finally {
+      setSyncing(false);
+    }
   };
 
   // ── Deudas pendientes (no pagadas, con monto) → alerta de los lunes ──────────
@@ -682,6 +803,13 @@ export default function ControlPagosScreen({ navigation }: any) {
         style={{ padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.sm }}
       >
         <Text style={{ color: colors.primary, fontWeight: '700' }}>📊 Reporte por empresa y tipo (llegada → 05/07 + semanas)</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={openTabulador}
+        style={{ padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, marginTop: spacing.sm }}
+      >
+        <Text style={{ color: colors.text, fontWeight: '700' }}>💲 Tabulador de precios (editar / sincronizar)</Text>
       </TouchableOpacity>
 
       <TextInput
@@ -1163,6 +1291,119 @@ export default function ControlPagosScreen({ navigation }: any) {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* ── Tabulador de precios ── */}
+      <Modal visible={tarOpen} animationType="slide" onRequestClose={() => setTarOpen(false)}>
+        <Screen>
+          <TouchableOpacity onPress={() => setTarOpen(false)} style={{ paddingVertical: spacing.xs, marginBottom: spacing.xs }}>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>← Volver</Text>
+          </TouchableOpacity>
+          <SectionTitle>💲 Tabulador de precios</SectionTitle>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+            Precio por jornada (12 h) por clasificación y modelo. Al sincronizar se aplica a los precios
+            ACTUALES de las máquinas; los cierres anteriores quedan congelados y los nuevos cierres usan el tabulador.
+          </Text>
+
+          {syncPreview ? (
+            // ── Vista previa de la sincronización ──
+            <View style={{ flex: 1 }}>
+              <Card style={{ backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>
+                  Se cambiarán {syncPreview.totalChanges} equipo(s)
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  {syncPreview.unmatched.length} sin emparejar (no se tocan)
+                </Text>
+              </Card>
+              <ScrollView style={{ flex: 1, marginTop: spacing.sm }}>
+                {syncPreview.changes.map((r) => (
+                  <Card key={r.modelo} style={{ marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>
+                      {r.modelo} → ${money(r.price)} <Text style={{ color: colors.muted, fontWeight: '400' }}>({r.machines.length})</Text>
+                    </Text>
+                    {r.machines.map((m) => (
+                      <Text key={m.id} style={{ color: colors.muted, fontSize: 12 }}>
+                        • {m.label}  {m.from != null ? `($${money(m.from)} → $${money(r.price)})` : `(→ $${money(r.price)})`}
+                      </Text>
+                    ))}
+                  </Card>
+                ))}
+                {syncPreview.unmatched.length > 0 ? (
+                  <Card style={{ marginBottom: spacing.xs, borderColor: colors.warning, borderWidth: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>
+                      ⚠️ Sin emparejar ({syncPreview.unmatched.length}) — se quedan con su precio
+                    </Text>
+                    {syncPreview.unmatched.map((m) => (
+                      <Text key={m.id} style={{ color: colors.muted, fontSize: 12 }}>
+                        • {m.label} {m.tipo ? `[${m.tipo}]` : ''}
+                      </Text>
+                    ))}
+                  </Card>
+                ) : null}
+              </ScrollView>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setSyncPreview(null)}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={syncing || syncPreview.totalChanges === 0}
+                  style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: syncPreview.totalChanges === 0 ? colors.muted : colors.primary, opacity: syncing ? 0.6 : 1 }}
+                  onPress={applySync}
+                >
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{syncing ? 'Aplicando…' : '✅ Aplicar sincronización'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            // ── Lista editable del tabulador ──
+            <View style={{ flex: 1 }}>
+              <ScrollView style={{ flex: 1 }}>
+                {tariffs.map((t) => (
+                  <View
+                    key={t.id}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                  >
+                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{t.modelo}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{t.clasificacion}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ color: colors.muted }}>$</Text>
+                      <TextInput
+                        editable={canEditTar}
+                        value={tarEdits[t.modelo] ?? ''}
+                        onChangeText={(v) => setTarEdits((p) => ({ ...p, [t.modelo]: v.replace(/[^0-9.]/g, '') }))}
+                        keyboardType="numeric"
+                        style={{ minWidth: 74, textAlign: 'right', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, color: colors.text }}
+                      />
+                    </View>
+                  </View>
+                ))}
+                <View style={{ height: spacing.md }} />
+              </ScrollView>
+              {canEditTar ? (
+                <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setTarOpen(false)}>
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity disabled={tarSaving} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, opacity: tarSaving ? 0.6 : 1 }} onPress={saveTariffs}>
+                      <Text style={{ color: colors.primary, fontWeight: '800' }}>{tarSaving ? 'Guardando…' : '💾 Guardar precios'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={buildSyncPreview}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>🔄 Sincronizar precios actuales…</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }} onPress={() => setTarOpen(false)}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </Screen>
       </Modal>
     </Screen>
   );

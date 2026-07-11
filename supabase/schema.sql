@@ -446,6 +446,24 @@ create table if not exists public.companies (
   created_at timestamptz not null default now()
 );
 
+-- Tabulador maestro de precios por jornada (clasificación + modelo).
+-- Editable desde Control de pagos. "Sincronizar" lo aplica a
+-- machinery.price_per_hour (precios ACTUALES). Los cierres viejos quedan
+-- congelados; los cierres nuevos congelan estos precios al cerrar.
+create table if not exists public.price_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  clasificacion text not null,
+  modelo text not null unique,
+  price_jornada numeric not null default 0,
+  sort_order int not null default 0,
+  updated_at timestamptz not null default now()
+);
+alter table public.price_tariffs enable row level security;
+drop policy if exists price_tariffs_read on public.price_tariffs;
+create policy price_tariffs_read on public.price_tariffs for select using (true);
+drop policy if exists price_tariffs_write on public.price_tariffs;
+create policy price_tariffs_write on public.price_tariffs for all to authenticated using (true) with check (true);
+
 alter table public.machinery add column if not exists plate       text;
 alter table public.machinery add column if not exists serial      text;
 alter table public.machinery add column if not exists photo_url   text;
