@@ -18,6 +18,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
   { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
+  { label: 'Empleados', route: 'Empleados', desc: 'Fichas del personal (foto, cédula, cargo, contacto de emergencia) y carnet con QR', icon: '🪪', module: 'empleados' },
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Autorizaciones', route: 'Authorizations', desc: 'Solicitudes y aprobaciones', icon: '✅', module: 'autorizaciones' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },

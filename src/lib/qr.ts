@@ -18,6 +18,11 @@ export function machineQrUrl(machineryId: string): string {
   return `${appOrigin()}/?maquina=${encodeURIComponent(machineryId)}`;
 }
 
+/** URL que codifica el QR de un empleado: abre su ficha (datos del trabajador). */
+export function employeeQrUrl(employeeId: string): string {
+  return `${appOrigin()}/?empleado=${encodeURIComponent(employeeId)}`;
+}
+
 /** Genera el QR como cadena SVG (puro, sin canvas — funciona en web y en print). */
 export async function qrSvg(text: string, size = 240): Promise<string> {
   return QRCode.toString(text, { type: 'svg', margin: 1, width: size });

@@ -110,6 +110,41 @@ export interface Company {
   created_at: string;
 }
 
+/** Empleado / trabajador (RRHH). El QR de su ficha abre una pantalla con TODOS
+ *  estos datos; el carnet imprimible resume foto + cargo + N° ficha + cédula + grupo sanguíneo. */
+export interface Employee {
+  id: string;
+  company_id: string | null;
+  ficha_number: string | null;   // número de ficha (carnet)
+  first_name: string;
+  last_name: string;
+  cedula: string | null;
+  cargo: string | null;
+  department: string | null;
+  grupo: string | null;
+  photo_url: string | null;
+  birth_date: string | null;     // fecha de nacimiento (la edad se deriva)
+  gender: string | null;
+  blood_type: string | null;     // grupo sanguíneo
+  nationality: string | null;
+  marital_status: string | null; // estado civil
+  phone: string | null;
+  email: string | null;
+  address: string | null;        // dónde vive
+  city: string | null;
+  state: string | null;          // estado / provincia
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_relation: string | null;
+  hire_date: string | null;      // fecha de ingreso
+  status: 'activo' | 'inactivo' | 'suspendido';
+  base_salary: number | null;
+  salary_currency: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 /** Tabulador maestro de precios por jornada (clasificación + modelo).
  *  Editable desde Control de pagos. La sincronización lo aplica a
  *  machinery.price_per_hour (precios ACTUALES); los cierres viejos NO se tocan

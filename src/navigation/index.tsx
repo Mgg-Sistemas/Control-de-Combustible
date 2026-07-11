@@ -25,6 +25,8 @@ import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
+import EmpleadosScreen from '../screens/EmpleadosScreen';
+import EmployeeCardScreen from '../screens/EmployeeCardScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -117,6 +119,8 @@ function MoreStack() {
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
+      <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
+      <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
@@ -174,13 +178,13 @@ function Tabs() {
   );
 }
 
-/** Lee el parámetro ?maquina=<id> de la URL (solo web) para abrir la vista rápida del QR. */
-function useQrMachineId(): [string | null, () => void] {
+/** Lee un parámetro de la URL (solo web) para abrir por QR: ?maquina=<id> o ?empleado=<id>. */
+function useQrParam(name: string): [string | null, () => void] {
   const read = (): string | null => {
     if (Platform.OS !== 'web') return null;
     try {
       const w: any = globalThis;
-      return new URLSearchParams(w.location.search).get('maquina');
+      return new URLSearchParams(w.location.search).get(name);
     } catch {
       return null;
     }
@@ -200,12 +204,14 @@ function useQrMachineId(): [string | null, () => void] {
 
 export default function RootNavigator() {
   const { session, configured, locked, role, signOut } = useAuth();
-  const [qrMachineId, clearQr] = useQrMachineId();
+  const [qrMachineId, clearQr] = useQrParam('maquina');
+  const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
   const isAnon = !!(session as any)?.user?.is_anonymous;
   // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
   const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); }, [isAnon, signOut, clearQr]);
+  const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); }, [isAnon, signOut, clearQrEmp]);
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -221,7 +227,10 @@ export default function RootNavigator() {
   const showApp = !configured || (!!session && !isAnon);
   return (
     <NavigationContainer theme={navTheme}>
-      {qrMachineId ? (
+      {qrEmployeeId ? (
+        // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo lectura).
+        <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} />
+      ) : qrMachineId ? (
         // Se abrió por QR de una máquina: vista rápida SIN login (la pantalla
         // inicia una sesión anónima para poder registrar la jornada).
         <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} />

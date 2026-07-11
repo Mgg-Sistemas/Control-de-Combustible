@@ -834,5 +834,50 @@ create policy dispatches_anon_insert on public.dispatches for insert to authenti
 -- cualquier autenticado (incluye la sesión anónima).
 
 -- ============================================================================
+-- EMPLEADOS / RRHH (Fase 1) — ficha del trabajador + carnet con QR
+-- ============================================================================
+create table if not exists public.employees (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  ficha_number text,                       -- número de ficha (carnet)
+  first_name text not null,
+  last_name text not null,
+  cedula text,                             -- número de cédula
+  cargo text,
+  department text,
+  grupo text,
+  photo_url text,
+  birth_date date,                         -- la edad se deriva
+  gender text,
+  blood_type text,                         -- grupo sanguíneo
+  nationality text default 'Venezolana',
+  marital_status text,
+  phone text,
+  email text,
+  address text,                            -- dónde vive
+  city text,
+  state text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  emergency_contact_relation text,
+  hire_date date,                          -- fecha de ingreso
+  status text not null default 'activo',   -- activo | inactivo | suspendido
+  base_salary numeric(14,2),
+  salary_currency text default 'USD',
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+-- Cédula y número de ficha únicos (cuando no están vacíos).
+create unique index if not exists uq_employees_cedula on public.employees (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
+create unique index if not exists uq_employees_ficha  on public.employees (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
+alter table public.employees enable row level security;
+-- Lectura pública (el QR de la ficha se abre con sesión anónima, igual que el de máquinas).
+drop policy if exists employees_read on public.employees;
+create policy employees_read on public.employees for select using (true);
+drop policy if exists employees_write on public.employees;
+create policy employees_write on public.employees for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
