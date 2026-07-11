@@ -228,7 +228,12 @@ export default function RootNavigator() {
   // En modo demo (sin Supabase) o con sesión NO anónima, mostramos la app.
   const showApp = !configured || (!!session && !isAnon);
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer
+      theme={navTheme}
+      // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
+      // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
+      documentTitle={{ formatter: () => 'SOSGUAIRA' }}
+    >
       {qrEmployeeId ? (
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo lectura).
         <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} />
