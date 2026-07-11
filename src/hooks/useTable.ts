@@ -12,13 +12,15 @@ export function useTable<T = any>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  // `silent`: recarga SIN mostrar "Cargando…" (para refrescos en tiempo real y tras
+  //  guardar). Evita que la lista parpadee/re-renderice en cada cambio → app más fluida.
+  const fetch = useCallback(async (silent = false) => {
     if (!isSupabaseConfigured) {
       setLoading(false);
       setError('Supabase no está configurado.');
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     let query = supabase.from(table).select(select);
     if (orderBy) query = query.order(orderBy, { ascending });
     const { data: rows, error } = await query;
@@ -27,11 +29,11 @@ export function useTable<T = any>(
       setData((rows ?? []) as T[]);
       setError(null);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [table, select, orderBy, ascending]);
 
   useEffect(() => {
-    fetch();
+    fetch(); // primera carga: sí muestra "Cargando…"
   }, [fetch]);
 
   // Sincronización en tiempo real (multiusuario): al recibir cualquier cambio en
@@ -43,7 +45,7 @@ export function useTable<T = any>(
     let timer: any;
     const bump = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => fetch(), 250);
+      timer = setTimeout(() => fetch(true), 400); // refresco SILENCIOSO (sin spinner)
     };
     const ch = supabase.channel(`rt-${table}-${sourcesKey}`);
     sources.forEach((src) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: src }, bump));
@@ -54,5 +56,7 @@ export function useTable<T = any>(
     };
   }, [table, sourcesKey, fetch]);
 
-  return { data, loading, error, refetch: fetch };
+  // refetch tras guardar: silencioso, para que la lista no parpadee.
+  const refetch = useCallback(() => fetch(true), [fetch]);
+  return { data, loading, error, refetch };
 }

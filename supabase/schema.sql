@@ -892,5 +892,16 @@ create trigger trg_employee_ficha before insert on public.employees
   for each row execute function public.set_employee_ficha();
 
 -- ============================================================================
+-- ÍNDICES DE RENDIMIENTO (filtros/joins más frecuentes)
+-- ============================================================================
+create index if not exists idx_machinery_company    on public.machinery(company_id);
+create index if not exists idx_mr_machinery          on public.machine_rounds(machinery_id);
+-- Parcial: el control activo consulta round_date con closed = false.
+create index if not exists idx_mr_open               on public.machine_rounds(round_date) where closed = false;
+create index if not exists idx_dispatches_machinery  on public.dispatches(machinery_id);
+create index if not exists idx_dispatches_date       on public.dispatches(dispatch_date);
+create index if not exists idx_employees_company     on public.employees(company_id);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
