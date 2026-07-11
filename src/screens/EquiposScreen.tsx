@@ -970,7 +970,9 @@ export default function EquiposScreen({ navigation }: any) {
         <>
           {/* Maquinaria dividida por empresa (acordeón). */}
           {machineryByCompany.map((g) => {
-            const open = expanded[g.key] ?? (!!q || companyFilter !== '__all__' || typeFilter !== '__all__');
+            // Al buscar, las empresas quedan COMPACTADAS por defecto (el usuario despliega la que
+            // le interese). Solo se auto-abren si se filtró explícitamente una empresa o una clasificación.
+            const open = expanded[g.key] ?? (companyFilter !== '__all__' || typeFilter !== '__all__');
             return (
               <View key={g.key} style={{ marginBottom: spacing.xs }}>
                 <TouchableOpacity
@@ -994,7 +996,7 @@ export default function EquiposScreen({ navigation }: any) {
           {/* Vehículos (acordeón aparte, dentro del mismo catálogo). */}
           {vehicleList.length > 0 ? (
             (() => {
-              const open = expanded['__vehicles__'] ?? !!q;
+              const open = expanded['__vehicles__'] ?? false;
               return (
                 <View style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity
