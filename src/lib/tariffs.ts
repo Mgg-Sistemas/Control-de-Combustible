@@ -26,6 +26,8 @@ const RULES: Rule[] = [
   { modelo: 'Tractor de oruga D8', test: (c) => c.includes('d8') },
   { modelo: 'Tractor de oruga D7', test: (c) => c.includes('d7') },
   { modelo: 'Tractor de oruga D6', test: (c) => c.includes('d6') },
+  // Otros tractores de oruga sin D6-D9 exacto (ej. Shower 955) → D6.
+  { modelo: 'Tractor de oruga D6', test: (c, t) => t.includes('tractor de oruga') },
 
   // Grúas telescópicas por tonelaje
   { modelo: 'Grúas telescópicas 70 Ton', test: (c, t) => (c.includes('telescopica') || t.includes('grua telescopica')) && c.includes('70') },
@@ -46,12 +48,15 @@ const RULES: Rule[] = [
   // Brazo pitman por tonelaje
   { modelo: 'Camion brazo pitman 12 ton', test: (c) => c.includes('pitman') && c.includes('12') },
   { modelo: 'Camion brazo pitman 9 ton', test: (c) => c.includes('pitman') && c.includes('9 ton') },
+  // Otros pitman sin tonelaje estándar (6 ton, 96HABV…) → 9 ton por defecto.
+  { modelo: 'Camion brazo pitman 9 ton', test: (c, t) => c.includes('pitman') || t.includes('brazo pitman') },
 
   // Camiones de servicio / especiales
   { modelo: 'Camion cava seca 10 ton', test: (c) => c.includes('cava seca') },
   { modelo: 'Camion Refrigerado', test: (c) => c.includes('refrigerad') },
   { modelo: 'Camion de soldadura', test: (c) => c.includes('soldadura') },
   { modelo: 'Camion de servicio', test: (c, t) => (t.includes('servicio') || c.includes('servicio')) && !c.includes('soldadura') },
+  { modelo: 'Camion Cesta', test: (c, t) => c.includes('cesta') || t.includes('cesta') },
   { modelo: 'Autobus', test: (c) => c.includes('autobus') },
   { modelo: 'Camionetas Pick-up', test: (c, t) => c.includes('pick') || t.includes('pick up') },
 
