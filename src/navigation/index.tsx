@@ -117,7 +117,7 @@ function MoreStack() {
       <Stack.Screen name="Tanks" component={TanksScreen} options={{ title: 'Tanques' }} />
       <Stack.Screen name="Intakes" component={IntakesScreen} options={{ title: 'Ingresos' }} />
       <Stack.Screen name="Dispatches" component={DispatchesScreen} options={{ title: 'Consumos' }} />
-      <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Autorizaciones' }} />
+      <Stack.Screen name="Authorizations" component={AuthorizationsScreen} options={{ title: 'Solicitudes' }} />
       <Stack.Screen name="ControlPagos" component={ControlPagosScreen} options={{ title: 'Control de pagos' }} />
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
