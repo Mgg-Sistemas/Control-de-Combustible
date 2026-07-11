@@ -195,6 +195,63 @@ export interface PayrollItem {
   created_at: string;
 }
 
+// ===== F3 COMPRAS =====
+
+export interface Supplier {
+  id: string;
+  name: string;
+  rif: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+/** Renglón de una solicitud/orden de compra (guardado en JSONB). */
+export interface PurchaseLine {
+  description: string;
+  qty: number;
+  unit: string | null;
+  price: number; // estimado (solicitud) o unitario (orden)
+}
+
+export type PurchaseRequestStatus = 'solicitada' | 'aprobada' | 'rechazada' | 'ordenada';
+
+/** Solicitud de pedido → se aprueba/rechaza → genera una orden de compra. */
+export interface PurchaseRequest {
+  id: string;
+  company_id: string | null;
+  requested_by: string | null;
+  needed_for: string | null;
+  note: string | null;
+  items: PurchaseLine[];
+  estimated_total: number;
+  status: PurchaseRequestStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
+export type PurchaseOrderStatus = 'borrador' | 'aprobada' | 'recibida' | 'anulada';
+
+/** Orden de compra (nace de una solicitud aprobada). */
+export interface PurchaseOrder {
+  id: string;
+  request_id: string | null;
+  supplier_id: string | null;
+  company_id: string | null;
+  note: string | null;
+  items: PurchaseLine[];
+  total: number;
+  status: PurchaseOrderStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  received_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface MachineryLocation {
   id: string;
   machinery_id: string;

@@ -28,6 +28,7 @@ import CombustibleScreen from '../screens/CombustibleScreen';
 import EmpleadosScreen from '../screens/EmpleadosScreen';
 import EmployeeCardScreen from '../screens/EmployeeCardScreen';
 import NominaScreen from '../screens/NominaScreen';
+import ComprasScreen from '../screens/ComprasScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -123,6 +124,7 @@ function MoreStack() {
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
+      <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />

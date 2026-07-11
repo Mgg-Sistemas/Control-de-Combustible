@@ -831,6 +831,68 @@ create policy oa_read on public.operator_assignments for select to authenticated
 create policy oa_insert on public.operator_assignments for insert to authenticated with check (true);
 create policy oa_update on public.operator_assignments for update to authenticated using (true) with check (true);
 
+-- ===================== F3 COMPRAS =====================
+-- Proveedores, solicitudes de pedido y órdenes de compra. Escritura por permiso
+-- de módulo 'compras' (can_write_module). Los renglones van en JSONB.
+create table if not exists public.suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  rif text, phone text, email text, address text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.suppliers enable row level security;
+drop policy if exists suppliers_select on public.suppliers;
+create policy suppliers_select on public.suppliers for select to authenticated using (true);
+drop policy if exists suppliers_write on public.suppliers;
+create policy suppliers_write on public.suppliers for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create table if not exists public.purchase_requests (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id),
+  requested_by uuid references auth.users(id),
+  needed_for text,
+  note text,
+  items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
+  estimated_total numeric not null default 0,
+  status text not null default 'solicitada',    -- solicitada|aprobada|rechazada|ordenada
+  approved_by uuid references auth.users(id),
+  approved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.purchase_requests enable row level security;
+drop policy if exists preq_select on public.purchase_requests;
+create policy preq_select on public.purchase_requests for select to authenticated using (true);
+drop policy if exists preq_write on public.purchase_requests;
+create policy preq_write on public.purchase_requests for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create table if not exists public.purchase_orders (
+  id uuid primary key default gen_random_uuid(),
+  request_id uuid references public.purchase_requests(id) on delete set null,
+  supplier_id uuid references public.suppliers(id),
+  company_id uuid references public.companies(id),
+  note text,
+  items jsonb not null default '[]'::jsonb,     -- [{description, qty, unit, price}]
+  total numeric not null default 0,
+  status text not null default 'borrador',       -- borrador|aprobada|recibida|anulada
+  approved_by uuid references auth.users(id),
+  approved_at timestamptz,
+  received_at timestamptz,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.purchase_orders enable row level security;
+drop policy if exists pord_select on public.purchase_orders;
+create policy pord_select on public.purchase_orders for select to authenticated using (true);
+drop policy if exists pord_write on public.purchase_orders;
+create policy pord_write on public.purchase_orders for all to authenticated
+  using (public.can_write_module('compras')) with check (public.can_write_module('compras'));
+
+create index if not exists idx_preq_status on public.purchase_requests(status);
+create index if not exists idx_pord_status on public.purchase_orders(status);
+
 -- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
 -- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos
 -- QUIRÚRGICOS a la sesión anónima para lo que hace el operador desde el QR.
