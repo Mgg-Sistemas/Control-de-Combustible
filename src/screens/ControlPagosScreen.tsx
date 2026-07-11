@@ -64,7 +64,9 @@ type DayInfo = { stopped: number; overtime: number; day: number; night: number }
 type MachineAgg = {
   machine: string;        // etiqueta visible (nombre · serial/placa)
   serial: string | null;  // serial único (identifica la máquina física)
-  price: number | null;
+  price: number | null;   // precio EFECTIVO en uso (actual o del cierre según el modo)
+  priceCurrent: number | null; // precio actual de la máquina
+  priceFrozen: number | null;  // precio congelado en el cierre de esa semana (si existe)
   hours: number;      // horas trabajadas totales (día + noche − parada + extras)
   dayHours: number;   // total horas de turno de día
   nightHours: number; // total horas de turno de noche
@@ -80,6 +82,7 @@ function billableHours(d: DayInfo): number {
   return d.day + d.night > 0 ? workedFromShifts(d.day, d.night, d.stopped, d.overtime) : 0;
 }
 type Group = {
+  key: string;            // company|weekStart (para el toggle de precios)
   company: string;
   companyId: string | null;
   weekStart: string;
@@ -88,12 +91,47 @@ type Group = {
   total: number;
   hoursWorked: number;
   noPrice: boolean;
+  // Precios: si la semana está cerrada y tiene precio congelado, se puede elegir
+  // "Del cierre" (revertir) o "Actuales" (sincronizar). hasFrozen = hay precio de cierre.
+  hasFrozen: boolean;
+  priceMode: 'actual' | 'cierre';
   // Abonos (pagos parciales) de la semana: se acumulan hasta cubrir el total.
   abonos: CompanyPayment[]; // todos los abonos de esta empresa+semana
   paidAmount: number;       // suma de abonos
   saldo: number;            // total − abonado (nunca negativo)
   fullyPaid: boolean;       // saldado por completo
 };
+
+/**
+ * Recalcula un grupo (empresa+semana) según el MODO de precio elegido:
+ * - 'cierre'  → usa el precio congelado del cierre (revertir / inmutable)
+ * - 'actual'  → usa el precio actual de la máquina (sincronizar con lo nuevo)
+ * Ajusta precio efectivo, subtotales, total, saldo y "pagado por completo".
+ */
+function recomputeGroup(g: Group): void {
+  let total = 0;
+  let hoursWorked = 0;
+  let noPrice = false;
+  Object.values(g.machines).forEach((ma) => {
+    const eff = g.priceMode === 'cierre' && ma.priceFrozen != null ? ma.priceFrozen : ma.priceCurrent;
+    ma.price = eff;
+    const days = Object.values(ma.perDay);
+    const hrs = days.reduce((s, d) => s + billableHours(d), 0);
+    const units = hrs / 12;
+    ma.hours = hrs;
+    ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
+    ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
+    ma.subtotal = round2((eff ?? 0) * units);
+    total += ma.subtotal;
+    hoursWorked += hrs;
+    if (eff == null && hrs > 0) noPrice = true;
+  });
+  g.total = round2(total);
+  g.hoursWorked = hoursWorked;
+  g.noPrice = noPrice;
+  g.saldo = Math.max(0, round2(g.total - (g.paidAmount || 0)));
+  g.fullyPaid = g.total > 0 && (g.paidAmount || 0) >= g.total - 0.01;
+}
 
 export default function ControlPagosScreen({ navigation }: any) {
   const { colors } = useTheme();
@@ -131,7 +169,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const load = async () => {
     setLoading(true);
-    const [rounds, { data: pays }, { data: prs }] = await Promise.all([
+    const [rounds, { data: pays }, { data: prs }, { data: closs }] = await Promise.all([
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
@@ -139,7 +177,18 @@ export default function ControlPagosScreen({ navigation }: any) {
       ),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
       supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
+      supabase.from('control_closures').select('detail'),
     ]);
+
+    // Precio CONGELADO por (máquina, semana) tomado de los cierres: permite ver
+    // el monto "del cierre" aunque el precio actual haya cambiado.
+    const frozen = new Map<string, number>();
+    (closs ?? []).forEach((c: any) => {
+      (c.detail?.machines ?? []).forEach((m: any) => {
+        if (m.price == null || !m.machineId || !m.date) return;
+        frozen.set(`${m.machineId}|${weekStartISO(m.date)}`, Number(m.price));
+      });
+    });
 
     const map = new Map<string, Group>();
     (rounds ?? []).forEach((r: any) => {
@@ -157,8 +206,10 @@ export default function ControlPagosScreen({ navigation }: any) {
       const k = `${company}|${weekStart}`;
       const g =
         map.get(k) ??
-        ({ company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false } as Group);
-      const ma = g.machines[machineId] ?? { machine: label, serial, price, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
+        ({ key: k, company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual' } as Group);
+      const priceFrozen = frozen.has(`${machineId}|${weekStart}`) ? Number(frozen.get(`${machineId}|${weekStart}`)) : null;
+      if (priceFrozen != null) g.hasFrozen = true;
+      const ma = g.machines[machineId] ?? { machine: label, serial, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
       // Por día: turno de día/noche, parada y extras (todo en el registro base).
       const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       ma.perDay[r.round_date] = {
@@ -176,25 +227,10 @@ export default function ControlPagosScreen({ navigation }: any) {
     // Solo cuentan las rondas en verde (3 h c/u), descontando las horas parada.
     const list = Array.from(map.values());
     list.forEach((g) => {
-      let total = 0;
-      let hoursWorked = 0;
-      let noPrice = false;
-      Object.values(g.machines).forEach((ma) => {
-        const days = Object.values(ma.perDay);
-        const hrs = days.reduce((s, d) => s + billableHours(d), 0);
-        // Monto = horas TRABAJADAS × precio por hora (precio jornada ÷ 12); las paradas ya están descontadas en hrs.
-        const units = hrs / 12;
-        ma.hours = hrs;
-        ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
-        ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
-        ma.subtotal = round2((ma.price ?? 0) * units);
-        total += ma.subtotal;
-        hoursWorked += hrs;
-        if (ma.price == null && hrs > 0) noPrice = true;
-      });
-      g.total = round2(total);
-      g.hoursWorked = hoursWorked;
-      g.noPrice = noPrice;
+      // Semana cerrada con precio congelado → por defecto muestra "del cierre"
+      // (inmutable); si no hay cierre, usa el precio actual (sincronizado).
+      g.priceMode = g.hasFrozen ? 'cierre' : 'actual';
+      recomputeGroup(g);
     });
 
     // Vincular abonos ya realizados (empresa + inicio de semana). Una semana puede
@@ -274,6 +310,15 @@ export default function ControlPagosScreen({ navigation }: any) {
   }, [navigation]);
 
   const machinesOf = (g: Group) => Object.values(g.machines).filter((m) => m.hours > 0).sort((a, b) => b.subtotal - a.subtotal);
+
+  // Cambia el modo de precio de una semana: "del cierre" (revertir/inmutable) ↔
+  // "actuales" (sincronizar con los precios nuevos). Recalcula total y saldo.
+  const togglePriceMode = (grp: Group) => {
+    grp.priceMode = grp.priceMode === 'cierre' ? 'actual' : 'cierre';
+    recomputeGroup(grp);
+    setGroups((prev) => [...prev]);
+    if (selected?.key === grp.key) setSelected({ ...grp });
+  };
 
   // ── Deudas pendientes (no pagadas, con monto) → alerta de los lunes ──────────
   const outstandingByCompany = useMemo(() => {
@@ -725,6 +770,19 @@ export default function ControlPagosScreen({ navigation }: any) {
                       <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {g.hoursWorked.toLocaleString()} h trab.</Text>
                       {g.noPrice ? <Text style={{ color: colors.warning, fontSize: 12 }}>⚠️ falta precio</Text> : null}
                     </View>
+                    {g.hasFrozen ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Precios:</Text>
+                        <TouchableOpacity
+                          onPress={() => togglePriceMode(g)}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: g.priceMode === 'cierre' ? colors.primary : colors.border, backgroundColor: g.priceMode === 'cierre' ? colors.primary : colors.surfaceAlt }}
+                        >
+                          <Text style={{ color: g.priceMode === 'cierre' ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                            {g.priceMode === 'cierre' ? '📌 Del cierre' : '🔄 Actuales'} · cambiar
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                     {g.fullyPaid ? (
                       <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.xs, fontWeight: '700' }}>
                         ✓ Pagada · abonado ${money(g.paidAmount)}
@@ -793,6 +851,19 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{selected.company}</SectionTitle>
+              {selected.hasFrozen ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Semana cerrada · precios:</Text>
+                  <TouchableOpacity
+                    onPress={() => togglePriceMode(selected)}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, backgroundColor: selected.priceMode === 'cierre' ? colors.primary : colors.surfaceAlt }}
+                  >
+                    <Text style={{ color: selected.priceMode === 'cierre' ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '800' }}>
+                      {selected.priceMode === 'cierre' ? '📌 Del cierre (viejo)' : '🔄 Actuales (nuevo)'} · tocar para cambiar
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               {/* Botón de abono/pago ARRIBA para acceso rápido. */}
               {selected.fullyPaid ? (
                 <Card style={{ borderColor: colors.success }}>
