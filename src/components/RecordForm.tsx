@@ -290,11 +290,16 @@ export function RecordForm({
                   <TextInput
                     style={styles.input}
                     value={values[f.key] ?? ''}
-                    onChangeText={(t) => set(f.key, t)}
+                    // Todo el texto se guarda en MAYÚSCULA (nombres, descripciones…),
+                    // salvo correos/URLs, que se dañarían si se transforman.
+                    onChangeText={(t) => {
+                      const upper = f.type === 'text' && !/mail|correo|url|http/i.test(f.key);
+                      set(f.key, upper ? t.toUpperCase() : t);
+                    }}
                     placeholder={('placeholder' in f && f.placeholder) || ''}
                     placeholderTextColor={colors.muted}
                     keyboardType={f.type === 'number' ? 'numeric' : 'default'}
-                    autoCapitalize="none"
+                    autoCapitalize={f.type === 'text' && !/mail|correo|url|http/i.test(f.key) ? 'characters' : 'none'}
                   />
                 )}
               </View>
@@ -388,14 +393,15 @@ function SearchSelect({
   const create = async () => {
     if (!createColumn || !query.trim()) return;
     setCreating(true);
+    const val = query.trim().toUpperCase(); // los nombres nuevos se guardan en MAYÚSCULA
     const { data, error } = await supabase
       .from(table)
-      .insert({ [createColumn]: query.trim() } as any)
+      .insert({ [createColumn]: val } as any)
       .select()
       .single();
     setCreating(false);
     if (error || !data) return;
-    const opt = { label: query.trim(), value: (data as any).id };
+    const opt = { label: val, value: (data as any).id };
     onCreated(opt);
     onChange(opt.value);
     setQuery('');

@@ -182,8 +182,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                   </TouchableOpacity>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                     <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
-                    <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.primary} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
-                    <Btn label={busy === e.id + '-carnet' ? 'Generando…' : '🖨️ Carnet'} color="#111827" disabled={busy === e.id + '-carnet'} onPress={() => imprimirCarnet(e)} />
+                    <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                   </View>
                 </Card>
               )) : null}
