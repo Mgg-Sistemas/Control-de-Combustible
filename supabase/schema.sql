@@ -64,6 +64,27 @@ language sql stable security definer set search_path = public as $$
   select coalesce(public.current_role() = 'admin', false)
 $$;
 
+-- ¿el usuario actual puede ESCRIBIR en el módulo dado? Alinea la seguridad de la
+-- BD con los permisos por módulo de la UI: admin siempre; si el usuario tiene una
+-- fila de permiso, su nivel debe ser 'escritura'/'full'; sin fila = permitido
+-- (igual que la UI, cuyo nivel por defecto de los módulos operativos es 'escritura').
+-- Así un usuario con FULL CONTROL puede operar aunque su rol no sea staff.
+-- plpgsql (no sql) para que la referencia a module_permissions se resuelva en
+-- tiempo de ejecución: así el esquema se instala desde cero aunque esa tabla se
+-- cree más abajo.
+create or replace function public.can_write_module(mod text)
+returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare lvl text;
+begin
+  if public.is_admin() then return true; end if;
+  select mp.level into lvl from public.module_permissions mp
+    where mp.user_id = auth.uid() and mp.module = mod limit 1;
+  if lvl is null then return true; end if; -- sin fila = por defecto escritura
+  return lvl in ('escritura','full');
+end;
+$$;
+
 -- Crear perfil automáticamente al registrarse
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
