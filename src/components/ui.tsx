@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   ViewStyle,
+  Image,
+  ImageSourcePropType,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { spacing, radius, AppColors } from '../theme';
@@ -17,11 +19,15 @@ export function Screen({
   scroll = true,
   scrollRef: extRef,
   bg,
+  bgImage,
+  bgImageOpacity = 0.08,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   scrollRef?: React.MutableRefObject<ScrollView | null>;
   bg?: string; // color de fondo opcional (por defecto usa el del tema)
+  bgImage?: ImageSourcePropType; // imagen de fondo (marca de agua) fija detrás del contenido
+  bgImageOpacity?: number; // opacidad de la marca de agua (por defecto 0.08 = muy tenue)
 }) {
   const { colors } = useTheme();
   const background = bg ?? colors.background;
@@ -32,19 +38,31 @@ export function Screen({
   };
   const [showTop, setShowTop] = React.useState(false);
 
+  // Marca de agua fija (no scrollea): cubre toda la pantalla, muy atenuada.
+  const Watermark = bgImage ? (
+    <Image
+      source={bgImage}
+      resizeMode="cover"
+      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', opacity: bgImageOpacity }}
+    />
+  ) : null;
+  const scrollBg = bgImage ? 'transparent' : background;
+
   if (!scroll) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top']}>
-        <View style={{ flex: 1, backgroundColor: background }}>{children}</View>
+        {Watermark}
+        <View style={{ flex: 1, backgroundColor: scrollBg }}>{children}</View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: background }} edges={['top']}>
+      {Watermark}
       <ScrollView
         ref={setScrollRef}
-        style={{ flex: 1, backgroundColor: background }}
+        style={{ flex: 1, backgroundColor: scrollBg }}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
         scrollEventThrottle={16}
         onScroll={(e) => {
