@@ -135,6 +135,44 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
   return <Text style={[typography.title, { marginBottom: spacing.xs }]}>{children}</Text>;
 }
 
+/**
+ * Tarjeta desplegable: muestra `summary` (compacto, siempre visible) y al tocar
+ * revela `detail`. Para listas/búsquedas: resultados compactos que el usuario
+ * despliega cuando quiere ver el detalle.
+ */
+export function ExpandableCard({
+  summary,
+  detail,
+  defaultOpen = false,
+  style,
+}: {
+  summary: React.ReactNode;
+  detail?: React.ReactNode;
+  defaultOpen?: boolean;
+  style?: ViewStyle;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = React.useState(defaultOpen);
+  const hasDetail = !!detail;
+  return (
+    <Card style={style}>
+      <TouchableOpacity activeOpacity={hasDetail ? 0.7 : 1} onPress={() => hasDetail && setOpen((o) => !o)}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>{summary}</View>
+          {hasDetail ? (
+            <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▴' : '▾'}</Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+      {hasDetail && open ? (
+        <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+          {detail}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
 export function EmptyState({
   title,
   subtitle,

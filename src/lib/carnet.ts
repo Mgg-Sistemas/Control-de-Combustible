@@ -37,8 +37,8 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     .card{position:relative;width:340px;background:#fff;border:1px solid #d9dee5;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.12)}
     .wm{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:.07;z-index:0}
     .head,.body,.foot{position:relative;z-index:1}
-    .head{background:#16324F;color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:center;gap:10px}
-    .head img{height:40px;width:auto;background:#fff;border-radius:6px;padding:2px}
+    .head{padding:12px 16px 0;display:flex;align-items:center;justify-content:flex-end}
+    .head img{height:70px;width:auto;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
     .body{padding:16px 16px 10px;text-align:center}
     .photo{width:120px;height:140px;object-fit:cover;border-radius:10px;border:3px solid #16324F;margin:0 auto 10px;display:block;background:#eef2f7}
     .photo.ph{display:flex;align-items:center;justify-content:center;font-size:60px;background:#eef2f7;color:#9aa7b6}
@@ -50,7 +50,7 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     .row .v{color:#16324F;font-weight:800;text-align:right}
     .qr{margin:12px auto 4px;width:150px;height:150px;background:#fff;padding:6px;border-radius:8px;display:inline-block}
     .qr svg{width:100%;height:100%;display:block}
-    .foot{background:#16324F;color:#cfe0f5;font-size:9px;text-align:center;padding:6px}
+    .foot{color:#8a97a6;font-size:10px;text-align:center;padding:10px 6px 12px;border-top:1px solid #eef2f7}
   </style></head><body>
     <div class="card">
       <img class="wm" src="/ficha-bg.jpg"/>

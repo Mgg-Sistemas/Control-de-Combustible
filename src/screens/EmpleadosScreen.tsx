@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Image, Alert } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
@@ -157,34 +157,39 @@ export default function EmpleadosScreen({ navigation }: any) {
                 </View>
               </TouchableOpacity>
               {open ? g.items.map((e) => (
-                <Card key={e.id}>
-                  <TouchableOpacity activeOpacity={0.7} onPress={() => openEdit(e)}>
-                    <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                <ExpandableCard
+                  key={e.id}
+                  summary={
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
                       {e.photo_url ? (
-                        <Image source={{ uri: e.photo_url }} style={{ width: 56, height: 66, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
+                        <Image source={{ uri: e.photo_url }} style={{ width: 44, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
                       ) : (
-                        <View style={{ width: 56, height: 66, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-                          <Text style={{ fontSize: 28 }}>👤</Text>
+                        <View style={{ width: 44, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 24 }}>👤</Text>
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>{fullName(e)}</Text>
-                          <Text style={{ color: STATUS_COLOR[e.status] ?? colors.muted, fontWeight: '700', fontSize: 12 }}>● {e.status}</Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                          <Text style={{ color: STATUS_COLOR[e.status] ?? colors.muted, fontWeight: '700', fontSize: 11 }}>● {e.status}</Text>
                         </View>
-                        {e.cargo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '600' }}>{e.cargo}</Text> : null}
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>
-                          {[e.ficha_number ? `Ficha ${e.ficha_number}` : '', e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : ''].filter(Boolean).join(' · ')}
-                        </Text>
-                        <Text style={{ color: colors.primary, fontSize: 11, marginTop: 2 }}>Toca para editar</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo, e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
                       </View>
                     </View>
-                  </TouchableOpacity>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-                    <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
-                    <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
-                  </View>
-                </Card>
+                  }
+                  detail={
+                    <>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>
+                        {[e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : '', e.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                        <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
+                        <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
+                        <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
+                      </View>
+                    </>
+                  }
+                />
               )) : null}
             </View>
           );
