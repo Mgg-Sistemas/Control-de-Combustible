@@ -40,6 +40,9 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
   const [loading, setLoading] = useState(true);
   const [emp, setEmp] = useState<(Employee & { companyName?: string }) | null>(null);
+  // Horas trabajadas como operador (de operator_assignments, por cédula), agrupadas por máquina.
+  const [maquinas, setMaquinas] = useState<{ code: string; hours: number; jornadas: number }[]>([]);
+  const [totalHoras, setTotalHoras] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -51,7 +54,28 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         .select('*, company:company_id(name)')
         .eq('id', employeeId)
         .maybeSingle();
-      setEmp(data ? ({ ...(data as any), companyName: (data as any).company?.name ?? 'Sin empresa' }) : null);
+      const e = data ? ({ ...(data as any), companyName: (data as any).company?.name ?? 'Sin empresa' }) : null;
+      setEmp(e);
+
+      // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
+      if (e?.cedula) {
+        const { data: asg } = await supabase
+          .from('operator_assignments')
+          .select('worked_hours, machinery:machinery_id(code)')
+          .eq('cedula', String(e.cedula).trim());
+        const acc = new Map<string, { code: string; hours: number; jornadas: number }>();
+        let total = 0;
+        (asg ?? []).forEach((r: any) => {
+          const code = r.machinery?.code ?? '—';
+          const h = Number(r.worked_hours) || 0;
+          total += h;
+          const g = acc.get(code) ?? { code, hours: 0, jornadas: 0 };
+          g.hours += h; g.jornadas += 1;
+          acc.set(code, g);
+        });
+        setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
+        setTotalHoras(Math.round(total * 100) / 100);
+      }
       setLoading(false);
     })();
   }, [employeeId]);
@@ -121,6 +145,21 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
           </View>
         </View>
       </Card>
+
+      {maquinas.length > 0 ? (
+        <Section title="⏱️ Horas trabajadas">
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+            <Text style={{ color: FICHA.muted, fontSize: 13, fontWeight: '700' }}>TOTAL</Text>
+            <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900' }}>{totalHoras} h</Text>
+          </View>
+          {maquinas.map((m) => (
+            <View key={m.code} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+              <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>🚜 {m.code}</Text>
+              <Text style={{ color: FICHA.muted, fontSize: 13 }}>{m.jornadas} jornada(s) · <Text style={{ color: FICHA.text, fontWeight: '800' }}>{m.hours} h</Text></Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
 
       <Section title="🪪 Identificación">
         <Row k="N° de ficha" v={emp.ficha_number} />

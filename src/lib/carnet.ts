@@ -1,5 +1,4 @@
 import { LOGO_DATA_URI } from './logoData';
-import { COMPANY_NAME } from './company';
 import type { Employee } from '../types/database';
 
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -35,12 +34,13 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     @page{margin:1.2cm}
     *{box-sizing:border-box}
     body{font-family:Tahoma,Geneva,Verdana,sans-serif;display:flex;justify-content:center;padding:0;margin:0}
-    .card{width:340px;border:1px solid #d9dee5;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.12)}
-    .head{background:#16324F;color:#fff;padding:12px 14px;display:flex;align-items:center;gap:10px}
-    .head img{height:36px;width:auto;background:#fff;border-radius:6px;padding:2px}
-    .head .co{font-size:12px;font-weight:800;line-height:1.15;letter-spacing:.3px}
+    .card{position:relative;width:340px;background:#fff;border:1px solid #d9dee5;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+    .wm{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:.07;z-index:0}
+    .head,.body,.foot{position:relative;z-index:1}
+    .head{background:#16324F;color:#fff;padding:12px 14px;display:flex;align-items:center;justify-content:center;gap:10px}
+    .head img{height:40px;width:auto;background:#fff;border-radius:6px;padding:2px}
     .body{padding:16px 16px 10px;text-align:center}
-    .photo{width:120px;height:140px;object-fit:cover;border-radius:10px;border:3px solid #16324F;margin:0 auto 10px;display:block}
+    .photo{width:120px;height:140px;object-fit:cover;border-radius:10px;border:3px solid #16324F;margin:0 auto 10px;display:block;background:#eef2f7}
     .photo.ph{display:flex;align-items:center;justify-content:center;font-size:60px;background:#eef2f7;color:#9aa7b6}
     .name{font-size:19px;font-weight:800;color:#16324F;line-height:1.15;margin-bottom:2px}
     .cargo{font-size:13px;color:#5b6b7c;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
@@ -48,14 +48,14 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     .row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px}
     .row .k{color:#8a97a6;font-weight:600}
     .row .v{color:#16324F;font-weight:800;text-align:right}
-    .qr{margin:12px auto 4px;width:150px;height:150px}
-    .qr svg{width:100%;height:100%}
+    .qr{margin:12px auto 4px;width:150px;height:150px;background:#fff;padding:6px;border-radius:8px;display:inline-block}
+    .qr svg{width:100%;height:100%;display:block}
     .foot{background:#16324F;color:#cfe0f5;font-size:9px;text-align:center;padding:6px}
   </style></head><body>
     <div class="card">
+      <img class="wm" src="/ficha-bg.jpg"/>
       <div class="head">
         <img src="${LOGO_DATA_URI}"/>
-        <div class="co">${esc(opts.companyName || COMPANY_NAME)}</div>
       </div>
       <div class="body">
         ${photo}
@@ -68,7 +68,7 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
         </div>
         <div class="qr">${opts.qrSvg}</div>
       </div>
-      <div class="foot">Carnet de identificación · ${esc(COMPANY_NAME)}</div>
+      <div class="foot">Carnet de identificación</div>
     </div>
   </body></html>`;
 }
