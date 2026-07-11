@@ -89,7 +89,7 @@ export default function EquiposScreen({ navigation }: any) {
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
-  const [catDim, setCatDim] = useState<GroupDim>('modelo'); // agrupar el catálogo por Modelo o Clasificación
+  const [catDim, setCatDim] = useState<GroupDim>('clasificacion'); // agrupar el catálogo por Clasificación (por defecto; Modelo genera demasiados chips)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
   // Traza de combustible por máquina
