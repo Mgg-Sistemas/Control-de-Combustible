@@ -56,6 +56,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
+  // En el flujo del QR la sesión es ANÓNIMA: su id no existe en `profiles`, así que
+  // no puede usarse como created_by/requested_by (esas FK apuntan a profiles). null.
+  const isAnon = !!(session?.user as any)?.is_anonymous;
+  const authorId = isAnon ? null : (uid || null);
   // Acepta la máquina por prop (deep-link) o por parámetro de navegación (escáner).
   const machineId: string = props.machineId ?? props.route?.params?.machineId ?? '';
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
@@ -172,7 +176,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       tankId: fTank,
       operator: fullName,
       dailyConsumptionL: machine.daily_consumption_l,
-      createdBy: uid,
+      createdBy: authorId,
     });
     setSavingFuel(false);
     if (error) { setNotice('❌ ' + error); return; }
@@ -201,7 +205,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       quantity: numOrNull(qty),
       notes: maintNote.trim() || null,
       status: 'pendiente',
-      requested_by: uid || null,
+      requested_by: authorId,
     });
     setSavingMaint(false);
     if (error) { setNotice('❌ ' + error.message); return; }
@@ -267,7 +271,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       first_name: first, last_name: last, cedula: ci, machinery_id: machine.id,
       company_name: machine.companyName ?? null, work_date: iso, shift: sh.key,
       started_at: now.toISOString(), ended_at: null, worked_hours: null,
-      horometro_inicial: hi, horometro_final: null, horometro_photo: horPhoto, created_by: uid || null,
+      horometro_inicial: hi, horometro_final: null, horometro_photo: horPhoto, created_by: authorId,
     };
     const { data: asgRow, error: eAsg } = await supabase
       .from('operator_assignments')
