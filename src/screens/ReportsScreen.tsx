@@ -26,6 +26,7 @@ type RoundMachine = {
   machine: string;
   tipo: string;
   serial: string | null;
+  entryDate: string | null; // fecha de llegada de la máquina (entry_date)
   days: number;         // días (jornadas) que trabajó
   dayH: number;         // total horas de día
   nightH: number;       // total horas de noche
@@ -488,11 +489,11 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, entry_date, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
-    type Acc = { machine: string; tipo: string; serial: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
+    type Acc = { machine: string; tipo: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -501,6 +502,7 @@ export default function ReportsScreen({ route }: any) {
         machine: mm.code ?? '—',
         tipo: (mm.tipo && String(mm.tipo).trim()) || 'Sin tipo',
         serial: mm.serial ?? null,
+        entry: mm.entry_date ?? null,
         company: mm.company?.name ?? 'Sin empresa',
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
         byDate: new Map(),
@@ -527,7 +529,7 @@ export default function ReportsScreen({ route }: any) {
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       const totalUSD = a.price != null ? (totalH / 12) * a.price : 0;
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, serial: a.serial, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0 };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
@@ -566,7 +568,7 @@ export default function ReportsScreen({ route }: any) {
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>📅 Llegada</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -574,6 +576,7 @@ export default function ReportsScreen({ route }: any) {
             (m) =>
               `<tr><td>${esc(m.machine)}${m.serial ? `<br/><span style="color:#888">${esc(m.serial)}</span>` : ''}</td>` +
               `<td>${esc(m.tipo)}</td>` +
+              `<td style="text-align:center">${m.entryDate ? fmtDMY(m.entryDate) : '—'}</td>` +
               `<td style="text-align:center">${m.days}</td>` +
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
               `<td style="text-align:center">${nH(m.nightH)}</td>` +
@@ -584,7 +587,7 @@ export default function ReportsScreen({ route }: any) {
           .join('');
         return `<h2>🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
           <table><thead>${head}</thead><tbody>${rows}</tbody>
-          <tfoot><tr><td colspan="3" style="text-align:right;font-weight:800">TOTAL ${esc(g.company)}</td>
+          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">TOTAL ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
@@ -1339,6 +1342,7 @@ export default function ReportsScreen({ route }: any) {
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>📅 Llegada: {m.entryDate ? fmtDMY(m.entryDate) : '—'}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {m.days} jornada(s)</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>☀️ {nH(m.dayH)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🌙 {nH(m.nightH)}</Text>
