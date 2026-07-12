@@ -136,6 +136,47 @@ export function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Grupo tipo acordeón (p. ej. por empresa): cabecera con título + contador que,
+ * al tocarse, despliega su contenido. Cerrado por defecto (listas compactas).
+ */
+export function AccordionGroup({
+  title,
+  count,
+  icon = '🏢',
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  count?: number | string;
+  icon?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <View style={{ marginBottom: spacing.xs }}>
+      <TouchableOpacity
+        onPress={() => setOpen((o) => !o)}
+        activeOpacity={0.7}
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+          <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+          <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{icon} {title}</Text>
+        </View>
+        {count != null ? (
+          <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+            <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{count}</Text>
+          </View>
+        ) : null}
+      </TouchableOpacity>
+      {open ? children : null}
+    </View>
+  );
+}
+
+/**
  * Tarjeta desplegable: muestra `summary` (compacto, siempre visible) y al tocar
  * revela `detail`. Para listas/búsquedas: resultados compactos que el usuario
  * despliega cuando quiere ver el detalle.

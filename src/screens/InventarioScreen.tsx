@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,18 @@ const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'otros', label: 'Otros', icon: '📦' },
 ];
 const catInfo = (key: string | null) => CATEGORIES.find((c) => c.key === key) || { key: key || 'otros', label: key ? key.toUpperCase() : 'Sin categoría', icon: '📦' };
+
+/** Agrupa una lista por empresa (company_id) para el acordeón. */
+function groupByCompany<T extends { company_id: string | null }>(items: T[], nameOf: (id: string | null) => string) {
+  const m = new Map<string, { key: string; name: string; items: T[] }>();
+  items.forEach((it) => {
+    const k = it.company_id ?? '__none__';
+    const g = m.get(k) ?? { key: k, name: nameOf(it.company_id), items: [] };
+    g.items.push(it);
+    m.set(k, g);
+  });
+  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 const MOV_KIND: Record<string, { label: string; color: string; sign: string }> = {
   entrada: { label: '📥 Entrada', color: '#16A34A', sign: '+' },
@@ -79,6 +91,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [initCost, setInitCost] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq)), [levels, nq]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
@@ -140,30 +153,42 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
-      ) : filtered.map((it) => {
-        const low = Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0;
-        return (
-          <Card key={it.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(it.category).icon} {catInfo(it.category).label}</Text>
-              </View>
-              {low ? <Pill label="⚠ Bajo mínimo" color="#DC2626" /> : null}
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>EXISTENCIA</Text>
-                <Text style={{ color: colors.text, fontSize: 17, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: colors.muted, fontSize: 11 }}>PMP · VALOR</Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{usd(it.avg_cost)} · {usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
-              </View>
-            </View>
-          </Card>
-        );
-      })}
+      ) : groupByCompany(filtered, companyName).map((grp) => (
+        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length} defaultOpen={!!nq}>
+          {grp.items.map((it) => {
+            const low = Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0;
+            return (
+              <ExpandableCard
+                key={it.id}
+                summary={
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{it.name}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{catInfo(it.category).icon} {catInfo(it.category).label}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
+                      {low ? <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '700' }}>⚠ Bajo mínimo</Text> : null}
+                    </View>
+                  </View>
+                }
+                detail={
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <View>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>PMP (costo promedio)</Text>
+                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd(it.avg_cost)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>VALOR EN STOCK</Text>
+                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
+                    </View>
+                  </View>
+                }
+              />
+            );
+          })}
+        </AccordionGroup>
+      ))}
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
@@ -263,19 +288,26 @@ function MovimientosTab() {
       ) : shown.map((m) => {
         const k = MOV_KIND[m.kind] ?? MOV_KIND.ajuste;
         return (
-          <Card key={m.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1 }}>{itemName(m.item_id)}</Text>
-              <Pill label={k.label} color={k.color} />
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
-              <Text style={{ color: k.color, fontSize: 15, fontWeight: '800' }}>{k.sign}{qtyFmt(m.qty)} {itemUnit(m.item_id)}</Text>
-              {m.unit_cost != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>c/u {usd(m.unit_cost)}</Text> : null}
-            </View>
-            {m.reason ? <Text style={{ color: colors.text, fontSize: 12, marginTop: 2 }}>{m.reason}</Text> : null}
-            {m.order_id ? <Text style={{ color: '#16A34A', fontSize: 12, marginTop: 2, fontWeight: '700' }}>🧾 Desde orden de compra</Text> : null}
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>{fmtDate(m.created_at)}</Text>
-          </Card>
+          <ExpandableCard
+            key={m.id}
+            summary={
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{itemName(m.item_id)}</Text>
+                  <Text style={{ color: k.color, fontSize: 13, fontWeight: '800' }}>{k.sign}{qtyFmt(m.qty)} {itemUnit(m.item_id)}</Text>
+                </View>
+                <Pill label={k.label} color={k.color} />
+              </View>
+            }
+            detail={
+              <>
+                {m.unit_cost != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>Costo unitario: {usd(m.unit_cost)}</Text> : null}
+                {m.reason ? <Text style={{ color: colors.text, fontSize: 13 }}>{m.reason}</Text> : null}
+                {m.order_id ? <Text style={{ color: '#16A34A', fontSize: 13, fontWeight: '700' }}>🧾 Desde orden de compra</Text> : null}
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDate(m.created_at)}</Text>
+              </>
+            }
+          />
         );
       })}
     </Screen>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { ListScreen } from '../components/ListScreen';
 import { supabase } from '../lib/supabase';
@@ -55,6 +55,18 @@ const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'otros', label: 'Otros', icon: '📦' },
 ];
 const catInfo = (key: string | null) => CATEGORIES.find((c) => c.key === key) || { key: key || 'otros', label: key ? key.toUpperCase() : 'Sin categoría', icon: '📦' };
+
+/** Agrupa una lista por empresa (company_id) para el acordeón. */
+function groupByCompany<T extends { company_id: string | null }>(items: T[], nameOf: (id: string | null) => string) {
+  const m = new Map<string, { key: string; name: string; items: T[] }>();
+  items.forEach((it) => {
+    const k = it.company_id ?? '__none__';
+    const g = m.get(k) ?? { key: k, name: nameOf(it.company_id), items: [] };
+    g.items.push(it);
+    m.set(k, g);
+  });
+  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /** Etiqueta de estado con su color. */
 function Pill({ label, color }: { label: string; color: string }) {
@@ -242,35 +254,47 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
 
       {loading ? <Loading /> : reqs.length === 0 ? (
         <EmptyState title="Sin solicitudes" subtitle="Crea una solicitud de pedido para iniciar una compra." />
-      ) : reqs.map((r) => {
-        const st = REQ_STATUS[r.status] ?? REQ_STATUS.solicitada;
-        return (
-          <Card key={r.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{companyName(r.company_id)}</Text>
-              <Pill label={st.label} color={st.color} />
-            </View>
-            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{catInfo(r.category).icon} {catInfo(r.category).label}</Text>
-            {r.needed_for ? <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Para: {r.needed_for}</Text> : null}
-            <Text style={{ color: colors.text, fontSize: 13, marginTop: 4 }}>{(r.items || []).length} renglón(es)</Text>
-            {(r.items || []).slice(0, 4).map((l, i) => (
-              <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description}</Text>
-            ))}
-            {canWrite ? (
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                {r.status === 'solicitada' ? (
-                  <>
-                    <TouchableOpacity onPress={() => setStatus(r, 'aprobada')} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>✅ Aprobar</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: '#DC2626', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
-                  </>
-                ) : r.status === 'aprobada' ? (
-                  <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
-                ) : null}
+      ) : groupByCompany(reqs, companyName).map((grp) => (
+        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
+          {grp.items.map((r) => {
+            const st = REQ_STATUS[r.status] ?? REQ_STATUS.solicitada;
+            return (
+              <ExpandableCard
+                key={r.id}
+            summary={
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text, flex: 1 }} numberOfLines={1}>{companyName(r.company_id)}</Text>
+                  <Pill label={st.label} color={st.color} />
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(r.category).icon} {catInfo(r.category).label} · {(r.items || []).length} renglón(es)</Text>
               </View>
-            ) : null}
-          </Card>
-        );
-      })}
+            }
+            detail={
+              <>
+                {r.needed_for ? <Text style={{ color: colors.muted, fontSize: 13 }}>Para: {r.needed_for}</Text> : null}
+                {(r.items || []).map((l, i) => (
+                  <Text key={i} style={{ color: colors.muted, fontSize: 12 }}>• {l.qty} {l.unit || ''} {l.description}</Text>
+                ))}
+                {canWrite ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                    {r.status === 'solicitada' ? (
+                      <>
+                        <TouchableOpacity onPress={() => setStatus(r, 'aprobada')} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>✅ Aprobar</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: '#DC2626', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
+                      </>
+                    ) : r.status === 'aprobada' ? (
+                      <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+              </>
+            }
+              />
+            );
+          })}
+        </AccordionGroup>
+      ))}
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
@@ -383,31 +407,44 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
       <SectionTitle>Órdenes de compra</SectionTitle>
       {loading ? <Loading /> : orders.length === 0 ? (
         <EmptyState title="Sin órdenes" subtitle="Las órdenes se generan desde una solicitud aprobada." />
-      ) : orders.map((o) => {
-        const st = ORD_STATUS[o.status] ?? ORD_STATUS.borrador;
-        return (
-          <Card key={o.id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{companyName(o.company_id)}</Text>
-              <Pill label={st.label} color={st.color} />
-            </View>
-            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>{catInfo(o.category).icon} {catInfo(o.category).label}</Text>
-            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Proveedor: {supplierName(o.supplier_id)}</Text>
-            <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 2 }}>{usd(o.total)}</Text>
-            {canWrite ? (
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-                {o.status === 'borrador' ? (
-                  <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>✎ Completar / Aprobar</Text></TouchableOpacity>
-                ) : o.status === 'aprobada' ? (
-                  <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
-                ) : (
-                  <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>👁 Ver</Text></TouchableOpacity>
-                )}
-              </View>
-            ) : null}
-          </Card>
-        );
-      })}
+      ) : groupByCompany(orders, companyName).map((grp) => (
+        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length}>
+          {grp.items.map((o) => {
+            const st = ORD_STATUS[o.status] ?? ORD_STATUS.borrador;
+            return (
+              <ExpandableCard
+                key={o.id}
+                summary={
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1 }} numberOfLines={1}>{usd(o.total)} · {supplierName(o.supplier_id)}</Text>
+                      <Pill label={st.label} color={st.color} />
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(o.category).icon} {catInfo(o.category).label}</Text>
+                  </View>
+                }
+                detail={
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Proveedor: {supplierName(o.supplier_id)}</Text>
+                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 2 }}>Total: {usd(o.total)}</Text>
+                    {canWrite ? (
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+                        {o.status === 'borrador' ? (
+                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>✎ Completar / Aprobar</Text></TouchableOpacity>
+                        ) : o.status === 'aprobada' ? (
+                          <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>👁 Ver</Text></TouchableOpacity>
+                        )}
+                      </View>
+                    ) : null}
+                  </>
+                }
+              />
+            );
+          })}
+        </AccordionGroup>
+      ))}
 
       <Modal visible={!!sel} animationType="slide" onRequestClose={() => setSel(null)}>
         <Screen>
