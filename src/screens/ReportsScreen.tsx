@@ -13,7 +13,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
-import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
 import { fetchActiveGuards } from '../lib/guards';
@@ -196,10 +196,10 @@ function pdfShell(title: string, sub: string, body: string): string {
     </div>
     <div class="rule"></div>
     <div class="meta">
-      <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}<br/>Sistema de control interno</div>
+      <div class="company"><b>${COMPANY_NAME}</b><br/>Sistema de control interno</div>
     </div>
     ${body}
-    <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
+    <div class="foot">${COMPANY_NAME} · Documento generado por el sistema de control interno</div>
   </body></html>`;
 }
 
@@ -274,7 +274,7 @@ function deployInfographicHtml(d: DeployData): string {
   .pill { display:inline-block; background:var(--navy); color:#fff; font-size:12px; font-weight:700; padding:6px 14px; border-radius:999px; letter-spacing:.5px; }
 </style>`;
   const header = (lbl = 'Período') => `  <div class="top">
-    <div class="brand"><img src="${LOGO_DATA_URI}" alt="logo"/><div><div class="co">${COMPANY_NAME}</div><div class="rif">RIF ${COMPANY_RIF}</div></div></div>
+    <div class="brand"><img src="${LOGO_DATA_URI}" alt="logo"/><div><div class="co">${COMPANY_NAME}</div></div></div>
     <div class="period"><div class="lbl">${lbl}</div><div class="val">${periodLabel}</div></div>
   </div>`;
   const sys = 'Sistema de Control de Combustible y Maquinaria';
@@ -367,7 +367,7 @@ function ReportHeader({ title, colors }: { title: string; colors: AppColors }) {
       <Image source={{ uri: LOGO_DATA_URI }} style={{ width: 46, height: 46, borderRadius: 8 }} resizeMode="contain" />
       <View style={{ flex: 1 }}>
         <Text style={{ color: '#2563EB', fontWeight: '800', fontSize: 17 }}>{title}</Text>
-        <Text style={{ color: colors.muted, fontSize: 11 }}>{COMPANY_NAME} · RIF {COMPANY_RIF}</Text>
+        <Text style={{ color: colors.muted, fontSize: 11 }}>{COMPANY_NAME}</Text>
       </View>
     </View>
   );

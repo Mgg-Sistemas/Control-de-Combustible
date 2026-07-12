@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { COMPANY_NAME, COMPANY_RIF } from '../lib/company';
+import { COMPANY_NAME } from '../lib/company';
 import { spacing, radius, AppColors, AppTypography } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -74,7 +74,7 @@ export default function LoginScreen() {
         <Text style={[styles.brand, { textAlign: 'center' }]}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg, textAlign: 'center' }]}>
-          RIF {COMPANY_RIF} · {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
+          {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
         </Text>
 
         <TextInput

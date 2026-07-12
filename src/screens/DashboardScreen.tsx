@@ -166,7 +166,7 @@ export default function DashboardScreen({ navigation }: any) {
           BIENVENIDO AL CONTROL INTERNO DE
         </Text>
         <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
-          BAHIA SUNSET HOTEL BOUTIQUE, C.A
+          SOS LA GUAIRA 2026
         </Text>
       </Card>
 

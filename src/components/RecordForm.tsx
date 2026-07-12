@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
@@ -143,7 +143,9 @@ export function RecordForm({
         const { data } = await qb;
         setLookups((prev) => ({
           ...prev,
-          [f.key]: (data ?? []).map((r: any) => ({ label: String(r[f.labelCol]), value: r.id })),
+          [f.key]: (data ?? [])
+            .map((r: any) => ({ label: String(r[f.labelCol]), value: r.id }))
+            .sort((a: any, b: any) => cmpText(a.label, b.label)),
         }));
       } else if (f.type === 'suggest') {
         const { data } = await supabase.from(f.table).select(f.column);
@@ -153,7 +155,7 @@ export function RecordForm({
           const v = String(r[f.column] ?? '').trim();
           if (v) set.set(v.toUpperCase(), v.toUpperCase());
         });
-        const opts = Array.from(set.values()).sort((a, b) => a.localeCompare(b)).map((v) => ({ label: v, value: v }));
+        const opts = Array.from(set.values()).sort(cmpText).map((v) => ({ label: v, value: v }));
         setLookups((prev) => ({ ...prev, [f.key]: opts }));
       }
     });
