@@ -35,7 +35,7 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     *{box-sizing:border-box}
     body{font-family:Tahoma,Geneva,Verdana,sans-serif;display:flex;justify-content:center;padding:0;margin:0}
     .card{position:relative;width:340px;background:#fff;border:1px solid #d9dee5;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.12)}
-    .wm{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:.07;z-index:0}
+    .wm{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:.12;z-index:0}
     .head,.body,.foot{position:relative;z-index:1}
     .head{padding:12px 16px 0;display:flex;align-items:center;justify-content:flex-end}
     .head img{height:70px;width:auto;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
