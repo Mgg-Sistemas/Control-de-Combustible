@@ -95,8 +95,9 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
 ];
-// Campos de VIAJES: solo se muestran para máquinas de Golden Touch. El nº de viajes
-// × precio por viaje se suma al subtotal del informe por jornada de esa empresa.
+// Campos de VIAJES: disponibles para TODAS las máquinas. El nº de viajes × precio
+// por viaje se suma al subtotal del informe por jornada de la empresa de la máquina,
+// y queda vinculado a la máquina para su próximo viaje.
 const VIAJES_FIELDS: Field[] = [
   { key: 'viajes', label: '🚚 Viajes realizados', type: 'number' },
   { key: 'precio_viaje', label: '🚚 Precio por viaje ($)', type: 'number' },
@@ -1548,7 +1549,7 @@ export default function EquiposScreen({ navigation }: any) {
         visible={formOpen}
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
         table={isVehicle ? 'vehicles' : 'machinery'}
-        fields={isVehicle ? VEHICLE_FIELDS : (editing?.company_id && /golden/i.test(companyName(editing.company_id)) ? [...MACHINERY_FIELDS, ...VIAJES_FIELDS] : MACHINERY_FIELDS)}
+        fields={isVehicle ? VEHICLE_FIELDS : [...MACHINERY_FIELDS, ...VIAJES_FIELDS]}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : [
           { key: 'serial', labelCol: 'code', labelName: 'serial' },
