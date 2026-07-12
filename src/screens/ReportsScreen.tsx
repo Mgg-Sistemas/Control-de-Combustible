@@ -256,6 +256,8 @@ function deployInfographicHtml(d: DeployData): string {
   table.emp td.name { font-weight:700; color:var(--ink); width:270px; }
   table.emp td.num { text-align:right; width:90px; font-weight:600; }
   table.emp tfoot td { border-top:2px solid var(--navy); border-bottom:none; font-weight:800; font-size:17px; padding-top:14px; }
+  table.emp.tight td { padding:8px 12px; font-size:14px; }
+  table.emp.tight tfoot td { padding-top:10px; font-size:15px; }
   .bar-cell { min-width:260px; }
   .bar-track { display:inline-block; width:200px; height:12px; background:var(--gold-soft); border-radius:6px; overflow:hidden; vertical-align:middle; }
   .bar-fill { height:100%; background:linear-gradient(90deg,var(--gold),#caa968); border-radius:6px; }
@@ -341,11 +343,11 @@ ${header()}
     </tr>`).join('\n');
   const slide4 = `<section class="slide"><div class="pad">
 ${header()}
-  <div class="stitle-row" style="margin-top:24px">
+  <div class="stitle-row" style="margin-top:16px">
     <h2 class="stitle">Equipos <span class="accent">Inactivos</span></h2>
     <span class="hint">${totals.inactivos} de ${totals.equipos} equipos · fuera de operación</span>
   </div>
-  <table class="emp">
+  <table class="emp tight">
     <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Tipo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
     <tbody>
 ${inRows || '    <tr><td colspan="5" style="text-align:center;color:#6b7280">Sin equipos inactivos</td></tr>'}</tbody>
