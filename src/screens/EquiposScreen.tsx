@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -64,6 +64,23 @@ export const dimRaw = (m: Machinery, dim: GroupDim): string | null | undefined =
 /** Valor canónico de la dimensión (MAYÚS, sin plural) para agrupar sin duplicar. */
 export const canonDim = (m: Machinery, dim: GroupDim): string => canonTipo(dimRaw(m, dim));
 
+/** Miniatura del catálogo. En WEB usa <img loading="lazy" decoding="async"> para
+ *  que las fotos fuera de pantalla NO se descarguen hasta hacer scroll (el catálogo
+ *  con ~200 equipos cargaba todas las imágenes de golpe y se ponía lento). */
+function Thumb({ uri, size, radius: r }: { uri: string; size: number; radius: number }) {
+  if (Platform.OS === 'web') {
+    return React.createElement('img', {
+      src: uri,
+      loading: 'lazy',
+      decoding: 'async',
+      width: size,
+      height: size,
+      style: { width: size, height: size, borderRadius: r, objectFit: 'cover', display: 'block' },
+    });
+  }
+  return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: r }} />;
+}
+
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'tipo', label: 'Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
@@ -77,6 +94,12 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
+];
+// Campos de VIAJES: solo se muestran para máquinas de Golden Touch. El nº de viajes
+// × precio por viaje se suma al subtotal del informe por jornada de esa empresa.
+const VIAJES_FIELDS: Field[] = [
+  { key: 'viajes', label: '🚚 Viajes realizados', type: 'number' },
+  { key: 'precio_viaje', label: '🚚 Precio por viaje ($)', type: 'number' },
 ];
 
 export default function EquiposScreen({ navigation }: any) {
@@ -742,7 +765,7 @@ export default function EquiposScreen({ navigation }: any) {
         ) : null}
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           {m.photo_url ? (
-            <Image source={{ uri: m.photo_url }} style={{ width: 64, height: 64, borderRadius: radius.md }} />
+            <Thumb uri={m.photo_url} size={64} radius={radius.md} />
           ) : (
             <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ fontSize: 28 }}>🚜</Text>
@@ -1525,7 +1548,7 @@ export default function EquiposScreen({ navigation }: any) {
         visible={formOpen}
         title={editing ? `Editar ${kindMeta.label.toLowerCase()}` : `Nuevo: ${kindMeta.label}`}
         table={isVehicle ? 'vehicles' : 'machinery'}
-        fields={isVehicle ? VEHICLE_FIELDS : MACHINERY_FIELDS}
+        fields={isVehicle ? VEHICLE_FIELDS : (editing?.company_id && /golden/i.test(companyName(editing.company_id)) ? [...MACHINERY_FIELDS, ...VIAJES_FIELDS] : MACHINERY_FIELDS)}
         fixedValues={isVehicle ? undefined : { machinery_type: kind }}
         uniqueField={isVehicle ? undefined : [
           { key: 'serial', labelCol: 'code', labelName: 'serial' },

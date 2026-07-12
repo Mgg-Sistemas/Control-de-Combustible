@@ -24,7 +24,8 @@ import { useTheme } from '../theme/ThemeContext';
 // Máquina agregada en el informe por rondas (por empresa → maquinaria).
 type RoundMachine = {
   machine: string;
-  tipo: string;
+  tipo: string;         // marca / modelo
+  clasificacion: string; // clasificación del equipo
   serial: string | null;
   entryDate: string | null; // fecha de llegada de la máquina (entry_date)
   days: number;         // días (jornadas) que trabajó
@@ -34,10 +35,14 @@ type RoundMachine = {
   priceJornada: number | null; // precio por jornada de 12 h
   totalUSD: number;     // total $ = totalH / 12 × precio por jornada
 };
+// Viaje registrado en una máquina (solo Golden Touch): nº de viajes y precio unitario.
+type ViajeItem = { code: string; clasificacion: string; viajes: number; precio: number };
 type RoundCompany = {
   company: string;
   machines: RoundMachine[];
   days: number; dayH: number; nightH: number; totalH: number; totalUSD: number;
+  viajes: ViajeItem[];      // viajes por máquina (Golden)
+  viajesUSD: number;        // total $ de viajes
 };
 
 type Row = {
@@ -55,7 +60,8 @@ type FleetItem = {
   desc: string;
   plate: string | null;
   kind: string;
-  tipo: string;
+  marcaModelo: string; // marca / modelo del equipo
+  tipo: string;        // clasificación (se usa para agrupar/filtrar)
   referencia: string | null;
   company: string;
   liters: number;
@@ -328,8 +334,8 @@ ${arr.map((t) => `    <tr>
   const slide3 = `<section class="slide"><div class="pad">
 ${header()}
   <div class="stitle-row" style="margin-top:20px">
-    <h2 class="stitle">Capacidad por <span class="accent">Tipo de Maquinaria</span></h2>
-    <span class="hint">${totals.tipos} categorías · nº = equipos · barra = horas</span>
+    <h2 class="stitle">Capacidad por <span class="accent">Clasificación</span></h2>
+    <span class="hint">${totals.tipos} clasificaciones · nº = equipos · barra = horas</span>
   </div>
   <div class="tcols">${tpTable(byTp.slice(0, half))}${tpTable(byTp.slice(half))}</div>
   <div class="foot"><span class="sys">${sys}</span><span>Total: ${totals.equipos} equipos · ${fmtMiles(totals.horas)} h</span></div>
@@ -492,18 +498,19 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, entry_date, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
-    type Acc = { machine: string; tipo: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
       const key = (mm.id || mm.serial || mm.code) as string;
       const a = accs.get(key) ?? {
         machine: mm.code ?? '—',
-        tipo: (mm.tipo && String(mm.tipo).trim()) || 'Sin tipo',
+        tipo: (mm.tipo && String(mm.tipo).trim()) || '—',
+        clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
         serial: mm.serial ?? null,
         entry: mm.entry_date ?? null,
         company: mm.company?.name ?? 'Sin empresa',
@@ -532,11 +539,29 @@ export default function ReportsScreen({ route }: any) {
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
       const totalUSD = a.price != null ? (totalH / 12) * a.price : 0;
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
-      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0 };
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
+      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0 };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
       groups.set(a.company, g);
+    });
+    // Viajes por máquina (solo empresas que los registran, p. ej. Golden Touch):
+    // se suman como un extra al subtotal del informe por jornada.
+    const machViajes = await selectAllRows(
+      'machinery',
+      'code, clasificacion, viajes, precio_viaje, company:company_id(name)',
+      (q) => q.gt('viajes', 0)
+    );
+    (machViajes ?? []).forEach((m: any) => {
+      const co = m.company?.name ?? 'Sin empresa';
+      if (cos && !cos.includes(co)) return;
+      const g = groups.get(co);
+      if (!g) return; // solo si la empresa aparece en el informe
+      const v = Number(m.viajes) || 0;
+      const precio = Number(m.precio_viaje) || 0;
+      if (v <= 0) return;
+      g.viajes.push({ code: m.code, clasificacion: (m.clasificacion && String(m.clasificacion).trim()) || '—', viajes: v, precio });
+      g.viajesUSD += v * precio;
     });
     const list = Array.from(groups.values()).sort((x, y) =>
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : x.company.localeCompare(y.company)
@@ -571,7 +596,30 @@ export default function ReportsScreen({ route }: any) {
   const nH = (n: number) => `${Number(n.toFixed(2)).toLocaleString()} h`;
   const downloadRoundsPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Tipo</th><th>📅 Llegada</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
+    // Bloque de VIAJES por empresa: agrupa por precio unitario y detalla las máquinas.
+    // Se suma al subtotal para dar el "TOTAL POR PAGAR" (ej.: Golden Touch).
+    const renderViajes = (g: RoundCompany): string => {
+      if (!g.viajes.length) return '';
+      const byPrice = new Map<number, ViajeItem[]>();
+      g.viajes.forEach((v) => { const a = byPrice.get(v.precio) ?? []; a.push(v); byPrice.set(v.precio, a); });
+      const groupRows = [...byPrice.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([precio, items]) => {
+          const totViajes = items.reduce((s, v) => s + v.viajes, 0);
+          // Detalle por tipo de equipo (primera palabra del nombre): "2 JUMBO · 1 PAYLOADER".
+          const kinds = new Map<string, number>();
+          items.forEach((v) => { const k = (v.code.split(/\s+/)[0] || v.code).toUpperCase(); kinds.set(k, (kinds.get(k) ?? 0) + 1); });
+          const detalle = [...kinds.entries()].map(([k, n]) => `${n} ${esc(k)}`).join(' · ');
+          const monto = totViajes * precio;
+          return `<tr><td style="padding:4px 8px">TOTAL POR <b>${totViajes}</b> VIAJE${totViajes === 1 ? '' : 'S'}: ${detalle} <span style="color:#666">(${usd(precio)} c/u)</span></td><td style="text-align:right;font-weight:700;padding:4px 8px">${usd(monto)}</td></tr>`;
+        })
+        .join('');
+      const totalPagar = g.totalUSD + g.viajesUSD;
+      return `<table style="margin-top:-4px;margin-bottom:10px"><tbody>${groupRows}
+        <tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">TOTAL POR PAGAR ${esc(g.company)}</td><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">${usd(totalPagar)}</td></tr>
+      </tbody></table>`;
+    };
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>📅 Llegada</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -579,6 +627,7 @@ export default function ReportsScreen({ route }: any) {
             (m) =>
               `<tr><td>${esc(m.machine)}${m.serial ? `<br/><span style="color:#888">${esc(m.serial)}</span>` : ''}</td>` +
               `<td>${esc(m.tipo)}</td>` +
+              `<td>${esc(m.clasificacion)}</td>` +
               `<td style="text-align:center">${m.entryDate ? fmtDMY(m.entryDate) : '—'}</td>` +
               `<td style="text-align:center">${m.days}</td>` +
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
@@ -588,16 +637,19 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
           )
           .join('');
+        // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
+        const viajesBlock = renderViajes(g);
         return `<h2>🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
           <table><thead>${head}</thead><tbody>${rows}</tbody>
-          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">TOTAL ${esc(g.company)}</td>
+          <tfoot><tr><td colspan="5" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
-            <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>`;
+            <td></td><td style="text-align:right;font-weight:800">${usd(g.totalUSD)}</td></tr></tfoot></table>${viajesBlock}`;
       })
       .join('');
-    const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+    const grandViajes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
+    const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0) + grandViajes;
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
     const content = `
@@ -657,6 +709,7 @@ export default function ReportsScreen({ route }: any) {
         desc: m.description || '—',
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
+        marcaModelo: (m.tipo && String(m.tipo).trim()) || '—',
         // El reporte de maquinaria agrupa/filtra por CLASIFICACIÓN (no por modelo).
         tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
         referencia: m.referencia || null,
@@ -674,6 +727,7 @@ export default function ReportsScreen({ route }: any) {
         desc: [v.brand, v.model].filter(Boolean).join(' ') || '—',
         plate: v.plate,
         kind: 'vehiculo',
+        marcaModelo: [v.brand, v.model].filter(Boolean).join(' ') || '—',
         tipo: 'Vehículo',
         referencia: null,
         company: 'Vehículos',
@@ -697,7 +751,7 @@ export default function ReportsScreen({ route }: any) {
   const generateDeploy = async () => {
     setLoading(true);
     const [{ data: mach }, rnds] = await Promise.all([
-      supabase.from('machinery').select('id, code, tipo, active, serial, plate, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, tipo, clasificacion, active, serial, plate, company:company_id(name)'),
       selectAllRows(
         'machine_rounds',
         'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours',
@@ -716,6 +770,7 @@ export default function ReportsScreen({ route }: any) {
       code: m.code as string,
       serial: (m.serial || m.plate || '') as string,
       tipo: canonTipo(m.tipo) || 'SIN TIPO',
+      clas: canonTipo(m.clasificacion) || 'SIN CLASIFICACIÓN',
       active: m.active !== false,
       company: m.company?.name || 'Sin empresa',
       hours: mHours.get(m.id) ?? 0,
@@ -726,9 +781,9 @@ export default function ReportsScreen({ route }: any) {
     const coMap = new Map<string, { company: string; count: number; hours: number }>();
     list.forEach((m) => { const a = coMap.get(m.company) ?? { company: m.company, count: 0, hours: 0 }; a.count++; a.hours += m.hours; coMap.set(m.company, a); });
     const byCo = [...coMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
-    // Agregado por tipo.
+    // Agregado por CLASIFICACIÓN (lámina 3 "Capacidad por Clasificación").
     const tpMap = new Map<string, { tipo: string; count: number; hours: number }>();
-    list.forEach((m) => { const a = tpMap.get(m.tipo) ?? { tipo: m.tipo, count: 0, hours: 0 }; a.count++; a.hours += m.hours; tpMap.set(m.tipo, a); });
+    list.forEach((m) => { const a = tpMap.get(m.clas) ?? { tipo: m.clas, count: 0, hours: 0 }; a.count++; a.hours += m.hours; tpMap.set(m.clas, a); });
     const byTp = [...tpMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
     // Inactivos con su empresa.
     const inact = list
@@ -820,12 +875,12 @@ export default function ReportsScreen({ route }: any) {
       .map(
         (c) =>
           `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Referencia</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
+          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Referencia</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
+                `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.referencia ?? '—'}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
             )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="5">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
       )
       .join('');
     const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
@@ -860,8 +915,8 @@ export default function ReportsScreen({ route }: any) {
       .join('');
     const generalBlock = `
       <h2>Reporte general</h2>
-      <h3 style="margin:12px 0 2px">Total por tipo de maquinaria</h3>
-      <table><thead><tr><th style="text-align:left">Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
+      <h3 style="margin:12px 0 2px">Total por clasificación</h3>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
       <tbody>${typeRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>
       <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
@@ -1303,7 +1358,7 @@ export default function ReportsScreen({ route }: any) {
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
             {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
-              {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD, 0))}
+              {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0))}
             </Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Solo equipos que trabajaron</Text>
           </Card>
@@ -1340,7 +1395,10 @@ export default function ReportsScreen({ route }: any) {
                 {g.machines.map((m, i) => (
                   <Card key={i}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{m.machine}{m.serial ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.serial}</Text> : null}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{m.machine}{m.serial ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.serial}</Text> : null}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Clasificación: {m.clasificacion}</Text>
+                      </View>
                       <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
                         <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{m.tipo}</Text>
                       </View>
@@ -1359,9 +1417,31 @@ export default function ReportsScreen({ route }: any) {
                   </Card>
                 ))}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>TOTAL {g.company}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} {g.company}</Text>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{nH(g.totalH)} · {usd(g.totalUSD)}</Text>
                 </View>
+                {g.viajes.length ? (
+                  <View style={{ marginTop: 2 }}>
+                    {[...new Map(g.viajes.map((v) => [v.precio, g.viajes.filter((x) => x.precio === v.precio)])).entries()]
+                      .sort((a, b) => a[0] - b[0])
+                      .map(([precio, items]) => {
+                        const totV = items.reduce((s, v) => s + v.viajes, 0);
+                        const kinds = new Map<string, number>();
+                        items.forEach((v) => { const k = (v.code.split(/\s+/)[0] || v.code).toUpperCase(); kinds.set(k, (kinds.get(k) ?? 0) + 1); });
+                        const detalle = [...kinds.entries()].map(([k, n]) => `${n} ${k}`).join(' · ');
+                        return (
+                          <View key={precio} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 2 }}>
+                            <Text style={{ color: colors.muted, fontSize: 12, flex: 1, paddingRight: spacing.sm }}>🚚 {totV} viaje(s): {detalle} ({usd(precio)} c/u)</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{usd(totV * precio)}</Text>
+                          </View>
+                        );
+                      })}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>TOTAL POR PAGAR</Text>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{usd(g.totalUSD + g.viajesUSD)}</Text>
+                    </View>
+                  </View>
+                ) : null}
               </View>
             ))
           )}
@@ -1480,7 +1560,7 @@ export default function ReportsScreen({ route }: any) {
           {fleetItems.length > 0 ? (
             <Card>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Total por tipo de maquinaria</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Total por clasificación</Text>
               {fleetByType.map((t) => (
                 <View key={t.tipo} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                   <Text style={{ color: colors.text, fontSize: 13 }}>{t.tipo}</Text>
