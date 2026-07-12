@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LOGO_DATA_URI } from './logoData';
-import { COMPANY_NAME, COMPANY_RIF } from './company';
+import { COMPANY_NAME } from './company';
 
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 /** Fecha/hora de emisión en formato "07 jul. 2026, 06:53 p. m." */
@@ -59,9 +59,9 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
       <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
     </div>
     <div class="rule"></div>
-    <div class="company"><b>${COMPANY_NAME}</b><br/>RIF ${COMPANY_RIF}<br/>Sistema de control interno</div>
+    <div class="company"><b>${COMPANY_NAME}</b><br/>Sistema de control interno</div>
     ${body}
-    <div class="foot">${COMPANY_NAME} · RIF ${COMPANY_RIF} · Documento generado por el sistema de control interno</div>
+    <div class="foot">${COMPANY_NAME} · Documento generado por el sistema de control interno</div>
   </body></html>`;
 }
 
