@@ -9,7 +9,7 @@ import { exportPdf } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
-const LOGO = require('../../assets/logo.jpeg');
+const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
 
 // Paleta fija de la ficha (estilo documento/carnet): fondo azulito como el logo,

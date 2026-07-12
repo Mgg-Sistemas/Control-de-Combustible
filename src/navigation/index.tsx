@@ -43,7 +43,7 @@ const Stack = createNativeStackNavigator();
 // Ícono simple basado en emoji (sin dependencias extra)
 const tabIcon = (emoji: string) => () => <Text style={{ fontSize: 18 }}>{emoji}</Text>;
 
-const LOGO = require('../../assets/logo.jpeg');
+const LOGO = require('../../assets/logo.png');
 
 /** Marca del encabezado: logo de la empresa + título de la pantalla. */
 function HeaderBrand({ title }: { title?: string }) {
