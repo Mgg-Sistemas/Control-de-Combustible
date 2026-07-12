@@ -57,8 +57,11 @@ function StatCard({ label, value, color, onPress, flex = 1 }: { label: string; v
   return <Card style={{ flex }}>{inner}</Card>;
 }
 
-/** Gráfica de barras horizontales (sin librerías): cada empresa con su ingreso. */
-function BarChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+/** Formatea horas con separador de miles: 2.916 h. */
+const fmtHoras = (n: number) => `${Number(n.toFixed(Number.isInteger(n) ? 0 : 1)).toLocaleString('es-VE')} h`;
+
+/** Gráfica de barras horizontales (sin librerías): cada empresa con su valor. */
+function BarChart({ data, fmt = money }: { data: { label: string; value: number; color: string }[]; fmt?: (n: number) => string }) {
   const { colors } = useTheme();
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
@@ -69,7 +72,7 @@ function BarChart({ data }: { data: { label: string; value: number; color: strin
             <Text numberOfLines={1} style={{ color: colors.text, fontWeight: i === 0 ? '800' : '600', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>
               {i === 0 ? '🥇 ' : `${i + 1}. `}{d.label}
             </Text>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{money(d.value)}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{fmt(d.value)}</Text>
           </View>
           <View style={{ height: 12, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, overflow: 'hidden' }}>
             <View style={{ height: 12, width: `${Math.max(2, (d.value / max) * 100)}%`, backgroundColor: d.color, borderRadius: radius.pill }} />
@@ -119,17 +122,17 @@ export default function DashboardScreen({ navigation }: any) {
     setActiveAssets(activas + (vehCount ?? 0));
   }, []);
 
-  // Carga el ingreso por empresa para el rango del modo elegido.
+  // Carga las HORAS TRABAJADAS (jornadas) por empresa para el rango del modo elegido.
   const loadChart = useCallback(async (mode: 'dia' | 'mes' | 'anio') => {
     const [from, to] = rangeForMode(mode);
     const [rows, comps, machs] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
       supabase.from('companies').select('id, name').then((r) => r.data ?? []),
-      selectAllRows('machinery', 'id, company_id, price_per_hour'),
+      selectAllRows('machinery', 'id, company_id'),
     ]);
     const cname = new Map<string, string>((comps as any[]).map((c) => [c.id, c.name]));
-    const mInfo = new Map<string, { cid: string | null; price: number }>();
-    (machs ?? []).forEach((m: any) => mInfo.set(m.id, { cid: m.company_id, price: Number(m.price_per_hour) || 0 }));
+    const mInfo = new Map<string, { cid: string | null }>();
+    (machs ?? []).forEach((m: any) => mInfo.set(m.id, { cid: m.company_id }));
     // Una fila por (máquina, día) para no duplicar.
     const byMD = new Map<string, any>();
     (rows ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
@@ -139,9 +142,8 @@ export default function DashboardScreen({ navigation }: any) {
       if (!info) return;
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
       if (w <= 0) return;
-      const amount = (w / 12) * info.price;
       const key = info.cid ? cname.get(info.cid) ?? 'Empresa' : 'Sin empresa';
-      byCompany.set(key, (byCompany.get(key) ?? 0) + amount);
+      byCompany.set(key, (byCompany.get(key) ?? 0) + w);
     });
     const list = [...byCompany.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
     setChart(list.map((x, i) => ({ ...x, color: PALETTE[i % PALETTE.length] })));
@@ -178,8 +180,8 @@ export default function DashboardScreen({ navigation }: any) {
         </Text>
       </Card>
 
-      {/* ── Gráfica: ingreso por empresa (día / mes / año) ─────────────────── */}
-      <SectionTitle>Ingreso por empresa</SectionTitle>
+      {/* ── Gráfica: jornadas (horas trabajadas) por empresa (día / mes / año) ── */}
+      <SectionTitle>Jornadas Totales por Empresa</SectionTitle>
       <Card>
         <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
           {([['dia', '📅 Día'], ['mes', '🗓️ Mes'], ['anio', '📆 Año']] as const).map(([k, lbl]) => {
@@ -197,19 +199,19 @@ export default function DashboardScreen({ navigation }: any) {
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Total {modeLabel}</Text>
-          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{money(chartTotal)}</Text>
+          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{fmtHoras(chartTotal)}</Text>
         </View>
         {chart === null ? (
           <Loading />
         ) : chart.length === 0 ? (
           <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.md }}>
-            Sin ingresos registrados {modeLabel}.
+            Sin jornadas registradas {modeLabel}.
           </Text>
         ) : (
-          <BarChart data={chart} />
+          <BarChart data={chart} fmt={fmtHoras} />
         )}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
-          Ingreso = horas trabajadas × precio por jornada. Toca Día/Mes/Año para cambiar el período.
+          Total de horas trabajadas (día + noche − paradas + extras) por empresa. Toca Día/Mes/Año para cambiar el período.
         </Text>
       </Card>
 

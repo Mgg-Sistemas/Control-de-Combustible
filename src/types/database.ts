@@ -80,6 +80,8 @@ export interface Machinery {
   clasificacion: string | null; // CLASIFICACIÓN de la máquina (Excavadora, Volteo, Retro...) — para agrupar
   referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes
   last_horometro: number | null; // última lectura de horómetro (se arrastra al próximo inicio)
+  viajes: number | null; // nº de viajes realizados (solo Golden Touch) — extra al subtotal por jornada
+  precio_viaje: number | null; // precio por viaje en $ (solo Golden Touch)
   created_at: string;
 }
 
