@@ -210,7 +210,7 @@ type DeployData = {
   periodLabel: string;
   byCo: { company: string; count: number; hours: number }[];
   byTp: { tipo: string; count: number; hours: number }[];
-  inact: { code: string; tipo: string; company: string }[];
+  inact: { code: string; serial: string; tipo: string; company: string }[];
   totals: { equipos: number; horas: number; activos: number; inactivos: number; empresas: number; tipos: number };
 };
 /** Número con punto de miles (17.075). */
@@ -335,6 +335,7 @@ ${header()}
   const inRows = inact.map((m, i) => `    <tr>
       <td class="rank">${i + 1}</td>
       <td class="name">${m.code}</td>
+      <td class="num" style="text-align:left;width:auto;font-weight:700;font-variant-numeric:tabular-nums">${m.serial || '—'}</td>
       <td class="num" style="text-align:left;width:auto;font-weight:600">${m.tipo}</td>
       <td class="num" style="text-align:left;width:auto;font-weight:700;color:var(--navy)">${m.company}</td>
     </tr>`).join('\n');
@@ -345,10 +346,10 @@ ${header()}
     <span class="hint">${totals.inactivos} de ${totals.equipos} equipos · fuera de operación</span>
   </div>
   <table class="emp">
-    <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Tipo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
+    <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Tipo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
     <tbody>
-${inRows || '    <tr><td colspan="4" style="text-align:center;color:#6b7280">Sin equipos inactivos</td></tr>'}</tbody>
-    <tfoot><tr><td></td><td>TOTAL INACTIVOS</td><td class="num">${totals.inactivos}</td><td></td></tr></tfoot>
+${inRows || '    <tr><td colspan="5" style="text-align:center;color:#6b7280">Sin equipos inactivos</td></tr>'}</tbody>
+    <tfoot><tr><td></td><td>TOTAL INACTIVOS</td><td class="num">${totals.inactivos}</td><td></td><td></td></tr></tfoot>
   </table>
   <div class="foot"><span class="sys">${sys}</span><span>Activos: ${totals.activos} · Inactivos: ${totals.inactivos} · Total flota: ${totals.equipos}</span></div>
 </div></section>`;
@@ -694,7 +695,7 @@ export default function ReportsScreen({ route }: any) {
   const generateDeploy = async () => {
     setLoading(true);
     const [{ data: mach }, rnds] = await Promise.all([
-      supabase.from('machinery').select('id, code, tipo, active, company:company_id(name)'),
+      supabase.from('machinery').select('id, code, tipo, active, serial, plate, company:company_id(name)'),
       selectAllRows(
         'machine_rounds',
         'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours',
@@ -711,6 +712,7 @@ export default function ReportsScreen({ route }: any) {
     });
     const listAll = (mach ?? []).map((m: any) => ({
       code: m.code as string,
+      serial: (m.serial || m.plate || '') as string,
       tipo: canonTipo(m.tipo) || 'SIN TIPO',
       active: m.active !== false,
       company: m.company?.name || 'Sin empresa',
@@ -730,7 +732,7 @@ export default function ReportsScreen({ route }: any) {
     const inact = list
       .filter((m) => !m.active)
       .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code))
-      .map((m) => ({ code: m.code, tipo: m.tipo, company: m.company }));
+      .map((m) => ({ code: m.code, serial: m.serial, tipo: m.tipo, company: m.company }));
     const totals = {
       equipos: list.length,
       horas: list.reduce((s, m) => s + m.hours, 0),

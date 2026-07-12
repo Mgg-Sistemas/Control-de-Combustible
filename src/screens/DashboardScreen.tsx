@@ -98,17 +98,25 @@ export default function DashboardScreen({ navigation }: any) {
     const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
-      supabase.from('machinery').select('id, operational, en_espera, active').eq('active', true),
+      supabase.from('machinery').select('id, operational, en_espera, active'),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from('companies').select('id, name'),
     ]);
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     setActiveLocations(locCount ?? 0);
-    let op = 0, esp = 0, no = 0;
-    (machs ?? []).forEach((m: any) => { if (m.en_espera) esp++; else if (m.operational === false) no++; else op++; });
+    // Estado de la flota completa: las retiradas (active=false) cuentan como "no
+    // operativa" para que los tres cubos sumen el total de la flota.
+    let op = 0, esp = 0, no = 0, activas = 0;
+    (machs ?? []).forEach((m: any) => {
+      if (m.active === false) { no++; return; }
+      activas++;
+      if (m.en_espera) esp++;
+      else if (m.operational === false) no++;
+      else op++;
+    });
     setStates({ op, esp, no });
-    setActiveAssets((machs ?? []).length + (vehCount ?? 0));
+    setActiveAssets(activas + (vehCount ?? 0));
   }, []);
 
   // Carga el ingreso por empresa para el rango del modo elegido.
