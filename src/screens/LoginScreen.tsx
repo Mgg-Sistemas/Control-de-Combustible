@@ -66,7 +66,7 @@ export default function LoginScreen() {
           }}
         >
           <Image
-            source={require('../../assets/logo.jpeg')}
+            source={require('../../assets/logo.png')}
             resizeMode="contain"
             style={{ width: 132, height: 132 }}
           />
