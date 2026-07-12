@@ -220,7 +220,7 @@ function deployInfographicHtml(d: DeployData): string {
   const maxCo = Math.max(1, ...byCo.map((c) => c.hours));
   const maxTp = Math.max(1, ...byTp.map((t) => t.hours));
   const style = `<style>
-  @page { size: 13.333in 7.5in; margin: 0; }
+  @page { size: 15in 9.1in; margin: 2cm; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   :root { --navy:#16324F; --gold:#B4924E; --gold-soft:#EFE7D6; --ink:#1a1c20; --muted:#6b7280; --line:#e3e6ea; --bg:#ffffff; --panel:#F7F5F1; }
   body { font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:var(--ink); background:#54606b; }
@@ -1300,6 +1300,23 @@ export default function ReportsScreen({ route }: any) {
             </Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Solo equipos que trabajaron</Text>
           </Card>
+
+          {/* Alcance del informe: general (todas) o una empresa. Regenera al tocar. */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Ver</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {[{ c: '', label: '🏢 Todas (general)' }, ...companyList.map((c) => ({ c, label: c }))].map((opt) => {
+              const on = opt.c === '' ? repCompanies.length === 0 : (repCompanies.length === 1 && repCompanies[0] === opt.c);
+              return (
+                <TouchableOpacity
+                  key={opt.c || 'all'}
+                  onPress={() => { const arg = opt.c ? [opt.c] : []; setRepCompanies(arg); generateRounds(from, to, arg); }}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                >
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>

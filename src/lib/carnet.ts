@@ -31,7 +31,7 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
   const row = (k: string, v?: string | null) =>
     v ? `<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
-    @page{margin:1.2cm}
+    @page{margin:2cm}
     *{box-sizing:border-box}
     body{font-family:Tahoma,Geneva,Verdana,sans-serif;display:flex;justify-content:center;padding:0;margin:0}
     .card{position:relative;width:340px;background:#fff;border:1px solid #d9dee5;border-radius:16px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.12)}

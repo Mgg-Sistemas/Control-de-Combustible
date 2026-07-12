@@ -619,7 +619,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       title: 'Calendario de trabajo por empresa',
       subtitle: `${scopeLabel} · del ${fmtDMY(fromArg)} al ${fmtDMY(toArg)} · ${days.length} día(s)`,
       extraCss: `
-        @page{size:landscape;margin:1cm}
+        @page{size:landscape;margin:2cm}
         table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 6px}
         th{background:#1E3A5F;color:#fff;text-align:center;font-size:10px}

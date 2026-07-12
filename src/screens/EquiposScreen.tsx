@@ -377,7 +377,7 @@ export default function EquiposScreen({ navigation }: any) {
     if (!qrFor || !qrStr) return;
     const url = machineQrUrl(qrFor.id);
     const html = `<!doctype html><html><head><meta charset="utf-8"><title></title>
-      <style>@page{margin:1.5cm}*{box-sizing:border-box}body{font-family:Tahoma,Geneva,Verdana,sans-serif;text-align:center;color:#111}
+      <style>@page{margin:2cm}*{box-sizing:border-box}body{font-family:Tahoma,Geneva,Verdana,sans-serif;text-align:center;color:#111}
       .name{font-size:28px;font-weight:800;margin:6px 0 2px;color:#16324F}
       .sub{color:#555;font-size:14px;margin-bottom:16px}
       .qr{width:340px;height:340px;margin:0 auto}
