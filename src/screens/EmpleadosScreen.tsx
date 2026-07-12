@@ -155,7 +155,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         <EmptyState title={q ? 'Sin resultados' : 'Sin empleados'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Toca "+ Nuevo" para registrar el primero.'} />
       ) : (
         byCompany.map((g) => {
-          const open = expanded[g.key] ?? (!!q || byCompany.length === 1);
+          const open = expanded[g.key] ?? !!q;
           return (
             <View key={g.key} style={{ marginBottom: spacing.xs }}>
               <TouchableOpacity
