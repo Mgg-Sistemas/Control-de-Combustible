@@ -20,6 +20,7 @@ import { DateField } from './DateField';
 type ShowIf = (values: Record<string, string>) => boolean;
 
 export type Field =
+  | { key: string; label: string; type: 'section'; showIf?: ShowIf } // encabezado de sección (no es un campo)
   | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string }
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf }
   | {
@@ -167,6 +168,7 @@ export function RecordForm({
     setError(null);
     // Validación de requeridos (solo campos visibles)
     for (const f of visibleFields) {
+      if (f.type === 'section') continue;
       if (f.required && !values[f.key]) {
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
@@ -264,6 +266,11 @@ export function RecordForm({
           ) : null}
           <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: spacing.sm }}>
             {visibleFields.map((f) => (
+              f.type === 'section' ? (
+                <Text key={f.key} style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.sm, marginBottom: 2 }}>
+                  {f.label}
+                </Text>
+              ) : (
               <View key={f.key} style={{ gap: 4 }}>
                 <Text style={typography.muted}>
                   {f.label}
@@ -303,6 +310,7 @@ export function RecordForm({
                   />
                 )}
               </View>
+              )
             ))}
           </ScrollView>
 

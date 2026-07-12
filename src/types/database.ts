@@ -140,6 +140,9 @@ export interface Employee {
   status: 'activo' | 'inactivo' | 'suspendido';
   base_salary: number | null;
   salary_currency: string | null;
+  bank_name: string | null;      // banco (datos bancarios)
+  bank_account: string | null;   // número de cuenta
+  bank_cedula: string | null;    // cédula del titular
   notes: string | null;
   created_by: string | null;
   created_at: string;

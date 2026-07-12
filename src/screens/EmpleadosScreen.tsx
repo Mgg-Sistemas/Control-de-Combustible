@@ -20,6 +20,16 @@ const MARITAL = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión lib
 const STATUS_OPTS = [{ label: 'Activo', value: 'activo' }, { label: 'Inactivo', value: 'inactivo' }, { label: 'Suspendido', value: 'suspendido' }];
 const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
 
+// Bancos de Venezuela (código · nombre). El valor guardado es "código - NOMBRE".
+const BANCOS_VE = [
+  '0102 - BANCO DE VENEZUELA', '0104 - VENEZOLANO DE CRÉDITO', '0105 - MERCANTIL', '0108 - BBVA PROVINCIAL',
+  '0114 - BANCARIBE', '0115 - BANCO EXTERIOR', '0128 - BANCO CARONÍ', '0134 - BANESCO', '0137 - SOFITASA',
+  '0138 - BANCO PLAZA', '0146 - BANGENTE', '0151 - BFC BANCO FONDO COMÚN', '0156 - 100% BANCO', '0157 - DELSUR',
+  '0163 - BANCO DEL TESORO', '0166 - BANCO AGRÍCOLA DE VENEZUELA', '0168 - BANCRECER', '0169 - MI BANCO',
+  '0171 - BANCO ACTIVO', '0172 - BANCAMIGA', '0173 - BANCO INTERNACIONAL DE DESARROLLO', '0174 - BANPLUS',
+  '0175 - BANCO BICENTENARIO', '0177 - BANFANB', '0178 - N58 BANCO DIGITAL', '0191 - BANCO NACIONAL DE CRÉDITO (BNC)',
+].map((v) => ({ label: v, value: v }));
+
 // Todos los campos de la ficha del trabajador.
 const FIELDS: Field[] = [
   // El N° de ficha es AUTOMÁTICO (correlativo de 4 dígitos que asigna la BD al crear).
@@ -46,6 +56,11 @@ const FIELDS: Field[] = [
   { key: 'hire_date', label: 'Fecha de ingreso', type: 'date' },
   { key: 'status', label: 'Estado', type: 'select', options: STATUS_OPTS },
   { key: 'base_salary', label: 'Salario base', type: 'number' },
+  // Datos bancarios (para pagos).
+  { key: '__sec_banco', label: '🏦 Datos bancarios', type: 'section' },
+  { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE },
+  { key: 'bank_account', label: 'N° de cuenta', type: 'text' },
+  { key: 'bank_cedula', label: 'Cédula del titular', type: 'text' },
   { key: 'notes', label: 'Notas', type: 'text' },
 ];
 
@@ -182,6 +197,11 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <Text style={{ color: colors.muted, fontSize: 13 }}>
                         {[e.cedula ? `C.I ${e.cedula}` : '', e.blood_type ? `🩸 ${e.blood_type}` : '', e.phone || ''].filter(Boolean).join(' · ') || 'Sin datos adicionales'}
                       </Text>
+                      {e.bank_name || e.bank_account ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                          🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
+                        </Text>
+                      ) : null}
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
