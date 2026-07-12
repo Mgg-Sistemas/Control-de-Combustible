@@ -1027,6 +1027,9 @@ create table if not exists public.employees (
   status text not null default 'activo',   -- activo | inactivo | suspendido
   base_salary numeric(14,2),
   salary_currency text default 'USD',
+  bank_name text,                          -- banco (datos bancarios)
+  bank_account text,                       -- número de cuenta
+  bank_cedula text,                        -- cédula del titular de la cuenta
   notes text,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
