@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView } fro
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { exportPdf, pdfDocument } from '../lib/pdf';
+import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
 import { norm, onlyDecimal, onlyDigits } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -503,7 +503,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       ${byCompanyHtml}
       <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Monto = horas trabajadas × precio por hora (precio por jornada ÷ 12). Las horas paradas se descuentan del pago.</p>`,
     });
-    await exportPdf(html, closureCompany ? `${closureCompany} - Cierre de control` : 'Control de Maquinaria - Cerrar control');
+    const rngCie = dateRangeLabel(c.detail?.dateFrom ?? c.closure_date, c.detail?.dateTo ?? c.closure_date);
+    await exportPdf(html, closureCompany ? `Cierre ${closureCompany} ${rngCie}` : `Cierre de control ${rngCie}`);
   };
 
   // Reporte RESUMEN de la semana actual: total de horas por empresa, por máquina (sin detalle) y total en $.
@@ -630,8 +631,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <div class="grand">Total general: ${grandH} h · jornadas ${usd(grandUSD)}${grandViajes ? ` + viajes ${usd(grandViajes)} = ${usd(grandUSD + grandViajes)}` : ''}</div>
         <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas · los viajes/fletes se suman aparte al TOTAL POR PAGAR.</p>`,
     });
-    // Si el reporte es de UNA empresa, se guarda con su nombre.
-    const sumFile = scope !== '__all__' && scope !== '__none__' ? `${companies[scope] ?? 'Empresa'} - Resumen de maquinaria` : 'Control de Maquinaria - Ver reporte';
+    // Nombre del archivo: "Reporte EMPRESA del DD al DD" (con el rango del reporte).
+    const rng = dateRangeLabel(fromArg, toArg);
+    const sumFile = scope !== '__all__' && scope !== '__none__' ? `Reporte ${companies[scope] ?? 'Empresa'} ${rng}` : `Resumen de maquinaria ${rng}`;
     await exportPdf(html, sumFile);
   };
 
@@ -708,7 +710,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <p class="legend">Cada celda = nº de equipos de la empresa que trabajaron ese día. La última columna es el total de equipos distintos que trabajaron en el rango.</p>
       <p class="note">Un equipo "trabajó" un día si tuvo horas de turno (día o noche) registradas. Rango: ${fmtDMY(fromArg)} → ${fmtDMY(toArg)}.</p>`,
     });
-    const calFile = scope !== '__all__' && scope !== '__none__' ? `${companies[scope] ?? 'Empresa'} - Calendario de trabajo` : 'Control de Maquinaria - Calendario de empresas';
+    const rngCal = dateRangeLabel(fromArg, toArg);
+    const calFile = scope !== '__all__' && scope !== '__none__' ? `Calendario ${companies[scope] ?? 'Empresa'} ${rngCal}` : `Calendario de empresas ${rngCal}`;
     await exportPdf(html, calFile);
   };
 
