@@ -200,9 +200,27 @@ function buildHtml(pins: MapPin[]): string {
   });
   map.addControl(new Legend());
 
-  // ── SUB-SECTORES (zonas de La Guaira · Sector Este) — ver/ocultar cada una ──
-  // Cada zona se define por dos límites (coordenadas convertidas de DMS a decimal).
+  // ── SUB-SECTORES (zonas de La Guaira) — ver/ocultar cada una ──
+  // Cada zona se define por dos límites (Oeste/Este), coordenadas de DMS a decimal.
+  // Bloque 1: Sector Oeste (Catia → Puerto de La Guaira). Bloque 2: Sector Este.
   var SUBSECTORS = [
+    // ── Sector Oeste ──
+    { n:'Catamare', color:'#14B8A6',
+      a:{ lbl:'Límite Oeste', name:'Central Eléctrica J.J. Sánchez', lat:10.586938, lng:-67.079676 },
+      b:{ lbl:'Límite Este', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 } },
+    { n:'Hugo Chávez', color:'#F59E0B',
+      a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
+      b:{ lbl:'Límite Este', name:'Residencial Jurel', lat:10.610310, lng:-67.008093 } },
+    { n:'Aeropuerto', color:'#6366F1',
+      a:{ lbl:'Límite Oeste', name:'Final Aeropuerto de Maiquetía', lat:10.601648, lng:-67.017346 },
+      b:{ lbl:'Límite Este', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 } },
+    { n:'El Trébol', color:'#10B981',
+      a:{ lbl:'Límite Oeste', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 },
+      b:{ lbl:'Límite Este', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 } },
+    { n:'El Chorro', color:'#F43F5E',
+      a:{ lbl:'Límite Oeste', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 },
+      b:{ lbl:'Límite Este', name:'Punta Mulato', lat:10.603567, lng:-66.912374 } },
+    // ── Sector Este ──
     { n:'Subsector 1: Álamo', color:'#F97316',
       a:{ lbl:'Límite Oeste', name:'Punta Mulato', lat:10.603567, lng:-66.912374 },
       b:{ lbl:'Límite Este', name:'Río Macuto', lat:10.607051, lng:-66.896534 } },

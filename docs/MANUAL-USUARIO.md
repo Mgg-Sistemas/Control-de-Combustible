@@ -140,6 +140,8 @@ automáticamente.
 
 ### 4.11. Mapa
 Muestra **en un mapa** dónde está cada máquina (según su última ubicación GPS).
+- Con el panel **🗺️ Sectores (zonas)** ves u ocultas las **zonas de La Guaira** (Sector Oeste
+  y Sector Este). Cada zona tiene su **color** y sus **límites** (Oeste/Este).
 
 ### 4.12. Reportes
 Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fechas** y la

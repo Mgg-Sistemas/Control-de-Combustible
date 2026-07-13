@@ -45,3 +45,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Archivos locales generados (no versionar)
+QR-maquinas-por-empresa.html
+_genqr.mjs
