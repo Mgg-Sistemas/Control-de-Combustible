@@ -101,6 +101,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - La máquina pasa a **Operativa** y ya entra al control. **Cada máquina puede tener su
   propia fecha** (no tienen que entrar todas el mismo día).
 
+**Flete / viaje (viajes que hizo el equipo):**
+- Dentro de cada máquina toca **➕ Flete / viaje**.
+- Escribe la **fecha**, el **nº de viajes** y el **precio por viaje**; el sistema calcula el total.
+- Ese monto se **suma al TOTAL POR PAGAR** de la empresa **en la semana de esa fecha** (sale en el reporte).
+- Puedes registrar **varios** fletes y borrar los que no van con **🗑**.
+
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
 - El sistema guarda todo en el **Histórico** y deja la pantalla limpia para la siguiente
