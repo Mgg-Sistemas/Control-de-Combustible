@@ -503,7 +503,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       ${byCompanyHtml}
       <p class="note">Trabajadas = (turno día + turno noche) − parada + extras · Monto = horas trabajadas × precio por hora (precio por jornada ÷ 12). Las horas paradas se descuentan del pago.</p>`,
     });
-    await exportPdf(html, 'Control de Maquinaria - Cerrar control');
+    await exportPdf(html, closureCompany ? `${closureCompany} - Cierre de control` : 'Control de Maquinaria - Cerrar control');
   };
 
   // Reporte RESUMEN de la semana actual: total de horas por empresa, por máquina (sin detalle) y total en $.
@@ -630,7 +630,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         <div class="grand">Total general: ${grandH} h · jornadas ${usd(grandUSD)}${grandViajes ? ` + viajes ${usd(grandViajes)} = ${usd(grandUSD + grandViajes)}` : ''}</div>
         <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas · los viajes/fletes se suman aparte al TOTAL POR PAGAR.</p>`,
     });
-    await exportPdf(html, 'Control de Maquinaria - Ver reporte');
+    // Si el reporte es de UNA empresa, se guarda con su nombre.
+    const sumFile = scope !== '__all__' && scope !== '__none__' ? `${companies[scope] ?? 'Empresa'} - Resumen de maquinaria` : 'Control de Maquinaria - Ver reporte';
+    await exportPdf(html, sumFile);
   };
 
   // Reporte tipo CALENDARIO: días como columnas, empresas como filas. Cada celda = nº de
@@ -706,7 +708,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       <p class="legend">Cada celda = nº de equipos de la empresa que trabajaron ese día. La última columna es el total de equipos distintos que trabajaron en el rango.</p>
       <p class="note">Un equipo "trabajó" un día si tuvo horas de turno (día o noche) registradas. Rango: ${fmtDMY(fromArg)} → ${fmtDMY(toArg)}.</p>`,
     });
-    await exportPdf(html, 'Control de Maquinaria - Calendario de empresas');
+    const calFile = scope !== '__all__' && scope !== '__none__' ? `${companies[scope] ?? 'Empresa'} - Calendario de trabajo` : 'Control de Maquinaria - Calendario de empresas';
+    await exportPdf(html, calFile);
   };
 
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {

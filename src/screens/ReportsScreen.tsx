@@ -682,7 +682,9 @@ export default function ReportsScreen({ route }: any) {
       <tfoot><tr><td style="font-weight:800;border-top:2px solid #1E3A5F">TOTAL DE LA FLOTA <span class="muted" style="font-weight:400">(activas + inactivas)</span></td><td style="text-align:right;font-weight:800;border-top:2px solid #1E3A5F">${fleetStatus.totalFlota} unidades</td></tr></tfoot>
       </table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
-    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content), 'Reportes - Jornada');
+    // Si el informe es de UNA sola empresa, el archivo se guarda con su nombre.
+    const jornadaFile = list.length === 1 ? `${list[0].company} - Informe por jornada` : 'Reportes - Jornada';
+    await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content), jornadaFile);
   };
 
   const generateFleet = async () => {
