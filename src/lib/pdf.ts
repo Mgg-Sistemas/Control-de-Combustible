@@ -23,7 +23,9 @@ const PDF_ACCENT = '#1E3A5F';
 export const PDF_BASE_CSS = `
   @page{margin:2cm}
   *{box-sizing:border-box}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff}
+  /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
+  @media screen{ body{ padding:28px 34px } }
   .top{display:flex;justify-content:space-between;align-items:flex-start}
   .brand{display:flex;gap:16px;align-items:center}
   .brand img{height:70px;width:auto}
