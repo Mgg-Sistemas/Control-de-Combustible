@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
+import { formatUTM } from '../lib/utm';
 import { Machinery } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -109,7 +110,7 @@ export default function MachineryScreen({ navigation }: any) {
                 {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                 {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                 {m.latitude != null ? (
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {m.latitude}, {m.longitude} · {elapsedSince(m.location_at)}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
                 ) : (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
                 )}

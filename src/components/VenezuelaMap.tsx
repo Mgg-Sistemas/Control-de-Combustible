@@ -16,6 +16,7 @@ export type MapPin = {
   clasificacion?: string | null; // clasificación
   plate?: string | null;         // placa
   serial?: string | null;        // serial
+  utm?: string | null;           // coordenadas en formato UTM (ya formateadas)
   route: [number, number][];
 };
 
@@ -91,7 +92,7 @@ function buildHtml(pins: MapPin[]): string {
       + (p.tipo ? '<br/>🏷️ Modelo: '+esc(p.tipo) : '')
       + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
       + (placaSerial ? '<br/>🔖 '+placaSerial : '')
-      + '<br/>📍 '+p.lat+', '+p.lng
+      + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
       + '<br/>Estado: '+(p.operational?'Operativa':'No operativa');
     var btn = document.createElement('button');

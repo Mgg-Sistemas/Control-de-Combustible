@@ -9,6 +9,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
+import { formatUTM } from '../lib/utm';
 import { norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
@@ -788,7 +789,7 @@ export default function EquiposScreen({ navigation }: any) {
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {m.latitude != null ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {m.latitude}, {m.longitude} · {elapsedSince(m.location_at)}</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
             )}
@@ -829,6 +830,9 @@ export default function EquiposScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
         <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 ACTUALIZAR UBICACIÓN'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
+        {m.latitude != null ? (
+          <BigBtn label="🗺️ Ver en mapa" onPress={() => navigation?.navigate('Map', { focus: { id: m.id, code: m.code } })} color="#0D9488" />
+        ) : null}
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} textColor={colors.primaryContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
