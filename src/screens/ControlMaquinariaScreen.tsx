@@ -507,21 +507,57 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope));
     // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
     type Row = { name: string; serial: string | null; worked: number; amount: number };
-    const groups = new Map<string, { company: string; rows: Row[]; worked: number; amount: number }>();
+    type Viaje = { code: string; viajes: number; precio: number };
+    const groups = new Map<string, { company: string; rows: Row[]; worked: number; amount: number; viajes: Viaje[]; viajesUSD: number }>();
+    const getGroup = (cname: string) => {
+      const g = groups.get(cname) ?? { company: cname, rows: [], worked: 0, amount: 0, viajes: [], viajesUSD: 0 };
+      groups.set(cname, g);
+      return g;
+    };
     for (const m of inScope) {
       const worked = workedByMachine.get(m.id) ?? 0;
       if (worked <= 0) continue; // solo máquinas con actividad registrada
       const amount = (worked / 12) * (m.price_per_hour ?? 0); // horas trabajadas × precio/hora
       const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
-      const g = groups.get(cname) ?? { company: cname, rows: [], worked: 0, amount: 0 };
+      const g = getGroup(cname);
       g.rows.push({ name: m.code, serial: m.serial ?? null, worked, amount });
       g.worked += worked; g.amount += amount;
-      groups.set(cname, g);
     }
-    const companyList = [...groups.values()].sort((a, b) => a.company.localeCompare(b.company));
-    companyList.forEach((g) => g.rows.sort((a, b) => b.worked - a.worked));
+    // Viajes/fletes por empresa (independientes de las horas): se suman al TOTAL POR PAGAR.
+    for (const m of inScope) {
+      const v = Number((m as any).viajes) || 0;
+      const precio = Number((m as any).precio_viaje) || 0;
+      if (v <= 0 || precio <= 0) continue;
+      const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
+      const g = getGroup(cname);
+      g.viajes.push({ code: m.code, viajes: v, precio });
+      g.viajesUSD += v * precio;
+    }
+    const companyList = [...groups.values()].sort((a, b) => a.company.localeCompare(b.company, 'es', { sensitivity: 'base' }));
+    // Alfabético por nombre de máquina (antes iba por horas trabajadas).
+    companyList.forEach((g) => g.rows.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })));
     const grandH = companyList.reduce((s, g) => s + g.worked, 0);
     const grandUSD = companyList.reduce((s, g) => s + g.amount, 0);
+    const grandViajes = companyList.reduce((s, g) => s + g.viajesUSD, 0);
+
+    // Bloque de VIAJES/FLETES por empresa: agrupa por precio unitario y suma al total.
+    const renderViajes = (g: { company: string; amount: number; viajes: Viaje[]; viajesUSD: number }): string => {
+      if (!g.viajes.length) return '';
+      const byPrice = new Map<number, Viaje[]>();
+      g.viajes.forEach((v) => { const a = byPrice.get(v.precio) ?? []; a.push(v); byPrice.set(v.precio, a); });
+      const groupRows = [...byPrice.entries()].sort((a, b) => a[0] - b[0]).map(([precio, items]) => {
+        const totV = items.reduce((s, v) => s + v.viajes, 0);
+        const kinds = new Map<string, number>();
+        items.forEach((v) => { const k = (v.code.split(/\s+/)[0] || v.code).toUpperCase(); kinds.set(k, (kinds.get(k) ?? 0) + v.viajes); });
+        const detalle = [...kinds.entries()].map(([k, n]) => `${n} ${k}`).join(' · ');
+        return `<tr><td style="padding:4px 8px;border:1px solid #ccc">TOTAL POR <b>${totV}</b> VIAJE${totV === 1 ? '' : 'S'}: ${detalle} <span style="color:#666">(${usd(precio)} c/u)</span></td><td style="text-align:right;font-weight:700;padding:4px 8px;border:1px solid #ccc">${usd(totV * precio)}</td></tr>`;
+      }).join('');
+      return `<table class="sum" style="margin-top:-2px">
+        <tbody>${groupRows}
+        <tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;border:1px solid #1E3A5F">TOTAL POR PAGAR ${g.company}</td>
+          <td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;border:1px solid #1E3A5F">${usd(g.amount + g.viajesUSD)}</td></tr>
+        </tbody></table>`;
+    };
 
     const sections = companyList
       .map((g) => {
@@ -533,12 +569,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
           )
           .join('');
         return `
-        <h3 class="emp">🏢 ${g.company} — ${g.rows.length} máquina(s) · ${g.worked} h · ${usd(g.amount)}</h3>
+        <h3 class="emp">🏢 ${g.company} — ${g.rows.length} máquina(s) · ${g.worked} h · ${usd(g.amount)}${g.viajesUSD ? ` + ${usd(g.viajesUSD)} viajes` : ''}</h3>
         <table class="sum"><thead><tr><th>Máquina</th><th>Total horas</th><th>Total $</th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL ${g.company}</td>
+        <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL ${g.company} (jornadas)</td>
           <td style="text-align:center;font-weight:800">${g.worked} h</td>
-          <td style="text-align:right;font-weight:800">${usd(g.amount)}</td></tr></tfoot></table>`;
+          <td style="text-align:right;font-weight:800">${usd(g.amount)}</td></tr></tfoot></table>
+        ${renderViajes(g)}`;
       })
       .join('');
 
@@ -556,8 +593,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body: `
         ${sections || '<p style="text-align:center;color:#888">Sin máquinas con actividad en la semana.</p>'}
-        <div class="grand">Total general: ${grandH} h · ${usd(grandUSD)}</div>
-        <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas.</p>`,
+        <div class="grand">Total general: ${grandH} h · jornadas ${usd(grandUSD)}${grandViajes ? ` + viajes ${usd(grandViajes)} = ${usd(grandUSD + grandViajes)}` : ''}</div>
+        <p style="color:#666;font-size:11px;margin-top:8px">Horas = (turno día + turno noche) − parada + extras · Total $ = precio por jornada de 12 h × jornadas trabajadas · los viajes/fletes se suman aparte al TOTAL POR PAGAR.</p>`,
     });
     await exportPdf(html, 'Control de Maquinaria - Ver reporte');
   };
