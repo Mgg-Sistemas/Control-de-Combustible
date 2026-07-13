@@ -114,7 +114,7 @@ const SECTIONS: Sec[] = [
       ] },
       { t: 'p', text: 'Sección "🕓 En espera" (recibir máquinas): arriba salen las máquinas que aún no se han recibido. Para recibir una, elige su fecha de entrada y toca 📥 Recibir. Cada máquina puede tener su propia fecha.' },
       { t: 'p', text: 'Cerrar el control: cuando termines, toca 🔒 Cerrar control. Se guarda todo en el Histórico y la pantalla queda limpia para la semana siguiente. Lo cerrado no se borra.' },
-      { t: 'note', text: 'Para ver un reporte: toca 📊 Ver reporte, elige el rango de fechas y la empresa. Se genera un PDF.' },
+      { t: 'note', text: 'Para ver un reporte: toca 📊 Ver reporte, elige el rango de fechas y la empresa. Se abre una ventana con la vista previa del documento y dos botones: 🖨️ Imprimir y Cancelar. Toca Imprimir para mandarlo a la impresora o guardarlo como PDF.' },
     ],
   },
   {
@@ -150,6 +150,8 @@ const SECTIONS: Sec[] = [
         '📅 Rango de fechas: en los reportes, elige "desde" y "hasta".',
         'Guardar: el botón verde o azul confirma. El rojo detiene o cancela.',
         'Volver: la flecha ← de arriba.',
+        '🔢 Números: los campos de cédula, dinero, horas, litros y kilómetros solo aceptan números (no dejan escribir letras).',
+        '🖨️ Imprimir: los reportes se abren en una ventana con vista previa y los botones Imprimir y Cancelar.',
       ] },
     ],
   },

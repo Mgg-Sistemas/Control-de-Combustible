@@ -107,8 +107,9 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   semana. Lo cerrado **no se borra**: queda para los reportes y pagos.
 
 **Ver reportes:**
-- Toca **📊 Ver reporte**, elige el **rango de fechas** y toca la empresa. Se genera un
-  PDF con las horas y el monto.
+- Toca **📊 Ver reporte**, elige el **rango de fechas** y toca la empresa. Se abre una
+  **ventana con la vista previa** del documento y dos botones: **🖨️ Imprimir** y
+  **Cancelar**. Toca **Imprimir** para mandarlo a la impresora o guardarlo como PDF.
 
 ### 4.6. Control de pagos (cuánto se le paga a cada empresa)
 Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los precios.
@@ -137,7 +138,8 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
 
 ### 4.12. Reportes
 Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fechas** y la
-**empresa**.
+**empresa**. Al generarlos se abre una **ventana con la vista previa** y los botones
+**🖨️ Imprimir** y **Cancelar**.
 
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
@@ -151,6 +153,10 @@ Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 - **📅 Rango de fechas:** en los reportes, elige "desde" y "hasta".
 - **Guardar:** el botón **verde** o **azul** confirma. El **rojo** detiene o cancela.
 - **Volver:** la flecha **←** de arriba.
+- **🔢 Números:** los campos de **cédula, dinero, horas, litros y kilómetros** solo aceptan
+  **números** (no dejan escribir letras).
+- **🖨️ Imprimir:** los reportes se abren en una **ventana con vista previa** y los botones
+  **Imprimir** y **Cancelar**.
 
 ---
 

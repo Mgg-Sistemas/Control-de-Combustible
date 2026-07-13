@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radius } from '../theme';
@@ -235,9 +235,10 @@ export default function MargenGananciaScreen() {
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Costo inicial</Text>
                         <TextInput
                           value={costVal}
-                          onChangeText={(t) => setEdits((prev) => ({ ...prev, [costKey]: t }))}
+                          onChangeText={(t) => setEdits((prev) => ({ ...prev, [costKey]: onlyDecimal(t) }))}
                           onBlur={() => saveField(m, 'initial_cost', costVal)}
                           keyboardType="numeric"
+                          inputMode="decimal"
                           placeholder="0,00"
                           placeholderTextColor={colors.muted}
                           style={inputStyle}
@@ -247,9 +248,10 @@ export default function MargenGananciaScreen() {
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Valor útil</Text>
                         <TextInput
                           value={valVal}
-                          onChangeText={(t) => setEdits((prev) => ({ ...prev, [valKey]: t }))}
+                          onChangeText={(t) => setEdits((prev) => ({ ...prev, [valKey]: onlyDecimal(t) }))}
                           onBlur={() => saveField(m, 'useful_value', valVal)}
                           keyboardType="numeric"
+                          inputMode="decimal"
                           placeholder="0,00"
                           placeholderTextColor={colors.muted}
                           style={inputStyle}

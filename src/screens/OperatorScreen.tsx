@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal } from '../lib/text';
 import { Machinery } from '../types/database';
 import { upsertMachineRound, getMachineRound } from '../lib/machineRounds';
 import { insertMachineDispatch } from '../lib/dispatches';
@@ -235,11 +235,11 @@ export default function OperatorScreen() {
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Horas paradas</Text>
-                <TextInput value={stopped} onChangeText={setStopped} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={stopped} onChangeText={(t) => setStopped(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Horas extra</Text>
-                <TextInput value={overtime} onChangeText={setOvertime} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={overtime} onChangeText={(t) => setOvertime(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
             </View>
 
@@ -259,7 +259,7 @@ export default function OperatorScreen() {
             <DateField value={fDate} onChange={setFDate} maxISO={todayISO()} />
 
             <Text style={lbl}>Litros surtidos</Text>
-            <TextInput value={fLiters} onChangeText={setFLiters} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+            <TextInput value={fLiters} onChangeText={(t) => setFLiters(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
             {sel.daily_consumption_l != null && Number(sel.daily_consumption_l) > 0 ? (
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Tope: {(Number(sel.daily_consumption_l) * 2).toLocaleString()} L (2× el consumo diario de {Number(sel.daily_consumption_l).toLocaleString()} L).</Text>
             ) : null}
@@ -281,21 +281,21 @@ export default function OperatorScreen() {
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Km ida</Text>
-                <TextInput value={fKmIda} onChangeText={setFKmIda} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={fKmIda} onChangeText={(t) => setFKmIda(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Km vuelta</Text>
-                <TextInput value={fKmVuelta} onChangeText={setFKmVuelta} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={fKmVuelta} onChangeText={(t) => setFKmVuelta(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
             </View>
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Combustible inicial</Text>
-                <TextInput value={fStart} onChangeText={setFStart} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={fStart} onChangeText={(t) => setFStart(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={lbl}>Combustible final</Text>
-                <TextInput value={fEnd} onChangeText={setFEnd} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={fEnd} onChangeText={(t) => setFEnd(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               </View>
             </View>
 
