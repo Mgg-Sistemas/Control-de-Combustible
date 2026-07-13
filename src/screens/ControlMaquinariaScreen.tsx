@@ -523,16 +523,20 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       g.rows.push({ name: m.code, serial: m.serial ?? null, worked, amount });
       g.worked += worked; g.amount += amount;
     }
-    // Viajes/fletes por empresa (independientes de las horas): se suman al TOTAL POR PAGAR.
-    for (const m of inScope) {
-      const v = Number((m as any).viajes) || 0;
-      const precio = Number((m as any).precio_viaje) || 0;
-      if (v <= 0 || precio <= 0) continue;
-      const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
+    // Fletes/viajes CON FECHA dentro del rango del reporte: se suman al TOTAL POR PAGAR
+    // de su empresa (solo aparecen en la semana en que ocurrieron).
+    const fletes = await selectAllRows('fletes', 'company_id, code, viajes, precio, company:company_id(name)', (qb) => qb.gte('flete_date', fromArg).lte('flete_date', toArg));
+    (fletes ?? []).forEach((f: any) => {
+      if (scope === '__none__') return;
+      if (scope !== '__all__' && f.company_id !== scope) return;
+      const v = Number(f.viajes) || 0;
+      const precio = Number(f.precio) || 0;
+      if (v <= 0 || precio <= 0) return;
+      const cname = f.company?.name ?? 'Empresa';
       const g = getGroup(cname);
-      g.viajes.push({ code: m.code, viajes: v, precio });
+      g.viajes.push({ code: f.code || '—', viajes: v, precio });
       g.viajesUSD += v * precio;
-    }
+    });
     const companyList = [...groups.values()].sort((a, b) => a.company.localeCompare(b.company, 'es', { sensitivity: 'base' }));
     // Alfabético por nombre de máquina (antes iba por horas trabajadas).
     companyList.forEach((g) => g.rows.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })));

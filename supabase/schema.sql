@@ -502,6 +502,27 @@ create policy cpt_read on public.company_price_tariffs for select using (true);
 drop policy if exists cpt_write on public.company_price_tariffs;
 create policy cpt_write on public.company_price_tariffs for all to authenticated using (true) with check (true);
 
+-- Fletes/viajes CON FECHA: cada flete pertenece a una empresa (y opcionalmente a una
+-- máquina) y tiene su fecha, para que en los reportes aparezca SOLO en la semana en que
+-- ocurrió (a diferencia de un campo fijo por máquina). Los reportes suman los fletes
+-- cuyo flete_date cae dentro del rango, y los añaden al TOTAL POR PAGAR de la empresa.
+create table if not exists public.fletes (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  machinery_id uuid references public.machinery(id) on delete set null,
+  code text,
+  flete_date date not null,
+  viajes int not null default 1,
+  precio numeric not null default 0,
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.fletes enable row level security;
+drop policy if exists fletes_read on public.fletes;
+create policy fletes_read on public.fletes for select using (true);
+drop policy if exists fletes_write on public.fletes;
+create policy fletes_write on public.fletes for all to authenticated using (true) with check (true);
+
 alter table public.machinery add column if not exists plate       text;
 alter table public.machinery add column if not exists serial      text;
 alter table public.machinery add column if not exists photo_url   text;
