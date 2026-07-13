@@ -108,14 +108,14 @@ export default function DashboardScreen({ navigation }: any) {
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     setActiveLocations(locCount ?? 0);
-    // Estado de la flota completa: las retiradas (active=false) cuentan como "no
-    // operativa" para que los tres cubos sumen el total de la flota.
+    // Estado de la flota completa. La maquinaria INACTIVA se define por
+    // operational=false (mismo criterio que el catálogo), para que los números
+    // coincidan siempre. Los tres cubos suman el total de la flota.
     let op = 0, esp = 0, no = 0, activas = 0;
     (machs ?? []).forEach((m: any) => {
-      if (m.active === false) { no++; return; }
+      if (m.operational === false) { no++; return; }
       activas++;
       if (m.en_espera) esp++;
-      else if (m.operational === false) no++;
       else op++;
     });
     setStates({ op, esp, no });
