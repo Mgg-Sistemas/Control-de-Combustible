@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
+import { formatUTM } from '../lib/utm';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -20,7 +21,7 @@ function fmt(ts: string): string {
   }
 }
 
-export default function MapScreen() {
+export default function MapScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const [pins, setPins] = useState<MapPin[] | null>(null);
@@ -62,6 +63,7 @@ export default function MapScreen() {
       clasificacion: m.clasificacion ?? null,
       plate: m.plate ?? null,
       serial: m.serial ?? null,
+      utm: formatUTM(Number(m.latitude), Number(m.longitude)),
       route: routes.get(m.id) ?? [],
     }));
     setPins(built);
@@ -156,6 +158,16 @@ export default function MapScreen() {
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
   }, [deleteLocation]);
+
+  // Al entrar desde el catálogo ("Ver en mapa"), enfocar SOLO esa máquina.
+  // Se consume el parámetro para poder volver a enfocar la misma más tarde.
+  useEffect(() => {
+    const f = route?.params?.focus;
+    if (f?.id) {
+      setFocus({ id: f.id, code: f.code ?? '' });
+      navigation?.setParams?.({ focus: undefined });
+    }
+  }, [route?.params?.focus]);
 
   const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : pins);
 

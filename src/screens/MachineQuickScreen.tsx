@@ -8,6 +8,7 @@ import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { captureLocation, warmLocation } from '../lib/location';
+import { formatUTM } from '../lib/utm';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -192,7 +193,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     const r = await captureLocation(machine.id);
     setLocating(false);
     if (!r.ok) { setNotice('❌ ' + (r.error ?? 'No se pudo obtener la ubicación.')); return; }
-    setNotice(`✅ Ubicación marcada en el mapa (${r.lat}, ${r.lng}).`);
+    setNotice(`✅ Ubicación marcada en el mapa · UTM ${formatUTM(r.lat, r.lng)}.`);
   };
 
   const registrarMantenimiento = async () => {
