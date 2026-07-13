@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'reac
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -950,8 +950,9 @@ export default function ControlPagosScreen({ navigation }: any) {
             <Text style={{ color: colors.muted, fontSize: 12 }}>Monto de la nómina</Text>
             <TextInput
               value={nominaAmount}
-              onChangeText={setNominaAmount}
+              onChangeText={(t) => setNominaAmount(onlyDecimal(t))}
               keyboardType="numeric"
+              inputMode="decimal"
               placeholder="0,00"
               placeholderTextColor={colors.muted}
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, fontSize: 18, fontWeight: '700' }}
@@ -1134,8 +1135,9 @@ export default function ControlPagosScreen({ navigation }: any) {
             <Text style={{ color: colors.muted, fontSize: 12 }}>Monto</Text>
             <TextInput
               value={payAmount}
-              onChangeText={setPayAmount}
+              onChangeText={(t) => setPayAmount(onlyDecimal(t))}
               keyboardType="numeric"
+              inputMode="decimal"
               placeholder="0.00"
               placeholderTextColor={colors.muted}
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
@@ -1380,8 +1382,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                       <TextInput
                         editable={canEditTar}
                         value={tarEdits[t.modelo] ?? ''}
-                        onChangeText={(v) => setTarEdits((p) => ({ ...p, [t.modelo]: v.replace(/[^0-9.]/g, '') }))}
+                        onChangeText={(v) => setTarEdits((p) => ({ ...p, [t.modelo]: onlyDecimal(v) }))}
                         keyboardType="numeric"
+                        inputMode="decimal"
                         style={{ minWidth: 74, textAlign: 'right', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, color: colors.text }}
                       />
                     </View>

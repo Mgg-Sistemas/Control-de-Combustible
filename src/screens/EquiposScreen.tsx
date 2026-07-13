@@ -10,7 +10,7 @@ import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
@@ -1234,8 +1234,9 @@ export default function EquiposScreen({ navigation }: any) {
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Litros</Text>
                     <TextInput
                       value={regLiters}
-                      onChangeText={setRegLiters}
+                      onChangeText={(t) => setRegLiters(onlyDecimal(t))}
                       keyboardType="numeric"
+                      inputMode="decimal"
                       placeholder="0"
                       placeholderTextColor={colors.muted}
                       style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }}
@@ -1271,24 +1272,24 @@ export default function EquiposScreen({ navigation }: any) {
                     <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>KM ida</Text>
-                        <TextInput value={regKmIda} onChangeText={setRegKmIda} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                        <TextInput value={regKmIda} onChangeText={(t) => setRegKmIda(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                           style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>KM vuelta</Text>
-                        <TextInput value={regKmVuelta} onChangeText={setRegKmVuelta} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                        <TextInput value={regKmVuelta} onChangeText={(t) => setRegKmVuelta(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                           style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Combustible inicial (L)</Text>
-                        <TextInput value={regFuelStart} onChangeText={setRegFuelStart} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                        <TextInput value={regFuelStart} onChangeText={(t) => setRegFuelStart(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                           style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Combustible final (L)</Text>
-                        <TextInput value={regFuelEnd} onChangeText={setRegFuelEnd} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                        <TextInput value={regFuelEnd} onChangeText={(t) => setRegFuelEnd(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                           style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, backgroundColor: colors.surface }} />
                       </View>
                     </View>

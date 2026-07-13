@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { onlyDecimal } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
@@ -433,7 +434,7 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{editItem.cargo ?? ''}{editItem.ficha_number ? ` · Ficha ${editItem.ficha_number}` : ''}</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Sueldo base ($)</Text>
-                <TextInput value={eBase} onChangeText={setEBase} keyboardType="numeric" editable={!readOnly} placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={eBase} onChangeText={(t) => setEBase(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" editable={!readOnly} placeholder="0" placeholderTextColor={colors.muted} style={input} />
 
                 <LineEditor title="Asignaciones" lines={eAdd} setLines={setEAdd} color={colors.success} />
                 <LineEditor title="Deducciones" lines={eDed} setLines={setEDed} color={colors.danger} />

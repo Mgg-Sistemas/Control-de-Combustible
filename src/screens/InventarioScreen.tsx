@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -210,7 +210,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Stock mínimo</Text>
-                  <TextInput value={minStock} onChangeText={setMinStock} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <TextInput value={minStock} onChangeText={(t) => setMinStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
               </View>
             </Card>
@@ -235,11 +235,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad</Text>
-                  <TextInput value={initStock} onChangeText={setInitStock} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <TextInput value={initStock} onChangeText={(t) => setInitStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario</Text>
-                  <TextInput value={initCost} onChangeText={setInitCost} keyboardType="numeric" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
               </View>
               {parseNum(initStock) > 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Valor inicial: {usd(parseNum(initStock) * parseNum(initCost))}</Text> : null}
@@ -399,7 +399,7 @@ function SalidasTab({ canWrite }: { canWrite: boolean }) {
                     })}
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad ({sel.unit || 'und'})</Text>
-                  <TextInput value={qty} onChangeText={setQty} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Motivo / destino (opcional)</Text>
                   <TextInput value={reason} onChangeText={(t) => setReason(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. MÁQUINA 010, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Valor de la salida: {usd(parseNum(qty) * (Number(sel.avg_cost) || 0))}</Text>

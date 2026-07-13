@@ -29,3 +29,21 @@ export const cmpText = (a: any, b: any): number => {
  *  Ej.: `arr.sort(byText(e => e.name))`. */
 export const byText = <T>(sel: (x: T) => any) => (a: T, b: T): number =>
   cmpText(sel(a), sel(b));
+
+/** Deja SOLO dígitos (para cédulas, teléfonos, fichas…). Quita letras y signos. */
+export const onlyDigits = (s: any): string => String(s ?? '').replace(/[^0-9]/g, '');
+
+/** Deja SOLO un número decimal válido (para dinero, horas, litros…): dígitos y
+ *  un único separador decimal. Acepta coma o punto (se conserva el que escriba
+ *  el usuario) y descarta letras y cualquier otro carácter. */
+export const onlyDecimal = (s: any): string => {
+  let t = String(s ?? '').replace(/[^0-9.,]/g, ''); // solo dígitos y separadores
+  const sep = t.indexOf('.') >= 0 && (t.indexOf(',') < 0 || t.indexOf('.') < t.indexOf(',')) ? '.' : ',';
+  // Conserva el primer separador; elimina los demás (incluye el otro tipo).
+  let seen = false;
+  t = t.replace(/[.,]/g, (c) => {
+    if (c === sep && !seen) { seen = true; return sep; }
+    return '';
+  });
+  return t;
+};

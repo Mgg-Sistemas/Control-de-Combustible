@@ -9,6 +9,7 @@ import { upsertMachineRound } from '../lib/machineRounds';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { captureLocation, warmLocation } from '../lib/location';
 import { formatUTM } from '../lib/utm';
+import { onlyDecimal } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -447,7 +448,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
             </View>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Horómetro inicial</Text>
-          <TextInput value={hIni} onChangeText={setHIni} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={hIni} onChangeText={(t) => setHIni(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {machine.last_horometro != null ? (
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Última lectura registrada: {machine.last_horometro}. (Se arrastra del cierre anterior.)</Text>
           ) : null}
@@ -474,7 +475,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
             </Text>
           ) : null}
           <Text style={{ color: colors.muted, fontSize: 12 }}>Horómetro final</Text>
-          <TextInput value={hFin} onChangeText={setHFin} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={hFin} onChangeText={(t) => setHFin(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {(() => {
             const hiRef = asg?.horometro_inicial != null ? Number(asg.horometro_inicial) : (machine.last_horometro != null ? Number(machine.last_horometro) : 0);
             const hfN = Number((hFin || '').replace(',', '.'));
@@ -500,7 +501,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: spacing.xs }}>⛽ Ingreso de combustible</Text>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Litros</Text>
-          <TextInput value={fLiters} onChangeText={setFLiters} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={fLiters} onChangeText={(t) => setFLiters(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
           {machine.daily_consumption_l != null && Number(machine.daily_consumption_l) > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Tope: {(Number(machine.daily_consumption_l) * 2).toLocaleString()} L (2× consumo diario).</Text>
           ) : null}
@@ -546,7 +547,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           {material ? (
             <View style={{ marginTop: spacing.md }}>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad de {MATERIALS.find((x) => x.key === material)?.label.toLowerCase()} a cambiar</Text>
-              <TextInput value={qty} onChangeText={setQty} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
               <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
             </View>

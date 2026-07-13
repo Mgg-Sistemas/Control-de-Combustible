@@ -262,7 +262,7 @@ function NewUserForm({
           <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
             <TextInput style={styles.input} placeholder="Nombre" placeholderTextColor={colors.muted} value={firstName} onChangeText={setFirstName} autoCapitalize="words" />
             <TextInput style={styles.input} placeholder="Apellido" placeholderTextColor={colors.muted} value={lastName} onChangeText={setLastName} autoCapitalize="words" />
-            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={setCedula} keyboardType="numeric" />
+            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
@@ -412,7 +412,7 @@ function EditUserForm({
             <Text style={typography.muted}>Nombre completo</Text>
             <TextInput style={styles.input} placeholder="Nombre y apellido" placeholderTextColor={colors.muted} value={fullName} onChangeText={setFullName} autoCapitalize="words" />
             <Text style={typography.muted}>Cédula</Text>
-            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={setCedula} keyboardType="numeric" />
+            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
             <Text style={typography.muted}>Nueva contraseña (opcional)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" />

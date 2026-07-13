@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
-import { norm } from '../lib/text';
+import { norm, onlyDecimal, onlyDigits } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard } from '../types/database';
@@ -1144,10 +1144,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                           <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
-                            onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: t }))}
+                            onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
-                            keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                            keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                             style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12 }}
                           />
                         </View>
@@ -1155,10 +1155,10 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                           <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
-                            onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: t }))}
+                            onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
-                            keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                            keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                             style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12 }}
                           />
                         </View>
@@ -1242,8 +1242,9 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por jornada de 12 h ($)</Text>
                   <TextInput
                     value={priceInput}
-                    onChangeText={setPriceInput}
+                    onChangeText={(t) => setPriceInput(onlyDecimal(t))}
                     keyboardType="numeric"
+                    inputMode="decimal"
                     placeholder="0.00"
                     placeholderTextColor={colors.muted}
                     autoFocus
@@ -1309,7 +1310,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} autoCapitalize="words"
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
             <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula</Text>
-            <TextInput value={opCedula} onChangeText={setOpCedula} placeholder="C.I" placeholderTextColor={colors.muted} keyboardType="numeric"
+            <TextInput value={opCedula} onChangeText={(t) => setOpCedula(onlyDigits(t))} placeholder="C.I" placeholderTextColor={colors.muted} keyboardType="numeric" inputMode="numeric"
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4 }} />
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
