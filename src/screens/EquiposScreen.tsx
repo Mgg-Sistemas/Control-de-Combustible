@@ -635,11 +635,15 @@ export default function EquiposScreen({ navigation }: any) {
       m.set(k, g);
     });
     const groups = Array.from(m.values());
+    // Alfabético por nombre de máquina (antes por identificador), acentos/mayúsculas indiferentes.
     groups.forEach((g) =>
-      g.items.sort((a, b) => (a.identifier || 'zzz').localeCompare(b.identifier || 'zzz') || a.code.localeCompare(b.code))
+      g.items.sort((a, b) =>
+        a.code.localeCompare(b.code, 'es', { sensitivity: 'base' }) ||
+        String(a.serial ?? '').localeCompare(String(b.serial ?? ''), 'es', { sensitivity: 'base' })
+      )
     );
     return groups.sort((a, b) =>
-      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name)
+      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })
     );
   };
   const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, reportDim, machinery.data, companyName]);

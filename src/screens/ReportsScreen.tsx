@@ -570,7 +570,11 @@ export default function ReportsScreen({ route }: any) {
     const list = Array.from(groups.values()).sort((x, y) =>
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : x.company.localeCompare(y.company)
     );
-    list.forEach((g) => g.machines.sort((x, y) => x.tipo.localeCompare(y.tipo) || x.machine.localeCompare(y.machine)));
+    // Alfabético por NOMBRE de máquina (acentos/mayúsculas indiferentes), luego serial.
+    list.forEach((g) => g.machines.sort((x, y) =>
+      x.machine.localeCompare(y.machine, 'es', { sensitivity: 'base' }) ||
+      String(x.serial ?? '').localeCompare(String(y.serial ?? ''), 'es', { sensitivity: 'base' })
+    ));
 
     // Estado de la flota: total de activos, en producción (trabajaron), en tránsito
     // (activas que aún no trabajaron = pendientes de incorporación), inactivas y
