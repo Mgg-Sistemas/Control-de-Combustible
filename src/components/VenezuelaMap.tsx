@@ -239,9 +239,16 @@ function buildHtml(pins: MapPin[]): string {
     { n:'Este · Sub 4: El Palmar', color:'#EAB308',
       a:{ lbl:'Límite Oeste', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 },
       b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
-    { n:'Este · Sub 5: Caraballeda', color:'#EC4899',
-      a:{ lbl:'Límite Oeste', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 },
-      b:{ lbl:'Límite Nor-Este', name:'Av. Principal de Caribe', lat:10.614999, lng:-66.842238 } },
+    // Caraballeda / Los Corales: polígono trazado a mano (vértices aproximados; ajústalos al gusto).
+    { n:'Caraballeda', color:'#EC4899',
+      pts:[
+        [10.61470, -66.85180], // NO · costa (oeste de Los Corales, boca Quebrada San Juan)
+        [10.61680, -66.84330], // N · Punta El Caribe
+        [10.61760, -66.83560], // NE · hacia Caribe / L-2
+        [10.60420, -66.83660], // SE · Av. Circunvalación (Caraballeda sur)
+        [10.60250, -66.84760], // S · Los Corales sur
+        [10.60650, -66.85320], // SO · regreso a la costa
+      ] },
     { n:'Este · Sub 6: Caribe', color:'#8B5CF6',
       a:{ lbl:'Límite Sur', name:'Av. 10 A', lat:10.613268, lng:-66.857451 },
       b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
@@ -249,9 +256,17 @@ function buildHtml(pins: MapPin[]): string {
       a:{ lbl:'Límite Nor-Oeste', name:'Punta Caraballeda', lat:10.619689, lng:-66.846207 },
       b:{ lbl:'Límite Este', name:'Punta Tanaguarena', lat:10.611003, lng:-66.818581 } },
   ];
-  var sectorLayers = {}; // índice -> layerGroup (polígono + 2 marcadores de límite)
+  var sectorLayers = {}; // índice -> layerGroup (polígono + marcadores)
   var zonesOn = {};      // índice -> visible?
   SUBSECTORS.forEach(function(s, i){
+    // Zona con VÉRTICES propios (polígono real trazado a mano) …
+    if (s.pts && s.pts.length >= 3){
+      var pg = L.polygon(s.pts, { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
+      pg.bindTooltip(s.n, { permanent: true, direction: 'center', className: 'zoneLbl' });
+      sectorLayers[i] = L.layerGroup([pg]);
+      return;
+    }
+    // … o zona definida por 2 límites (banda hacia el sur para darle cuerpo).
     var D = 0.007; // ancho de la banda hacia el sur (tierra adentro) para dar cuerpo visible a la zona
     var poly = L.polygon([
       [s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]
@@ -303,7 +318,7 @@ function buildHtml(pins: MapPin[]): string {
           var anyOn = SUBSECTORS.some(function(_, i){ return zonesOn[i]; });
           SUBSECTORS.forEach(function(_, i){ setZone(i, !anyOn); });
           if (!anyOn){
-            var bb = []; SUBSECTORS.forEach(function(s){ bb.push([s.a.lat, s.a.lng]); bb.push([s.b.lat, s.b.lng]); });
+            var bb = []; SUBSECTORS.forEach(function(s){ if (s.pts){ s.pts.forEach(function(p){ bb.push(p); }); } else { bb.push([s.a.lat, s.a.lng]); bb.push([s.b.lat, s.b.lng]); } });
             map.fitBounds(bb, { padding:[50,50], maxZoom:15 });
           }
           render(); return;
