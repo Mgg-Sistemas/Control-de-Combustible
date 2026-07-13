@@ -104,7 +104,7 @@ const VIAJES_FIELDS: Field[] = [
   { key: 'precio_viaje', label: '🚚 Precio por viaje ($)', type: 'number' },
 ];
 
-export default function EquiposScreen({ navigation }: any) {
+export default function EquiposScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const [kind, setKind] = useState<Kind>('vehiculo');
 
@@ -252,10 +252,23 @@ export default function EquiposScreen({ navigation }: any) {
   // Conteo de maquinaria por estado operativo (para las tarjetas superiores).
   const activeMachines = machinery.data.filter((m) => m.operational);
   const inactiveMachines = machinery.data.filter((m) => !m.operational);
+  // "En espera": operativa pero pendiente de recepción (mismo criterio que el dashboard).
+  const esperaMachines = machinery.data.filter((m) => m.operational !== false && m.en_espera);
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
-  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive'>(null);
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive' | 'espera'>(null);
+
+  // Al llegar desde el Dashboard con ?status, abre el detalle de ese estado (maquinaria).
+  useEffect(() => {
+    const s = route?.params?.status;
+    if (!s) return;
+    setKind('maquinaria');
+    setDetailStatus(s === 'espera' ? 'espera' : s === 'inactive' ? 'inactive' : 'active');
+    navigation.setParams?.({ status: undefined }); // evita reabrir al volver
+  }, [route?.params?.status]);
+  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'inactive' ? inactiveMachines : detailStatus === 'espera' ? esperaMachines : [];
+  const detailTitle = detailStatus === 'inactive' ? '⛔ Maquinaria inactiva' : detailStatus === 'espera' ? '🕓 Maquinaria en espera' : '✅ Maquinaria activa';
 
   // Reportes de maquinaria (por empresa o general) con vista previa.
   const [reportOpen, setReportOpen] = useState(false);
@@ -1363,14 +1376,13 @@ export default function EquiposScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>
-            {detailStatus === 'active' ? '✅ Maquinaria activa' : '⛔ Maquinaria inactiva'}
-            {'  '}({(detailStatus === 'active' ? activeMachines : inactiveMachines).length})
+            {detailTitle}{'  '}({detailList.length})
           </SectionTitle>
-          {(detailStatus === 'active' ? activeMachines : inactiveMachines).length === 0 ? (
-            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : 'No hay maquinaria inactiva.'} />
+          {detailList.length === 0 ? (
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'espera' ? 'No hay maquinaria en espera.' : 'No hay maquinaria inactiva.'} />
           ) : (
             <ScrollView>
-              {(detailStatus === 'active' ? activeMachines : inactiveMachines)
+              {detailList
                 .slice()
                 .sort((a, b) => a.code.localeCompare(b.code))
                 .map((m) => (
@@ -1390,15 +1402,27 @@ export default function EquiposScreen({ navigation }: any) {
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => toggleOp(m)}
-                      disabled={busy === m.id + '-op'}
-                      style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
-                    >
-                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
-                        {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⛔ Poner No operativa' : '✅ Activar (Operativa)'}
-                      </Text>
-                    </TouchableOpacity>
+                    {detailStatus === 'espera' ? (
+                      <TouchableOpacity
+                        onPress={() => toggleEspera(m)}
+                        disabled={busy === m.id + '-esp'}
+                        style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy === m.id + '-esp' ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                          {busy === m.id + '-esp' ? 'Guardando…' : '📥 Quitar de espera (recibir)'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => toggleOp(m)}
+                        disabled={busy === m.id + '-op'}
+                        style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                          {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⛔ Poner No operativa' : '✅ Activar (Operativa)'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </Card>
                 ))}
             </ScrollView>
