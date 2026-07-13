@@ -19,6 +19,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Empleados', route: 'Empleados', desc: 'Fichas del personal (foto, cédula, cargo, contacto de emergencia) y carnet con QR', icon: '🪪', module: 'empleados' },
+  { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
   { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal por empresa y período, con recibos y reportes', icon: '🧾', module: 'nomina' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },
