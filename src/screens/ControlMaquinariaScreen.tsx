@@ -145,6 +145,14 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [busyRecibir, setBusyRecibir] = useState<string | null>(null); // id de la máquina que se está recibiendo
   const [recibirDate, setRecibirDate] = useState<Record<string, string>>({}); // fecha de entrada elegida por máquina al recibir
 
+  // ── Fletes / viajes por equipo (registrados aquí, CON FECHA). Se cargan los del bloque visible.
+  const [fletesByMachine, setFletesByMachine] = useState<Record<string, any[]>>({}); // machineId → fletes del bloque
+  const [fleteFor, setFleteFor] = useState<Machinery | null>(null); // máquina cuyo flete se registra
+  const [fleteDate, setFleteDate] = useState(todayISO());
+  const [fleteViajes, setFleteViajes] = useState('');
+  const [fletePrecio, setFletePrecio] = useState('');
+  const [fleteBusy, setFleteBusy] = useState(false);
+
   // Operador por turno: máquina + fecha + turno (día/noche) que se está editando.
   const [opFor, setOpFor] = useState<{ m: Machinery; d: string; which: 'day' | 'night' } | null>(null);
   const [opFirst, setOpFirst] = useState('');
@@ -186,11 +194,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const ws = weekStartISO(date);
     const days = Array.from({ length: dayCount }, (_, i) => shiftDay(ws, i));
     try {
-      const [{ data: m }, { data: r }, { data: c }] = await Promise.all([
+      const [{ data: m }, { data: r }, { data: c }, { data: fl }] = await Promise.all([
         supabase.from('machinery').select('*').order('code', { ascending: true }),
         supabase.from('machine_rounds').select('*').in('round_date', days),
         supabase.from('companies').select('id, name'),
+        supabase.from('fletes').select('*').in('flete_date', days),
       ]);
+      // Fletes del bloque visible, agrupados por máquina (para mostrarlos en su tarjeta).
+      const fmap: Record<string, any[]> = {};
+      (fl ?? []).forEach((row: any) => { (fmap[row.machinery_id] ??= []).push(row); });
+      setFletesByMachine(fmap);
       setMachines((m ?? []) as Machinery[]);
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
@@ -216,7 +229,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 300); };
     const ch = supabase.channel('rt-control-maquinaria');
-    ['machine_rounds', 'machinery', 'machine_guards'].forEach((t) =>
+    ['machine_rounds', 'machinery', 'machine_guards', 'fletes'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
@@ -720,6 +733,46 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setNotice(`🕓 ${m.code} puesta en espera (por recepción).`);
   };
 
+  // ── Flete / viaje: registrar cuántos viajes hizo el equipo y a qué precio, con su fecha.
+  //    El monto (viajes × precio) se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha.
+  const openFlete = (m: Machinery) => {
+    setFleteFor(m);
+    setFleteDate(weekEnd); // por defecto el último día del bloque en pantalla
+    setFleteViajes('');
+    setFletePrecio('');
+  };
+
+  const saveFlete = async () => {
+    if (!fleteFor) return;
+    const viajes = Math.max(0, Math.round(Number(fleteViajes.replace(',', '.')) || 0));
+    const precio = Math.max(0, Number(fletePrecio.replace(',', '.')) || 0);
+    if (viajes <= 0 || precio <= 0) { Alert.alert('Aviso', 'Indica el nº de viajes y el precio por viaje.'); return; }
+    if (!fleteFor.company_id) { Alert.alert('Aviso', 'La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
+    setFleteBusy(true);
+    const payload = { company_id: fleteFor.company_id, machinery_id: fleteFor.id, code: fleteFor.code, flete_date: fleteDate, viajes, precio };
+    const { data, error } = await supabase.from('fletes').insert(payload).select().single();
+    setFleteBusy(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    // Solo se agrega a la tarjeta si su fecha cae dentro del bloque visible.
+    if (weekDays.includes(fleteDate)) {
+      setFletesByMachine((p) => ({ ...p, [fleteFor.id]: [...(p[fleteFor.id] ?? []), data] }));
+    }
+    setFleteViajes(''); setFletePrecio('');
+    setNotice(`✅ Flete registrado en ${fleteFor.code}: ${viajes} viaje(s) × $${precio.toLocaleString()} = $${(viajes * precio).toLocaleString()} · ${fmtDMY(fleteDate)}`);
+  };
+
+  const deleteFlete = async (f: any) => {
+    const ok = await confirm({
+      title: 'Eliminar flete',
+      message: `¿Eliminar ${f.viajes} viaje(s) × $${Number(f.precio).toLocaleString()} del ${fmtDMY(f.flete_date)}?`,
+      confirmText: 'Eliminar', cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('fletes').delete().eq('id', f.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
+  };
+
   const openPrice = (m: Machinery) => {
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
@@ -1043,6 +1096,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
           }, 0);
           const isOpen = cardOpen[m.id] ?? false;
+          const machFletes = fletesByMachine[m.id] ?? [];
+          const fletesUSD = machFletes.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
           return (
             <Card key={m.id}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
@@ -1123,6 +1178,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
               {/* Guardia / militar encargado de esta máquina (historial acumulable). */}
               <GuardButton machine={{ id: m.id, code: m.code }} current={guards[m.id] ?? null} onChanged={() => refreshGuard(m.id)} userId={session?.user?.id} />
+
+              {/* Flete / viaje del equipo: confirma cuántos viajes hizo y a qué precio (con fecha). */}
+              <TouchableOpacity
+                onPress={() => openFlete(m)}
+                style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                  ➕ Flete / viaje{machFletes.length ? ` · ${machFletes.length} en el bloque = $${fletesUSD.toLocaleString()}` : ''}
+                </Text>
+              </TouchableOpacity>
 
               {/* Manda la máquina a "En espera por recepción": sale del control activo. */}
               <TouchableOpacity
@@ -1254,6 +1319,90 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             </ScrollView>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Modal: registrar FLETE / VIAJE del equipo (fecha · nº viajes · precio) */}
+      <Modal visible={!!fleteFor} transparent animationType="fade" onRequestClose={() => setFleteFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '88%' }}>
+            {fleteFor ? (() => {
+              const viajes = Math.max(0, Math.round(Number(fleteViajes.replace(',', '.')) || 0));
+              const precio = Math.max(0, Number(fletePrecio.replace(',', '.')) || 0);
+              const total = viajes * precio;
+              const list = (fletesByMachine[fleteFor.id] ?? []).slice().sort((a, b) => String(a.flete_date).localeCompare(String(b.flete_date)));
+              const listUSD = list.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
+              return (
+                <ScrollView>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>➕ Flete / viaje · {fleteFor.code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
+                    🏢 {fleteFor.company_id ? (companies[fleteFor.company_id] ?? 'Empresa') : 'Sin empresa'} · el monto se suma al TOTAL POR PAGAR de la empresa en la semana de la fecha del flete.
+                  </Text>
+
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📅 Fecha del flete</Text>
+                  <DateField value={fleteDate} onChange={(v) => v && setFleteDate(v)} />
+
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Nº de viajes</Text>
+                      <TextInput
+                        value={fleteViajes}
+                        onChangeText={(t) => setFleteViajes(onlyDigits(t))}
+                        keyboardType="numeric" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted}
+                        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por viaje ($)</Text>
+                      <TextInput
+                        value={fletePrecio}
+                        onChangeText={(t) => setFletePrecio(onlyDecimal(t))}
+                        keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted}
+                        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Total del flete</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={saveFlete}
+                    disabled={fleteBusy}
+                    style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: fleteBusy ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{fleteBusy ? 'Guardando…' : '💾 Registrar flete'}</Text>
+                  </TouchableOpacity>
+
+                  {/* Fletes ya registrados de este equipo dentro del bloque visible. */}
+                  {list.length > 0 ? (
+                    <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                        Fletes del bloque ({list.length}) · ${listUSD.toLocaleString()}
+                      </Text>
+                      {list.map((f) => (
+                        <View key={f.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{fmtDMY(f.flete_date)} · {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()}</Text>
+                            <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>= ${(Number(f.viajes) * Number(f.precio)).toLocaleString()}</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => deleteFlete(f)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑 Eliminar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setFleteFor(null)}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Listo</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              );
+            })() : null}
+          </View>
+        </View>
       </Modal>
 
       {/* Modal: precio por hora trabajada → total */}
