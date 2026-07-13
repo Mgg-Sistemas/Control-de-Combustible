@@ -549,22 +549,22 @@ export default function ReportsScreen({ route }: any) {
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
       groups.set(a.company, g);
     });
-    // Viajes por máquina (solo empresas que los registran, p. ej. Golden Touch):
-    // se suman como un extra al subtotal del informe por jornada.
-    const machViajes = await selectAllRows(
-      'machinery',
-      'code, clasificacion, viajes, precio_viaje, company:company_id(name)',
-      (q) => q.gt('viajes', 0)
+    // Fletes/viajes CON FECHA: solo los del rango del informe (así aparecen únicamente
+    // en la semana en que ocurrieron). Se suman como extra al subtotal por empresa.
+    const fletesRows = await selectAllRows(
+      'fletes',
+      'code, viajes, precio, flete_date, company:company_id(name)',
+      (q) => q.gte('flete_date', fromArg).lte('flete_date', toArg)
     );
-    (machViajes ?? []).forEach((m: any) => {
-      const co = m.company?.name ?? 'Sin empresa';
+    (fletesRows ?? []).forEach((f: any) => {
+      const co = f.company?.name ?? 'Sin empresa';
       if (cos && !cos.includes(co)) return;
       const g = groups.get(co);
       if (!g) return; // solo si la empresa aparece en el informe
-      const v = Number(m.viajes) || 0;
-      const precio = Number(m.precio_viaje) || 0;
+      const v = Number(f.viajes) || 0;
+      const precio = Number(f.precio) || 0;
       if (v <= 0) return;
-      g.viajes.push({ code: m.code, clasificacion: (m.clasificacion && String(m.clasificacion).trim()) || '—', viajes: v, precio });
+      g.viajes.push({ code: f.code || '—', clasificacion: '—', viajes: v, precio });
       g.viajesUSD += v * precio;
     });
     const list = Array.from(groups.values()).sort((x, y) =>
