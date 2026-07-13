@@ -502,11 +502,14 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
-    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number }> };
+    // Cada fecha guarda el precio EFECTIVO de esa ronda: si la ronda está cerrada trae
+    // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
+    // Así un corte cerrado se reporta con SUS precios aunque después cambien.
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -521,11 +524,13 @@ export default function ReportsScreen({ route }: any) {
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
         byDate: new Map(),
       };
-      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0 };
+      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0, price: null };
       cur.d = Math.max(cur.d, Number(r.day_hours) || 0);
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
+      // Precio efectivo de la ronda: congelado si la ronda está cerrada; si no, el actual.
+      cur.price = r.frozen_price != null ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
@@ -535,15 +540,18 @@ export default function ReportsScreen({ route }: any) {
     const groups = new Map<string, RoundCompany>();
     accs.forEach((a) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
-      let dayH = 0, nightH = 0, totalH = 0, days = 0;
-      a.byDate.forEach(({ d, n, s, o }) => {
+      let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
+      a.byDate.forEach(({ d, n, s, o, price }) => {
         const w = workedFromShifts(d, n, s, o);
         dayH += d; nightH += n; totalH += w;
         if (w > 0) days += 1; // solo jornadas con horas trabajadas > 0
+        // Monto por ronda con SU precio efectivo (congelado o actual); así los cortes
+        // cerrados suman con sus precios aunque el precio de la máquina haya cambiado.
+        const p = price != null ? price : a.price;
+        if (p != null) { totalUSD += (w / 12) * p; if (w > 0) repPrice = p; }
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
-      const totalUSD = a.price != null ? (totalH / 12) * a.price : 0;
-      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: a.price, totalUSD };
+      const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD };
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0 };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;

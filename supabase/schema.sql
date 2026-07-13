@@ -669,6 +669,10 @@ alter table public.machinery add column if not exists exit_at timestamptz;
 -- cerrados (closed=true): dejan de verse en el control activo pero siguen contando
 -- para pagos y reportes. Cambiar de fecha NO borra nada.
 alter table public.machine_rounds add column if not exists closed boolean not null default false;
+-- Precio por jornada CONGELADO al cerrar el corte. Los reportes usan este precio para las
+-- rondas cerradas (así un corte cerrado suma con SUS precios aunque después cambien); las
+-- rondas abiertas usan el precio actual de la máquina.
+alter table public.machine_rounds add column if not exists frozen_price numeric;
 alter table public.machine_day_operators add column if not exists closed boolean not null default false;
 
 -- Control por TURNOS (en vez de 4 rondas): turno de día y de noche, cada uno medio
