@@ -19,6 +19,7 @@ import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MargenGananciaScreen from '../screens/MargenGananciaScreen';
 import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScreen';
 import OperadoresScreen from '../screens/OperadoresScreen';
+import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
@@ -132,6 +133,7 @@ function MoreStack() {
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
+      <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );

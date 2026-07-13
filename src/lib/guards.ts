@@ -11,6 +11,22 @@ export async function listGuards(machineryId: string): Promise<MachineGuard[]> {
   return (data ?? []) as MachineGuard[];
 }
 
+/** Nombres de supervisores ya usados (para autocompletar/lista desplegable). */
+export async function listGuardNames(): Promise<string[]> {
+  const { data } = await supabase
+    .from('machine_guards')
+    .select('guard_name')
+    .order('assigned_at', { ascending: false })
+    .limit(500);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  (data ?? []).forEach((g: any) => {
+    const n = String(g.guard_name ?? '').trim();
+    if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); out.push(n); }
+  });
+  return out.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
 /** Guardia ACTUAL (activo) de cada máquina indicada. Devuelve un mapa id→guardia. */
 export async function fetchActiveGuards(machineIds: string[]): Promise<Record<string, MachineGuard>> {
   const map: Record<string, MachineGuard> = {};

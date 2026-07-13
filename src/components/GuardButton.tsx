@@ -3,7 +3,10 @@ import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, Alert } fro
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { MachineGuard } from '../types/database';
-import { assignGuard, clearGuard, listGuards } from '../lib/guards';
+import { assignGuard, clearGuard, listGuards, listGuardNames } from '../lib/guards';
+
+// Tipo de supervisor: se guarda en la columna `rank` del registro de guardia.
+const TIPOS = ['Supervisor Empresa', 'Supervisor Militar'] as const;
 
 function fmtDateTime(iso: string | null): string {
   if (!iso) return '—';
@@ -34,21 +37,25 @@ export function GuardButton({
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [rank, setRank] = useState('');
+  const [rank, setRank] = useState<string>(TIPOS[0]);
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<MachineGuard[]>([]);
+  const [names, setNames] = useState<string[]>([]);
+  const [showSug, setShowSug] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const openModal = async () => {
     setName('');
-    setRank('');
+    setRank(TIPOS[0]);
     setNote('');
+    setShowSug(false);
     setOpen(true);
     setHistory(await listGuards(machine.id));
+    setNames(await listGuardNames());
   };
 
   const save = async () => {
-    if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del militar/guardia.'); return; }
+    if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del supervisor.'); return; }
     setSaving(true);
     try {
       await assignGuard(machine.id, { guard_name: name, rank, note }, userId);
@@ -62,7 +69,7 @@ export function GuardButton({
   };
 
   const retirar = () => {
-    Alert.alert('Retirar guardia', `¿Quitar el guardia actual de ${machine.code}? Quedará en el historial.`, [
+    Alert.alert('Retirar supervisor', `¿Quitar el supervisor actual de ${machine.code}? Quedará en el historial.`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Retirar',
@@ -85,8 +92,8 @@ export function GuardButton({
         <Text style={{ fontSize: 14 }}>🪖</Text>
         <Text style={{ color: current ? colors.text : colors.warning, fontSize: 12, fontWeight: '700', flex: 1 }}>
           {current
-            ? `Guardia: ${current.rank ? `${current.rank} ` : ''}${current.guard_name}`
-            : 'Sin guardia asignado · toca para asignar'}
+            ? `${current.rank ? `${current.rank}: ` : 'Supervisor: '}${current.guard_name}`
+            : 'Sin supervisor asignado · toca para asignar'}
         </Text>
         <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>✎</Text>
       </TouchableOpacity>
@@ -95,7 +102,7 @@ export function GuardButton({
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>🪖 Guardia / militar encargado</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>🪖 Supervisor encargado</Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{machine.code}</Text>
 
               {current ? (
@@ -107,18 +114,43 @@ export function GuardButton({
               ) : null}
 
               <Text style={{ color: colors.text, fontWeight: '700', marginBottom: spacing.xs }}>
-                {current ? 'Cambiar de militar' : 'Asignar militar'}
+                {current ? 'Cambiar supervisor' : 'Asignar supervisor'}
               </Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre del militar/guardia</Text>
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Tipo de supervisor</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                {TIPOS.map((t) => {
+                  const on = rank === t;
+                  return (
+                    <TouchableOpacity
+                      key={t} onPress={() => setRank(t)}
+                      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                    >
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nombre del supervisor</Text>
               <TextInput
-                value={name} onChangeText={setName} placeholder="Nombre y apellido" placeholderTextColor={colors.muted}
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
+                value={name}
+                onChangeText={(v) => { setName(v); setShowSug(true); }}
+                onFocus={() => setShowSug(true)}
+                placeholder="Nombre y apellido" placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: names.length && showSug ? 0 : spacing.sm }}
               />
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Grado / rango (opcional)</Text>
-              <TextInput
-                value={rank} onChangeText={setRank} placeholder="Sgto., Cabo, Teniente…" placeholderTextColor={colors.muted}
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
-              />
+              {showSug && names.filter((n) => !name.trim() || n.toLowerCase().includes(name.trim().toLowerCase())).length > 0 ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.sm, borderBottomRightRadius: radius.sm, marginBottom: spacing.sm, maxHeight: 140 }}>
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {names.filter((n) => !name.trim() || n.toLowerCase().includes(name.trim().toLowerCase())).slice(0, 8).map((n) => (
+                      <TouchableOpacity key={n} onPress={() => { setName(n); setShowSug(false); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontSize: 13 }}>👤 {n}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nota (opcional)</Text>
               <TextInput
                 value={note} onChangeText={setNote} placeholder="Observación" placeholderTextColor={colors.muted}
@@ -126,17 +158,17 @@ export function GuardButton({
               />
 
               <TouchableOpacity onPress={save} disabled={saving} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.6 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : current ? '🔁 Cambiar guardia' : '✅ Asignar guardia'}</Text>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : current ? '🔁 Cambiar supervisor' : '✅ Asignar supervisor'}</Text>
               </TouchableOpacity>
               {current ? (
                 <TouchableOpacity onPress={retirar} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.sm, borderWidth: 1, borderColor: colors.danger }}>
-                  <Text style={{ color: colors.danger, fontWeight: '700' }}>Retirar guardia (sin reemplazo)</Text>
+                  <Text style={{ color: colors.danger, fontWeight: '700' }}>Retirar supervisor (sin reemplazo)</Text>
                 </TouchableOpacity>
               ) : null}
 
               {history.length > 0 ? (
                 <>
-                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.lg, marginBottom: spacing.xs }}>Historial de guardias</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.lg, marginBottom: spacing.xs }}>Historial de supervisores</Text>
                   {history.map((g) => (
                     <View key={g.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
