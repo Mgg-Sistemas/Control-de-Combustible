@@ -117,7 +117,7 @@ export default function MachineryScreen({ navigation }: any) {
             </View>
 
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-              <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
+              <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 ACTUALIZAR UBICACIÓN'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
               <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
               <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
             </View>

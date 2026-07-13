@@ -395,7 +395,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           </TouchableOpacity>
 
           {big('#D22B2B', '⛽', 'COMBUSTIBLE', () => { setNotice(null); setView('fuel'); })}
-          {big('#EA7317', '🗺️', 'MAPA', () => { setNotice(null); marcarUbicacion(); })}
+          {big('#EA7317', '📍', 'ACTUALIZAR UBICACIÓN', () => { setNotice(null); marcarUbicacion(); })}
           {big('#2563EB', '🛠️', 'AVERÍA DE MAQUINARIA', () => { setNotice(null); setView('maint'); })}
           {locating ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, justifyContent: 'center' }}>
