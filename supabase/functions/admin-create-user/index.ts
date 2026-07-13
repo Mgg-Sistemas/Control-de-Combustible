@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
     }
 
     // 2) Datos de entrada
-    const { first_name, last_name, password, role } = await req.json();
+    const { first_name, last_name, password, role, cedula } = await req.json();
     if (!first_name?.trim() || !last_name?.trim() || !password) {
       return json({ error: 'Nombre, apellido y contraseña son obligatorios' }, 400);
     }
@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
     // 4) Asignar rol y nombre en el perfil
     await admin
       .from('profiles')
-      .update({ role: finalRole, full_name: fullName })
+      .update({ role: finalRole, full_name: fullName, cedula: (cedula ?? '').toString().trim() || null })
       .eq('id', created.user.id);
 
     return json({ ok: true, id: created.user.id, email, role: finalRole });

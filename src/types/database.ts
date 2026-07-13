@@ -12,6 +12,7 @@ export interface Profile {
   full_name: string | null;
   role: UserRole;
   active: boolean;
+  cedula: string | null; // cédula del usuario (única entre usuarios)
   created_at: string;
 }
 

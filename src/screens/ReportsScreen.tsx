@@ -432,7 +432,8 @@ export default function ReportsScreen({ route }: any) {
       c.items.push(it);
       m.set(it.company, c);
     });
-    return Array.from(m.values()).sort((a, b) => b.count - a.count);
+    // Orden ALFABÉTICO por empresa (así se ve en el sistema y en los reportes).
+    return Array.from(m.values()).sort((a, b) => a.company.localeCompare(b.company, 'es', { sensitivity: 'base' }));
   }, [fleetItems]);
   // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
   const fleetByType = useMemo(() => {
