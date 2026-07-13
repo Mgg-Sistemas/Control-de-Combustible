@@ -107,6 +107,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Ese monto se **suma al TOTAL POR PAGAR** de la empresa **en la semana de esa fecha** (sale en el reporte).
 - Puedes registrar **varios** fletes y borrar los que no van con **🗑**.
 
+**Precio congelado al cerrar:**
+- Al **cerrar un corte**, el sistema **congela el precio** de cada máquina de ese corte.
+- Si en el siguiente corte una máquina **sube o baja de precio**, el corte cerrado **mantiene su total original** (en el reporte y en el Histórico). Los cortes **abiertos** usan el precio actual.
+
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
 - El sistema guarda todo en el **Histórico** y deja la pantalla limpia para la siguiente
