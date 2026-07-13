@@ -124,6 +124,8 @@ const SECTIONS: Sec[] = [
       { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios.' },
       { t: 'bullets', items: [
         'El Tabulador de precios es la lista maestra de precios por tipo de máquina. Se puede modificar y sincronizar.',
+        'Tiene dos modos: General (aplica a todas las empresas) y por empresa. Arriba eliges "💲 General" o la empresa. Si a una empresa le pones un precio propio, ese manda; si lo dejas vacío, usa el General.',
+        'Al sincronizar, cada máquina toma el precio de SU empresa (o el General si no tiene propio).',
         'Los cierres viejos no cambian; los nuevos usan el precio del tabulador.',
       ] },
     ],
