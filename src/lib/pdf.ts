@@ -22,7 +22,11 @@ const PDF_ACCENT = '#1E3A5F';
  *  CADA página; el `<title>` vacío evita el título del navegador. */
 export const PDF_BASE_CSS = `
   @page{margin:2cm}
-  *{box-sizing:border-box}
+  /* Forzar que se IMPRIMAN los fondos de color (encabezados azules de tablas, etc.).
+     Sin esto, al imprimir/guardar como PDF el navegador quita los fondos y el
+     encabezado azul se ve gris/blanco. */
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff}
   /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
   @media screen{ body{ padding:28px 34px } }
