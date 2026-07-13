@@ -67,9 +67,10 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
 
 /**
  * Genera/descarga un PDF a partir de HTML.
- * - Web: renderiza el HTML (con logo y estilos) en un iframe oculto y abre el
- *   diálogo de impresión. IMPORTANTE: Print.printAsync en web ignora el html y
- *   solo imprime la página actual, por eso usamos el iframe.
+ * - Web: abre una VENTANA DEL SISTEMA (modal) con la vista previa del documento
+ *   y una barra con "🖨️ Imprimir" y "Cancelar". Solo al tocar Imprimir se manda
+ *   a la impresora. IMPORTANTE: Print.printAsync en web ignora el html y solo
+ *   imprime la página actual, por eso el documento se renderiza en un iframe.
  * - Nativo: genera el archivo y abre la hoja para compartir/guardar.
  */
 export async function exportPdf(html: string, fileName?: string): Promise<void> {
@@ -77,7 +78,7 @@ export async function exportPdf(html: string, fileName?: string): Promise<void> 
   // del título del documento que se imprime; por eso lo pasamos al iframe.
   const name = sanitizeFileName(fileName);
   if (Platform.OS === 'web') {
-    await printHtmlWeb(html, name);
+    await previewHtmlWeb(html, name);
     return;
   }
   const { uri } = await Print.printToFileAsync({ html });
@@ -92,17 +93,77 @@ function sanitizeFileName(name?: string): string {
   return name.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
-/** Imprime un HTML propio (no la pantalla) usando un iframe oculto. */
-function printHtmlWeb(html: string, fileName?: string): Promise<void> {
+/**
+ * Ventana del sistema (web) con la VISTA PREVIA del documento y una barra con
+ * "🖨️ Imprimir" y "Cancelar". El documento se renderiza en un iframe visible
+ * (con su logo y estilos); solo al tocar Imprimir se abre el diálogo de la
+ * impresora. Reemplaza el salto directo al diálogo del navegador.
+ */
+function previewHtmlWeb(html: string, fileName?: string): Promise<void> {
   return new Promise((resolve) => {
     const d: any = (globalThis as any).document;
     if (!d || !d.body) {
       resolve();
       return;
     }
+
+    // Fondo oscuro que cubre la pantalla (la "ventana" del sistema).
+    const overlay: any = d.createElement('div');
+    overlay.setAttribute(
+      'style',
+      'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.55);' +
+        'display:flex;align-items:center;justify-content:center;padding:24px;' +
+        'font-family:Tahoma,Geneva,Verdana,sans-serif;',
+    );
+
+    // Tarjeta central (la ventana).
+    const card: any = d.createElement('div');
+    card.setAttribute(
+      'style',
+      'background:#fff;border-radius:14px;overflow:hidden;width:min(920px,96vw);' +
+        'height:min(90vh,1200px);display:flex;flex-direction:column;' +
+        'box-shadow:0 20px 60px rgba(0,0,0,.35);',
+    );
+
+    // Barra superior con título + botones Imprimir / Cancelar.
+    const bar: any = d.createElement('div');
+    bar.setAttribute(
+      'style',
+      'display:flex;align-items:center;justify-content:space-between;gap:12px;' +
+        'padding:12px 16px;background:#1E3A5F;color:#fff;flex:0 0 auto;',
+    );
+    const barTitle: any = d.createElement('div');
+    barTitle.setAttribute('style', 'font-weight:800;font-size:15px;letter-spacing:.3px;');
+    barTitle.textContent = 'Vista previa del documento';
+
+    const btns: any = d.createElement('div');
+    btns.setAttribute('style', 'display:flex;gap:10px;');
+    const btnCancel: any = d.createElement('button');
+    btnCancel.textContent = 'Cancelar';
+    btnCancel.setAttribute(
+      'style',
+      'cursor:pointer;border:1px solid rgba(255,255,255,.55);background:transparent;' +
+        'color:#fff;font-weight:700;font-size:14px;padding:9px 16px;border-radius:9px;',
+    );
+    const btnPrint: any = d.createElement('button');
+    btnPrint.textContent = '🖨️  Imprimir';
+    btnPrint.setAttribute(
+      'style',
+      'cursor:pointer;border:0;background:#fff;color:#1E3A5F;font-weight:800;' +
+        'font-size:14px;padding:9px 18px;border-radius:9px;',
+    );
+    btns.appendChild(btnCancel);
+    btns.appendChild(btnPrint);
+    bar.appendChild(barTitle);
+    bar.appendChild(btns);
+
+    // Cuerpo: el documento renderizado en un iframe.
     const iframe: any = d.createElement('iframe');
-    iframe.setAttribute('style', 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;');
-    d.body.appendChild(iframe);
+    iframe.setAttribute('style', 'flex:1 1 auto;width:100%;border:0;background:#525659;');
+    card.appendChild(bar);
+    card.appendChild(iframe);
+    overlay.appendChild(card);
+    d.body.appendChild(overlay);
 
     const cw: any = iframe.contentWindow;
     const cdoc: any = cw.document;
@@ -111,32 +172,31 @@ function printHtmlWeb(html: string, fileName?: string): Promise<void> {
     cdoc.close();
 
     // El navegador usa el título del documento como nombre de archivo sugerido
-    // al "Guardar como PDF". Lo fijamos en el iframe y (respaldo) en la página,
-    // restaurando el de la página al terminar.
-    const prevTitle = d.title;
-    if (fileName) {
-      try { cdoc.title = fileName; } catch (e) {}
-      try { d.title = fileName; } catch (e) {}
-    }
+    // al "Guardar como PDF". Lo fijamos en el iframe.
+    if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
 
-    const done = () => {
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      try { d.removeEventListener('keydown', onKey); } catch (e) {}
+      try { overlay.remove(); } catch (e) {}
+      resolve();
+    };
+    const onKey = (ev: any) => { if (ev.key === 'Escape') cleanup(); };
+
+    btnCancel.onclick = cleanup;
+    // Cerrar al tocar fuera de la tarjeta.
+    overlay.onclick = (ev: any) => { if (ev.target === overlay) cleanup(); };
+    d.addEventListener('keydown', onKey);
+
+    btnPrint.onclick = () => {
       try {
         cw.focus();
         cw.print();
       } catch (e) {
         // ignorar
       }
-      setTimeout(() => {
-        try {
-          iframe.remove();
-        } catch (e) {}
-        if (fileName) { try { d.title = prevTitle; } catch (e) {} }
-        resolve();
-      }, 1000);
     };
-
-    // Esperar a que el iframe cargue (incluye el logo en data URI).
-    if (cdoc.readyState === 'complete') setTimeout(done, 400);
-    else cw.onload = () => setTimeout(done, 400);
   });
 }
