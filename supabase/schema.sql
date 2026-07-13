@@ -485,6 +485,23 @@ create policy price_tariffs_read on public.price_tariffs for select using (true)
 drop policy if exists price_tariffs_write on public.price_tariffs;
 create policy price_tariffs_write on public.price_tariffs for all to authenticated using (true) with check (true);
 
+-- Tabulador POR EMPRESA: sobrescribe el precio general de un modelo para una
+-- empresa puntual (no todas cobran igual). Al sincronizar, cada máquina usa el
+-- precio de su empresa si existe; si no, cae al tabulador general (price_tariffs).
+create table if not exists public.company_price_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references public.companies(id) on delete cascade,
+  modelo text not null,
+  price_jornada numeric not null default 0,
+  updated_at timestamptz not null default now(),
+  unique(company_id, modelo)
+);
+alter table public.company_price_tariffs enable row level security;
+drop policy if exists cpt_read on public.company_price_tariffs;
+create policy cpt_read on public.company_price_tariffs for select using (true);
+drop policy if exists cpt_write on public.company_price_tariffs;
+create policy cpt_write on public.company_price_tariffs for all to authenticated using (true) with check (true);
+
 alter table public.machinery add column if not exists plate       text;
 alter table public.machinery add column if not exists serial      text;
 alter table public.machinery add column if not exists photo_url   text;

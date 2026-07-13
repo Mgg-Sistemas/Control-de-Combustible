@@ -115,6 +115,11 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los precios.
 - El **Tabulador de precios** es la lista maestra de precios por tipo de máquina.
   Puedes **modificarlo** y **sincronizar** los precios actuales.
+- **General y por empresa:** arriba del tabulador eliges **💲 General** (aplica a todas las
+  empresas) o una **empresa** para ponerle su **precio propio**. Si a una empresa le pones un
+  precio en un modelo, ese manda para sus máquinas; si lo **dejas vacío**, usa el **General**.
+- Al **sincronizar**, cada máquina toma el precio de **su empresa** (o el General si no tiene
+  uno propio) y se aplica a la **empresa correspondiente**.
 - Los **cierres viejos no cambian** (quedan con el precio que tenían); los **nuevos** usan
   el precio del tabulador.
 

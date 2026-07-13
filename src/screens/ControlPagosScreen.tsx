@@ -172,9 +172,14 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Tabulador de precios (editable) + sincronización
   const [tarOpen, setTarOpen] = useState(false);
   const [tariffs, setTariffs] = useState<PriceTariff[]>([]);
-  const [tarEdits, setTarEdits] = useState<Record<string, string>>({}); // modelo → precio (texto)
+  const [tarEdits, setTarEdits] = useState<Record<string, string>>({}); // modelo → precio (texto) del ámbito actual
   const [tarSaving, setTarSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Ámbito del tabulador: 'general' o el id de una empresa (precio propio de esa empresa).
+  const [tarScope, setTarScope] = useState<string>('general');
+  const [tarCompanies, setTarCompanies] = useState<{ id: string; name: string }[]>([]);
+  // Overrides por empresa: companyId → (modelo → precio).
+  const [companyTar, setCompanyTar] = useState<Record<string, Record<string, number>>>({});
   // Vista previa del sync: filas emparejadas (con cuántas máquinas cambian) y sin emparejar.
   const [syncPreview, setSyncPreview] = useState<null | {
     changes: { modelo: string; price: number; machines: { id: string; label: string; from: number | null }[] }[];
@@ -338,26 +343,53 @@ export default function ControlPagosScreen({ navigation }: any) {
   };
 
   // ── Tabulador de precios ────────────────────────────────────────────────────
-  const loadTariffs = async () => {
-    const { data } = await supabase.from('price_tariffs').select('*').order('sort_order', { ascending: true });
-    const rows = (data ?? []) as PriceTariff[];
-    setTariffs(rows);
+  // Precios del ámbito actual como texto: en 'general' el precio general de cada
+  // modelo; en una empresa, su override (vacío = usa el general, que va de placeholder).
+  const editsForScope = (scope: string, rows: PriceTariff[], overrides: Record<string, Record<string, number>>): Record<string, string> => {
     const edits: Record<string, string> = {};
-    rows.forEach((t) => (edits[t.modelo] = String(Number(t.price_jornada))));
-    setTarEdits(edits);
+    if (scope === 'general') {
+      rows.forEach((t) => (edits[t.modelo] = String(Number(t.price_jornada))));
+    } else {
+      const ov = overrides[scope] ?? {};
+      rows.forEach((t) => (edits[t.modelo] = ov[t.modelo] != null ? String(Number(ov[t.modelo])) : ''));
+    }
+    return edits;
+  };
+
+  const loadTariffs = async (scope: string = tarScope) => {
+    const [{ data: gen }, { data: comps }, { data: cpt }] = await Promise.all([
+      supabase.from('price_tariffs').select('*').order('sort_order', { ascending: true }),
+      supabase.from('companies').select('id, name, hidden').order('name'),
+      supabase.from('company_price_tariffs').select('company_id, modelo, price_jornada'),
+    ]);
+    const rows = (gen ?? []) as PriceTariff[];
+    setTariffs(rows);
+    setTarCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
+    const overrides: Record<string, Record<string, number>> = {};
+    ((cpt ?? []) as any[]).forEach((r) => {
+      (overrides[r.company_id] = overrides[r.company_id] ?? {})[r.modelo] = Number(r.price_jornada);
+    });
+    setCompanyTar(overrides);
+    setTarEdits(editsForScope(scope, rows, overrides));
+    return { rows, overrides };
   };
 
   const openTabulador = async () => {
     setSyncPreview(null);
-    await loadTariffs();
+    setTarScope('general');
+    await loadTariffs('general');
     setTarOpen(true);
   };
 
-  // Guarda los precios editados del tabulador.
-  const saveTariffs = async () => {
-    if (!canEditTar) return;
-    setTarSaving(true);
-    try {
+  // Cambia de ámbito (General / empresa) recargando los precios de ese ámbito.
+  const switchScope = (scope: string) => {
+    setTarScope(scope);
+    setTarEdits(editsForScope(scope, tariffs, companyTar));
+  };
+
+  // Persiste los precios del ámbito actual (sin diálogo). Devuelve nº de cambios.
+  const persistCurrentScope = async (): Promise<number> => {
+    if (tarScope === 'general') {
       const changed = tariffs.filter((t) => {
         const v = Number(tarEdits[t.modelo]);
         return Number.isFinite(v) && v !== Number(t.price_jornada);
@@ -368,10 +400,39 @@ export default function ControlPagosScreen({ navigation }: any) {
           .update({ price_jornada: Number(tarEdits[t.modelo]), updated_at: new Date().toISOString() })
           .eq('id', t.id);
       }
-      await loadTariffs();
+      return changed.length;
+    }
+    // Ámbito empresa: fila vacía → borra override (usa el general); con número → upsert.
+    const ov = companyTar[tarScope] ?? {};
+    let n = 0;
+    for (const t of tariffs) {
+      const raw = (tarEdits[t.modelo] ?? '').trim();
+      const has = ov[t.modelo] != null;
+      if (raw === '') {
+        if (has) { await supabase.from('company_price_tariffs').delete().eq('company_id', tarScope).eq('modelo', t.modelo); n++; }
+        continue;
+      }
+      const v = Number(raw);
+      if (!Number.isFinite(v)) continue;
+      if (!has || v !== Number(ov[t.modelo])) {
+        await supabase.from('company_price_tariffs')
+          .upsert({ company_id: tarScope, modelo: t.modelo, price_jornada: v, updated_at: new Date().toISOString() }, { onConflict: 'company_id,modelo' });
+        n++;
+      }
+    }
+    return n;
+  };
+
+  // Guarda los precios editados del tabulador (ámbito actual).
+  const saveTariffs = async () => {
+    if (!canEditTar) return;
+    setTarSaving(true);
+    try {
+      const n = await persistCurrentScope();
+      await loadTariffs(tarScope);
       await confirm({
         title: 'Tabulador guardado',
-        message: changed.length ? `Se actualizaron ${changed.length} precio(s).` : 'No hubo cambios.',
+        message: n ? `Se actualizaron ${n} precio(s).` : 'No hubo cambios.',
         confirmText: 'Ok',
       });
     } finally {
@@ -379,39 +440,48 @@ export default function ControlPagosScreen({ navigation }: any) {
     }
   };
 
-  // Arma la vista previa del sync: empareja cada máquina activa con una fila del
-  // tabulador (por modelo) y calcula qué precios ACTUALES cambiarían.
+  // Precio de un modelo para una empresa: usa el override de la empresa si existe,
+  // si no cae al precio general del tabulador.
+  const resolvePrice = (modelo: string, companyId: string | null, gen: Map<string, number>, overrides: Record<string, Record<string, number>>): number | null => {
+    if (companyId && overrides[companyId]?.[modelo] != null) return Number(overrides[companyId][modelo]);
+    return gen.has(modelo) ? gen.get(modelo)! : null;
+  };
+
+  // Arma la vista previa del sync: empareja cada máquina activa con su precio
+  // (el de su empresa si tiene, si no el general) y calcula qué cambiaría.
   const buildSyncPreview = async () => {
-    // Guarda primero cualquier edición pendiente para sincronizar con lo mostrado.
-    const priceByModelo = new Map<string, number>();
-    tariffs.forEach((t) => {
-      const v = Number(tarEdits[t.modelo]);
-      priceByModelo.set(t.modelo, Number.isFinite(v) ? v : Number(t.price_jornada));
-    });
+    // Guarda primero las ediciones del ámbito actual y recarga los precios frescos.
+    await persistCurrentScope();
+    const { rows, overrides } = await loadTariffs(tarScope);
+    const genMap = new Map<string, number>();
+    rows.forEach((t) => genMap.set(t.modelo, Number(t.price_jornada)));
     const { data } = await supabase
       .from('machinery')
-      .select('id, code, tipo, clasificacion, serial, plate, price_per_hour, active')
+      .select('id, code, tipo, clasificacion, serial, plate, price_per_hour, active, company:company_id(id, name)')
       .eq('active', true);
     const machines = (data ?? []) as any[];
-    const byModelo = new Map<string, { modelo: string; price: number; machines: { id: string; label: string; from: number | null }[] }>();
+    const byKey = new Map<string, { modelo: string; price: number; company: string; machines: { id: string; label: string; from: number | null }[] }>();
     const unmatched: { id: string; label: string; tipo: string | null }[] = [];
     machines.forEach((m) => {
       const modelo = matchTariffModelo(m);
+      const companyId = m.company?.id ?? null;
+      const companyName = m.company?.name ?? 'Sin empresa';
       const label = `${m.code}${m.serial ? ` · ${m.serial}` : m.plate ? ` · ${m.plate}` : ''}`;
-      if (!modelo || !priceByModelo.has(modelo)) {
+      const price = modelo ? resolvePrice(modelo, companyId, genMap, overrides) : null;
+      if (!modelo || price == null) {
         unmatched.push({ id: m.id, label, tipo: m.tipo ?? null });
         return;
       }
-      const price = priceByModelo.get(modelo)!;
       const from = m.price_per_hour != null ? Number(m.price_per_hour) : null;
-      if (from === price) return; // ya está en el precio del tabulador
-      const row = byModelo.get(modelo) ?? { modelo, price, machines: [] };
-      row.machines.push({ id: m.id, label, from });
-      byModelo.set(modelo, row);
+      if (from === price) return; // ya está en el precio correcto
+      const key = `${modelo}|${price}`;
+      const row = byKey.get(key) ?? { modelo, price, company: companyName, machines: [] as { id: string; label: string; from: number | null }[] };
+      row.machines.push({ id: m.id, label: `${label} · ${companyName}`, from });
+      byKey.set(key, row);
     });
-    const changes = Array.from(byModelo.values())
+    const changes = Array.from(byKey.values())
       .filter((r) => r.machines.length > 0)
-      .sort((a, b) => a.modelo.localeCompare(b.modelo));
+      .sort((a, b) => a.modelo.localeCompare(b.modelo) || a.price - b.price);
     const totalChanges = changes.reduce((s, r) => s + r.machines.length, 0);
     setSyncPreview({ changes, unmatched, totalChanges });
   };
@@ -1310,9 +1380,28 @@ export default function ControlPagosScreen({ navigation }: any) {
           </TouchableOpacity>
           <SectionTitle>💲 Tabulador de precios</SectionTitle>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-            Precio por jornada (12 h) por clasificación y modelo. Al sincronizar se aplica a los precios
-            ACTUALES de las máquinas; los cierres anteriores quedan congelados y los nuevos cierres usan el tabulador.
+            Precio por jornada (12 h) por clasificación y modelo. El tabulador General aplica a todas las
+            empresas; cada empresa puede tener su propio precio (si lo dejas vacío, usa el General). Al
+            sincronizar, cada máquina toma el precio de su empresa; los cierres anteriores quedan congelados.
           </Text>
+
+          {!syncPreview ? (
+            // Selector de ámbito: General o una empresa (precio propio de esa empresa).
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm, flexGrow: 0 }} contentContainerStyle={{ gap: spacing.xs }}>
+              {[{ id: 'general', name: '💲 General' }, ...tarCompanies.map((c) => ({ id: c.id, name: `🏢 ${c.name}` }))].map((opt) => {
+                const on = tarScope === opt.id;
+                const nOv = opt.id !== 'general' ? Object.keys(companyTar[opt.id] ?? {}).length : 0;
+                return (
+                  <TouchableOpacity key={opt.id} onPress={() => switchScope(opt.id)}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                      {opt.name}{nOv > 0 ? ` (${nOv})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : null}
 
           {syncPreview ? (
             // ── Vista previa de la sincronización ──
@@ -1375,7 +1464,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                   >
                     <View style={{ flex: 1, paddingRight: spacing.sm }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{t.modelo}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>{t.clasificacion}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>
+                        {t.clasificacion}
+                        {tarScope !== 'general' && (tarEdits[t.modelo] ?? '').trim() === '' ? `  ·  usa General ($${money(Number(t.price_jornada))})` : ''}
+                      </Text>
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                       <Text style={{ color: colors.muted }}>$</Text>
@@ -1385,6 +1477,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                         onChangeText={(v) => setTarEdits((p) => ({ ...p, [t.modelo]: onlyDecimal(v) }))}
                         keyboardType="numeric"
                         inputMode="decimal"
+                        placeholder={tarScope !== 'general' ? String(Number(t.price_jornada)) : '0'}
+                        placeholderTextColor={colors.muted}
                         style={{ minWidth: 74, textAlign: 'right', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, color: colors.text }}
                       />
                     </View>

@@ -166,6 +166,15 @@ export interface PriceTariff {
   updated_at: string;
 }
 
+/** Precio de un modelo para una EMPRESA puntual (sobrescribe el tabulador general). */
+export interface CompanyPriceTariff {
+  id: string;
+  company_id: string;
+  modelo: string;
+  price_jornada: number;
+  updated_at: string;
+}
+
 /** Línea de asignación o deducción de un recibo de nómina. */
 export interface PayrollLine {
   label: string;
