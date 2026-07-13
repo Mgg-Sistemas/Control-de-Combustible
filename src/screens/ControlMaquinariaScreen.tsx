@@ -374,6 +374,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     }
     // Marca TODO lo pendiente como cerrado: sale del control activo pero queda en la BD.
     await supabase.from('machine_rounds').update({ closed: true }).eq('closed', false);
+    // Congela el precio de cada ronda recién cerrada (dentro del rango del cierre), para
+    // que los reportes usen ESE precio aunque después cambie el de la máquina.
+    const priceByMachine = new Map<string, number>();
+    snapshot.forEach((s) => { if (s.machineId) priceByMachine.set(s.machineId, Number(s.price) || 0); });
+    for (const [mid, price] of priceByMachine) {
+      await supabase.from('machine_rounds').update({ frozen_price: price }).eq('machinery_id', mid).gte('round_date', from).lte('round_date', to);
+    }
     setClosing(false);
     setNotice(`✅ Control ${rangeTxt} cerrado y guardado en el histórico. El control activo quedó limpio.`);
     load(true);
@@ -506,16 +513,26 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     // Resumen por RANGO de fecha (editable): incluye todas las empresas con
     // actividad en el rango, sumando también las jornadas ya cerradas.
     // Paginado: con >1000 rondas una consulta simple se truncaba (faltaban empresas/horas).
-    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', fromArg).lte('round_date', toArg));
+    const allRounds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price', (q) => q.gte('round_date', fromArg).lte('round_date', toArg));
     // Una fila por (máquina, fecha) para no duplicar si hubiera varias rondas el mismo día.
     const byMD = new Map<string, any>();
     (allRounds ?? []).forEach((b: any) => {
       byMD.set(`${b.machinery_id}|${b.round_date}`, b);
     });
+    // Precio actual de cada máquina (para las rondas NO cerradas).
+    const priceOfMachine = new Map(machines.map((m) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
     const workedByMachine = new Map<string, number>();
+    // Monto por máquina usando el precio EFECTIVO de cada ronda: congelado (frozen_price)
+    // si la ronda está cerrada; si no, el precio actual. Así un corte cerrado suma con
+    // sus precios aunque después cambien.
+    const amountByMachine = new Map<string, number>();
     byMD.forEach((b) => {
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
-      if (w > 0) workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
+      if (w > 0) {
+        workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
+        const p = b.frozen_price != null ? Number(b.frozen_price) : (priceOfMachine.get(b.machinery_id) ?? 0);
+        amountByMachine.set(b.machinery_id, (amountByMachine.get(b.machinery_id) ?? 0) + (w / 12) * p);
+      }
     });
     const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope));
     // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
@@ -530,7 +547,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     for (const m of inScope) {
       const worked = workedByMachine.get(m.id) ?? 0;
       if (worked <= 0) continue; // solo máquinas con actividad registrada
-      const amount = (worked / 12) * (m.price_per_hour ?? 0); // horas trabajadas × precio/hora
+      const amount = amountByMachine.get(m.id) ?? 0; // suma por ronda con precio efectivo (congelado o actual)
       const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
       const g = getGroup(cname);
       g.rows.push({ name: m.code, serial: m.serial ?? null, worked, amount });

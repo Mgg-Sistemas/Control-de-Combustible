@@ -331,6 +331,7 @@ export interface MachineRound {
   night_operator: string | null;    // operador del turno de noche
   night_operator_ci: string | null;
   closed: boolean;
+  frozen_price: number | null; // precio por jornada congelado al cerrar el corte (los reportes lo usan si existe)
   notes: string | null;
   recorded_by: string | null;
   horometro_inicial: number | null; // lectura del horómetro al iniciar la jornada
