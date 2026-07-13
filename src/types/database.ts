@@ -109,6 +109,8 @@ export interface PaymentDetail {
 export interface Company {
   id: string;
   name: string;
+  rif: string | null;      // RIF fiscal (se imprime en los reportes)
+  hidden: boolean;         // empresa oculta: no aparece en selectores ni reportes
   created_at: string;
 }
 

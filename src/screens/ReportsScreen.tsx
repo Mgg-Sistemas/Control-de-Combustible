@@ -411,6 +411,7 @@ export default function ReportsScreen({ route }: any) {
   const [roundsPreview, setRoundsPreview] = useState(false);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
+  const [companyRif, setCompanyRif] = useState<Record<string, string>>({}); // nombre → RIF (para imprimir en reportes)
   const [typeList, setTypeList] = useState<string[]>([]); // tipos de maquinaria para el filtro
   const [fleetTypes, setFleetTypes] = useState<string[]>([]); // tipos marcados (vacío = todos)
   // Empresas marcadas para filtrar CUALQUIER reporte (vacío = todas / general).
@@ -639,7 +640,7 @@ export default function ReportsScreen({ route }: any) {
           .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
         const viajesBlock = renderViajes(g);
-        return `<h2>🏢 ${esc(g.company)} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
+        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
           <table><thead>${head}</thead><tbody>${rows}</tbody>
           <tfoot><tr><td colspan="5" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
@@ -874,7 +875,7 @@ export default function ReportsScreen({ route }: any) {
     const companyBlocks = companies
       .map(
         (c) =>
-          `<h3 style="margin:12px 0 2px">${c.company} — ${c.count} equipo(s)</h3>` +
+          `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>` +
           `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Referencia</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .map(
               (i) =>
@@ -950,8 +951,12 @@ export default function ReportsScreen({ route }: any) {
   // "Ver reporte" en Control de maquinaria → reporte de rondas de ese día).
   // Carga la lista de empresas para el selector del reporte por jornada.
   useEffect(() => {
-    supabase.from('companies').select('name').order('name').then(({ data }) => {
-      setCompanyList((data ?? []).map((c: any) => c.name).filter(Boolean));
+    supabase.from('companies').select('name, rif, hidden').order('name').then(({ data }) => {
+      const visibles = (data ?? []).filter((c: any) => !c.hidden && c.name);
+      setCompanyList(visibles.map((c: any) => c.name));
+      const rif: Record<string, string> = {};
+      visibles.forEach((c: any) => { if (c.rif) rif[c.name] = c.rif; });
+      setCompanyRif(rif);
     });
     // Lista de CLASIFICACIONES (canónicas) para el filtro del reporte de maquinaria.
     selectAllRows('machinery', 'clasificacion').then((rows) => {
@@ -1390,7 +1395,7 @@ export default function ReportsScreen({ route }: any) {
             roundGroups.map((g) => (
               <View key={g.company} style={{ marginBottom: spacing.sm }}>
                 <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
-                  🏢 {g.company} ({g.machines.length})
+                  🏢 {g.company}{companyRif[g.company] ? ` · RIF ${companyRif[g.company]}` : ''} ({g.machines.length})
                 </Text>
                 {g.machines.map((m, i) => (
                   <Card key={i}>

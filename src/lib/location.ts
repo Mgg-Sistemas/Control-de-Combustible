@@ -107,15 +107,12 @@ export async function captureLocation(
 
   const lat = Number(pos.coords.latitude.toFixed(6));
   const lng = Number(pos.coords.longitude.toFixed(6));
-  const now = new Date().toISOString();
 
-  // Historial (ruta) en segundo plano: no bloquea la respuesta al usuario.
-  supabase.from('machinery_locations').insert({ machinery_id: machineryId, latitude: lat, longitude: lng }).then(() => {}, () => {});
-  // Últimas coordenadas conocidas (esto sí lo esperamos, es lo que se muestra).
-  const { error } = await supabase
-    .from('machinery')
-    .update({ latitude: lat, longitude: lng, location_at: now })
-    .eq('id', machineryId);
+  // RPC (SECURITY DEFINER): actualiza las coordenadas de la máquina Y guarda el
+  // punto en el historial (ruta) en una sola llamada. Así funciona también para
+  // OPERADORES (sin permiso de escritura sobre 'equipos'/'control_maquinaria'),
+  // y cada actualización va generando la ruta.
+  const { error } = await supabase.rpc('update_machine_location', { p_id: machineryId, p_lat: lat, p_lng: lng });
   if (error) return { ok: false, error: error.message };
   return { ok: true, lat, lng };
 }

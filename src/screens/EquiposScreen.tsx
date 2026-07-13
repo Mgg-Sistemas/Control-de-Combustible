@@ -89,7 +89,7 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
-  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name' },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
@@ -589,6 +589,7 @@ export default function EquiposScreen({ navigation }: any) {
     return [
       { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
       ...companies.data
+        .filter((c) => !(c as any).hidden) // ocultar empresas marcadas como ocultas (p. ej. HBS)
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => ({ label: c.name, value: c.id, count: countFor(c.id) })),
@@ -827,7 +828,7 @@ export default function EquiposScreen({ navigation }: any) {
       ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-        <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 Ubicación'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
+        <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 ACTUALIZAR UBICACIÓN'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
         <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} textColor={colors.primaryContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
