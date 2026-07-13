@@ -98,6 +98,7 @@ const SECTIONS: Sec[] = [
         '🕓 En espera — llegó pero todavía no se ha recibido en el control.',
       ] },
       { t: 'p', text: 'En cada máquina también puedes: 📍 guardar su ubicación, 📷 subirle una foto y 🔳 generar su código QR.' },
+      { t: 'note', text: 'Desde el Inicio (dashboard), en "Estado de las máquinas" puedes tocar Operativas, En espera o No operativa: te lleva a Equipos y te muestra esa lista de máquinas.' },
     ],
   },
   {

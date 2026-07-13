@@ -217,26 +217,28 @@ export default function DashboardScreen({ navigation }: any) {
 
       <SectionTitle>Resumen</SectionTitle>
 
-      {/* Estados de las máquinas */}
-      <TouchableOpacity activeOpacity={0.7} onPress={() => navigation?.navigate('Equipos')}>
-        <Card>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Estado de las máquinas</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={{ color: colors.success, fontWeight: '800', fontSize: 22 }}>{states ? states.op : '…'}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>🟢 Operativas</Text>
-            </View>
-            <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 22 }}>{states ? states.esp : '…'}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>🕓 En espera</Text>
-            </View>
-            <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 22 }}>{states ? states.no : '…'}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11 }}>🔴 No operativa</Text>
-            </View>
-          </View>
-        </Card>
-      </TouchableOpacity>
+      {/* Estados de las máquinas: cada uno lleva al módulo Equipos mostrando esas máquinas. */}
+      <Card>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Estado de las máquinas · toca uno para ver las máquinas</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          {([
+            { key: 'active', n: states?.op, color: colors.success, label: '🟢 Operativas' },
+            { key: 'espera', n: states?.esp, color: colors.warning, label: '🕓 En espera' },
+            { key: 'inactive', n: states?.no, color: colors.danger, label: '🔴 No operativa' },
+          ] as const).map((s) => (
+            <TouchableOpacity
+              key={s.key}
+              activeOpacity={0.7}
+              onPress={() => navigation?.navigate('Equipos', { status: s.key })}
+              style={{ alignItems: 'center', flex: 1 }}
+            >
+              <Text style={{ color: s.color, fontWeight: '800', fontSize: 22 }}>{states ? s.n : '…'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>{s.label}</Text>
+              <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>ver ›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Card>
 
       <View style={{ flexDirection: 'row', gap: spacing.md }}>
         <StatCard
