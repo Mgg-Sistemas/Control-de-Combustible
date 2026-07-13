@@ -25,7 +25,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   pagada: { label: '💵 Pagada', color: '#16A34A' },
 };
 
-export default function NominaScreen() {
+export default function NominaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
@@ -260,6 +260,19 @@ export default function NominaScreen() {
         </TouchableOpacity>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Crea una nómina por empresa y período. Se precargan los empleados activos con su salario.</Text>
+
+      {/* Acceso a la ficha de EMPLEADOS (RRHH) desde Nómina. */}
+      <TouchableOpacity
+        onPress={() => navigation?.navigate('Empleados')}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      >
+        <Text style={{ fontSize: 20 }}>🪪</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Empleados</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Fichas del personal (foto, cédula, cargo) y carnet con QR</Text>
+        </View>
+        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+      </TouchableOpacity>
 
       {loading && periods.length === 0 ? (
         <Loading />
