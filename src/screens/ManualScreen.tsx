@@ -138,7 +138,7 @@ const SECTIONS: Sec[] = [
         'Traslados: mover combustible de un tanque a otro (se descuenta de uno y se suma al otro).',
         'Autorizaciones: cuando algo necesita permiso, se pide aquí y la persona autorizada lo aprueba o rechaza.',
         'Mantenimiento: se registran las máquinas que necesitan reparación.',
-        'Mapa: muestra dónde está cada máquina según su última ubicación GPS.',
+        'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
       ] },
     ],
   },
