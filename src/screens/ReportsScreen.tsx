@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -825,19 +825,25 @@ export default function ReportsScreen({ route }: any) {
 
   // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
   // (dom→sáb) del mes elegido. Hoja para registrar entrada/salida por día.
-  const generateCamiones = async () => {
-    setLoading(true);
-    const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, company:company_id(name)');
-    // Entran al reporte de camiones todos los modelos de transporte: camiones,
-    // chutos con volqueta/batea/lowboy, volteos y volquetas.
-    const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO/;
+  // Trae y agrupa por empresa TODOS los camiones/transporte. Entran: camión, chuto (con
+  // volqueta/batea/lowboy), volteo/toronto/volquetas y cisternas (agua o combustible).
+  // Se busca en el NOMBRE (code), el modelo (tipo) y la clasificación, porque en muchas
+  // máquinas el "modelo" viene vacío y el tipo real está en el nombre.
+  const buildTruckCompanies = useCallback(async () => {
+    const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, clasificacion, company:company_id(name)');
+    const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO|TORONTO|CISTERNA|PIPA/;
     const trucks = (mach ?? [])
-      .filter((m: any) => TRUCK_RE.test((canonTipo(m.tipo) || '').toUpperCase()))
+      .filter((m: any) => TRUCK_RE.test(`${m.code || ''} ${canonTipo(m.tipo) || ''} ${m.clasificacion || ''}`.toUpperCase()))
       .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
       .sort((a, b) => a.company.localeCompare(b.company) || (a.code || '').localeCompare(b.code || ''));
     const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
     trucks.forEach((t) => { const a = map.get(t.company) ?? []; a.push({ code: t.code, plate: t.plate, serial: t.serial }); map.set(t.company, a); });
-    const companies = [...map.entries()].map(([company, items]) => ({ company, items }));
+    return [...map.entries()].map(([company, items]) => ({ company, items }));
+  }, []);
+
+  const generateCamiones = async () => {
+    setLoading(true);
+    const companies = await buildTruckCompanies();
     setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: weeksOfMonth(camYear, camMonth0), companies });
     setLoading(false);
     setCamPreview(true);
@@ -984,6 +990,23 @@ export default function ReportsScreen({ route }: any) {
       setTypeList(Array.from(set).sort((a, b) => a.localeCompare(b)));
     });
   }, []);
+
+  // Camiones E/S EN LÍNEA: mientras la vista previa esté abierta, refresca la lista de
+  // camiones al instante si cambian las máquinas (nueva, editada o eliminada).
+  useEffect(() => {
+    if (!camPreview) return;
+    let timer: any;
+    const refresh = async () => {
+      const companies = await buildTruckCompanies();
+      setCamData((prev) => (prev ? { ...prev, companies } : prev));
+    };
+    const ch = supabase.channel('rt-camiones-es');
+    ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: 'machinery' }, () => {
+      clearTimeout(timer); timer = setTimeout(refresh, 300);
+    });
+    ch.subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
+  }, [camPreview, buildTruckCompanies]);
 
   useEffect(() => {
     const p = route?.params;
