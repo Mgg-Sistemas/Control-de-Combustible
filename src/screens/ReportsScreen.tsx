@@ -159,7 +159,9 @@ const PDF_ACCENT = '#1E3A5F'; // azul oscuro
 const PDF_INK = '#1E3A5F';
 const PDF_CSS = `
   @page{margin:2cm}
-  *{box-sizing:border-box}
+  /* Forzar impresión de fondos de color (encabezados azules) al guardar/imprimir PDF. */
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff}
   /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
   @media screen{ body{ padding:28px 34px } }
