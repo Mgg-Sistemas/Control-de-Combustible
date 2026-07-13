@@ -11,7 +11,7 @@ import {
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { exportPdf } from '../lib/pdf';
+import { exportPdf, dateRangeLabel } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
@@ -682,8 +682,10 @@ export default function ReportsScreen({ route }: any) {
       <tfoot><tr><td style="font-weight:800;border-top:2px solid #1E3A5F">TOTAL DE LA FLOTA <span class="muted" style="font-weight:400">(activas + inactivas)</span></td><td style="text-align:right;font-weight:800;border-top:2px solid #1E3A5F">${fleetStatus.totalFlota} unidades</td></tr></tfoot>
       </table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
-    // Si el informe es de UNA sola empresa, el archivo se guarda con su nombre.
-    const jornadaFile = list.length === 1 ? `${list[0].company} - Informe por jornada` : 'Reportes - Jornada';
+    // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
+    // nombre; siempre incluye el rango de fechas.
+    const rng = dateRangeLabel(from, to);
+    const jornadaFile = roundsCompany ? `Reporte ${roundsCompany} ${rng}` : `Reporte por jornada ${rng}`;
     await exportPdf(pdfShell('INFORME POR JORNADA', 'Por empresa y maquinaria', content), jornadaFile);
   };
 

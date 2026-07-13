@@ -17,6 +17,15 @@ export function nowStamp(): string {
   return `${dd} ${MESES[d.getMonth()]} ${d.getFullYear()}, ${`${h}`.padStart(2, '0')}:${mm} ${ap}`;
 }
 
+/** Etiqueta de rango para el nombre de archivo: "del 06 al 12" (mismo mes) o
+ *  "del 26/06 al 05/07" (meses distintos). Recibe fechas ISO "AAAA-MM-DD". */
+export function dateRangeLabel(fromISO?: string, toISO?: string): string {
+  const a = (fromISO || '').split('-');
+  const b = (toISO || '').split('-');
+  if (a.length < 3 || b.length < 3) return '';
+  return a[1] === b[1] ? `del ${a[2]} al ${b[2]}` : `del ${a[2]}/${a[1]} al ${b[2]}/${b[1]}`;
+}
+
 const PDF_ACCENT = '#1E3A5F';
 /** CSS común del membrete. `@page{margin:2cm}` da 2 cm en todos los lados de
  *  CADA página; el `<title>` vacío evita el título del navegador. */
