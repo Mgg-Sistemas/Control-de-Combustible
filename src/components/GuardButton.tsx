@@ -79,6 +79,13 @@ export function GuardButton({
     ]);
   };
 
+  // Sugerencias a mostrar: filtra por lo escrito y NO muestra si el texto ya coincide
+  // exacto con un nombre (o sea, ya está elegido) para que el desplegable se cierre.
+  const q = name.trim().toLowerCase();
+  const sugNames = names
+    .filter((n) => (!q || n.toLowerCase().includes(q)) && n.toLowerCase() !== q)
+    .slice(0, 8);
+
   return (
     <>
       <TouchableOpacity
@@ -137,19 +144,26 @@ export function GuardButton({
                 value={name}
                 onChangeText={(v) => { setName(v); setShowSug(true); }}
                 onFocus={() => setShowSug(true)}
+                onBlur={() => setTimeout(() => setShowSug(false), 150)}
                 placeholder="Nombre y apellido" placeholderTextColor={colors.muted}
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: names.length && showSug ? 0 : spacing.sm }}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: spacing.sm, color: colors.text, marginBottom: showSug && sugNames.length ? 0 : spacing.sm }}
               />
-              {showSug && names.filter((n) => !name.trim() || n.toLowerCase().includes(name.trim().toLowerCase())).length > 0 ? (
+              {showSug && sugNames.length > 0 ? (
                 <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.sm, borderBottomRightRadius: radius.sm, marginBottom: spacing.sm, maxHeight: 140 }}>
                   <ScrollView keyboardShouldPersistTaps="handled">
-                    {names.filter((n) => !name.trim() || n.toLowerCase().includes(name.trim().toLowerCase())).slice(0, 8).map((n) => (
+                    {sugNames.map((n) => (
                       <TouchableOpacity key={n} onPress={() => { setName(n); setShowSug(false); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ color: colors.text, fontSize: 13 }}>👤 {n}</Text>
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
                 </View>
+              ) : null}
+              {/* Ocultar sugerencias tocando fuera del campo. */}
+              {showSug && sugNames.length > 0 ? (
+                <TouchableOpacity onPress={() => setShowSug(false)}>
+                  <Text style={{ color: colors.primary, fontSize: 11, textAlign: 'right', marginBottom: spacing.sm }}>Ocultar sugerencias ✕</Text>
+                </TouchableOpacity>
               ) : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nota (opcional)</Text>
               <TextInput
