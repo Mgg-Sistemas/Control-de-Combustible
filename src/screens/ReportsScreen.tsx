@@ -670,10 +670,44 @@ export default function ReportsScreen({ route }: any) {
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0) + grandViajes;
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
+    // ── Reporte general (mismo bloque que el reporte de maquinaria): resumen de
+    // equipos por CLASIFICACIÓN y por EMPRESA (horas × precio). No incluye fletes.
+    const phStr = (amount: number, worked: number) => (worked > 0 ? usd(amount / worked) : '—');
+    const clasAgg = new Map<string, { count: number; worked: number; amount: number }>();
+    roundGroups.forEach((g) =>
+      g.machines.forEach((m) => {
+        const key = m.clasificacion || 'Sin clasificación';
+        const a = clasAgg.get(key) ?? { count: 0, worked: 0, amount: 0 };
+        a.count += 1; a.worked += m.totalH; a.amount += m.priceJornada != null ? m.totalUSD : 0;
+        clasAgg.set(key, a);
+      })
+    );
+    const genWorked = roundGroups.reduce((s, g) => s + g.totalH, 0);
+    const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+    const genEquipos = grandMachines;
+    const clasRows = [...clasAgg.entries()]
+      .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
+      .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td></tr>`)
+      .join('');
+    const empRows = roundGroups
+      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td><td style="text-align:right">${phStr(g.totalUSD, g.totalH)}</td><td style="text-align:right;font-weight:700">${usd(g.totalUSD)}</td></tr>`)
+      .join('');
+    const generalBlockJ = `
+      <h2 style="margin-top:20px">Reporte general</h2>
+      <h3 style="margin:12px 0 2px">Total por clasificación</h3>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${clasRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td></tr></tfoot></table>
+      <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${empRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td></tr></tfoot></table>
+      <p class="muted" style="margin-top:6px">Resumen de equipos (horas × precio). No incluye fletes/viajes; ver el detalle por empresa.</p>`;
     const content = `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
+      ${generalBlockJ}
       <h2 style="margin-top:20px">Estado de la flota de maquinaria</h2>
       <table><tbody>
         <tr><td style="width:70%"><b>Total de activos</b></td><td style="text-align:right;font-weight:800">${fleetStatus.total} unidades</td></tr>
@@ -899,17 +933,54 @@ export default function ReportsScreen({ route }: any) {
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
     // Encabezados y celdas de precio se incluyen sólo si withPrices.
     const priceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total</th>' : '';
+    // Fletes/viajes del rango, por empresa (solo con precios). Se suman al total a pagar.
+    const fletesRows = withPrices
+      ? await selectAllRows('fletes', 'code, viajes, precio, flete_date, company:company_id(name)', (q) => q.gte('flete_date', from).lte('flete_date', to))
+      : [];
+    const viajesByCo = new Map<string, { items: { code: string; viajes: number; precio: number }[]; usd: number }>();
+    (fletesRows ?? []).forEach((f: any) => {
+      const co = f.company?.name ?? 'Sin empresa';
+      if (onlyCompany && co !== onlyCompany) return;
+      if (!companies.some((c) => c.company === co)) return;
+      const v = Number(f.viajes) || 0;
+      const precio = Number(f.precio) || 0;
+      if (v <= 0) return;
+      const a = viajesByCo.get(co) ?? { items: [], usd: 0 };
+      a.items.push({ code: f.code || '—', viajes: v, precio }); a.usd += v * precio;
+      viajesByCo.set(co, a);
+    });
+    const grandViajes = [...viajesByCo.values()].reduce((s, a) => s + a.usd, 0);
+    // Bloque de fletes de una empresa: agrupa por precio unitario y detalla los equipos.
+    const renderFletes = (co: string): string => {
+      const a = viajesByCo.get(co);
+      if (!a || !a.items.length) return '';
+      const byPrice = new Map<number, { code: string; viajes: number; precio: number }[]>();
+      a.items.forEach((v) => { const arr = byPrice.get(v.precio) ?? []; arr.push(v); byPrice.set(v.precio, arr); });
+      const rows = [...byPrice.entries()].sort((x, y) => x[0] - y[0]).map(([precio, items]) => {
+        const tot = items.reduce((s, v) => s + v.viajes, 0);
+        const kinds = new Map<string, number>();
+        items.forEach((v) => { const k = (v.code.split(/\s+/)[0] || v.code).toUpperCase(); kinds.set(k, (kinds.get(k) ?? 0) + 1); });
+        const detalle = [...kinds.entries()].map(([k, n]) => `${n} ${k}`).join(' · ');
+        return `<tr><td style="padding:4px 8px">TOTAL POR <b>${tot}</b> VIAJE${tot === 1 ? '' : 'S'}: ${detalle} <span style="color:#666">($${money2(precio)} c/u)</span></td><td style="text-align:right;font-weight:700;padding:4px 8px">$${money2(tot * precio)}</td></tr>`;
+      }).join('');
+      return `<table style="margin-top:-4px;margin-bottom:4px"><tbody>${rows}</tbody></table>`;
+    };
     const companyBlocks = companies
-      .map(
-        (c) =>
-          `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>` +
+      .map((c) => {
+        const machTot = c.items.reduce((s, i) => s + i.amount, 0);
+        const fl = viajesByCo.get(c.company);
+        const fletesBlock = withPrices && fl
+          ? renderFletes(c.company) +
+            `<table style="margin-bottom:12px"><tbody><tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">TOTAL POR PAGAR ${c.company} (equipos + fletes)</td><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">$${money2(machTot + fl.usd)}</td></tr></tbody></table>`
+          : '';
+        return `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>` +
           `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .map(
               (i) =>
                 `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
             )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(c.items.reduce((s, i) => s + i.amount, 0))}</td>` : ''}</tr></tfoot></table>`
-      )
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">${fl ? 'SUB TOTAL' : 'TOTAL'} ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(machTot)}</td>` : ''}</tr></tfoot></table>${fletesBlock}`;
+      })
       .join('');
     const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
     const sub = (onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general') + priceTag;
@@ -951,6 +1022,15 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
       <tbody>${companyCountRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>`;
+    // Resumen de FLETES por empresa + total general (equipos + fletes).
+    const fletesGeneralBlock =
+      withPrices && grandViajes > 0
+        ? `<h3 style="margin:12px 0 2px">Fletes / viajes por empresa</h3>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Monto fletes</th></tr></thead>
+      <tbody>${[...viajesByCo.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([co, a]) => `<tr><td>${co}</td><td style="text-align:right;font-weight:700">$${money2(a.usd)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL FLETES</td><td style="text-align:right;font-weight:800">$${money2(grandViajes)}</td></tr></tfoot></table>
+      <div style="margin-top:10px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">TOTAL GENERAL A PAGAR (equipos + fletes): $${money2(grandAmount + grandViajes)}</div>`
+        : '';
     // GENERAL = resumen (por tipo + por empresa) + DETALLE agrupado por empresa.
     // POR EMPRESA = detalle de esa empresa.
     const body = onlyCompany
@@ -969,6 +1049,7 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
       ${generalBlock}
+      ${fletesGeneralBlock}
       <h2>Detalle por empresa</h2>
       ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body), 'Reportes - Maquinaria-Vehículo');
