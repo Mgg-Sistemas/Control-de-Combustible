@@ -155,6 +155,22 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🍽️',
+    title: 'Distribución de comida',
+    blocks: [
+      { t: 'p', text: 'Sirve para llevar el control de cuántas comidas se le reparten a cada persona. Quien reparte es un usuario con rol Cocina (entra con su nombre y contraseña).' },
+      { t: 'steps', items: [
+        'La persona de Cocina inicia sesión (rol Cocina).',
+        'Escanea el carnet de quien va a recibir la comida (o lo busca por cédula si el carnet no lee).',
+        'Ve los datos de la persona (foto, cargo, cédula).',
+        'Con el contador − / + elige cuántas comidas se le entregan.',
+        'Toca "🍽️ Registrar". Queda guardado con la hora de entrega.',
+      ] },
+      { t: 'note', text: 'Debajo se ve lo que ya se le entregó a esa persona hoy y el total. Si te equivocaste, puedes borrar una entrega con 🗑.' },
+      { t: 'p', text: 'Módulo "Distribución de comida" (en Más, para el jefe): por día muestra cuántas comidas se repartieron y a quién, agrupado por persona con su total y el detalle (hora y quién la repartió). Usa las flechas ◀ ▶ para cambiar de día.' },
+    ],
+  },
+  {
     icon: '🔄',
     title: 'Traslados, Autorizaciones, Mantenimiento, Mapa',
     blocks: [

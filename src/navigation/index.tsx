@@ -23,6 +23,8 @@ import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
+import CocinaScreen from '../screens/CocinaScreen';
+import ComidaScreen from '../screens/ComidaScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
@@ -126,6 +128,7 @@ function MoreStack() {
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Supervisión' }} />
+      <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
@@ -290,6 +293,9 @@ export default function RootNavigator() {
       ) : role === 'supervisor' ? (
         // El supervisor sale a revisar máquinas: su ronda con check-in (GPS + estado).
         <SupervisorScreen />
+      ) : role === 'cocina' ? (
+        // Cocina reparte comida: escanea carnets y registra las comidas entregadas.
+        <CocinaScreen />
       ) : (
         <Tabs />
       )}
