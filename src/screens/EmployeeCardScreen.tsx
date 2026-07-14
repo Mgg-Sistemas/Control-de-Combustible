@@ -4,8 +4,8 @@ import { Screen, Card, Loading } from '../components/ui';
 import { supabase } from '../lib/supabase';
 import { Employee } from '../types/database';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
-import { carnetHtml, fullName, ageFrom } from '../lib/carnet';
-import { exportPdf } from '../lib/pdf';
+import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
+import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -81,12 +81,26 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
     })();
   }, [employeeId]);
 
-  const imprimirCarnet = async () => {
+  const carnetPdf = async () => {
     if (!emp) return;
     let svg = '';
     try { svg = await qrSvg(employeeQrUrl(emp.id), 220); } catch {}
     const html = carnetHtml(emp, { companyName: emp.companyName, qrSvg: svg });
     await exportPdf(html, `Carnet - ${fullName(emp)}`);
+  };
+
+  const carnetImagen = async () => {
+    if (!emp) return;
+    let svg = '';
+    try { svg = await qrSvg(employeeQrUrl(emp.id), 220); } catch {}
+    // Incrusta la foto como data-URI para que la imagen se genere sin bloqueos.
+    const photoData = await urlToDataUri(emp.photo_url);
+    const card = carnetCard(emp, { companyName: emp.companyName, qrSvg: svg, photoOverride: photoData ?? undefined });
+    await exportCardImage({
+      styles: carnetStyles, card, mmW: CARNET_MM.w, mmH: CARNET_MM.h, dpi: 300,
+      fileName: `Carnet - ${fullName(emp)}`,
+      htmlForFallback: carnetHtml(emp, { companyName: emp.companyName, qrSvg: svg }),
+    });
   };
 
   if (loading) return <Screen><Loading /></Screen>;
@@ -209,9 +223,15 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         </TouchableOpacity>
       ) : null}
 
-      <TouchableOpacity onPress={imprimirCarnet} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
-        <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 Imprimir carnet</Text>
-      </TouchableOpacity>
+      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>Descargar carnet (54 × 86 mm)</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+        <TouchableOpacity onPress={carnetPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 PDF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={carnetImagen} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#059669' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Imagen (300 dpi)</Text>
+        </TouchableOpacity>
+      </View>
       <View style={{ height: spacing.lg }} />
     </Screen>
   );

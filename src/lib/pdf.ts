@@ -102,6 +102,75 @@ export async function exportPdf(html: string, fileName?: string): Promise<void> 
   }
 }
 
+/**
+ * Exporta una TARJETA (carnet) como IMAGEN PNG con medidas físicas exactas
+ * (por defecto 54×86 mm) a 300 dpi. Web: rasteriza el HTML con un <foreignObject>
+ * y descarga el PNG. Nativo: cae al PDF (que también respeta las medidas).
+ */
+export async function exportCardImage(opts: {
+  styles: string; card: string; mmW: number; mmH: number; dpi?: number; fileName?: string; htmlForFallback?: string;
+}): Promise<void> {
+  const { styles, card, mmW, mmH, dpi = 300, fileName, htmlForFallback } = opts;
+  const name = sanitizeFileName(fileName) || 'carnet';
+  if (Platform.OS !== 'web') {
+    if (htmlForFallback) await exportPdf(htmlForFallback, fileName);
+    return;
+  }
+  const d: any = (globalThis as any).document;
+  const pxW = Math.round((mmW / 25.4) * dpi);
+  const pxH = Math.round((mmH / 25.4) * dpi);
+  const cssPxPerMm = 96 / 25.4;               // px CSS por mm a 96 dpi
+  const scale = pxW / (mmW * cssPxPerMm);      // escala para llegar a 300 dpi
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${pxH}">` +
+    `<foreignObject width="100%" height="100%">` +
+    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${pxW}px;height:${pxH}px;background:#fff">` +
+    `<div style="transform:scale(${scale});transform-origin:top left;width:${mmW}mm;height:${mmH}mm">` +
+    `<style>${styles}</style>${card}` +
+    `</div></div></foreignObject></svg>`;
+
+  await new Promise<void>((resolve) => {
+    const img: any = new (globalThis as any).Image();
+    img.onload = () => {
+      try {
+        const canvas: any = d.createElement('canvas');
+        canvas.width = pxW; canvas.height = pxH;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pxW, pxH);
+        ctx.drawImage(img, 0, 0, pxW, pxH);
+        const url = canvas.toDataURL('image/png');
+        const a: any = d.createElement('a');
+        a.href = url; a.download = `${name}.png`;
+        d.body.appendChild(a); a.click(); a.remove();
+      } catch (e) {
+        if (htmlForFallback) previewHtmlWeb(htmlForFallback, fileName);
+      }
+      resolve();
+    };
+    img.onerror = () => { if (htmlForFallback) previewHtmlWeb(htmlForFallback, fileName); resolve(); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+
+/** WEB: descarga una URL (p. ej. una foto) y la convierte a data-URI, para poder
+ *  incrustarla al generar la imagen (evita que el canvas quede "tainted"). */
+export async function urlToDataUri(url?: string | null): Promise<string | null> {
+  if (Platform.OS !== 'web' || !url) return null;
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string | null>((resolve) => {
+      const fr: any = new (globalThis as any).FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Deja un nombre de archivo válido (sin caracteres prohibidos por el SO). */
 function sanitizeFileName(name?: string): string {
   if (!name) return '';

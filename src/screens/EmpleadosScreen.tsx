@@ -58,7 +58,7 @@ const FIELDS: Field[] = [
   { key: 'base_salary', label: 'Salario base', type: 'number' },
   // Datos bancarios (para pagos).
   { key: '__sec_banco', label: '🏦 Datos bancarios', type: 'section' },
-  { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE },
+  { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE, dropdown: true, placeholder: 'Elegir banco…' },
   { key: 'bank_account', label: 'N° de cuenta', type: 'text' },
   { key: 'bank_holder', label: 'Titular (nombre y apellido)', type: 'text' },
   { key: 'bank_cedula', label: 'Cédula del titular', type: 'text' },
@@ -155,24 +155,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       ) : shown.length === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin empleados'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Toca "+ Nuevo" para registrar el primero.'} />
       ) : (
-        byCompany.map((g) => {
-          const open = expanded[g.key] ?? !!q;
-          return (
-            <View key={g.key} style={{ marginBottom: spacing.xs }}>
-              <TouchableOpacity
-                onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
-                activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
-                </View>
-                <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                  <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
-                </View>
-              </TouchableOpacity>
-              {open ? g.items.map((e) => (
+        shown.map((e) => (
                 <ExpandableCard
                   key={e.id}
                   summary={
@@ -211,10 +194,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                     </>
                   }
                 />
-              )) : null}
-            </View>
-          );
-        })
+        ))
       )}
 
       <RecordForm

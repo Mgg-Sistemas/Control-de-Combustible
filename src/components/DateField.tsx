@@ -80,8 +80,9 @@ export function DateField({ value, onChange, placeholder = 'Seleccionar fecha', 
   const isToday = (d: number) => view.y === today.getFullYear() && view.m === today.getMonth() && d === today.getDate();
   const isSel = (d: number) => sel && sel.y === view.y && sel.m === view.m && sel.d === d;
 
-  // En WEB usamos el selector de fecha NATIVO del navegador: al hacer clic abre
-  // su calendario, el usuario solo selecciona (no escribe).
+  // En WEB usamos el selector de fecha NATIVO del navegador. El usuario puede
+  // ESCRIBIR los números directo (día/mes/año) o abrir el calendario con el
+  // iconito. No forzamos el calendario para no interrumpir la escritura.
   if (Platform.OS === 'web') {
     return React.createElement('input', {
       type: 'date',
@@ -89,12 +90,10 @@ export function DateField({ value, onChange, placeholder = 'Seleccionar fecha', 
       min: minISO || undefined,
       max: maxISO || undefined,
       onChange: (e: any) => onChange(e.target.value),
-      onClick: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
-      onFocus: (e: any) => { try { e.currentTarget.showPicker && e.currentTarget.showPicker(); } catch (_) {} },
       style: {
         padding: '10px', borderRadius: '12px', border: '1px solid ' + colors.border,
         background: colors.surface, color: colors.text, fontSize: '15px', width: '100%',
-        boxSizing: 'border-box', cursor: 'pointer',
+        boxSizing: 'border-box',
       },
     });
   }
