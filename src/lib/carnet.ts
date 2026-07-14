@@ -32,16 +32,16 @@ export const carnetStyles = `
     display:flex;flex-direction:column;align-items:center}
   .wm{position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);width:66mm;opacity:.06;z-index:0}
   .logo,.photo,.name,.cargo,.rows,.qr,.foot{position:relative;z-index:1}
-  .logo{height:15mm;width:auto;display:block;margin:0 auto 1mm}
-  .photo{width:23mm;height:27mm;object-fit:cover;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;display:block}
-  .photo.ph{display:flex;align-items:center;justify-content:center;font-size:13mm;color:#9aa7b6}
-  .name{font-size:3.7mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1.4mm 0 0.3mm}
-  .cargo{font-size:2.5mm;color:#5b6b7c;text-transform:uppercase;letter-spacing:.2mm;text-align:center;margin-bottom:1.2mm}
-  .rows{width:100%;border-top:0.3mm solid #c9d6e6;padding-top:1mm}
-  .row{display:flex;justify-content:space-between;gap:2mm;padding:0.5mm 0;font-size:2.7mm}
+  .logo{height:12mm;width:auto;display:block;margin:0 auto 0.8mm}
+  .photo{width:19mm;height:23mm;object-fit:cover;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;display:block}
+  .photo.ph{display:flex;align-items:center;justify-content:center;font-size:11mm;color:#9aa7b6}
+  .name{font-size:3.6mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1mm 0 0.2mm}
+  .cargo{font-size:2.4mm;color:#5b6b7c;text-transform:uppercase;letter-spacing:.2mm;text-align:center;margin-bottom:0.8mm}
+  .rows{width:100%;border-top:0.3mm solid #c9d6e6;padding-top:0.8mm}
+  .row{display:flex;justify-content:space-between;gap:2mm;padding:0.4mm 0;font-size:2.6mm}
   .row .k{color:#7a8797;font-weight:600}
   .row .v{color:#16324F;font-weight:800;text-align:right}
-  .qr{width:21mm;height:21mm;margin:1mm auto 0;background:#fff;padding:0.6mm;border-radius:1mm}
+  .qr{width:18mm;height:18mm;margin:0.8mm auto 0;background:#fff;padding:0.6mm;border-radius:1mm}
   .qr svg{width:100%;height:100%;display:block}
   .foot{font-size:1.9mm;color:#7a8797;text-align:center;margin-top:auto;padding-top:1mm}
 `;
