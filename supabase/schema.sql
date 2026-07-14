@@ -1071,6 +1071,7 @@ create table if not exists public.employees (
   salary_currency text default 'USD',
   bank_name text,                          -- banco (datos bancarios)
   bank_account text,                       -- número de cuenta
+  bank_holder text,                        -- nombre y apellido del titular de la cuenta
   bank_cedula text,                        -- cédula del titular de la cuenta
   notes text,
   created_by uuid references public.profiles(id) on delete set null,
