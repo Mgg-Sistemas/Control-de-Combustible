@@ -423,6 +423,7 @@ export default function ReportsScreen({ route }: any) {
   // Estado de la flota (para el bloque final del informe por jornada).
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
+  const [fleetFletes, setFleetFletes] = useState<{ company: string; viajes: number; usd: number }[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
   const [fleetWithPrices, setFleetWithPrices] = useState(true);
@@ -798,6 +799,20 @@ export default function ReportsScreen({ route }: any) {
       (it) => (repCompanies.length === 0 || repCompanies.includes(it.company)) && (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
     );
     setFleetItems(filtered);
+    // Fletes/viajes del rango, por empresa (para mostrar el flete también aquí).
+    const fletesRows = await selectAllRows('fletes', 'viajes, precio, flete_date, company:company_id(name)', (q) => q.gte('flete_date', from).lte('flete_date', to));
+    const flByCo = new Map<string, { company: string; viajes: number; usd: number }>();
+    (fletesRows ?? []).forEach((f: any) => {
+      const co = f.company?.name ?? 'Sin empresa';
+      if (repCompanies.length && !repCompanies.includes(co)) return;
+      const v = Number(f.viajes) || 0;
+      const precio = Number(f.precio) || 0;
+      if (v <= 0) return;
+      const a = flByCo.get(co) ?? { company: co, viajes: 0, usd: 0 };
+      a.viajes += v; a.usd += v * precio;
+      flByCo.set(co, a);
+    });
+    setFleetFletes([...flByCo.values()].sort((a, b) => a.company.localeCompare(b.company)));
     setLoading(false);
     setFleetPreview(true);
   };
@@ -1766,6 +1781,24 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
                 <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{fleetItems.length}</Text>
               </View>
+            </Card>
+          ) : null}
+
+          {/* Fletes / viajes por empresa (mismo dato que en el reporte de jornada). */}
+          {fleetWithPrices && fleetFletes.length > 0 ? (
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🚚 Fletes / viajes por empresa</Text>
+              {fleetFletes.map((f) => (
+                <View key={f.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13, flex: 1, paddingRight: spacing.sm }}>{f.company} <Text style={{ color: colors.muted, fontSize: 11 }}>· {f.viajes} viaje(s)</Text></Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{usd(f.usd)}</Text>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL FLETES</Text>
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{usd(fleetFletes.reduce((s, f) => s + f.usd, 0))}</Text>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>En el PDF, cada empresa muestra sus viajes y el "TOTAL POR PAGAR (equipos + fletes)".</Text>
             </Card>
           ) : null}
 
