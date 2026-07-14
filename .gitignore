@@ -49,3 +49,5 @@ yarn-error.*
 # Archivos locales generados (no versionar)
 QR-maquinas-por-empresa.html
 _genqr.mjs
+
+QR-maquinas-por-empresa.pdf
