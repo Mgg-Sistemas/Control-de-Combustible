@@ -33,8 +33,8 @@ export const carnetStyles = `
   .wm{position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);width:66mm;opacity:.06;z-index:0}
   .logo,.photoBox,.name,.cargo,.rows,.qr,.foot{position:relative;z-index:1}
   .logo{height:11mm;width:auto;display:block;margin:0 auto 0.8mm}
-  .photoBox{width:24mm;height:29mm;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;overflow:hidden;display:block;margin:0 auto}
-  .photo{width:100%;height:100%;object-fit:cover;transform:scale(1.08);display:block}
+  .photoBox{width:25mm;height:30mm;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;overflow:hidden;display:block;margin:0 auto}
+  .photo{width:100%;height:100%;object-fit:cover;object-position:center 32%;transform:scale(1.32);transform-origin:center 30%;display:block}
   .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:13mm;color:#9aa7b6}
   .name{font-size:3.6mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1mm 0 0.2mm}
   .cargo{font-size:2.4mm;color:#5b6b7c;text-transform:uppercase;letter-spacing:.2mm;text-align:center;margin-bottom:0.8mm}
