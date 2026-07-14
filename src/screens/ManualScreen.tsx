@@ -180,6 +180,7 @@ const SECTIONS: Sec[] = [
         'Autorizaciones: cuando algo necesita permiso, se pide aquí y la persona autorizada lo aprueba o rechaza.',
         'Mantenimiento: se registran las máquinas que necesitan reparación.',
         'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
+        'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por categoría (camiones y transporte, grúas, excavadoras, cargadores, compactadores…) o por máquina individual. Usa "Mostrar todas" / "Ocultar todas" o toca una categoría para ver sus máquinas y elegir una por una.',
       ] },
     ],
   },
