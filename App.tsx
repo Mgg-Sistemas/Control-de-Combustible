@@ -7,6 +7,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { ConfirmProvider } from './src/components/ConfirmProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { UpdateBanner } from './src/components/UpdateBanner';
 import RootNavigator from './src/navigation';
 
 function ThemedStatusBar() {
@@ -23,6 +24,7 @@ export default function App() {
             <AuthProvider>
               <ThemedStatusBar />
               <RootNavigator />
+              <UpdateBanner />
             </AuthProvider>
           </ErrorBoundary>
         </ConfirmProvider>

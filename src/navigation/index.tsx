@@ -53,7 +53,7 @@ function HeaderBrand({ title }: { title?: string }) {
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <Image source={LOGO} style={{ width: 30, height: 30, borderRadius: 6, backgroundColor: '#fff' }} resizeMode="contain" />
+      <Image source={LOGO} style={{ width: 30, height: 30 }} resizeMode="contain" />
       {title ? <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700' }}>{title}</Text> : null}
     </View>
   );

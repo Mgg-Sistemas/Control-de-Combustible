@@ -123,7 +123,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       {/* Encabezado con logo */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <Image source={LOGO} style={{ width: 34, height: 34, borderRadius: 6, backgroundColor: '#fff' }} resizeMode="contain" />
+          <Image source={LOGO} style={{ width: 34, height: 34 }} resizeMode="contain" />
           <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Ficha del trabajador</Text>
         </View>
       </View>
