@@ -1576,6 +1576,59 @@ export default function ReportsScreen({ route }: any) {
             ))
           )}
 
+          {/* Reporte general: por clasificación + por empresa (igual al de maquinaria). */}
+          {roundGroups.length > 0 ? (() => {
+            const clasAgg = new Map<string, { count: number; worked: number; amount: number }>();
+            roundGroups.forEach((g) => g.machines.forEach((m) => {
+              const k = m.clasificacion || 'Sin clasificación';
+              const a = clasAgg.get(k) ?? { count: 0, worked: 0, amount: 0 };
+              a.count += 1; a.worked += m.totalH; a.amount += m.priceJornada != null ? m.totalUSD : 0;
+              clasAgg.set(k, a);
+            }));
+            const genWorked = roundGroups.reduce((s, g) => s + g.totalH, 0);
+            const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+            const genEquipos = roundGroups.reduce((s, g) => s + g.machines.length, 0);
+            const ph = (a: number, w: number) => (w > 0 ? usd(a / w) : '—');
+            const clas = [...clasAgg.entries()].sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]));
+            const hdr = (a: string, b: string, c: string, d: string, e: string) => (
+              <View style={{ flexDirection: 'row', backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginBottom: 2 }}>
+                <Text style={{ flex: 2.4, fontSize: 11, color: colors.primaryContrast, fontWeight: '800' }}>{a}</Text>
+                <Text style={{ flex: 1, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{b}</Text>
+                <Text style={{ flex: 1.2, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{c}</Text>
+                <Text style={{ flex: 1.4, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{d}</Text>
+                <Text style={{ flex: 1.6, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{e}</Text>
+              </View>
+            );
+            const row = (a: string, b: string, c: string, d: string, e: string, bold = false) => (
+              <View style={{ flexDirection: 'row', paddingHorizontal: spacing.sm, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <Text style={{ flex: 2.4, fontSize: 12, color: colors.text, fontWeight: bold ? '800' : '400' }}>{a}</Text>
+                <Text style={{ flex: 1, fontSize: 12, color: colors.text, fontWeight: '700', textAlign: 'right' }}>{b}</Text>
+                <Text style={{ flex: 1.2, fontSize: 12, color: colors.muted, textAlign: 'right' }}>{c}</Text>
+                <Text style={{ flex: 1.4, fontSize: 12, color: colors.muted, textAlign: 'right' }}>{d}</Text>
+                <Text style={{ flex: 1.6, fontSize: 12, color: colors.text, fontWeight: '700', textAlign: 'right' }}>{e}</Text>
+              </View>
+            );
+            return (
+              <Card style={{ marginTop: spacing.md }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Total por clasificación</Text>
+                {hdr('CLASIFICACIÓN', 'CANT.', 'HORAS', '$/HORA', 'TOTAL')}
+                {clas.map(([c, a]) => (
+                  <React.Fragment key={c}>{row(c, String(a.count), nH(a.worked), ph(a.amount, a.worked), usd(a.amount))}</React.Fragment>
+                ))}
+                {row('TOTAL', String(genEquipos), nH(genWorked), ph(genAmount, genWorked), usd(genAmount), true)}
+
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>Totales de equipos por empresa</Text>
+                {hdr('EMPRESA', 'EQUIP.', 'HORAS', '$/HORA', 'TOTAL')}
+                {roundGroups.map((g) => (
+                  <React.Fragment key={g.company}>{row(g.company, String(g.machines.length), nH(g.totalH), ph(g.totalUSD, g.totalH), usd(g.totalUSD))}</React.Fragment>
+                ))}
+                {row('TOTAL', String(genEquipos), nH(genWorked), ph(genAmount, genWorked), usd(genAmount), true)}
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Resumen por horas × precio. No incluye fletes/viajes (ver detalle por empresa).</Text>
+              </Card>
+            );
+          })() : null}
+
           {/* Estado de la flota de maquinaria */}
           {roundGroups.length > 0 ? (
             <Card style={{ marginTop: spacing.md }}>
