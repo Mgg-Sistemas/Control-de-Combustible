@@ -67,7 +67,7 @@ export function carnetCard(e: Employee, opts: { companyName?: string; qrSvg: str
         ${row('Grupo sanguíneo', e.blood_type)}
       </div>
       <div class="qr">${opts.qrSvg}</div>
-      <div class="foot">${esc(opts.companyName || '')} · Carnet</div>
+      <div class="foot">Carnet de Identificación</div>
     </div>`;
 }
 
