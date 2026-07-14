@@ -18,6 +18,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
   { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
+  { label: 'Supervisión', route: 'Supervision', desc: 'Rondas de supervisores: quién marcó cada máquina (GPS + estado) y jornadas sin validar', icon: '🪖', module: 'supervision' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
   { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal por empresa y período, con recibos y reportes', icon: '🧾', module: 'nomina' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },

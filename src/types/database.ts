@@ -372,6 +372,29 @@ export interface MachineDayOperator {
   updated_at: string;
 }
 
+/** Estado con que el supervisor marca la máquina al visitarla. */
+export type VisitStatus = 'trabajando' | 'parada' | 'no_esta';
+
+/**
+ * Visita (check-in) de un supervisor a una máquina: hora + GPS + estado.
+ * VALIDA la jornada de esa máquina ese día (sin visita, el operador no cobra).
+ */
+export interface SupervisorVisit {
+  id: string;
+  machinery_id: string;
+  supervisor_id: string | null;
+  supervisor_name: string;
+  visit_date: string;       // día (ISO Caracas)
+  visited_at: string;       // hora exacta (ISO UTC)
+  status: VisitStatus;
+  lat: number | null;
+  lng: number | null;
+  distance_m: number | null; // metros hasta la ubicación conocida de la máquina
+  near: boolean | null;      // ¿dentro de la tolerancia?
+  note: string | null;
+  created_at: string;
+}
+
 /** Fila del snapshot que se guarda al cerrar el control del día. */
 export interface ClosureMachine {
   code: string;

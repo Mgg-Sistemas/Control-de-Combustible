@@ -79,6 +79,29 @@ async function getPositionNative(): Promise<{ pos: Pos | null; denied?: boolean 
 }
 
 /**
+ * Devuelve las coordenadas GPS actuales del dispositivo SIN escribir nada en la
+ * base de datos. Sirve, por ejemplo, para ubicar al SUPERVISOR al hacer un
+ * check-in (y medir su distancia a la máquina) sin tocar la ubicación de la
+ * máquina. Usa la posición pre-calentada si está vigente; si no, pide una nueva.
+ */
+export async function getCurrentCoords(): Promise<{ ok: boolean; error?: string; lat?: number; lng?: number }> {
+  warmLocation();
+  let pos: Pos | null = cached && Date.now() - cached.at < FRESH_MS ? cached.pos : null;
+  if (!pos) {
+    if (Platform.OS === 'web') {
+      pos = await getPositionWeb();
+      if (!pos) return { ok: false, error: 'No se pudo obtener la ubicación. Permite el acceso al GPS del navegador e inténtalo de nuevo.' };
+    } else {
+      const r = await getPositionNative();
+      if (r.denied) return { ok: false, error: 'Permiso de ubicación denegado.' };
+      pos = r.pos;
+      if (!pos) return { ok: false, error: 'El GPS tardó demasiado. Inténtalo de nuevo (mejor al aire libre).' };
+    }
+  }
+  return { ok: true, lat: Number(pos.coords.latitude.toFixed(6)), lng: Number(pos.coords.longitude.toFixed(6)) };
+}
+
+/**
  * Captura la ubicación GPS actual, la guarda en el historial (ruta) de la
  * máquina y actualiza sus coordenadas más recientes.
  *

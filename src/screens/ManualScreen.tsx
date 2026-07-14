@@ -137,6 +137,24 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🪖',
+    title: 'Supervisión (rondas de supervisores)',
+    blocks: [
+      { t: 'p', text: 'Sirve para saber si los supervisores SÍ están yendo a las máquinas a revisar que estén trabajando. Cada supervisor entra con su usuario (rol Supervisor) y ve su propia pantalla para salir a marcar máquinas.' },
+      { t: 'p', text: 'Cómo marca el supervisor una máquina:' },
+      { t: 'steps', items: [
+        'Entra con su nombre y contraseña (rol Supervisor).',
+        'Escanea el QR de la máquina (o la toca en su lista "Mis máquinas a revisar").',
+        'El sistema toma su ubicación GPS y calcula qué tan cerca está de la máquina.',
+        'Elige el estado: 🟢 Trabajando, 🟡 Parada o 🔴 No está, y escribe una nota si quiere.',
+        'Toca "✅ Marcar como revisada". Queda la hora, el estado y la distancia.',
+      ] },
+      { t: 'note', text: 'La cercanía es amplia a propósito (unos 300 m): si la máquina está trabajando y no se puede interrumpir, basta con estar "más o menos cerca". Si el supervisor está lejos, igual se guarda pero queda marcado "lejos ⚠️".' },
+      { t: 'note', text: 'REGLA IMPORTANTE: si el supervisor NO marca una máquina que trabajó ese día, esa jornada queda "sin validar" y el operador no cobra.' },
+      { t: 'p', text: 'Módulo "Supervisión" (para el jefe, en Más): muestra por día quién marcó cada máquina, a qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de "⛔ Jornadas sin validar" (máquinas que trabajaron pero que ningún supervisor marcó). Usa las flechas ◀ ▶ para cambiar de día.' },
+    ],
+  },
+  {
     icon: '🔄',
     title: 'Traslados, Autorizaciones, Mantenimiento, Mapa',
     blocks: [
