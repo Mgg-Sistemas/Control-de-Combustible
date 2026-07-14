@@ -46,6 +46,10 @@ export type Field =
       createColumn?: string;
       /** Filtro de igualdad opcional para acotar las opciones (p. ej. { role: 'operador' }). */
       filter?: Record<string, string | number | boolean>;
+      /** Muestra el campo como lista DESPLEGABLE (se abre y se cierra) en vez de la
+       *  rejilla de botones siempre visible. Ideal para pocas opciones (empresas). */
+      dropdown?: boolean;
+      placeholder?: string;
       showIf?: ShowIf;
     };
 
@@ -284,6 +288,13 @@ export function RecordForm({
                   <SuggestSelect options={lookups[f.key] ?? []} value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
                 ) : f.type === 'date' ? (
                   <DateField value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} />
+                ) : f.type === 'lookup' && f.dropdown ? (
+                  <DropdownSelect
+                    options={lookups[f.key] ?? []}
+                    value={values[f.key]}
+                    onChange={(v) => set(f.key, v)}
+                    placeholder={f.placeholder ?? 'Seleccionar…'}
+                  />
                 ) : f.type === 'lookup' ? (
                   <SearchSelect
                     options={lookups[f.key] ?? []}
@@ -465,6 +476,65 @@ function SearchSelect({
         </TouchableOpacity>
       ) : null}
       {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
+    </View>
+  );
+}
+
+/** Lista DESPLEGABLE (toggle): muestra el valor elegido; al tocar se abre la lista
+ *  y al elegir una opción se cierra sola. Al tocar de nuevo se oculta. Para pocas
+ *  opciones (p. ej. las empresas). */
+function DropdownSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'Seleccionar…',
+}: {
+  options: Option[];
+  value?: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.value === value);
+
+  return (
+    <View>
+      <TouchableOpacity
+        onPress={() => setOpen((v) => !v)}
+        activeOpacity={0.8}
+        style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+      >
+        <Text style={{ color: selected ? colors.text : colors.muted, fontSize: 15, flex: 1 }} numberOfLines={1}>
+          {selected ? selected.label : placeholder}
+        </Text>
+        <Text style={{ color: colors.primary, fontWeight: '800', marginLeft: spacing.sm }}>{open ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+
+      {open ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, maxHeight: 260, overflow: 'hidden' }}>
+          <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            {/* Opción para dejarlo vacío (sin empresa / general). */}
+            <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <Text style={{ color: colors.muted, fontSize: 14, fontStyle: 'italic' }}>— Sin empresa (general)</Text>
+            </TouchableOpacity>
+            {options.map((o) => {
+              const active = o.value === value;
+              return (
+                <TouchableOpacity
+                  key={o.value}
+                  onPress={() => { onChange(o.value); setOpen(false); }}
+                  style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.primary : 'transparent' }}
+                >
+                  <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14, fontWeight: active ? '800' : '500' }}>{o.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {options.length === 0 ? <Text style={{ color: colors.muted, padding: spacing.md, fontSize: 13 }}>Sin opciones.</Text> : null}
+          </ScrollView>
+        </View>
+      ) : null}
     </View>
   );
 }
