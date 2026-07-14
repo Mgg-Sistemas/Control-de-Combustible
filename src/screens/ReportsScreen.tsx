@@ -856,7 +856,7 @@ export default function ReportsScreen({ route }: any) {
     if (!camData) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3).toUpperCase()}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
-    const cell = `<td class="c"><div class="ln">E</div><div class="ln">S</div></td>`;
+    const cell = `<td class="c"><div class="ln">S</div><div class="ln">E</div></td>`;
     const weeksToPrint = weekN == null ? camData.weeks : camData.weeks.filter((w) => w.n === weekN);
     const sel = weekN == null ? null : weeksToPrint[0] || null;
     const weeksHtml = weeksToPrint
@@ -887,7 +887,7 @@ export default function ReportsScreen({ route }: any) {
       table.cam td.c{height:34px;vertical-align:top}
       table.cam td.c .ln{border-bottom:1px solid #999;font-size:7px;color:#999;padding:1px 2px;height:15px;text-align:left}
     </style>
-    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Entrada (E) y Salida (S) por día — hoja para registrar</div>
+    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Salida (S) y Entrada (E) por día — hoja para registrar</div>
     ${weeksHtml || '<p class="muted">Sin camiones registrados.</p>'}`;
     const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
     const fileLabel = sel ? `Reportes - Camiones E-S Semana ${sel.n}` : 'Reportes - Camiones E-S';
@@ -1128,7 +1128,7 @@ export default function ReportsScreen({ route }: any) {
               </TouchableOpacity>
             </View>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
-              Solo camiones · agrupados por empresa · puedes descargar el PDF de cada semana por separado (E = entrada, S = salida por día).
+              Solo camiones · agrupados por empresa · puedes descargar el PDF de cada semana por separado (S = salida, E = entrada por día).
             </Text>
           </View>
         ) : (
