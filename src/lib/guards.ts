@@ -83,3 +83,38 @@ export async function clearGuard(machineryId: string): Promise<void> {
     .eq('machinery_id', machineryId)
     .eq('active', true);
 }
+
+/**
+ * Renombra un supervisor en TODOS sus registros (corrige un nombre mal escrito
+ * en el historial completo y en las asignaciones activas). Devuelve cuántos
+ * registros se actualizaron.
+ */
+export async function renameGuardName(oldName: string, newName: string): Promise<number> {
+  const from = oldName.trim();
+  const to = newName.trim();
+  if (!from || !to || from === to) return 0;
+  const { data, error } = await supabase
+    .from('machine_guards')
+    .update({ guard_name: to })
+    .eq('guard_name', from)
+    .select('id');
+  if (error) throw error;
+  return (data ?? []).length;
+}
+
+/**
+ * Elimina un supervisor por completo: borra TODOS sus registros de
+ * `machine_guards` (historial y asignaciones activas). Las máquinas que
+ * custodiaba quedan sin supervisor. Devuelve cuántos registros se borraron.
+ */
+export async function deleteGuardName(name: string): Promise<number> {
+  const n = name.trim();
+  if (!n) return 0;
+  const { data, error } = await supabase
+    .from('machine_guards')
+    .delete()
+    .eq('guard_name', n)
+    .select('id');
+  if (error) throw error;
+  return (data ?? []).length;
+}
