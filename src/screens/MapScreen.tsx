@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -6,9 +6,32 @@ import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
+import { norm } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+
+// Categorías del mapa: agrupan las máquinas por lo que son (para prender/apagar
+// capas). Se prueba con el código + tipo + clasificación (sin acentos, minúscula).
+const CATS: { key: string; label: string; icon: string; re: RegExp }[] = [
+  { key: 'transporte', label: 'Camiones y transporte', icon: '🚛', re: /camion|chuto|volteo|volquet|toronto|pipa|cisterna|batea|gandola|plataforma|lowboy|remolque/ },
+  { key: 'grua', label: 'Grúas', icon: '🏗️', re: /grua/ },
+  { key: 'excavacion', label: 'Excavadoras / Retro', icon: '⛏️', re: /excavad|retro|pala|martillo|oruga/ },
+  { key: 'carga', label: 'Cargadores / Tractores', icon: '🚜', re: /cargador|payloader|bulldozer|tractor|motonivel|nivelad|bobcat|minicarg/ },
+  { key: 'compactacion', label: 'Compactadores / Rodillos', icon: '🧱', re: /compact|rodillo|vibro|apisonad/ },
+];
+const CAT_OTHER = { key: 'otros', label: 'Otras máquinas', icon: '🔧' };
+const CAT_META: Record<string, { label: string; icon: string }> = {
+  ...Object.fromEntries(CATS.map((c) => [c.key, { label: c.label, icon: c.icon }])),
+  [CAT_OTHER.key]: { label: CAT_OTHER.label, icon: CAT_OTHER.icon },
+};
+const CAT_ORDER = [...CATS.map((c) => c.key), CAT_OTHER.key];
+/** Categoría de una máquina según su código/tipo/clasificación. */
+function catOf(p: MapPin): string {
+  const s = norm(`${p.name || ''} ${p.tipo || ''} ${p.clasificacion || ''}`);
+  for (const c of CATS) if (c.re.test(s)) return c.key;
+  return CAT_OTHER.key;
+}
 
 type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string };
 type RoutePoint = { id: string; latitude: number | null; longitude: number | null; note: string | null; recorded_at: string };
@@ -32,6 +55,11 @@ export default function MapScreen({ navigation, route }: any) {
   // Ruta de una máquina (al tocar un registro): puntos por fecha y hora.
   const [routeFor, setRouteFor] = useState<{ code: string; company: string; plate: string | null; serial: string | null } | null>(null);
   const [routePoints, setRoutePoints] = useState<RoutePoint[] | null>(null);
+  // Capas: categorías y máquinas apagadas (ocultas del mapa).
+  const [hiddenCats, setHiddenCats] = useState<Set<string>>(new Set());
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
@@ -169,7 +197,32 @@ export default function MapScreen({ navigation, route }: any) {
     }
   }, [route?.params?.focus]);
 
-  const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : pins);
+  // Categoría de cada máquina y agrupación (para las capas).
+  const pinCat = useMemo(() => {
+    const m = new Map<string, string>();
+    (pins ?? []).forEach((p) => m.set(p.id, catOf(p)));
+    return m;
+  }, [pins]);
+  const groups = useMemo(() => {
+    const g = new Map<string, MapPin[]>();
+    (pins ?? []).forEach((p) => {
+      const k = pinCat.get(p.id) ?? CAT_OTHER.key;
+      if (!g.has(k)) g.set(k, []);
+      g.get(k)!.push(p);
+    });
+    g.forEach((arr) => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    return g;
+  }, [pins, pinCat]);
+  const presentCats = CAT_ORDER.filter((k) => groups.has(k));
+
+  const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER.key) && !hiddenIds.has(p.id);
+  // El mapa muestra: la enfocada (si hay), o las que pasan el filtro de capas.
+  const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : (pins ?? []).filter(isMachineShown));
+
+  const toggleCat = (k: string) => setHiddenCats((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const toggleId = (id: string) => setHiddenIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const showAll = () => { setHiddenCats(new Set()); setHiddenIds(new Set()); };
+  const hideAll = () => { setHiddenCats(new Set(presentCats)); };
 
   return (
     <Screen scrollRef={scrollRef}>
@@ -196,8 +249,70 @@ export default function MapScreen({ navigation, route }: any) {
           Toca un punto y usa “🗑️ Eliminar ubicación” para quitarlo del mapa. Se sincroniza con todos.
         </Text>
       </Card>
+
+      {/* Capas: prender/apagar puntos por categoría (camiones, grúas…) o por máquina. */}
+      {!focus && pins && pins.length > 0 ? (
+        <Card>
+          <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>🗂️ Capas · mostrar / ocultar</Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
+          </TouchableOpacity>
+
+          {layersOpen ? (
+            <View style={{ marginTop: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                <TouchableOpacity onPress={showAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✅ Mostrar todas</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={hideAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
+                </TouchableOpacity>
+              </View>
+
+              {presentCats.map((k) => {
+                const list = groups.get(k) ?? [];
+                const catHidden = hiddenCats.has(k);
+                const shownInCat = catHidden ? 0 : list.filter((p) => !hiddenIds.has(p.id)).length;
+                const meta = CAT_META[k];
+                const expanded = expandedCat === k;
+                return (
+                  <View key={k} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                      {/* Interruptor de la categoría */}
+                      <TouchableOpacity onPress={() => toggleCat(k)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: catHidden ? colors.border : colors.success, justifyContent: 'center', paddingHorizontal: 2 }}>
+                        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: catHidden ? 'flex-start' : 'flex-end' }} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{meta.icon} {meta.label}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>{shownInCat}/{list.length}  {expanded ? '▲' : '▼'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Máquinas de la categoría (prender/apagar individual) */}
+                    {expanded ? (
+                      <View style={{ marginTop: 6, paddingLeft: 42 }}>
+                        {list.map((p) => {
+                          const off = catHidden || hiddenIds.has(p.id);
+                          return (
+                            <TouchableOpacity key={p.id} onPress={() => toggleId(p.id)} disabled={catHidden} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
+                              <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
+                              <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{p.name}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>{p.company}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
       {shownPins === null ? <Loading /> : shownPins.length === 0 ? (
-        <Card><Text style={{ color: colors.muted }}>Esta máquina no tiene una ubicación actual en el mapa.</Text></Card>
+        <Card><Text style={{ color: colors.muted }}>{focus ? 'Esta máquina no tiene una ubicación actual en el mapa.' : 'No hay puntos visibles. Revisa las 🗂️ Capas (quizás están todas ocultas).'}</Text></Card>
       ) : <VenezuelaMap pins={shownPins} onDelete={deleteLocation} />}
 
       <SectionTitle>Trazabilidad de ubicaciones</SectionTitle>

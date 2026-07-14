@@ -201,6 +201,10 @@ automáticamente.
 Muestra **en un mapa** dónde está cada máquina (según su última ubicación GPS).
 - Con el panel **🗺️ Sectores (zonas)** ves u ocultas las **zonas de La Guaira** (Sector Oeste
   y Sector Este). Cada zona tiene su **color** y sus **límites** (Oeste/Este).
+- Con el panel **🗂️ Capas** prendes y apagas los puntos por **categoría** (camiones y
+  transporte, grúas, excavadoras, cargadores, compactadores…) o por **máquina individual**.
+  Usa **"Mostrar todas" / "Ocultar todas"**, o toca una categoría para ver sus máquinas y
+  elegir una por una.
 
 ### 4.12. Reportes
 Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fechas** y la
