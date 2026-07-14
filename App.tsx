@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { ConfirmProvider } from './src/components/ConfirmProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UpdateBanner } from './src/components/UpdateBanner';
+import { PhotoCropperHost } from './src/components/PhotoCropper';
 import RootNavigator from './src/navigation';
 
 function ThemedStatusBar() {
@@ -25,6 +26,7 @@ export default function App() {
               <ThemedStatusBar />
               <RootNavigator />
               <UpdateBanner />
+              <PhotoCropperHost />
             </AuthProvider>
           </ErrorBoundary>
         </ConfirmProvider>

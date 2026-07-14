@@ -148,7 +148,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <View style={{ alignItems: 'center' }}>
           {emp.photo_url ? (
             <View style={{ width: 130, height: 150, borderRadius: 12, borderWidth: 3, borderColor: FICHA.brand, backgroundColor: '#EEF2F7', overflow: 'hidden' }}>
-              <Image source={{ uri: emp.photo_url }} style={{ width: '100%', height: '100%', transform: [{ scale: 1.32 }, { translateY: -8 }] }} resizeMode="cover" />
+              <Image source={{ uri: emp.photo_url }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
             </View>
           ) : (
             <View style={{ width: 130, height: 150, borderRadius: 12, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: FICHA.brand }}>

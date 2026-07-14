@@ -6,7 +6,7 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
-import { captureAndUploadPhoto } from '../lib/photo';
+import { captureAndUploadEmployeePhoto } from '../lib/photo';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { exportPdf } from '../lib/pdf';
@@ -107,7 +107,7 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const subirFoto = async (e: Employee) => {
     setBusy(e.id + '-photo');
-    const r = await captureAndUploadPhoto(e.id, 'empleados');
+    const r = await captureAndUploadEmployeePhoto(e.id, 'empleados');
     if (r.ok && r.url) {
       const { error } = await supabase.from('employees').update({ photo_url: r.url }).eq('id', e.id);
       if (error) Alert.alert('Aviso', error.message); else refetch();
