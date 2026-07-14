@@ -54,7 +54,7 @@ const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
  *  🔴 Combustible (ingreso de litros)  🟢 Mapa (marca coordenadas)  🔵 Avería
  *  (mantenimiento: caucho/aceite/filtro/repuesto con la cantidad a cambiar).
  */
-export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; route?: any; navigation?: any }) {
+export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; onSupervisorLogin?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -65,6 +65,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   // Acepta la máquina por prop (deep-link) o por parámetro de navegación (escáner).
   const machineId: string = props.machineId ?? props.route?.params?.machineId ?? '';
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
+  const onSupervisorLogin = props.onSupervisorLogin;
 
   const [loading, setLoading] = useState(true);
   const [machine, setMachine] = useState<(Machinery & { companyName?: string }) | null>(null);
@@ -403,6 +404,14 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, justifyContent: 'center' }}>
               <ActivityIndicator color={colors.primary} /><Text style={{ color: colors.muted }}>Obteniendo ubicación…</Text>
             </View>
+          ) : null}
+
+          {/* Supervisor: entrar con su nombre (login) en vez de la vista anónima. */}
+          {onSupervisorLogin ? (
+            <TouchableOpacity onPress={onSupervisorLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🪖 ¿Eres supervisor? Inicia sesión con tu nombre</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Para que quede registrada tu ronda con tu nombre.</Text>
+            </TouchableOpacity>
           ) : null}
         </View>
       ) : null}

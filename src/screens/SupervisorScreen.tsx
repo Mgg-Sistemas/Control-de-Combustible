@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -39,11 +39,12 @@ const statusLabel = (s: VisitStatus) => STATUS_OPTS.find((o) => o.key === s)?.la
  * Ese check-in VALIDA la jornada: sin visita, la máquina-día queda sin validar
  * (el operador no cobra). Ve sus máquinas asignadas (🪖) y puede escanear el QR.
  */
-export default function SupervisorScreen() {
+export default function SupervisorScreen({ initialMachineId, onConsumed }: { initialMachineId?: string; onConsumed?: () => void } = {}) {
   const { colors } = useTheme();
   const { session, signOut } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
+  const consumedRef = useRef(false);
 
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -110,6 +111,16 @@ export default function SupervisorScreen() {
       else setGpsErr(r.error ?? 'Sin ubicación.');
     });
   };
+
+  // Si llegó por el QR físico (?maquina=) tras iniciar sesión: abre directo el
+  // check-in de esa máquina (una sola vez) y limpia el parámetro de la URL.
+  useEffect(() => {
+    if (consumedRef.current || !initialMachineId || machines.length === 0) return;
+    consumedRef.current = true;
+    const found = machines.find((m) => m.id === initialMachineId);
+    if (found) openCheckin(found);
+    onConsumed?.();
+  }, [initialMachineId, machines]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recapture = () => {
     setGpsBusy(true); setGpsErr(null);
