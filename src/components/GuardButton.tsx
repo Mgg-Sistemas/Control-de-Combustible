@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, Alert } fro
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { MachineGuard } from '../types/database';
-import { assignGuard, clearGuard, listGuards, listGuardNames } from '../lib/guards';
+import { assignGuard, clearGuard, listGuards, listGuardNames, renameGuardName, deleteGuardName } from '../lib/guards';
 
 // Tipo de supervisor: se guarda en la columna `rank` del registro de guardia.
 const TIPOS = ['Supervisor Empresa', 'Supervisor Militar'] as const;
@@ -43,15 +43,74 @@ export function GuardButton({
   const [names, setNames] = useState<string[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Gestión de la lista de supervisores (renombrar / borrar en toda la BD).
+  const [manageOpen, setManageOpen] = useState(false);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [busyName, setBusyName] = useState<string | null>(null);
 
   const openModal = async () => {
     setName('');
     setRank(TIPOS[0]);
     setNote('');
     setShowSug(false);
+    setManageOpen(false);
+    setEditingName(null);
     setOpen(true);
     setHistory(await listGuards(machine.id));
     setNames(await listGuardNames());
+  };
+
+  const reloadNames = async () => {
+    setNames(await listGuardNames());
+    setHistory(await listGuards(machine.id));
+  };
+
+  const saveRename = async (oldName: string) => {
+    const to = editValue.trim();
+    if (!to) { Alert.alert('Aviso', 'Escribe el nombre nuevo.'); return; }
+    if (to === oldName) { setEditingName(null); return; }
+    setBusyName(oldName);
+    try {
+      const n = await renameGuardName(oldName, to);
+      setEditingName(null);
+      if (name === oldName) setName(to);
+      await reloadNames();
+      onChanged();
+      Alert.alert('Listo', `Se renombró en ${n} registro(s).`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'No se pudo renombrar.');
+    } finally {
+      setBusyName(null);
+    }
+  };
+
+  const removeName = (n: string) => {
+    Alert.alert(
+      'Borrar supervisor',
+      `¿Eliminar por completo a "${n}"? Se borran todos sus registros (historial y asignaciones). Las máquinas que custodiaba quedarán sin supervisor.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Borrar',
+          style: 'destructive',
+          onPress: async () => {
+            setBusyName(n);
+            try {
+              const c = await deleteGuardName(n);
+              if (name === n) setName('');
+              await reloadNames();
+              onChanged();
+              Alert.alert('Borrado', `Se eliminaron ${c} registro(s).`);
+            } catch (e: any) {
+              Alert.alert('Error', e?.message ?? 'No se pudo borrar.');
+            } finally {
+              setBusyName(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const save = async () => {
@@ -198,6 +257,60 @@ export function GuardButton({
                     </View>
                   ))}
                 </>
+              ) : null}
+
+              {/* Gestión global: renombrar o borrar supervisores en toda la BD. */}
+              <TouchableOpacity
+                onPress={() => { setManageOpen((v) => !v); setEditingName(null); }}
+                style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                  {manageOpen ? '▲ Ocultar gestión de supervisores' : '⚙️ Editar / borrar supervisores'}
+                </Text>
+              </TouchableOpacity>
+
+              {manageOpen ? (
+                <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                  {names.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>No hay supervisores registrados aún.</Text>
+                  ) : (
+                    names.map((n) => {
+                      const editing = editingName === n;
+                      const busy = busyName === n;
+                      return (
+                        <View key={n} style={{ borderTopWidth: 1, borderTopColor: colors.border, padding: spacing.sm, gap: 6 }}>
+                          {editing ? (
+                            <>
+                              <TextInput
+                                value={editValue} onChangeText={setEditValue} autoFocus
+                                placeholder="Nombre nuevo" placeholderTextColor={colors.muted}
+                                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.sm, padding: spacing.sm, color: colors.text }}
+                              />
+                              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                                <TouchableOpacity onPress={() => saveRename(n)} disabled={busy} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.sm, alignItems: 'center', backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }}>
+                                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{busy ? 'Guardando…' : 'Guardar'}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setEditingName(null)} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}>
+                                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </>
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                              <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>👤 {n}</Text>
+                              <TouchableOpacity onPress={() => { setEditingName(n); setEditValue(n); }} disabled={busy} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>✎ Editar</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => removeName(n)} disabled={busy} style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
+                                <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>{busy ? '…' : '🗑'}</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
               ) : null}
 
               <TouchableOpacity onPress={() => setOpen(false)} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', marginTop: spacing.md, backgroundColor: colors.surfaceAlt }}>
