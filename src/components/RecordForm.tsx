@@ -22,7 +22,7 @@ type ShowIf = (values: Record<string, string>) => boolean;
 export type Field =
   | { key: string; label: string; type: 'section'; showIf?: ShowIf } // encabezado de sección (no es un campo)
   | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string }
-  | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf }
+  | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
   | {
       key: string;
       label: string;
@@ -282,7 +282,9 @@ export function RecordForm({
                   {f.label}
                   {f.required ? ' *' : ''}
                 </Text>
-                {f.type === 'select' ? (
+                {f.type === 'select' && f.dropdown ? (
+                  <DropdownSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} placeholder={f.placeholder ?? 'Seleccionar…'} clearLabel="— Sin seleccionar" />
+                ) : f.type === 'select' ? (
                   <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
                 ) : f.type === 'suggest' ? (
                   <SuggestSelect options={lookups[f.key] ?? []} value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
@@ -294,6 +296,7 @@ export function RecordForm({
                     value={values[f.key]}
                     onChange={(v) => set(f.key, v)}
                     placeholder={f.placeholder ?? 'Seleccionar…'}
+                    clearLabel="— Sin empresa (general)"
                   />
                 ) : f.type === 'lookup' ? (
                   <SearchSelect
@@ -480,29 +483,37 @@ function SearchSelect({
   );
 }
 
-/** Lista DESPLEGABLE (toggle): muestra el valor elegido; al tocar se abre la lista
- *  y al elegir una opción se cierra sola. Al tocar de nuevo se oculta. Para pocas
- *  opciones (p. ej. las empresas). */
+/** Lista DESPLEGABLE (toggle) y BUSCABLE: muestra el valor elegido; al tocar se
+ *  abre la lista (con buscador si hay muchas opciones) y al elegir una se cierra
+ *  sola. Al tocar de nuevo se oculta. `clearLabel` agrega una opción para vaciar. */
 function DropdownSelect({
   options,
   value,
   onChange,
   placeholder = 'Seleccionar…',
+  clearLabel,
 }: {
   options: Option[];
   value?: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  clearLabel?: string;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const selected = options.find((o) => o.value === value);
+  const q = norm(query.trim());
+  const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
+  const showSearch = options.length > 6;
+
+  const close = () => { setOpen(false); setQuery(''); };
 
   return (
     <View>
       <TouchableOpacity
-        onPress={() => setOpen((v) => !v)}
+        onPress={() => (open ? close() : setOpen(true))}
         activeOpacity={0.8}
         style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
       >
@@ -513,25 +524,36 @@ function DropdownSelect({
       </TouchableOpacity>
 
       {open ? (
-        <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, maxHeight: 260, overflow: 'hidden' }}>
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, maxHeight: 300, overflow: 'hidden' }}>
+          {showSearch ? (
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="🔎 Buscar…"
+              placeholderTextColor={colors.muted}
+              autoFocus
+              style={{ padding: spacing.sm, color: colors.text, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}
+            />
+          ) : null}
           <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-            {/* Opción para dejarlo vacío (sin empresa / general). */}
-            <TouchableOpacity onPress={() => { onChange(''); setOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <Text style={{ color: colors.muted, fontSize: 14, fontStyle: 'italic' }}>— Sin empresa (general)</Text>
-            </TouchableOpacity>
-            {options.map((o) => {
+            {clearLabel ? (
+              <TouchableOpacity onPress={() => { onChange(''); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 14, fontStyle: 'italic' }}>{clearLabel}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {filtered.map((o) => {
               const active = o.value === value;
               return (
                 <TouchableOpacity
                   key={o.value}
-                  onPress={() => { onChange(o.value); setOpen(false); }}
+                  onPress={() => { onChange(o.value); close(); }}
                   style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.primary : 'transparent' }}
                 >
                   <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 14, fontWeight: active ? '800' : '500' }}>{o.label}</Text>
                 </TouchableOpacity>
               );
             })}
-            {options.length === 0 ? <Text style={{ color: colors.muted, padding: spacing.md, fontSize: 13 }}>Sin opciones.</Text> : null}
+            {filtered.length === 0 ? <Text style={{ color: colors.muted, padding: spacing.md, fontSize: 13 }}>Sin resultados.</Text> : null}
           </ScrollView>
         </View>
       ) : null}
