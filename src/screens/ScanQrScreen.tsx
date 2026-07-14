@@ -16,6 +16,20 @@ export function parseMachineId(text: string): string | null {
   return null;
 }
 
+/** Extrae el id de empleado del texto del QR del carnet (URL con ?empleado=…). */
+export function parseEmployeeId(text: string): string | null {
+  if (!text) return null;
+  try {
+    const u = new URL(text);
+    const id = u.searchParams.get('empleado');
+    if (id) return id;
+  } catch {}
+  const m = text.match(/empleado=([\w-]+)/i);
+  if (m) return m[1];
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text.trim())) return text.trim();
+  return null;
+}
+
 /** Pantalla del escáner: al detectar el QR de una máquina abre su vista rápida. */
 export default function ScanQrScreen({ navigation }: any) {
   const onDetected = (text: string) => {

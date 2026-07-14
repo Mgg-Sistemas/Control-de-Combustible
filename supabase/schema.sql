@@ -1187,5 +1187,32 @@ create index if not exists supervisor_visits_date_idx on public.supervisor_visit
 create index if not exists supervisor_visits_sup_idx on public.supervisor_visits(supervisor_id, visit_date);
 
 -- ============================================================================
+-- DISTRIBUCIÓN DE COMIDA: cada entrega a una persona (identificada por su
+-- carnet/QR) con la cantidad de comidas y la hora de entrega. La registra un
+-- usuario con rol 'cocina' (con sesión iniciada). El módulo "Distribución de
+-- comida" agrupa por persona y día.
+-- ============================================================================
+create table if not exists public.food_distributions (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references public.employees(id) on delete set null,
+  employee_name text not null,
+  cedula text,
+  meals integer not null default 1 check (meals > 0),
+  delivered_at timestamptz not null default now(),   -- hora de entrega
+  distribution_date date not null,                   -- día (ISO Caracas)
+  note text,
+  created_by uuid references public.profiles(id),    -- usuario Cocina que repartió
+  created_by_name text,
+  created_at timestamptz not null default now()
+);
+alter table public.food_distributions enable row level security;
+drop policy if exists fd_select on public.food_distributions;
+create policy fd_select on public.food_distributions for select to authenticated using (true);
+drop policy if exists fd_write on public.food_distributions;
+create policy fd_write on public.food_distributions for all to authenticated using (true) with check (true);
+create index if not exists food_dist_date_idx on public.food_distributions(distribution_date);
+create index if not exists food_dist_emp_idx on public.food_distributions(employee_id, distribution_date);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

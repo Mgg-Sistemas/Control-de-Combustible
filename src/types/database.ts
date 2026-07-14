@@ -2,7 +2,7 @@
 // Para regenerar automáticamente desde el esquema:
 //   npx supabase gen types typescript --project-id <ref> > src/types/supabase.ts
 
-export type UserRole = 'admin' | 'supervisor' | 'analista' | 'operador' | 'conductor';
+export type UserRole = 'admin' | 'supervisor' | 'analista' | 'operador' | 'conductor' | 'cocina';
 export type FuelType = 'gasolina' | 'diesel';
 export type AuthorizationStatus = 'pendiente' | 'aprobado' | 'rechazado';
 export type AssetKind = 'vehiculo' | 'maquinaria';
@@ -370,6 +370,21 @@ export interface MachineDayOperator {
   cedula: string | null;
   closed: boolean;
   updated_at: string;
+}
+
+/** Una entrega de comida a una persona (registrada por Cocina al escanear su carnet). */
+export interface FoodDistribution {
+  id: string;
+  employee_id: string | null;
+  employee_name: string;
+  cedula: string | null;
+  meals: number;
+  delivered_at: string;        // hora de entrega (ISO UTC)
+  distribution_date: string;   // día (ISO Caracas)
+  note: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
 }
 
 /** Estado con que el supervisor marca la máquina al visitarla. */

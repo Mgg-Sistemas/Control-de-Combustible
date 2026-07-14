@@ -167,6 +167,24 @@ qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de **"
 validar"** (máquinas que trabajaron pero que ningún supervisor marcó). Con las flechas ◀ ▶
 cambias de día.
 
+### 4.8c. Distribución de comida
+Lleva el control de **cuántas comidas** se le reparten a cada persona. Quien reparte es un
+usuario con **rol Cocina** (entra con su nombre y contraseña).
+
+**Cómo se registra una comida:**
+1. La persona de **Cocina** inicia sesión.
+2. **Escanea el carnet** de quien recibe (o lo busca por **cédula** si el carnet no lee).
+3. Ve los datos de la persona (foto, cargo, cédula).
+4. Con el contador **− / +** elige cuántas comidas se entregan.
+5. Toca **"🍽️ Registrar"**. Queda guardado con la **hora de entrega**.
+
+> Debajo se ve lo que ya se le entregó a esa persona **hoy** y el total. Si te equivocaste,
+> puedes borrar una entrega con 🗑.
+
+**Módulo "Distribución de comida" (en Más, para el jefe):** por día muestra cuántas comidas se
+repartieron y a quién, **agrupado por persona** con su total y el detalle (hora y quién la
+repartió). Con las flechas ◀ ▶ cambias de día.
+
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
 **rechaza**.
