@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity, View, Image, Platform } from 'react-native';
+import { Text, TouchableOpacity, View, Image, Platform, ActivityIndicator } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -217,12 +217,29 @@ export default function RootNavigator() {
   const { session, configured, locked, role, signOut } = useAuth();
   const [qrMachineId, clearQr] = useQrParam('maquina');
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
+  const [wantLogin, clearWantLogin] = useQrParam('login');
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
   const isAnon = !!(session as any)?.user?.is_anonymous;
   // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
-  const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); }, [isAnon, signOut, clearQr]);
+  const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); clearWantLogin(); }, [isAnon, signOut, clearQr, clearWantLogin]);
   const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); }, [isAnon, signOut, clearQrEmp]);
+  // Supervisor: desde la vista rápida del QR pide iniciar sesión (para que quede
+  // su nombre). Cierra la sesión anónima y marca ?login=1 conservando ?maquina.
+  const goSupervisorLogin = React.useCallback(() => {
+    if (isAnon) signOut();
+    if (Platform.OS === 'web') {
+      try {
+        const w: any = globalThis;
+        w.history.replaceState({}, '', `${w.location.pathname}?maquina=${qrMachineId}&login=1`);
+        w.location.reload();
+      } catch {}
+    }
+  }, [isAnon, signOut, qrMachineId]);
+  // Sesión real (no anónima) ya cargada.
+  const loggedInReal = !!session && !isAnon;
+  const loggedInSup = loggedInReal && role === 'supervisor';
+  const roleLoading = loggedInReal && role == null;
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -246,10 +263,23 @@ export default function RootNavigator() {
       {qrEmployeeId ? (
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo lectura).
         <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} />
+      ) : qrMachineId && loggedInSup ? (
+        // QR de máquina y hay un SUPERVISOR con sesión: abre su check-in con el
+        // nombre ya cargado (no la vista anónima de operador).
+        <SupervisorScreen initialMachineId={qrMachineId} onConsumed={exitQr} />
+      ) : qrMachineId && roleLoading ? (
+        // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : qrMachineId && wantLogin && !loggedInReal ? (
+        // El supervisor pidió iniciar sesión desde la vista rápida del QR.
+        <LoginScreen />
       ) : qrMachineId ? (
         // Se abrió por QR de una máquina: vista rápida SIN login (la pantalla
-        // inicia una sesión anónima para poder registrar la jornada).
-        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} />
+        // inicia una sesión anónima para poder registrar la jornada). El
+        // supervisor puede tocar "Soy supervisor" para entrar con su nombre.
+        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
       ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (
