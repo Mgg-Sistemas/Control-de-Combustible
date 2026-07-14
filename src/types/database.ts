@@ -204,6 +204,7 @@ export interface PayrollItem {
   cargo: string | null;
   ficha_number: string | null;
   cedula: string | null;
+  hire_date: string | null;   // fecha de ingreso (copiada del empleado)
   base_amount: number;
   additions: PayrollLine[];
   deductions: PayrollLine[];
