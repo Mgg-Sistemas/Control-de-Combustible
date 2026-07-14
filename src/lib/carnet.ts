@@ -31,17 +31,18 @@ export const carnetStyles = `
     border:0.4mm solid #16324F;border-radius:3mm;overflow:hidden;padding:2.5mm 2.5mm 1.5mm;
     display:flex;flex-direction:column;align-items:center}
   .wm{position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);width:66mm;opacity:.06;z-index:0}
-  .logo,.photo,.name,.cargo,.rows,.qr,.foot{position:relative;z-index:1}
-  .logo{height:12mm;width:auto;display:block;margin:0 auto 0.8mm}
-  .photo{width:19mm;height:23mm;object-fit:cover;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;display:block}
-  .photo.ph{display:flex;align-items:center;justify-content:center;font-size:11mm;color:#9aa7b6}
+  .logo,.photoBox,.name,.cargo,.rows,.qr,.foot{position:relative;z-index:1}
+  .logo{height:11mm;width:auto;display:block;margin:0 auto 0.8mm}
+  .photoBox{width:24mm;height:29mm;border-radius:2mm;border:0.6mm solid #16324F;background:#eef2f7;overflow:hidden;display:block;margin:0 auto}
+  .photo{width:100%;height:100%;object-fit:cover;transform:scale(1.08);display:block}
+  .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:13mm;color:#9aa7b6}
   .name{font-size:3.6mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1mm 0 0.2mm}
   .cargo{font-size:2.4mm;color:#5b6b7c;text-transform:uppercase;letter-spacing:.2mm;text-align:center;margin-bottom:0.8mm}
   .rows{width:100%;border-top:0.3mm solid #c9d6e6;padding-top:0.8mm}
   .row{display:flex;justify-content:space-between;gap:2mm;padding:0.4mm 0;font-size:2.6mm}
   .row .k{color:#7a8797;font-weight:600}
   .row .v{color:#16324F;font-weight:800;text-align:right}
-  .qr{width:18mm;height:18mm;margin:0.8mm auto 0;background:#fff;padding:0.6mm;border-radius:1mm}
+  .qr{width:17mm;height:17mm;margin:0.8mm auto 0;background:#fff;padding:0.6mm;border-radius:1mm}
   .qr svg{width:100%;height:100%;display:block}
   .foot{font-size:1.9mm;color:#7a8797;text-align:center;margin-top:auto;padding-top:1mm}
 `;
@@ -52,7 +53,9 @@ export const carnetStyles = `
 export function carnetCard(e: Employee, opts: { companyName?: string; qrSvg: string; photoOverride?: string }): string {
   const name = fullName(e);
   const src = opts.photoOverride ?? e.photo_url;
-  const photo = src ? `<img class="photo" src="${esc(src)}"/>` : `<div class="photo ph">👤</div>`;
+  const photo = src
+    ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>`
+    : `<div class="photoBox ph">👤</div>`;
   const row = (k: string, v?: string | null) =>
     v ? `<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>` : '';
   return `<div class="card">
