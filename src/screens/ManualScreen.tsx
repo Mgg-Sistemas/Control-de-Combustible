@@ -167,6 +167,7 @@ const SECTIONS: Sec[] = [
         'Toca "🍽️ Registrar". Queda guardado con la hora de entrega.',
       ] },
       { t: 'note', text: 'Debajo se ve lo que ya se le entregó a esa persona hoy y el total. Si te equivocaste, puedes borrar una entrega con 🗑.' },
+      { t: 'note', text: 'Si escaneas el carnet pegado (sticker) con la cámara del teléfono: estando con sesión de Cocina abre directo el registro de esa persona; si no has entrado, toca "🍽️ ¿Eres de cocina? Inicia sesión" y al entrar cae en el registro de esa misma persona.' },
       { t: 'p', text: 'Módulo "Distribución de comida" (en Más, para el jefe): por día muestra cuántas comidas se repartieron y a quién, agrupado por persona con su total y el detalle (hora y quién la repartió). Usa las flechas ◀ ▶ para cambiar de día.' },
     ],
   },
