@@ -21,6 +21,8 @@ import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScr
 import OperadoresScreen from '../screens/OperadoresScreen';
 import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
+import SupervisorScreen from '../screens/SupervisorScreen';
+import SupervisionScreen from '../screens/SupervisionScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
@@ -123,6 +125,7 @@ function MoreStack() {
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
+      <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Supervisión' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
@@ -254,6 +257,9 @@ export default function RootNavigator() {
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />
+      ) : role === 'supervisor' ? (
+        // El supervisor sale a revisar máquinas: su ronda con check-in (GPS + estado).
+        <SupervisorScreen />
       ) : (
         <Tabs />
       )}

@@ -1155,5 +1155,37 @@ create index if not exists idx_dispatches_date       on public.dispatches(dispat
 create index if not exists idx_employees_company     on public.employees(company_id);
 
 -- ============================================================================
+-- SUPERVISIÓN: ronda de supervisores. Cada visita (check-in) a una máquina con
+-- hora + GPS + estado (trabajando/parada/no está). VALIDA la jornada: si en un
+-- día una máquina con horas registradas NO tiene visita de supervisor, esa
+-- máquina-día queda "sin validar" (regla de negocio: el operador no cobra).
+-- El supervisor entra con su usuario (rol supervisor) a su propia vista.
+-- ============================================================================
+create table if not exists public.supervisor_visits (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  supervisor_id uuid references public.profiles(id),
+  supervisor_name text not null,
+  visit_date date not null,                 -- día (ISO Caracas) de la visita
+  visited_at timestamptz not null default now(),
+  status text not null default 'trabajando' -- 'trabajando' | 'parada' | 'no_esta'
+    check (status in ('trabajando','parada','no_esta')),
+  lat double precision,
+  lng double precision,
+  distance_m numeric,                       -- metros hasta la ubicación conocida de la máquina
+  near boolean,                             -- ¿dentro de la tolerancia? (más o menos cerca)
+  note text,
+  created_at timestamptz not null default now()
+);
+alter table public.supervisor_visits enable row level security;
+drop policy if exists sv_select on public.supervisor_visits;
+create policy sv_select on public.supervisor_visits for select to authenticated using (true);
+drop policy if exists sv_write on public.supervisor_visits;
+create policy sv_write on public.supervisor_visits for all to authenticated using (true) with check (true);
+create index if not exists supervisor_visits_machine_date_idx on public.supervisor_visits(machinery_id, visit_date);
+create index if not exists supervisor_visits_date_idx on public.supervisor_visits(visit_date);
+create index if not exists supervisor_visits_sup_idx on public.supervisor_visits(supervisor_id, visit_date);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

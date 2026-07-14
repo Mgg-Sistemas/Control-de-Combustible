@@ -143,6 +143,30 @@ Cuando una máquina necesita reparación, se registra aquí para llevar el contr
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
 campo.
 
+### 4.8b. Supervisión (rondas de supervisores)
+Sirve para saber si los supervisores **sí están yendo a las máquinas** a revisar que estén
+trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y ve su propia pantalla
+para salir a marcar máquinas.
+
+**Cómo marca el supervisor una máquina:**
+1. Entra con su nombre y contraseña (rol Supervisor).
+2. **Escanea el QR** de la máquina (o la toca en su lista "Mis máquinas a revisar").
+3. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
+4. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
+5. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
+
+> La cercanía es **amplia a propósito** (unos 300 m): si la máquina está trabajando y no se
+> puede interrumpir, basta con estar "más o menos cerca". Si está lejos, igual se guarda pero
+> queda marcado **"lejos ⚠️"**.
+
+> **REGLA IMPORTANTE:** si el supervisor **NO marca** una máquina que trabajó ese día, esa
+> jornada queda **"sin validar"** y **el operador no cobra**.
+
+**Módulo "Supervisión" (para el jefe, en Más):** muestra por día quién marcó cada máquina, a
+qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de **"⛔ Jornadas sin
+validar"** (máquinas que trabajaron pero que ningún supervisor marcó). Con las flechas ◀ ▶
+cambias de día.
+
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
 **rechaza**.
