@@ -40,7 +40,16 @@ jobs:
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          # Versión del build = SHA corto. El bundle la lleva incrustada y se
+          # compara contra dist/version.json para avisar de actualizaciones.
+          EXPO_PUBLIC_BUILD_ID: ${{ github.sha }}
         run: npx expo export -p web
+
+      - name: Publicar version.json (para el aviso de actualización)
+        run: |
+          mkdir -p dist
+          printf '{"v":"%s"}' "${{ github.sha }}" > dist/version.json
+          echo "version.json → $(cat dist/version.json)"
 
       - name: Publicar dist (commit a main)
         run: |
