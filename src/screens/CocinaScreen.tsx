@@ -28,11 +28,12 @@ type Person = { id: string; name: string; cedula: string | null; cargo: string |
  * busca por cédula), ve sus datos y registra cuántas comidas se le entregaron y
  * a qué hora. Todo queda guardado en el módulo "Distribución de comida".
  */
-export default function CocinaScreen() {
+export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initialEmployeeId?: string; onConsumed?: () => void } = {}) {
   const { colors } = useTheme();
   const { session, signOut } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
+  const consumedRef = React.useRef(false);
 
   const [myName, setMyName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -76,6 +77,15 @@ export default function CocinaScreen() {
     setNote('');
     setTodayList(await listForEmployeeDay(p.id, today));
   };
+
+  // Si llegó por el carnet físico (?empleado=) tras iniciar sesión como Cocina:
+  // abre directo el registro de esa persona (una sola vez) y limpia la URL.
+  React.useEffect(() => {
+    if (consumedRef.current || !initialEmployeeId || loading) return;
+    consumedRef.current = true;
+    openPerson(initialEmployeeId);
+    onConsumed?.();
+  }, [initialEmployeeId, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buscarPorCedula = async () => {
     const ci = cedula.trim();

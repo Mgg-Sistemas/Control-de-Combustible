@@ -33,10 +33,11 @@ const STATUS: Record<string, { label: string; color: string }> = {
  * Ficha del trabajador. Se abre al escanear su QR (deep-link ?empleado=<id>) o
  * desde el módulo Empleados. Muestra TODOS los datos + botón para imprimir el carnet.
  */
-export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; route?: any; navigation?: any }) {
+export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; onCocinaLogin?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const employeeId: string = props.employeeId ?? props.route?.params?.employeeId ?? '';
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
+  const onCocinaLogin = props.onCocinaLogin;
 
   const [loading, setLoading] = useState(true);
   const [emp, setEmp] = useState<(Employee & { companyName?: string }) | null>(null);
@@ -199,6 +200,13 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         <Section title="📝 Notas">
           <Text style={{ color: FICHA.text, fontSize: 13 }}>{emp.notes}</Text>
         </Section>
+      ) : null}
+
+      {/* Cocina: entrar con su nombre para registrar la comida de esta persona. */}
+      {onCocinaLogin ? (
+        <TouchableOpacity onPress={onCocinaLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E9E4A' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🍽️ ¿Eres de cocina? Inicia sesión para registrar comida</Text>
+        </TouchableOpacity>
       ) : null}
 
       <TouchableOpacity onPress={imprimirCarnet} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>

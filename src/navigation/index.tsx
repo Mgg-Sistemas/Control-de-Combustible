@@ -226,22 +226,26 @@ export default function RootNavigator() {
   const isAnon = !!(session as any)?.user?.is_anonymous;
   // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
   const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); clearWantLogin(); }, [isAnon, signOut, clearQr, clearWantLogin]);
-  const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); }, [isAnon, signOut, clearQrEmp]);
-  // Supervisor: desde la vista rápida del QR pide iniciar sesión (para que quede
-  // su nombre). Cierra la sesión anónima y marca ?login=1 conservando ?maquina.
-  const goSupervisorLogin = React.useCallback(() => {
+  const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); clearWantLogin(); }, [isAnon, signOut, clearQrEmp, clearWantLogin]);
+  // Pide iniciar sesión desde una vista abierta por QR (para que quede el nombre
+  // de quien registra). Cierra la sesión anónima y marca ?login=1 conservando el
+  // parámetro del QR (?maquina o ?empleado).
+  const goQrLogin = React.useCallback((param: 'maquina' | 'empleado', id: string) => {
     if (isAnon) signOut();
     if (Platform.OS === 'web') {
       try {
         const w: any = globalThis;
-        w.history.replaceState({}, '', `${w.location.pathname}?maquina=${qrMachineId}&login=1`);
+        w.history.replaceState({}, '', `${w.location.pathname}?${param}=${id}&login=1`);
         w.location.reload();
       } catch {}
     }
-  }, [isAnon, signOut, qrMachineId]);
+  }, [isAnon, signOut]);
+  const goSupervisorLogin = React.useCallback(() => goQrLogin('maquina', qrMachineId ?? ''), [goQrLogin, qrMachineId]);
+  const goCocinaLogin = React.useCallback(() => goQrLogin('empleado', qrEmployeeId ?? ''), [goQrLogin, qrEmployeeId]);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
+  const loggedInCocina = loggedInReal && role === 'cocina';
   const roleLoading = loggedInReal && role == null;
   const navTheme = {
     ...DefaultTheme,
@@ -263,9 +267,21 @@ export default function RootNavigator() {
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
     >
-      {qrEmployeeId ? (
-        // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo lectura).
-        <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} />
+      {qrEmployeeId && loggedInCocina ? (
+        // Carnet escaneado por COCINA con sesión: abre directo el registro de
+        // comida de esa persona (con el nombre de quien reparte ya cargado).
+        <CocinaScreen initialEmployeeId={qrEmployeeId} onConsumed={exitQrEmp} />
+      ) : qrEmployeeId && roleLoading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : qrEmployeeId && wantLogin && !loggedInReal ? (
+        // Cocina pidió iniciar sesión desde la ficha abierta por el carnet.
+        <LoginScreen />
+      ) : qrEmployeeId ? (
+        // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo
+        // lectura). Cocina puede tocar "Soy de cocina" para entrar con su nombre.
+        <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} />
       ) : qrMachineId && loggedInSup ? (
         // QR de máquina y hay un SUPERVISOR con sesión: abre su check-in con el
         // nombre ya cargado (no la vista anónima de operador).
