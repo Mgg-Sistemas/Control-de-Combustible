@@ -1123,6 +1123,7 @@ create table if not exists public.payroll_items (
   cargo text,
   ficha_number text,
   cedula text,
+  hire_date date,                                 -- fecha de ingreso (copiada del empleado)
   base_amount numeric(14,2) not null default 0,
   additions jsonb not null default '[]'::jsonb,   -- [{label, amount}]
   deductions jsonb not null default '[]'::jsonb,

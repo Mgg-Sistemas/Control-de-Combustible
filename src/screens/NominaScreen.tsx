@@ -75,11 +75,11 @@ export default function NominaScreen({ navigation }: any) {
     if (error || !per) { setCreating(false); return Alert.alert('Aviso', error?.message ?? 'No se pudo crear.'); }
     // Precarga: un renglón por cada empleado ACTIVO de la empresa, con su salario base.
     const { data: emps } = await supabase.from('employees')
-      .select('id, first_name, last_name, cargo, ficha_number, cedula, base_salary')
+      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary')
       .eq('company_id', cCompany).eq('status', 'activo');
     const rows = (emps ?? []).map((e: any) => {
       const base = Number(e.base_salary) || 0;
-      return { period_id: per.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, base_amount: base, additions: [], deductions: [], net_amount: base };
+      return { period_id: per.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, hire_date: e.hire_date ?? null, base_amount: base, additions: [], deductions: [], net_amount: base };
     });
     if (rows.length) await supabase.from('payroll_items').insert(rows);
     const total = rows.reduce((s, r) => s + r.net_amount, 0);
@@ -93,12 +93,12 @@ export default function NominaScreen({ navigation }: any) {
     if (!sel) return;
     setBusy(true);
     const { data: emps } = await supabase.from('employees')
-      .select('id, first_name, last_name, cargo, ficha_number, cedula, base_salary')
+      .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary')
       .eq('company_id', sel.company_id).eq('status', 'activo');
     const have = new Set(items.map((it) => it.employee_id));
     const rows = (emps ?? []).filter((e: any) => !have.has(e.id)).map((e: any) => {
       const base = Number(e.base_salary) || 0;
-      return { period_id: sel.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, base_amount: base, additions: [], deductions: [], net_amount: base };
+      return { period_id: sel.id, employee_id: e.id, employee_name: `${e.first_name} ${e.last_name}`.trim(), cargo: e.cargo, ficha_number: e.ficha_number, cedula: e.cedula, hire_date: e.hire_date ?? null, base_amount: base, additions: [], deductions: [], net_amount: base };
     });
     if (rows.length) await supabase.from('payroll_items').insert(rows);
     await loadItems(sel.id);
@@ -180,6 +180,7 @@ export default function NominaScreen({ navigation }: any) {
           <tr><td>Cargo</td><td style="text-align:right">${it.cargo ?? '—'}</td></tr>
           <tr><td>N° de ficha</td><td style="text-align:right">${it.ficha_number ?? '—'}</td></tr>
           <tr><td>Cédula</td><td style="text-align:right">${it.cedula ?? '—'}</td></tr>
+          <tr><td>Fecha de ingreso</td><td style="text-align:right">${fmtDMY(it.hire_date)}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)}</td></tr>
         </tbody></table>
         <table><thead><tr><th>Asignaciones</th><th style="text-align:right">Monto</th></tr></thead>
@@ -198,7 +199,7 @@ export default function NominaScreen({ navigation }: any) {
   const reportePdf = async () => {
     if (!sel) return;
     const rows = items.map((it) =>
-      `<tr><td>${it.employee_name ?? '—'}</td><td>${it.cargo ?? '—'}</td><td>${it.ficha_number ?? '—'}</td>` +
+      `<tr><td>${it.employee_name ?? '—'}</td><td>${it.cargo ?? '—'}</td><td>${it.ficha_number ?? '—'}</td><td>${fmtDMY(it.hire_date)}</td>` +
       `<td style="text-align:right">${usd(it.base_amount)}</td><td style="text-align:right">${usd(sumLines(it.additions))}</td>` +
       `<td style="text-align:right">${usd(sumLines(it.deductions))}</td><td style="text-align:right;font-weight:800">${usd(it.net_amount)}</td></tr>`
     ).join('');
@@ -210,10 +211,10 @@ export default function NominaScreen({ navigation }: any) {
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7;font-weight:800}`,
       body: `
-        <table><thead><tr><th>Empleado</th><th>Cargo</th><th>Ficha</th><th style="text-align:right">Base</th>
+        <table><thead><tr><th>Empleado</th><th>Cargo</th><th>Ficha</th><th>Ingreso</th><th style="text-align:right">Base</th>
           <th style="text-align:right">Asign.</th><th style="text-align:right">Deducc.</th><th style="text-align:right">Neto</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7" style="text-align:center">Sin empleados</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="6" style="text-align:right">TOTAL A PAGAR (${items.length} empleado(s))</td><td style="text-align:right">${usd(total)}</td></tr></tfoot></table>`,
+        <tbody>${rows || '<tr><td colspan="8" style="text-align:center">Sin empleados</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL A PAGAR (${items.length} empleado(s))</td><td style="text-align:right">${usd(total)}</td></tr></tfoot></table>`,
     });
     await exportPdf(html, `Nomina - ${sel.name}`);
   };
@@ -395,6 +396,7 @@ export default function NominaScreen({ navigation }: any) {
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{it.employee_name}</Text>
                         <Text style={{ color: colors.muted, fontSize: 12 }}>{[it.cargo, it.ficha_number ? `Ficha ${it.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
+                        {it.hire_date ? <Text style={{ color: colors.muted, fontSize: 12 }}>📅 Ingreso: {fmtDMY(it.hire_date)}</Text> : null}
                         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                           Base {usd(it.base_amount)}{sumLines(it.additions) ? ` · +${usd(sumLines(it.additions))}` : ''}{sumLines(it.deductions) ? ` · −${usd(sumLines(it.deductions))}` : ''}
                         </Text>
@@ -431,7 +433,8 @@ export default function NominaScreen({ navigation }: any) {
             {editItem ? (
               <ScrollView>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>{editItem.employee_name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{editItem.cargo ?? ''}{editItem.ficha_number ? ` · Ficha ${editItem.ficha_number}` : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{editItem.cargo ?? ''}{editItem.ficha_number ? ` · Ficha ${editItem.ficha_number}` : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{editItem.hire_date ? `📅 Ingreso: ${fmtDMY(editItem.hire_date)}` : ''}</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Sueldo base ($)</Text>
                 <TextInput value={eBase} onChangeText={(t) => setEBase(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" editable={!readOnly} placeholder="0" placeholderTextColor={colors.muted} style={input} />
