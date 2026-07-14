@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
+import { cropImageWeb } from '../components/PhotoCropper';
 
 // Decodifica base64 a bytes (sin depender de atob/Buffer, sirve en web y nativo).
 const CH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -84,6 +85,49 @@ export async function captureAndUploadPhoto(
   const body = await assetToBody(res.assets[0]);
   if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
   const path = `${machineryId}/${folder}/${Date.now()}.jpg`;
+  return uploadToMachinery(path, body);
+}
+
+/**
+ * Toma/selecciona la foto de un EMPLEADO y la normaliza a un encuadre estándar
+ * (5:6) antes de subir, para que todos los carnets se vean parejos.
+ * - Web: pasa por el recortador con guía (óvalo para centrar el rostro).
+ * - Nativo: usa el editor propio de ImagePicker (allowsEditing + aspect 5:6... el
+ *   nativo solo admite enteros, usamos [5,6]).
+ */
+export async function captureAndUploadEmployeePhoto(
+  employeeId: string,
+  folder = 'empleados'
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const web = Platform.OS === 'web';
+  let res: ImagePicker.ImagePickerResult | null = null;
+  try {
+    const cam = await ImagePicker.requestCameraPermissionsAsync();
+    if (cam.granted) {
+      res = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] });
+    }
+  } catch {
+    res = null;
+  }
+  if (!res || res.canceled || !res.assets?.[0]) {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return { ok: false, error: 'Permiso de cámara/galería denegado.' };
+    res = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] });
+  }
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+
+  const asset = res.assets[0];
+  let body: Blob | Uint8Array | null = null;
+  if (web) {
+    // Recortador con guía → devuelve el Blob ya normalizado (o null si cancela).
+    const blob = await cropImageWeb(asset.uri);
+    if (!blob) return { ok: false }; // canceló el recorte
+    body = blob;
+  } else {
+    body = await assetToBody(asset);
+  }
+  if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
+  const path = `${employeeId}/${folder}/${Date.now()}.jpg`;
   return uploadToMachinery(path, body);
 }
 
