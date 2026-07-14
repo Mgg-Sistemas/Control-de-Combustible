@@ -60,6 +60,7 @@ const FIELDS: Field[] = [
   { key: '__sec_banco', label: '🏦 Datos bancarios', type: 'section' },
   { key: 'bank_name', label: 'Banco', type: 'select', options: BANCOS_VE },
   { key: 'bank_account', label: 'N° de cuenta', type: 'text' },
+  { key: 'bank_holder', label: 'Titular (nombre y apellido)', type: 'text' },
   { key: 'bank_cedula', label: 'Cédula del titular', type: 'text' },
   { key: 'notes', label: 'Notas', type: 'text' },
 ];
@@ -199,7 +200,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                       </Text>
                       {e.bank_name || e.bank_account ? (
                         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                          🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
+                          🏦 {[e.bank_name, e.bank_account ? `Cta. ${e.bank_account}` : '', e.bank_holder || '', e.bank_cedula ? `C.I ${e.bank_cedula}` : ''].filter(Boolean).join(' · ')}
                         </Text>
                       ) : null}
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>

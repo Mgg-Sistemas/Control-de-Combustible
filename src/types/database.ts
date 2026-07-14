@@ -147,6 +147,7 @@ export interface Employee {
   salary_currency: string | null;
   bank_name: string | null;      // banco (datos bancarios)
   bank_account: string | null;   // número de cuenta
+  bank_holder: string | null;    // nombre y apellido del titular
   bank_cedula: string | null;    // cédula del titular
   notes: string | null;
   created_by: string | null;
