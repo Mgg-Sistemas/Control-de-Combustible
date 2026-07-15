@@ -1101,6 +1101,61 @@ create trigger trg_employee_ficha before insert on public.employees
   for each row execute function public.set_employee_ficha();
 
 -- ============================================================================
+-- ALIADOS — colaboradores externos con ficha y carnet propios (QR con sus datos)
+-- ============================================================================
+create table if not exists public.aliados (
+  id uuid primary key default gen_random_uuid(),
+  ficha_number text,                       -- 4 dígitos ALEATORIO único (no repetible)
+  first_name text not null,
+  last_name text not null,
+  cedula text,
+  organizacion text,                       -- empresa/institución del aliado
+  rol text,                                -- rol o cargo del aliado
+  photo_url text,
+  blood_type text,
+  phone text,
+  email text,
+  address text,
+  city text,
+  state text,
+  status text not null default 'activo',
+  notes text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists uq_aliados_cedula on public.aliados (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
+create unique index if not exists uq_aliados_ficha  on public.aliados (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
+alter table public.aliados enable row level security;
+-- Lectura pública (el QR de la ficha se abre con sesión anónima, igual que empleados).
+drop policy if exists aliados_read on public.aliados;
+create policy aliados_read on public.aliados for select using (true);
+drop policy if exists aliados_write on public.aliados;
+create policy aliados_write on public.aliados for all to authenticated using (true) with check (true);
+-- N° de ficha ALEATORIO de 4 dígitos, ÚNICO (no repetible), asignado al crear.
+create or replace function public.set_aliado_ficha() returns trigger language plpgsql as $fn$
+declare cand text; tries int := 0;
+begin
+  if new.ficha_number is null or btrim(new.ficha_number) = '' then
+    loop
+      cand := lpad((floor(random()*10000))::int::text, 4, '0');
+      exit when not exists (select 1 from public.aliados where ficha_number = cand);
+      tries := tries + 1;
+      if tries > 300 then
+        select lpad(g::text,4,'0') into cand from generate_series(0,9999) g
+          where not exists (select 1 from public.aliados a where a.ficha_number = lpad(g::text,4,'0'))
+          order by g limit 1;
+        exit;
+      end if;
+    end loop;
+    new.ficha_number := cand;
+  end if;
+  return new;
+end $fn$;
+drop trigger if exists trg_aliado_ficha on public.aliados;
+create trigger trg_aliado_ficha before insert on public.aliados
+  for each row execute function public.set_aliado_ficha();
+
+-- ============================================================================
 -- NÓMINA (Fase 2) — períodos y renglones por empleado
 -- Datos sensibles: lectura SOLO para usuarios autenticados (no anónimos).
 -- ============================================================================

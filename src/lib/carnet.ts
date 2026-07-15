@@ -86,3 +86,49 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
     ${carnetStyles}
   </style></head><body>${carnetCard(e, opts)}</body></html>`;
 }
+
+/** Aliado mínimo para el carnet (mismos campos que se muestran). */
+export type AliadoCard = {
+  first_name?: string | null;
+  last_name?: string | null;
+  ficha_number?: string | null;
+  cedula?: string | null;
+  organizacion?: string | null;
+  photo_url?: string | null;
+};
+
+/** Solo el <div class="card"> del carnet de ALIADO (mismo formato del empleado,
+ *  con la etiqueta "ALIADO"). `photoOverride` reemplaza la foto (para exportar imagen). */
+export function carnetAliadoCard(a: AliadoCard, opts: { qrSvg: string; photoOverride?: string }): string {
+  const name = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
+  const src = opts.photoOverride ?? a.photo_url;
+  const photo = src
+    ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>`
+    : `<div class="photoBox ph">👤</div>`;
+  const row = (k: string, v?: string | null) =>
+    v ? `<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>` : '';
+  return `<div class="card">
+      <img class="wm" src="${LOGO_DATA_URI}"/>
+      <img class="logo" src="${LOGO_DATA_URI}"/>
+      ${photo}
+      <div class="name">${esc(name)}</div>
+      <div class="cargo">ALIADO</div>
+      <div class="rows">
+        ${row('N° de ficha', a.ficha_number)}
+        ${row('Cédula', a.cedula)}
+        ${row('Organización', a.organizacion)}
+      </div>
+      <div class="qr">${opts.qrSvg}</div>
+      <div class="foot">Aliado · Carnet de Identificación</div>
+    </div>`;
+}
+
+/** Carnet imprimible de ALIADO (54×86 mm). */
+export function carnetAliadoHtml(a: AliadoCard, opts: { qrSvg: string }): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
+    @page{size:${CARNET_MM.w}mm ${CARNET_MM.h}mm;margin:0}
+    body{display:flex;justify-content:center;align-items:flex-start}
+    @media screen{ body{ padding:16px } }
+    ${carnetStyles}
+  </style></head><body>${carnetAliadoCard(a, opts)}</body></html>`;
+}
