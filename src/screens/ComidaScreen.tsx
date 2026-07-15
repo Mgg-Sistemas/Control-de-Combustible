@@ -195,7 +195,10 @@ export default function ComidaScreen() {
         .qlogo{height:28mm;width:auto}
         .qimg{width:36mm;height:36mm}
         .qname{margin-top:3mm;font-weight:800;font-size:5mm;color:#16324F;text-align:center;letter-spacing:.2mm}`;
-      const card = `<div class="qcard"><div class="qrow"><img class="qlogo" src="${LOGO_DATA_URI}"/><img class="qimg" src="${qr}"/></div><div class="qname">🍽️ ${c.name}</div></div>`;
+      // Escapar el nombre: si trae &, < o > rompe el XML del SVG y no descarga
+      // nada (p. ej. "INGENIERIA & LOGISTICA COSTA BRAVA, C.A").
+      const safeName = c.name.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] as string));
+      const card = `<div class="qcard"><div class="qrow"><img class="qlogo" src="${LOGO_DATA_URI}"/><img class="qimg" src="${qr}"/></div><div class="qname">🍽️ ${safeName}</div></div>`;
       await exportCardImage({
         styles, card, mmW: 90, mmH: 54, dpi: 300,
         fileName: `QR comida - ${c.name}`,
