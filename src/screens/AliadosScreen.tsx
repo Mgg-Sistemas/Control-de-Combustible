@@ -6,7 +6,8 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
-import { captureAndUploadEmployeePhoto } from '../lib/photo';
+import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
+import { useConfirm } from '../components/ConfirmProvider';
 import { Aliado } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -36,6 +37,7 @@ const FIELDS: Field[] = [
 
 export default function AliadosScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const confirm = useConfirm();
   const { data: aliados, loading, refetch } = useTable<Aliado>('aliados', { orderBy: 'first_name' });
   const [query, setQuery] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -67,6 +69,15 @@ export default function AliadosScreen({ navigation }: any) {
     } else if (r.error) {
       Alert.alert('Aviso', r.error);
     }
+    setBusy(null);
+  };
+
+  const borrarFoto = async (a: Aliado) => {
+    const ok = await confirm({ title: 'Quitar foto', message: `¿Quitar la foto de ${fullName(a)}?`, confirmText: 'Quitar', cancelText: 'Cancelar', danger: true });
+    if (!ok) return;
+    setBusy(a.id + '-photo');
+    const r = await removePhoto('aliados', a.id);
+    if (!r.ok && r.error) Alert.alert('Aviso', r.error); else refetch();
     setBusy(null);
   };
 
@@ -129,6 +140,9 @@ export default function AliadosScreen({ navigation }: any) {
                   <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(a)} />
                   <Btn label="🪪 Carnet" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
                   <Btn label={busy === a.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === a.id + '-photo'} onPress={() => subirFoto(a)} />
+                  {a.photo_url ? (
+                    <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === a.id + '-photo'} onPress={() => borrarFoto(a)} />
+                  ) : null}
                 </View>
               </>
             }

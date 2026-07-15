@@ -6,7 +6,8 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
-import { captureAndUploadEmployeePhoto } from '../lib/photo';
+import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
+import { useConfirm } from '../components/ConfirmProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { exportPdf } from '../lib/pdf';
@@ -37,7 +38,7 @@ const FIELDS: Field[] = [
   { key: 'last_name', label: 'Apellido', type: 'text', required: true },
   { key: 'cedula', label: 'Cédula', type: 'text' },
   { key: 'company_id', label: 'Empresa', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
-  { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo' },
+  { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo', dropdown: true, placeholder: 'Elegir cargo…' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
   { key: 'grupo', label: 'Grupo / zona', type: 'suggest', table: 'employees', column: 'grupo' },
   { key: 'blood_type', label: 'Grupo sanguíneo', type: 'select', options: BLOOD },
@@ -67,6 +68,7 @@ const FIELDS: Field[] = [
 
 export default function EmpleadosScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const confirm = useConfirm();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
@@ -114,6 +116,15 @@ export default function EmpleadosScreen({ navigation }: any) {
     } else if (r.error) {
       Alert.alert('Aviso', r.error);
     }
+    setBusy(null);
+  };
+
+  const borrarFoto = async (e: Employee) => {
+    const ok = await confirm({ title: 'Quitar foto', message: `¿Quitar la foto de ${fullName(e)}?`, confirmText: 'Quitar', cancelText: 'Cancelar', danger: true });
+    if (!ok) return;
+    setBusy(e.id + '-photo');
+    const r = await removePhoto('employees', e.id);
+    if (!r.ok && r.error) Alert.alert('Aviso', r.error); else refetch();
     setBusy(null);
   };
 
@@ -190,6 +201,9 @@ export default function EmpleadosScreen({ navigation }: any) {
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
+                        {e.photo_url ? (
+                          <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
+                        ) : null}
                       </View>
                     </>
                   }
