@@ -387,7 +387,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   const saveOperator = async () => {
     if (!opFor) return;
-    const full = `${opFirst.trim()} ${opLast.trim()}`.trim();
+    const full = `${opFirst.trim()} ${opLast.trim()}`.trim().toUpperCase();
     const patch =
       opFor.which === 'day'
         ? { day_operator: full || null, day_operator_ci: opCedula.trim() || null }
