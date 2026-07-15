@@ -99,31 +99,28 @@ export type AliadoCard = {
 
 export const CARNET_ALIADO_MM = { w: 54, h: 86 };
 
-// Diseño credencial tipo "olas azules" sobre blanco (sin fondo/marca de agua).
-// Dos caras: FRENTE (logo + foto + nombre + N° de ficha) y REVERSO (QR).
+// Diseño credencial "olas azules" sobre blanco. UNA sola cara (frente):
+// logo + foto + nombre + N° de ficha + QR.
 export const carnetAliadoStyles = `
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{margin:0;padding:0}
   body{font-family:Tahoma,Geneva,Verdana,sans-serif}
   .card{position:relative;width:54mm;height:86mm;background:#fff;border-radius:3mm;overflow:hidden;
-    display:flex;flex-direction:column;align-items:center;padding:12mm 4mm 9mm}
+    display:flex;flex-direction:column;align-items:center;padding:7mm 4mm 6mm}
   .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
-  .logo,.blogo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel,.lost{position:relative;z-index:1}
-  .logo{height:10mm;width:auto;margin:0 auto 1.5mm;display:block}
-  .blogo{height:14mm;width:auto;margin:0 auto 2mm;display:block}
-  .photoBox{width:26mm;height:31mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
-  .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:14mm;color:#9aa7b6}
+  .logo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel{position:relative;z-index:1}
+  .logo{height:8mm;width:auto;margin:0 auto 1mm;display:block}
+  .photoBox{width:24mm;height:26mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
+  .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:13mm;color:#9aa7b6}
   .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
-  .name{font-size:4mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1.6mm 0 0.6mm}
-  .kind{font-size:2.6mm;font-weight:800;color:#fff;background:#16324F;border-radius:1.2mm;padding:0.8mm 4mm;letter-spacing:.5mm}
-  .ficha{margin-top:1.4mm;text-align:center}
-  .ficha small{display:block;font-size:2.2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
-  .ficha b{font-size:7mm;font-weight:900;color:#16324F;letter-spacing:1.5mm}
-  .qr{width:25mm;height:25mm;background:#fff;padding:1mm;border-radius:1mm;margin:2mm auto 0}
+  .name{font-size:3.8mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1.2mm 0 0.4mm}
+  .kind{font-size:2.4mm;font-weight:800;color:#fff;background:#16324F;border-radius:1.2mm;padding:0.7mm 3.5mm;letter-spacing:.5mm}
+  .ficha{margin-top:1mm;text-align:center}
+  .ficha small{display:block;font-size:2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
+  .ficha b{font-size:5.5mm;font-weight:900;color:#16324F;letter-spacing:1.2mm}
+  .qr{width:15mm;height:15mm;background:#fff;padding:0.8mm;border-radius:1mm;margin:1.5mm auto 0}
   .qr svg,.qr img{width:100%;height:100%;display:block}
-  .qrlabel{font-size:2.9mm;font-weight:800;color:#16324F;text-align:center;letter-spacing:.3mm;margin:2mm 0 0}
-  .lost{font-size:2.5mm;color:#334155;text-align:center;margin-top:2mm;padding:0 3mm;line-height:1.35}
-  .lost b{color:#16324F;display:block;margin-top:1mm}
+  .qrlabel{font-size:2mm;font-weight:700;color:#5b6b7c;text-align:center;letter-spacing:.2mm;margin:0.8mm 0 0}
 `;
 
 /** SVG de olas azules (fondo decorativo del carnet, arriba y abajo). */
@@ -138,11 +135,21 @@ function aliadoWave(): string {
   </svg>`;
 }
 
-/** FRENTE del carnet de aliado (logo + foto + nombre + N° de ficha). */
-export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string } = {}): string {
+/** Convierte el QR (svg o data URI) en <img> para que siempre se rasterice al exportar. */
+function qrToImg(qr?: string): string {
+  const q = (qr || '').trim();
+  if (!q) return '';
+  if (q.startsWith('data:')) return `<img src="${q}"/>`;
+  if (q.startsWith('<svg')) return `<img src="data:image/svg+xml;utf8,${encodeURIComponent(q)}"/>`;
+  return q;
+}
+
+/** ÚNICA cara del carnet de aliado: logo + foto + nombre + N° de ficha + QR. */
+export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string; qrSvg?: string } = {}): string {
   const name = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
   const src = opts.photoOverride ?? a.photo_url;
   const photo = src ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>` : `<div class="photoBox ph">👤</div>`;
+  const qr = qrToImg(opts.qrSvg);
   return `<div class="card">
       ${aliadoWave()}
       <img class="logo" src="${LOGO_DATA_URI}"/>
@@ -150,37 +157,16 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string 
       <div class="name">${esc(name)}</div>
       <div class="kind">ALIADO</div>
       <div class="ficha"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
+      ${qr ? `<div class="qr">${qr}</div><div class="qrlabel">QR de acceso y control</div>` : ''}
     </div>`;
 }
 
-/** REVERSO del carnet de aliado (QR + aviso de pérdida). */
-export function carnetAliadoBack(a: AliadoCard, opts: { qrSvg: string }): string {
-  // El QR se embebe como imagen (data URI) para que SIEMPRE se rasterice al
-  // exportar la imagen (el <svg> suelto a veces no sale en el PNG).
-  const q = (opts.qrSvg || '').trim();
-  const qr = q
-    ? (q.startsWith('data:')
-        ? `<img src="${q}"/>`
-        : q.startsWith('<svg')
-          ? `<img src="data:image/svg+xml;utf8,${encodeURIComponent(q)}"/>`
-          : q)
-    : '';
-  return `<div class="card">
-      ${aliadoWave()}
-      <img class="blogo" src="${LOGO_DATA_URI}"/>
-      <div class="qr">${qr}</div>
-      <div class="qrlabel">QR de acceso y control</div>
-      <div class="lost">En caso de pérdida, por favor comunicarse a la empresa.<b>N° de ficha ${esc(a.ficha_number || '----')}</b></div>
-    </div>`;
-}
-
-/** Carnet imprimible de ALIADO (54×86 mm) — dos caras (frente + reverso). */
-export function carnetAliadoHtml(a: AliadoCard, opts: { qrSvg: string; photoOverride?: string }): string {
+/** Carnet imprimible de ALIADO (54×86 mm) — una sola cara (frente con QR). */
+export function carnetAliadoHtml(a: AliadoCard, opts: { qrSvg?: string; photoOverride?: string }): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
     @page{size:${CARNET_ALIADO_MM.w}mm ${CARNET_ALIADO_MM.h}mm;margin:0}
     body{margin:0}
-    .card{page-break-after:always}
-    @media screen{ body{ display:flex; gap:16px; padding:16px; flex-wrap:wrap } .card{page-break-after:auto} }
+    @media screen{ body{ display:flex; padding:16px } }
     ${carnetAliadoStyles}
-  </style></head><body>${carnetAliadoFront(a, opts)}${carnetAliadoBack(a, opts)}</body></html>`;
+  </style></head><body>${carnetAliadoFront(a, opts)}</body></html>`;
 }
