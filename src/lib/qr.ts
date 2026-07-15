@@ -30,6 +30,11 @@ export function aliadoQrUrl(aliadoId: string): string {
   return `${QR_ORIGIN}/?aliado=${encodeURIComponent(aliadoId)}`;
 }
 
+/** URL del QR de DISTRIBUCIÓN DE COMIDA por empresa: abre el registro de comidas de esa empresa. */
+export function comidaQrUrl(companyId: string): string {
+  return `${QR_ORIGIN}/?comida=${encodeURIComponent(companyId)}`;
+}
+
 /** Genera el QR como cadena SVG (puro, sin canvas — funciona en web y en print). */
 export async function qrSvg(text: string, size = 240): Promise<string> {
   return QRCode.toString(text, { type: 'svg', margin: 1, width: size });

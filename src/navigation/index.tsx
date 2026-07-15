@@ -25,6 +25,7 @@ import SupervisorScreen from '../screens/SupervisorScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
 import CocinaScreen from '../screens/CocinaScreen';
 import ComidaScreen from '../screens/ComidaScreen';
+import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import MapScreen from '../screens/MapScreen';
@@ -225,6 +226,7 @@ export default function RootNavigator() {
   const [qrMachineId, clearQr] = useQrParam('maquina');
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
   const [qrAliadoId, clearQrAliado] = useQrParam('aliado');
+  const [qrComidaId, clearQrComida] = useQrParam('comida');
   const [wantLogin, clearWantLogin] = useQrParam('login');
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
@@ -233,6 +235,7 @@ export default function RootNavigator() {
   const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); clearWantLogin(); }, [isAnon, signOut, clearQr, clearWantLogin]);
   const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); clearWantLogin(); }, [isAnon, signOut, clearQrEmp, clearWantLogin]);
   const exitQrAliado = React.useCallback(() => { if (isAnon) { signOut(); } clearQrAliado(); }, [isAnon, signOut, clearQrAliado]);
+  const exitQrComida = React.useCallback(() => { if (isAnon) { signOut(); } clearQrComida(); }, [isAnon, signOut, clearQrComida]);
   // Pide iniciar sesión desde una vista abierta por QR (para que quede el nombre
   // de quien registra). Cierra la sesión anónima y marca ?login=1 conservando el
   // parámetro del QR (?maquina o ?empleado).
@@ -273,7 +276,11 @@ export default function RootNavigator() {
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
     >
-      {qrAliadoId ? (
+      {qrComidaId ? (
+        // Se abrió por QR de DISTRIBUCIÓN DE COMIDA de una empresa: registrar comidas
+        // (la cocina se verifica con su carnet). Público: inicia sesión anónima.
+        <FoodCompanyScreen companyId={qrComidaId} onExit={exitQrComida} />
+      ) : qrAliadoId ? (
         // Se abrió por QR de un aliado: ficha del aliado (solo lectura, sin login).
         <AliadoCardScreen aliadoId={qrAliadoId} onExit={exitQrAliado} />
       ) : qrEmployeeId && loggedInCocina ? (

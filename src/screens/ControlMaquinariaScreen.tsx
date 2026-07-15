@@ -210,10 +210,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       const cmap: Record<string, string> = {};
       (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
       setCompanies(cmap);
-      // El control activo ignora lo ya cerrado (archivado en el histórico); esos datos
-      // siguen en la BD y cuentan para pagos/reportes, pero no se editan aquí.
+      // El control muestra TODO (abierto y cerrado) al navegar por semanas. Lo cerrado
+      // queda archivado en el histórico PERO también se ve aquí y se puede seguir
+      // editando (p. ej. agregar días que faltaron). Cada ronda conserva su marca
+      // `closed` y su precio congelado (`frozen_price`) al editarse.
       const map: Record<string, MachineRound> = {};
-      (r ?? []).forEach((row: any) => { if (!row.closed) map[rkey(row.machinery_id, row.round_date)] = row; });
+      (r ?? []).forEach((row: any) => { map[rkey(row.machinery_id, row.round_date)] = row; });
       setRounds(map);
       if (!silent) { setHoursInput({}); setOvertimeInput({}); }
     } catch (e: any) {
@@ -1288,7 +1290,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                   return (
                     <View key={dISO} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{dayLabel(dISO)}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{dayLabel(dISO)}</Text>
+                          {b?.closed ? (
+                            <Text style={{ color: colors.warning, fontSize: 10, fontWeight: '800' }}>🔒 cerrado</Text>
+                          ) : null}
+                        </View>
                         <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13 }}>{worked} h · {shiftLabel(dayH + nightH)}</Text>
                       </View>
                       {(['day', 'night'] as const).map((which) => {

@@ -1270,6 +1270,34 @@ create policy fd_write on public.food_distributions for all to authenticated usi
 create index if not exists food_dist_date_idx on public.food_distributions(distribution_date);
 create index if not exists food_dist_emp_idx on public.food_distributions(employee_id, distribution_date);
 
+-- Distribución de comida POR EMPRESA: al escanear el QR de una empresa, la cocina
+-- registra por comida (desayuno/almuerzo/cena) cuántas entregó ese día. Sugerido =
+-- (máquinas de la empresa × 2) + 15. Una sola vez por (empresa, comida, día).
+create table if not exists public.food_company_meals (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  company_name text not null,
+  meal_type text not null check (meal_type in ('desayuno','almuerzo','cena')),
+  meal_date date not null,
+  machines integer not null default 0,
+  suggested integer not null default 0,
+  delivered integer not null default 0 check (delivered >= 0),
+  delivered_at timestamptz not null default now(),
+  note text,
+  created_by uuid references public.profiles(id),
+  created_by_name text,
+  created_by_cargo text,
+  created_at timestamptz not null default now(),
+  unique (company_id, meal_type, meal_date)
+);
+alter table public.food_company_meals enable row level security;
+drop policy if exists fcm_select on public.food_company_meals;
+create policy fcm_select on public.food_company_meals for select to authenticated using (true);
+drop policy if exists fcm_write on public.food_company_meals;
+create policy fcm_write on public.food_company_meals for all to authenticated using (true) with check (true);
+create index if not exists fcm_date_idx on public.food_company_meals(meal_date);
+create index if not exists fcm_company_idx on public.food_company_meals(company_id, meal_date);
+
 -- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

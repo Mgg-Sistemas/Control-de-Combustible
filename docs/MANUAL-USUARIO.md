@@ -116,8 +116,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
-- El sistema guarda todo en el **Histórico** y deja la pantalla limpia para la siguiente
-  semana. Lo cerrado **no se borra**: queda para los reportes y pagos.
+- El sistema guarda todo en el **Histórico** y **congela el precio**. Lo cerrado **no se borra**.
+- **Lo cerrado SIGUE viéndose en el Control** al navegar por semanas (aparece marcado con
+  **🔒 cerrado**) y **se puede seguir editando** (por ejemplo, agregar días que faltaron). Ya no
+  desaparece de la pantalla al cerrar.
 
 **Corregir un cierre ya guardado (reabrir):**
 - Abre el **🗂️ Histórico**, entra al cierre y toca **♻️ Reabrir cierre**.
@@ -194,9 +196,21 @@ usuario con **rol Cocina** (entra con su nombre y contraseña).
 > Cocina abre **directo** el registro de esa persona; si no has entrado, toca **"🍽️ ¿Eres de
 > cocina? Inicia sesión"** y al entrar caes en el registro de esa misma persona.
 
-**Módulo "Distribución de comida" (en Más, para el jefe):** por día muestra cuántas comidas se
-repartieron y a quién, **agrupado por persona** con su total y el detalle (hora y quién la
-repartió). Con las flechas ◀ ▶ cambias de día.
+**Módulo "Distribución de comida" (en Más, para el jefe):** por día muestra las comidas
+repartidas **por empresa** (desayuno/almuerzo/cena) y también **por persona**, con sus totales.
+Con las flechas ◀ ▶ cambias de día.
+
+**Comida POR EMPRESA (con QR):**
+1. En **Distribución de comida** (jefe), toca **"🖨️ Generar QR por empresa"**: crea una hoja con
+   un **QR por empresa** (logo + QR + nombre) para imprimir y pegar.
+2. La cocina **escanea el QR** de la empresa → se abre su pantalla de comidas del día.
+3. Se **verifica** con su carnet/cédula (solo **cargo de cocina/alimentación**).
+4. Toca uno de los **3 botones grandes**: **Desayuno, Almuerzo o Cena** (cada uno **1 sola vez
+   por día** por empresa).
+5. El sistema **sugiere** el total = **máquinas de la empresa × 2 + 15**; el cocinero escribe
+   cuántas comidas **entregó realmente** y registra.
+
+> Queda guardado con la **empresa**, la **cantidad**, la **hora** y **quién** la registró.
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo

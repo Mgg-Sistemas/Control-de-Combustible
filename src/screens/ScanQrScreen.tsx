@@ -30,6 +30,19 @@ export function parseEmployeeId(text: string): string | null {
   return null;
 }
 
+/** Extrae el id de empresa del QR de distribución de comida (URL con ?comida=…). */
+export function parseComidaId(text: string): string | null {
+  if (!text) return null;
+  try {
+    const u = new URL(text);
+    const id = u.searchParams.get('comida');
+    if (id) return id;
+  } catch {}
+  const m = text.match(/comida=([\w-]+)/i);
+  if (m) return m[1];
+  return null;
+}
+
 /** Pantalla del escáner: al detectar el QR de una máquina abre su vista rápida. */
 export default function ScanQrScreen({ navigation }: any) {
   const onDetected = (text: string) => {
