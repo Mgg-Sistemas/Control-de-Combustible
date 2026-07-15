@@ -7,6 +7,7 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
@@ -52,7 +53,8 @@ export default function UsersScreen() {
     : users.filter((u) => norm(u.full_name).includes(q) || norm(u.role).includes(q));
 
   const changeRole = async (id: string, newRole: UserRole) => {
-    await supabase.from('profiles').update({ role: newRole }).eq('id', id);
+    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
+    if (error) { Alert.alert('Aviso', `No se pudo cambiar el rol a "${newRole}": ${error.message}`); return; }
     refetch();
   };
 
@@ -346,6 +348,17 @@ function EditUserForm({
       .upsert({ user_id: user.id, module: moduleKey, level }, { onConflict: 'user_id,module' });
   };
 
+  // Aplica un nivel a TODOS los módulos de una vez (p. ej. Full control a todo).
+  const setAllPerms = async (level: PermLevel) => {
+    if (!user) return;
+    const next: Record<string, PermLevel> = {};
+    MODULES.forEach((m) => { next[m.key] = level; });
+    setPerms(next);
+    await supabase
+      .from('module_permissions')
+      .upsert(MODULES.map((m) => ({ user_id: user.id, module: m.key, level })), { onConflict: 'user_id,module' });
+  };
+
   if (!user) return null;
   const isAdminUser = user.role === 'admin';
 
@@ -427,9 +440,23 @@ function EditUserForm({
                 Este usuario es administrador: tiene acceso total a todos los módulos.
               </Text>
             ) : (
-              <Text style={{ color: colors.muted, fontSize: 11 }}>
-                — Sin acceso · L Lectura · E Escritura · F Full control
-              </Text>
+              <>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>
+                  — Sin acceso · L Lectura · E Escritura · F Full control
+                </Text>
+                {/* Atajos: aplicar a TODOS los módulos de una vez. */}
+                <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                  <TouchableOpacity onPress={() => setAllPerms('full')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
+                    <Text style={{ color: colors.primaryContrast, fontSize: 12, fontWeight: '800' }}>✅ Full a todo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setAllPerms('lectura')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📖 Lectura a todo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setAllPerms('none')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.surface }}>
+                    <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>🚫 Quitar todo</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
             {MODULES.map((mod) => {
               const cur = perms[mod.key] ?? defaultLevel(mod.key);

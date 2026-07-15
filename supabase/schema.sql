@@ -15,8 +15,9 @@ create extension if not exists "uuid-ossp";
 do $$ begin
   create type user_role as enum ('admin', 'supervisor', 'analista', 'operador', 'conductor');
 exception when duplicate_object then null; end $$;
--- 'analista' se agregó después: por si el enum ya existía.
+-- 'analista' y 'cocina' se agregaron después: por si el enum ya existía.
 alter type user_role add value if not exists 'analista';
+alter type user_role add value if not exists 'cocina';
 
 do $$ begin
   create type fuel_type as enum ('gasolina', 'diesel');

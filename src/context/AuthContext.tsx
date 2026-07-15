@@ -85,16 +85,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
     // Permisos por módulo del usuario.
-    supabase
-      .from('module_permissions')
-      .select('module, level')
-      .eq('user_id', uid)
-      .then(({ data }) => {
-        if (!active) return;
-        const map: Record<string, PermLevel> = {};
-        (data ?? []).forEach((r: any) => (map[r.module] = r.level));
-        setPermissions(map);
-      });
+    const loadPerms = () =>
+      supabase
+        .from('module_permissions')
+        .select('module, level')
+        .eq('user_id', uid)
+        .then(({ data }) => {
+          if (!active) return;
+          const map: Record<string, PermLevel> = {};
+          (data ?? []).forEach((r: any) => (map[r.module] = r.level));
+          setPermissions(map);
+        });
+    loadPerms();
+
+    // Realtime: si un admin cambia los permisos del usuario, se aplican EN VIVO
+    // (sin necesidad de cerrar y volver a iniciar sesión).
+    const permCh = supabase
+      .channel(`perms-${uid}`)
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'module_permissions', filter: `user_id=eq.${uid}` }, () => loadPerms())
+      .subscribe();
 
     // Realtime Presence: cada usuario logueado se anuncia en este canal.
     const channel = supabase.channel('online-users', {
