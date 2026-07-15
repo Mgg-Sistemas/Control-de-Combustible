@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Platform, View, Text, TouchableOpacity, Linking } from 'react-native';
 import { Card } from './ui';
 import { useTheme } from '../theme/ThemeContext';
@@ -20,8 +20,79 @@ export type MapPin = {
   route: [number, number][];
 };
 
+// Paleta de colores por EMPRESA (misma que usa el mapa para los pines/leyenda).
+export const MAP_PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#DB2777','#0891B2','#65A30D','#EA580C','#0D9488','#9333EA','#CA8A04','#4F46E5','#BE123C','#15803D','#B45309'];
+
+/** Leyenda por empresa (color + conteo), en orden de aparición (igual que el mapa). */
+export function companyLegend(pins: MapPin[]): { rows: { company: string; color: string; count: number }[]; total: number } {
+  const color: Record<string, string> = {};
+  const count: Record<string, number> = {};
+  const order: string[] = [];
+  pins.forEach((p) => {
+    const co = p.company || 'Sin empresa';
+    if (!(co in color)) { color[co] = MAP_PALETTE[order.length % MAP_PALETTE.length]; order.push(co); }
+    count[co] = (count[co] || 0) + 1;
+  });
+  return { rows: order.map((co) => ({ company: co, color: color[co], count: count[co] })), total: pins.length };
+}
+
+// ── SUB-SECTORES (zonas de La Guaira). El ORDEN define el índice para prender/apagar. ──
+const SUBSECTORS: any[] = [
+  { n:'Oeste · Sub 7: Catamare', color:'#D946EF',
+    a:{ lbl:'Límite Oeste', name:'Central Eléctrica J.J. Sánchez', lat:10.586938, lng:-67.079676 },
+    b:{ lbl:'Límite Este', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 } },
+  { n:'Oeste · Sub 6: Centrocatia', color:'#EC4899',
+    a:{ lbl:'Límite Oeste', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 },
+    b:{ lbl:'Límite Este', name:'Quebrada Tacagua', lat:10.607800, lng:-67.030371 } },
+  { n:'Oeste · Sub 4: Hugo Chávez', color:'#F43F5E',
+    a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
+    b:{ lbl:'Límite Este', name:'Residencial Jurel', lat:10.610310, lng:-67.008093 } },
+  { n:'Oeste · Sub 3: Franja Costera', color:'#84CC16',
+    a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
+    b:{ lbl:'Límite Sur', name:'Zona Perimetral Norte Aeropuerto', lat:10.606976, lng:-66.998483 } },
+  { n:'Oeste · Sub 5: Aeropuerto', color:'#EAB308',
+    a:{ lbl:'Límite Oeste', name:'Final Aeropuerto de Maiquetía', lat:10.601648, lng:-67.017346 },
+    b:{ lbl:'Límite Este', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 } },
+  { n:'Oeste · Sub 2: El Trébol', color:'#F97316',
+    a:{ lbl:'Límite Oeste', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 },
+    b:{ lbl:'Límite Este', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 } },
+  { n:'Oeste · Sub 1: El Chorro', color:'#EF4444',
+    a:{ lbl:'Límite Oeste', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 },
+    b:{ lbl:'Límite Este', name:'Punta Mulato', lat:10.603567, lng:-66.912374 } },
+  { n:'Este · Sub 1: Álamo', color:'#F97316',
+    a:{ lbl:'Límite Oeste', name:'Punta Mulato', lat:10.603567, lng:-66.912374 },
+    b:{ lbl:'Límite Este', name:'Río Macuto', lat:10.607051, lng:-66.896534 } },
+  { n:'Este · Sub 2: Macuto', color:'#22C55E',
+    a:{ lbl:'Límite Oeste', name:'Río Macuto', lat:10.607051, lng:-66.896534 },
+    b:{ lbl:'Límite Este', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 } },
+  { n:'Este · Sub 3: Camurí Chico', color:'#3B82F6',
+    a:{ lbl:'Límite Oeste', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 },
+    b:{ lbl:'Límite Este', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 } },
+  { n:'Este · Sub 4: El Palmar', color:'#EAB308',
+    a:{ lbl:'Límite Oeste', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 },
+    b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
+  { n:'Caraballeda', color:'#EC4899',
+    pts:[
+      [10.61470, -66.85180],
+      [10.61680, -66.84330],
+      [10.61760, -66.83560],
+      [10.60420, -66.83660],
+      [10.60250, -66.84760],
+      [10.60650, -66.85320],
+    ] },
+  { n:'Este · Sub 6: Caribe', color:'#8B5CF6',
+    a:{ lbl:'Límite Sur', name:'Av. 10 A', lat:10.613268, lng:-66.857451 },
+    b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
+  { n:'Este · Sub 7: Tanaguarena', color:'#06B6D4',
+    a:{ lbl:'Límite Nor-Oeste', name:'Punta Caraballeda', lat:10.619689, lng:-66.846207 },
+    b:{ lbl:'Límite Este', name:'Punta Tanaguarena', lat:10.611003, lng:-66.818581 } },
+];
+/** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
+export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
+
 function buildHtml(pins: MapPin[]): string {
   const data = JSON.stringify(pins);
+  const zonesData = JSON.stringify(SUBSECTORS);
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -33,67 +104,55 @@ function buildHtml(pins: MapPin[]): string {
 .zoneLbl:before{display:none}</style></head>
 <body><div id="map"></div><script>
   var pins = ${data};
+  var SUBSECTORS = ${zonesData};
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
-  // Capa satelital (Esri World Imagery) + nombres de calles/lugares encima.
   var sat = L.layerGroup([
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, attribution: 'Tiles © Esri'
-    }),
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19
-    })
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri' }),
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
   ]);
-  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, attribution: '© OpenStreetMap'
-  });
-  sat.addTo(map); // Satélite por defecto
-  // Todos los controles/filtros van a la IZQUIERDA y COLAPSADOS, para no tapar el mapa.
+  var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+  sat.addTo(map);
   L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true, position: 'topleft' }).addTo(map);
 
-  // Buscador de lugares (estados, municipios, parroquias, calles…) limitado a Venezuela.
   if (L.Control && L.Control.Geocoder) {
-    var geocoder = L.Control.Geocoder.nominatim({
-      geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8 }
-    });
-    L.Control.geocoder({
-      geocoder: geocoder,
-      defaultMarkGeocode: true,
-      collapsed: true,
-      position: 'topleft',
-      placeholder: 'Buscar estado, municipio, parroquia, calle…',
-      errorMessage: 'No se encontró el lugar'
-    }).addTo(map);
+    var geocoder = L.Control.Geocoder.nominatim({ geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8 } });
+    L.Control.geocoder({ geocoder: geocoder, defaultMarkGeocode: true, collapsed: true, position: 'topleft', placeholder: 'Buscar estado, municipio, parroquia, calle…', errorMessage: 'No se encontró el lugar' }).addTo(map);
   }
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
-  // Paleta de colores por EMPRESA (cada empresa un color distinto).
-  var PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#DB2777','#0891B2','#65A30D','#EA580C','#0D9488','#9333EA','#CA8A04','#4F46E5','#BE123C','#15803D','#B45309'];
-  var companyColor = {}; var companyCount = {}; var companyOrder = [];
-  pins.forEach(function(p){
-    var co = p.company || 'Sin empresa';
-    if (!(co in companyColor)) { companyColor[co] = PALETTE[companyOrder.length % PALETTE.length]; companyOrder.push(co); }
-    companyCount[co] = (companyCount[co] || 0) + 1;
-  });
+  var PALETTE = ${JSON.stringify(MAP_PALETTE)};
+  var companyColor = {}; var companyOrder = [];
+  pins.forEach(function(p){ var co = p.company || 'Sin empresa'; if (!(co in companyColor)) { companyColor[co] = PALETTE[companyOrder.length % PALETTE.length]; companyOrder.push(co); } });
 
-  // Marcadores y rutas guardados con su empresa, para poder FILTRAR por empresa.
+  // ── ¿En qué SECTOR/zona cae cada máquina? (punto-en-polígono) ──
+  function polyOf(s){ if (s.pts && s.pts.length >= 3) return s.pts; var D = 0.007; return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]]; }
+  function pointInPoly(lat, lng, poly){ var inside = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++){ var yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1]; if (((yi > lat) != (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside; } return inside; }
+  function zoneOf(lat, lng){
+    for (var i = 0; i < SUBSECTORS.length; i++){ if (pointInPoly(lat, lng, polyOf(SUBSECTORS[i]))) return { name: SUBSECTORS[i].n, near: false }; }
+    var best = null, bd = Infinity;
+    for (var i = 0; i < SUBSECTORS.length; i++){ var pl = polyOf(SUBSECTORS[i]); for (var k = 0; k < pl.length; k++){ var dy = pl[k][0] - lat, dx = pl[k][1] - lng, d = dy*dy + dx*dx; if (d < bd){ bd = d; best = SUBSECTORS[i].n; } } }
+    if (best && bd <= 0.0009) return { name: best, near: true };
+    return null;
+  }
+
   var routeGroup = L.layerGroup();
-  var allMarkers = []; // {marker, company, latlng}
-  var allRoutes = [];  // {layer, company}
+  var allMarkers = [];
+  var allRoutes = [];
   pins.forEach(function(p){
     var co = p.company || 'Sin empresa';
     var color = companyColor[co];
-    if (p.route && p.route.length > 1){
-      allRoutes.push({ layer: L.polyline(p.route, {color:color, weight:3, opacity:0.7}), company: co });
-    }
+    if (p.route && p.route.length > 1){ allRoutes.push({ layer: L.polyline(p.route, {color:color, weight:3, opacity:0.7}), company: co }); }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)});
-    // Popup con botón para eliminar la ubicación (avisa a la app por postMessage).
     var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
     var placaSerial = [p.plate ? 'Placa: '+esc(p.plate) : '', p.serial ? 'Serial: '+esc(p.serial) : ''].filter(Boolean).join(' · ');
+    var z = zoneOf(p.lat, p.lng);
+    var zoneTxt = z ? (esc(z.name) + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores';
     var div = document.createElement('div');
     div.innerHTML = '<b>'+esc(p.name)+'</b><br/>🏢 '+esc(co)
       + (p.tipo ? '<br/>🏷️ Modelo: '+esc(p.tipo) : '')
       + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
       + (placaSerial ? '<br/>🔖 '+placaSerial : '')
+      + '<br/>🗺️ Zona: <b>'+zoneTxt+'</b>'
       + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
       + '<br/>Estado: '+(p.operational?'Operativa':'No operativa');
@@ -101,18 +160,14 @@ function buildHtml(pins: MapPin[]): string {
     btn.textContent = '🗑️ Eliminar ubicación';
     btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
     btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
-    var brB = document.createElement('br');
-    div.appendChild(brB);
+    div.appendChild(document.createElement('br'));
     div.appendChild(btn);
     mk.bindPopup(div);
-    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng], div: div, brB: brB, lat: p.lat, lng: p.lng });
+    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng] });
   });
 
-  // Estado del filtro: empresa seleccionada (null = todas) y si las rutas están visibles.
   var currentCompany = null;
   var routesOn = true;
-  var legendCollapsed = true; // colapsada por defecto para no tapar el mapa
-  // Aplica el filtro: muestra solo los pines/rutas de la empresa elegida (o todas) y reencuadra.
   function refresh(){
     var bounds = [];
     allMarkers.forEach(function(o){
@@ -120,14 +175,12 @@ function buildHtml(pins: MapPin[]): string {
       else { map.removeLayer(o.marker); }
     });
     routeGroup.clearLayers();
-    allRoutes.forEach(function(o){
-      if (currentCompany === null || o.company === currentCompany){ o.layer.addTo(routeGroup); }
-    });
+    allRoutes.forEach(function(o){ if (currentCompany === null || o.company === currentCompany){ o.layer.addTo(routeGroup); } });
     if (routesOn){ routeGroup.addTo(map); } else { map.removeLayer(routeGroup); }
     if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
   }
 
-  // ── Botón VER / OCULTAR RUTA (icono de ojo, SVG — no emoji) ──────────────
+  // Botón VER / OCULTAR RUTA (ojo).
   var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
   var EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
   var RouteToggle = L.Control.extend({
@@ -135,253 +188,80 @@ function buildHtml(pins: MapPin[]): string {
     onAdd: function(){
       var c = L.DomUtil.create('div', 'leaflet-bar');
       var a = L.DomUtil.create('a', '', c);
-      a.href = '#';
-      a.title = 'Ver / ocultar ruta';
+      a.href = '#'; a.title = 'Ver / ocultar ruta';
       a.style.cssText = 'width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff';
       a.innerHTML = EYE;
-      L.DomEvent.on(a, 'click', function(e){
-        L.DomEvent.stop(e);
-        routesOn = !routesOn;
-        a.innerHTML = routesOn ? EYE : EYE_OFF;
-        a.title = routesOn ? 'Ocultar ruta' : 'Ver ruta';
-        refresh();
-      });
+      L.DomEvent.on(a, 'click', function(e){ L.DomEvent.stop(e); routesOn = !routesOn; a.innerHTML = routesOn ? EYE : EYE_OFF; a.title = routesOn ? 'Ocultar ruta' : 'Ver ruta'; refresh(); });
       return c;
     }
   });
   map.addControl(new RouteToggle());
 
-  // ── LEYENDA por empresa (clicable): filtra el mapa a esa empresa; "General" = todas ──
-  var Legend = L.Control.extend({
-    options: { position: 'topleft' },
-    onAdd: function(){
-      var c = L.DomUtil.create('div', '');
-      c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:210px;overflow:auto;min-width:170px';
-      var ordered = companyOrder.slice().sort(function(a,b){ return a.localeCompare(b, 'es', {sensitivity:'base'}); });
-      function render(){
-        var total = pins.length;
-        var genActive = currentCompany === null;
-        // Encabezado con botón para ocultar/mostrar (colapsar) la lista.
-        var head = '<div data-toggle="1" style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-weight:800;'+(legendCollapsed?'':'margin-bottom:4px')+'">'
-          + '<span>Máquinas por empresa</span>'
-          + '<span style="font-size:14px;color:#1E3A5F">'+(legendCollapsed?'▸':'▾')+'</span></div>';
-        if (legendCollapsed){ c.style.overflow='visible'; c.innerHTML = head; return; }
-        c.style.overflow='auto';
-        var gen = '<div data-co="__all__" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px;'+(genActive?'background:#1E3A5F;color:#fff;':'')+'">'
-          + '<span style="width:12px;height:12px;border-radius:50%;background:#1E3A5F;border:1px solid #0003;flex:0 0 auto"></span>'
-          + '<span style="flex:1;font-weight:700">🌐 General (todas)</span>'
-          + '<b style="margin-left:6px">'+total+'</b></div>';
-        var rows = ordered.map(function(co){
-          var active = currentCompany === co;
-          return '<div data-co="'+encodeURIComponent(co)+'" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px;'+(active?'background:'+companyColor[co]+';color:#fff;':'')+'">'
-            + '<span style="width:12px;height:12px;border-radius:50%;background:'+companyColor[co]+';border:1px solid #0003;flex:0 0 auto"></span>'
-            + '<span style="flex:1">'+co+'</span>'
-            + '<b style="margin-left:6px">'+companyCount[co]+'</b></div>';
-        }).join('');
-        var shownN = genActive ? total : (companyCount[currentCompany] || 0);
-        c.innerHTML = head+gen+rows
-          + '<div style="border-top:1px solid #ddd;margin-top:5px;padding-top:4px;display:flex;justify-content:space-between"><span>'+(genActive?'Total ubicadas':'Mostrando')+'</span><b>'+shownN+'</b></div>';
-      }
-      render();
-      L.DomEvent.on(c, 'click', function(e){
-        var el = e.target;
-        // ¿Se tocó el encabezado? → ocultar/mostrar la lista.
-        var t = e.target;
-        while (t && t !== c && !(t.getAttribute && t.getAttribute('data-toggle'))) t = t.parentNode;
-        if (t && t !== c){ legendCollapsed = !legendCollapsed; render(); return; }
-        while (el && el !== c && !(el.getAttribute && el.getAttribute('data-co'))) el = el.parentNode;
-        if (!el || el === c) return;
-        var co = el.getAttribute('data-co');
-        currentCompany = (co === '__all__') ? null : decodeURIComponent(co);
-        render();
-        refresh();
-      });
-      L.DomEvent.disableClickPropagation(c);
-      L.DomEvent.disableScrollPropagation(c);
-      return c;
-    }
-  });
-  map.addControl(new Legend());
-
-  // ── SUB-SECTORES (zonas de La Guaira) — ver/ocultar cada una ──
-  // Cada zona se define por dos límites (Oeste/Este), coordenadas de DMS a decimal.
-  // Bloque 1: Sector Oeste (Catia → Puerto de La Guaira). Bloque 2: Sector Este.
-  var SUBSECTORS = [
-    // ── SECTOR OESTE (Operación Rescate y Esperanza 2026) · oeste → este ──
-    { n:'Oeste · Sub 7: Catamare', color:'#D946EF',
-      a:{ lbl:'Límite Oeste', name:'Central Eléctrica J.J. Sánchez', lat:10.586938, lng:-67.079676 },
-      b:{ lbl:'Límite Este', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 } },
-    { n:'Oeste · Sub 6: Centrocatia', color:'#EC4899',
-      a:{ lbl:'Límite Oeste', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 },
-      b:{ lbl:'Límite Este', name:'Quebrada Tacagua', lat:10.607800, lng:-67.030371 } },
-    { n:'Oeste · Sub 4: Hugo Chávez', color:'#F43F5E',
-      a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
-      b:{ lbl:'Límite Este', name:'Residencial Jurel', lat:10.610310, lng:-67.008093 } },
-    { n:'Oeste · Sub 3: Franja Costera', color:'#84CC16',
-      a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
-      b:{ lbl:'Límite Sur', name:'Zona Perimetral Norte Aeropuerto', lat:10.606976, lng:-66.998483 } },
-    { n:'Oeste · Sub 5: Aeropuerto', color:'#EAB308',
-      a:{ lbl:'Límite Oeste', name:'Final Aeropuerto de Maiquetía', lat:10.601648, lng:-67.017346 },
-      b:{ lbl:'Límite Este', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 } },
-    { n:'Oeste · Sub 2: El Trébol', color:'#F97316',
-      a:{ lbl:'Límite Oeste', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 },
-      b:{ lbl:'Límite Este', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 } },
-    { n:'Oeste · Sub 1: El Chorro', color:'#EF4444',
-      a:{ lbl:'Límite Oeste', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 },
-      b:{ lbl:'Límite Este', name:'Punta Mulato', lat:10.603567, lng:-66.912374 } },
-    // ── SECTOR ESTE · oeste → este (punto medio entre sectores: Punta Mulato) ──
-    { n:'Este · Sub 1: Álamo', color:'#F97316',
-      a:{ lbl:'Límite Oeste', name:'Punta Mulato', lat:10.603567, lng:-66.912374 },
-      b:{ lbl:'Límite Este', name:'Río Macuto', lat:10.607051, lng:-66.896534 } },
-    { n:'Este · Sub 2: Macuto', color:'#22C55E',
-      a:{ lbl:'Límite Oeste', name:'Río Macuto', lat:10.607051, lng:-66.896534 },
-      b:{ lbl:'Límite Este', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 } },
-    { n:'Este · Sub 3: Camurí Chico', color:'#3B82F6',
-      a:{ lbl:'Límite Oeste', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 },
-      b:{ lbl:'Límite Este', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 } },
-    { n:'Este · Sub 4: El Palmar', color:'#EAB308',
-      a:{ lbl:'Límite Oeste', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 },
-      b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
-    // Caraballeda / Los Corales: polígono trazado a mano (vértices aproximados; ajústalos al gusto).
-    { n:'Caraballeda', color:'#EC4899',
-      pts:[
-        [10.61470, -66.85180], // NO · costa (oeste de Los Corales, boca Quebrada San Juan)
-        [10.61680, -66.84330], // N · Punta El Caribe
-        [10.61760, -66.83560], // NE · hacia Caribe / L-2
-        [10.60420, -66.83660], // SE · Av. Circunvalación (Caraballeda sur)
-        [10.60250, -66.84760], // S · Los Corales sur
-        [10.60650, -66.85320], // SO · regreso a la costa
-      ] },
-    { n:'Este · Sub 6: Caribe', color:'#8B5CF6',
-      a:{ lbl:'Límite Sur', name:'Av. 10 A', lat:10.613268, lng:-66.857451 },
-      b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
-    { n:'Este · Sub 7: Tanaguarena', color:'#06B6D4',
-      a:{ lbl:'Límite Nor-Oeste', name:'Punta Caraballeda', lat:10.619689, lng:-66.846207 },
-      b:{ lbl:'Límite Este', name:'Punta Tanaguarena', lat:10.611003, lng:-66.818581 } },
-  ];
-  // ── ¿En qué SECTOR/zona cae cada máquina? (punto-en-polígono) ──
-  function polyOf(s){
-    if (s.pts && s.pts.length >= 3) return s.pts;
-    var D = 0.007; // misma banda hacia el sur que se dibuja
-    return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]];
-  }
-  function pointInPoly(lat, lng, poly){
-    var inside = false;
-    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++){
-      var yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1];
-      if (((yi > lat) != (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
-    }
-    return inside;
-  }
-  function zoneOf(lat, lng){
-    for (var i = 0; i < SUBSECTORS.length; i++){ if (pointInPoly(lat, lng, polyOf(SUBSECTORS[i]))) return { name: SUBSECTORS[i].n, near: false }; }
-    var best = null, bd = Infinity;
-    for (var i = 0; i < SUBSECTORS.length; i++){ var pl = polyOf(SUBSECTORS[i]); for (var k = 0; k < pl.length; k++){ var dy = pl[k][0] - lat, dx = pl[k][1] - lng, d = dy*dy + dx*dx; if (d < bd){ bd = d; best = SUBSECTORS[i].n; } } }
-    if (best && bd <= 0.0009) return { name: best, near: true }; // ~3 km
-    return null;
-  }
-  // Añade a cada popup la zona/sector donde se encuentra la máquina.
-  allMarkers.forEach(function(o){
-    var z = zoneOf(o.lat, o.lng);
-    var zl = document.createElement('div');
-    zl.style.marginTop = '2px';
-    zl.innerHTML = '🗺️ Zona: <b>' + (z ? (z.name + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores') + '</b>';
-    if (o.div && o.brB) o.div.insertBefore(zl, o.brB);
-  });
-
-  var sectorLayers = {}; // índice -> layerGroup (polígono + marcadores)
-  var zonesOn = {};      // índice -> visible?
+  // Polígonos de zonas (prender/apagar desde FUERA del mapa por postMessage).
+  var sectorLayers = {};
+  var zonesOn = {};
   SUBSECTORS.forEach(function(s, i){
-    // Zona con VÉRTICES propios (polígono real trazado a mano) …
     if (s.pts && s.pts.length >= 3){
       var pg = L.polygon(s.pts, { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
       pg.bindTooltip(s.n, { permanent: true, direction: 'center', className: 'zoneLbl' });
       sectorLayers[i] = L.layerGroup([pg]);
       return;
     }
-    // … o zona definida por 2 límites (banda hacia el sur para darle cuerpo).
-    var D = 0.007; // ancho de la banda hacia el sur (tierra adentro) para dar cuerpo visible a la zona
-    var poly = L.polygon([
-      [s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]
-    ], { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
+    var D = 0.007;
+    var poly = L.polygon([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]], { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
     poly.bindTooltip(s.n, { permanent: true, direction: 'center', className: 'zoneLbl' });
-    var mkr = function(pt){
-      var m = L.circleMarker([pt.lat, pt.lng], { radius:6, color:'#fff', weight:2, fillColor:s.color, fillOpacity:1 });
-      m.bindPopup('<b>'+s.n+'</b><br/>'+pt.lbl+': <b>'+pt.name+'</b><br/>📍 '+pt.lat.toFixed(6)+', '+pt.lng.toFixed(6));
-      return m;
-    };
+    var mkr = function(pt){ var m = L.circleMarker([pt.lat, pt.lng], { radius:6, color:'#fff', weight:2, fillColor:s.color, fillOpacity:1 }); m.bindPopup('<b>'+s.n+'</b><br/>'+pt.lbl+': <b>'+pt.name+'</b><br/>📍 '+pt.lat.toFixed(6)+', '+pt.lng.toFixed(6)); return m; };
     sectorLayers[i] = L.layerGroup([poly, mkr(s.a), mkr(s.b)]);
   });
-  function setZone(i, on){
-    zonesOn[i] = on;
-    if (on){ sectorLayers[i].addTo(map); } else { map.removeLayer(sectorLayers[i]); }
-  }
+  function setZone(i, on){ zonesOn[i] = on; if (on){ sectorLayers[i].addTo(map); } else { map.removeLayer(sectorLayers[i]); } }
 
-  // Panel de zonas: encabezado colapsable + "Ver/Ocultar todas" + una fila por sub-sector.
-  var ZonesPanel = L.Control.extend({
-    options: { position: 'topleft' },
-    onAdd: function(){
-      var c = L.DomUtil.create('div', '');
-      c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:280px;overflow:auto;min-width:215px';
-      var collapsed = true;
-      function render(){
-        var head = '<div data-ztoggle="1" style="display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;font-weight:800;'+(collapsed?'':'margin-bottom:6px')+'">'
-          + '<span>🗺️ Sectores (zonas)</span>'
-          + '<span style="font-size:14px;color:#1E3A5F">'+(collapsed?'▸':'▾')+'</span></div>';
-        if (collapsed){ c.style.overflow='visible'; c.innerHTML = head; return; }
-        c.style.overflow='auto';
-        var anyOn = SUBSECTORS.some(function(_, i){ return zonesOn[i]; });
-        var all = '<div data-zall="1" style="display:flex;align-items:center;gap:6px;margin:0 0 6px;cursor:pointer;font-weight:700;color:#1E3A5F">'
-          + '<span>'+(anyOn ? '🚫 Ocultar todas' : '👁️ Ver todas')+'</span></div>';
-        var rows = SUBSECTORS.map(function(s, i){
-          var on = !!zonesOn[i];
-          return '<div data-zi="'+i+'" style="display:flex;align-items:center;gap:6px;margin:2px 0;cursor:pointer;padding:3px 4px;border-radius:5px">'
-            + '<span style="width:13px;height:13px;border-radius:3px;background:'+(on?s.color:'transparent')+';border:2px solid '+s.color+';flex:0 0 auto"></span>'
-            + '<span style="flex:1">'+s.n+'</span></div>';
-        }).join('');
-        c.innerHTML = head + all + rows;
+  // ── Mensajes desde la app (leyendas y filtros van FUERA del mapa) ──
+  window.addEventListener('message', function(e){
+    var d = (e && e.data) || {};
+    if (d.type === 'map-filter-company'){ currentCompany = d.company || null; refresh(); }
+    else if (d.type === 'map-routes'){ routesOn = !!d.on; refresh(); }
+    else if (d.type === 'map-zones'){
+      var on = d.on || [];
+      SUBSECTORS.forEach(function(_, i){ setZone(i, on.indexOf(i) >= 0); });
+      if (d.fit && on.length){
+        var bb = []; on.forEach(function(i){ var s = SUBSECTORS[i]; if (!s) return; if (s.pts){ s.pts.forEach(function(p){ bb.push(p); }); } else { bb.push([s.a.lat, s.a.lng]); bb.push([s.b.lat, s.b.lng]); } });
+        if (bb.length) map.fitBounds(bb, { padding:[40,40], maxZoom:15 });
       }
-      render();
-      L.DomEvent.on(c, 'click', function(e){
-        var el = e.target;
-        while (el && el !== c && !(el.getAttribute && (el.hasAttribute('data-ztoggle') || el.hasAttribute('data-zall') || el.hasAttribute('data-zi')))) el = el.parentNode;
-        if (!el || el === c) return;
-        if (el.hasAttribute('data-ztoggle')){ collapsed = !collapsed; render(); return; }
-        if (el.hasAttribute('data-zall')){
-          var anyOn = SUBSECTORS.some(function(_, i){ return zonesOn[i]; });
-          SUBSECTORS.forEach(function(_, i){ setZone(i, !anyOn); });
-          if (!anyOn){
-            var bb = []; SUBSECTORS.forEach(function(s){ if (s.pts){ s.pts.forEach(function(p){ bb.push(p); }); } else { bb.push([s.a.lat, s.a.lng]); bb.push([s.b.lat, s.b.lng]); } });
-            map.fitBounds(bb, { padding:[50,50], maxZoom:15 });
-          }
-          render(); return;
-        }
-        var i = parseInt(el.getAttribute('data-zi'), 10);
-        var on = !zonesOn[i];
-        setZone(i, on);
-        if (on){ map.fitBounds(sectorLayers[i].getLayers()[0].getBounds(), { padding:[60,60], maxZoom:16 }); }
-        render();
-      });
-      L.DomEvent.disableClickPropagation(c);
-      L.DomEvent.disableScrollPropagation(c);
-      return c;
     }
   });
-  map.addControl(new ZonesPanel());
 
-  refresh(); // pinta todo al inicio (todas las empresas)
+  refresh();
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete }: { pins: MapPin[]; onDelete?: (id: string, name?: string) => void }) {
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height }: {
+  pins: MapPin[];
+  onDelete?: (id: string, name?: string) => void;
+  selectedCompany?: string | null;
+  zones?: Set<number>;
+  height?: number;
+}) {
   const { colors } = useTheme();
+  const iframeRef = useRef<any>(null);
+  const post = (msg: any) => { try { iframeRef.current?.contentWindow?.postMessage(msg, '*'); } catch {} };
+
+  // Al cambiar el filtro de empresa o las zonas, avisamos al mapa (sin recargarlo).
+  useEffect(() => { post({ type: 'map-filter-company', company: selectedCompany ?? null }); }, [selectedCompany]);
+  useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
+  // Al recargarse el iframe (cambian los pines) reaplicamos el estado actual.
+  const onLoad = () => {
+    post({ type: 'map-filter-company', company: selectedCompany ?? null });
+    post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
+  };
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
+      ref: iframeRef,
       srcDoc: buildHtml(pins),
+      onLoad,
       style: {
         width: '100%',
-        height: 460,
+        height: height ?? 340,
         border: `1px solid ${colors.border}`,
         borderRadius: radius.md,
       },
