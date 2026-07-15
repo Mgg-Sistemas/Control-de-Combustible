@@ -108,8 +108,9 @@ export const carnetAliadoStyles = `
   .card{position:relative;width:54mm;height:86mm;background:#fff;border-radius:3mm;overflow:hidden;
     display:flex;flex-direction:column;align-items:center;padding:12mm 4mm 9mm}
   .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
-  .logo,.photoBox,.name,.kind,.ficha,.qr,.lost{position:relative;z-index:1}
-  .logo{height:11mm;width:auto;margin:0 auto 2mm;display:block}
+  .logo,.blogo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel,.lost{position:relative;z-index:1}
+  .logo{height:12mm;width:auto;margin:0 auto 2mm;display:block}
+  .blogo{height:18mm;width:auto;margin:0 auto 3mm;display:block}
   .photoBox{width:26mm;height:31mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
   .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:14mm;color:#9aa7b6}
   .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
@@ -118,9 +119,10 @@ export const carnetAliadoStyles = `
   .ficha{margin-top:2.4mm;text-align:center}
   .ficha small{display:block;font-size:2.2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
   .ficha b{font-size:7mm;font-weight:900;color:#16324F;letter-spacing:1.5mm}
-  .qr{width:32mm;height:32mm;background:#fff;padding:1mm;border-radius:1mm;margin:6mm auto 0}
-  .qr svg{width:100%;height:100%;display:block}
-  .lost{font-size:2.6mm;color:#334155;text-align:center;margin-top:6mm;padding:0 3mm;line-height:1.4}
+  .qr{width:34mm;height:34mm;background:#fff;padding:1mm;border-radius:1mm;margin:4mm auto 0}
+  .qr svg,.qr img{width:100%;height:100%;display:block}
+  .qrlabel{font-size:2.9mm;font-weight:800;color:#16324F;text-align:center;letter-spacing:.3mm;margin:2.5mm 0 0}
+  .lost{font-size:2.6mm;color:#334155;text-align:center;margin-top:4mm;padding:0 3mm;line-height:1.4}
   .lost b{color:#16324F;display:block;margin-top:1mm}
 `;
 
@@ -153,10 +155,18 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string 
 
 /** REVERSO del carnet de aliado (QR + aviso de pérdida). */
 export function carnetAliadoBack(a: AliadoCard, opts: { qrSvg: string }): string {
+  // El QR se embebe como imagen (data URI) para que SIEMPRE se rasterice al
+  // exportar la imagen (el <svg> suelto a veces no sale en el PNG).
+  const qr = opts.qrSvg
+    ? (opts.qrSvg.trim().startsWith('<svg')
+        ? `<img src="data:image/svg+xml;utf8,${encodeURIComponent(opts.qrSvg)}"/>`
+        : opts.qrSvg)
+    : '';
   return `<div class="card">
       ${aliadoWave()}
-      <img class="logo" src="${LOGO_DATA_URI}"/>
-      <div class="qr">${opts.qrSvg}</div>
+      <img class="blogo" src="${LOGO_DATA_URI}"/>
+      <div class="qr">${qr}</div>
+      <div class="qrlabel">QR de acceso y control</div>
       <div class="lost">En caso de pérdida, por favor comunicarse a la empresa.<b>N° de ficha ${esc(a.ficha_number || '----')}</b></div>
     </div>`;
 }

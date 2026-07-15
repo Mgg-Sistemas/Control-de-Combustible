@@ -54,7 +54,7 @@ const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
  *  🔴 Combustible (ingreso de litros)  🟢 Mapa (marca coordenadas)  🔵 Avería
  *  (mantenimiento: caucho/aceite/filtro/repuesto con la cantidad a cambiar).
  */
-export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; onSupervisorLogin?: () => void; route?: any; navigation?: any }) {
+export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; onSupervisorLogin?: () => void; onSupervisorCheckin?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -66,6 +66,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const machineId: string = props.machineId ?? props.route?.params?.machineId ?? '';
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
   const onSupervisorLogin = props.onSupervisorLogin;
+  const onSupervisorCheckin = props.onSupervisorCheckin;
 
   const [loading, setLoading] = useState(true);
   const [machine, setMachine] = useState<(Machinery & { companyName?: string }) | null>(null);
@@ -404,6 +405,14 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, justifyContent: 'center' }}>
               <ActivityIndicator color={colors.primary} /><Text style={{ color: colors.muted }}>Obteniendo ubicación…</Text>
             </View>
+          ) : null}
+
+          {/* Supervisor con sesión: hacer el check-in de supervisión (GPS) de esta máquina. */}
+          {onSupervisorCheckin ? (
+            <TouchableOpacity onPress={onSupervisorCheckin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: '#1E3A5F', backgroundColor: '#1E3A5F' }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🪖 Hacer check-in de supervisión</Text>
+              <Text style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>Marca esta máquina con tu ubicación (valida la jornada).</Text>
+            </TouchableOpacity>
           ) : null}
 
           {/* Supervisor: entrar con su nombre (login) en vez de la vista anónima. */}
