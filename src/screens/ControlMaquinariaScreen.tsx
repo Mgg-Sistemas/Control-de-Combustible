@@ -268,9 +268,15 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
 
   // Fija el turno de DÍA o NOCHE (0 / 6 / 12 h) de una máquina en un día.
   const setShift = async (m: Machinery, dISO: string, which: 'day' | 'night', hoursVal: number) => {
+    const ik = `${m.id}|${dISO}`;
     const ex = rounds[rkey(m.id, dISO)];
     const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
-    await upsertRound(m, dISO, which === 'day' ? { day_hours: hoursVal } : { night_hours: hoursVal });
+    // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
+    // (si tocó el turno sin salir del campo), para no perder esas horas.
+    const patch: Record<string, any> = which === 'day' ? { day_hours: hoursVal } : { night_hours: hoursVal };
+    if (hoursInput[ik] !== undefined) patch.hours_stopped = Math.max(0, Number(hoursInput[ik].replace(',', '.')) || 0);
+    if (overtimeInput[ik] !== undefined) patch.overtime_hours = Math.max(0, Number(overtimeInput[ik].replace(',', '.')) || 0);
+    await upsertRound(m, dISO, patch);
     // Al asignar un turno y si aún no hay operador de esa jornada, pedir sus datos.
     if (hoursVal > 0 && !hadOp) openOperator(m, dISO, which);
   };

@@ -404,7 +404,11 @@ export default function ReportsScreen({ route }: any) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo'>('fuel');
+  // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
+  type ConteoRow = { name: string; count: number };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; activos: number; inactivos: number; standby: number } | null>(null);
+  const [conteoPreview, setConteoPreview] = useState(false);
   // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
   const nowRef = new Date();
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
@@ -874,6 +878,64 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(html, 'Reportes - Despliegue');
   };
 
+  // ── Reporte "Conteo de equipos" ─────────────────────────────────────────────
+  // Cantidad de equipos del catálogo por CLASIFICACIÓN (REMOCIÓN Y EXCAVACIÓN 70…)
+  // y por TIPO de equipo (JUMBO, RETROEXCAVADORA…), con totales de estado al final.
+  const generateConteo = async () => {
+    setLoading(true);
+    const mach = await selectAllRows('machinery', 'code, clasificacion, active, operational, en_espera');
+    const list = (mach ?? []) as any[];
+    const clasMap = new Map<string, number>();
+    list.forEach((m) => { const k = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; clasMap.set(k, (clasMap.get(k) ?? 0) + 1); });
+    const byClas = [...clasMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const tipoMap = new Map<string, number>();
+    list.forEach((m) => { const k = (String(m.code || '').trim().split(/\s+/)[0] || '—').toUpperCase(); tipoMap.set(k, (tipoMap.get(k) ?? 0) + 1); });
+    const byTipo = [...tipoMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    // Estado: stand by (en espera) tiene prioridad; luego inactivo (active/operational false); el resto, activo.
+    const standby = list.filter((m) => m.en_espera === true).length;
+    const inactivos = list.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
+    const activos = list.length - standby - inactivos;
+    setConteo({ byClas, byTipo, total: list.length, activos, inactivos, standby });
+    setLoading(false);
+    setConteoPreview(true);
+  };
+
+  const downloadConteoPdf = async () => {
+    if (!conteo) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td></tr>`).join('');
+    const body = `
+      <style>
+        table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
+        table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
+        table.cnt th{background:#1E3A5F;color:#fff}
+        table.cnt tfoot td{background:#EEF2F7;font-weight:800}
+        .estado{display:flex;gap:12px;margin-top:10px}
+        .estado .c{flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:12px;text-align:center}
+        .estado .c .v{font-size:26px;font-weight:800}
+        .estado .c .k{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+        .estado .act{background:#ECFDF5;border-color:#A7F3D0}.estado .act .v{color:#059669}
+        .estado .ina{background:#FEF2F2;border-color:#FECACA}.estado .ina .v{color:#DC2626}
+        .estado .stb{background:#FFFBEB;border-color:#FDE68A}.estado .stb .v{color:#B45309}
+      </style>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación</h2>
+      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${rowsFor(conteo.byClas)}</tbody>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo</h2>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${rowsFor(conteo.byTipo)}</tbody>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
+      <div class="estado">
+        <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos</div></div>
+        <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos</div></div>
+        <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by</div></div>
+        <div class="c"><div class="v">${conteo.total}</div><div class="k">Total equipos</div></div>
+      </div>`;
+    await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
+  };
+
   // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
   // (dom→sáb) del mes elegido. Hoja para registrar entrada/salida por día.
   // Trae y agrupa por empresa TODOS los camiones/transporte. Entran: camión, chuto (con
@@ -1171,6 +1233,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'rounds', label: '🛠️ Jornada' },
           { v: 'fleet', label: '🚚 Maquinaria/Vehículo' },
           { v: 'deploy', label: '🚜 Despliegue' },
+          { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
         ] as const).map((t) => {
           const active = mode === t.v;
@@ -1227,6 +1290,10 @@ export default function ReportsScreen({ route }: any) {
               Solo camiones · agrupados por empresa · puedes descargar el PDF de cada semana por separado (S = salida, E = entrada por día).
             </Text>
           </View>
+        ) : mode === 'conteo' ? (
+          <Text style={{ color: colors.muted, fontSize: 13 }}>
+            Cuenta TODOS los equipos del catálogo por clasificación y por tipo, con totales de activos, inactivos y stand by. No depende de fechas.
+          </Text>
         ) : (
         <>
         <Text style={{ color: colors.muted, fontSize: 13 }}>Rango de fechas</Text>
@@ -1345,6 +1412,8 @@ export default function ReportsScreen({ route }: any) {
               ? generateFleet()
               : mode === 'deploy'
               ? generateDeploy()
+              : mode === 'conteo'
+              ? generateConteo()
               : generateCamiones()
           }
           disabled={loading}
@@ -1358,12 +1427,76 @@ export default function ReportsScreen({ route }: any) {
               ? '🚚 Generar reporte de maquinaria/vehículo'
               : mode === 'deploy'
               ? '🚜 Descargar despliegue de maquinaria (PDF)'
+              : mode === 'conteo'
+              ? '📊 Ver conteo de equipos'
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
       </Card>
 
       {loading ? <Loading /> : null}
+
+      {/* Vista previa del CONTEO de equipos */}
+      <Modal visible={conteoPreview} animationType="slide" onRequestClose={() => setConteoPreview(false)}>
+        <Screen>
+          <TouchableOpacity onPress={() => setConteoPreview(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+          </TouchableOpacity>
+          <SectionTitle>📊 Conteo de equipos</SectionTitle>
+          {conteo ? (
+            <>
+              {/* Estado de la flota */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                {[
+                  { k: 'Activos', v: conteo.activos, c: colors.success },
+                  { k: 'Inactivos', v: conteo.inactivos, c: colors.danger },
+                  { k: 'Stand by', v: conteo.standby, c: colors.warning },
+                  { k: 'Total', v: conteo.total, c: colors.text },
+                ].map((s) => (
+                  <View key={s.k} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: s.c, fontSize: 22, fontWeight: '900' }}>{s.v}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>{s.k}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Card>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Por clasificación</Text>
+                {conteo.byClas.map((r) => (
+                  <View key={r.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{r.count}</Text>
+                  </View>
+                ))}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900' }}>{conteo.total}</Text>
+                </View>
+              </Card>
+
+              <Card>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Por tipo de equipo</Text>
+                {conteo.byTipo.map((r) => (
+                  <View key={r.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{r.count}</Text>
+                  </View>
+                ))}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900' }}>{conteo.total}</Text>
+                </View>
+              </Card>
+
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadConteoPdf}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+              </TouchableOpacity>
+              <View style={{ height: spacing.xl }} />
+            </>
+          ) : null}
+        </Screen>
+      </Modal>
 
       <Modal visible={preview} animationType="slide" onRequestClose={() => setPreview(false)}>
         <Screen>
