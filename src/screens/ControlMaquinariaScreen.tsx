@@ -300,11 +300,12 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       const idx = machines.findIndex(
         (x) => x.date === dISO && (x.machineId ? x.machineId === m.id : !!m.serial && x.serial === m.serial)
       );
-      // Precio congelado: el de la ronda, o el de otra fila de la misma máquina en el cierre, o el de la máquina.
+      // Precio congelado VÁLIDO (>0): el de la ronda; si no, el de otra fila de la misma
+      // máquina en el cierre; si no, el precio actual de la máquina. Un 0 no vale.
       const priceFrozen =
-        row.frozen_price != null
+        row.frozen_price != null && Number(row.frozen_price) > 0
           ? Number(row.frozen_price)
-          : machines.find((x) => x.machineId === m.id && x.price != null)?.price ??
+          : machines.find((x) => x.machineId === m.id && x.price != null && Number(x.price) > 0)?.price ??
             (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
       const entry: ClosureMachine = {
         code: m.code ?? '—',
@@ -341,8 +342,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
         .from('control_closures')
         .update({ detail: { ...(target.detail ?? {}), machines, totalMachines: uniqueMachines } })
         .eq('id', target.id);
-      // Si esa ronda no tenía precio congelado, congélalo ahora (para que los reportes lo usen).
-      if (row.frozen_price == null && hasHours && entry.price) {
+      // Si esa ronda no tenía precio congelado válido (null o 0), congélalo ahora.
+      if ((row.frozen_price == null || Number(row.frozen_price) <= 0) && hasHours && entry.price) {
         await supabase.from('machine_rounds').update({ frozen_price: entry.price }).eq('machinery_id', m.id).eq('round_date', dISO);
       }
     } catch {
@@ -552,7 +553,7 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
     // Si el cierre ya trae el precio CONGELADO, se usa ese (semana cerrada = inmutable);
     // si es un cierre viejo sin precio, se calcula con el precio actual de la máquina.
-    const priceOf = (m: ClosureMachine) => (m.price != null ? Number(m.price) : ((m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0));
+    const priceOf = (m: ClosureMachine) => (m.price != null && Number(m.price) > 0 ? Number(m.price) : ((m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0));
     const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const rows = machs
       .map((m) => {
@@ -678,7 +679,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
       if (w > 0) {
         workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
-        const p = b.frozen_price != null ? Number(b.frozen_price) : (priceOfMachine.get(b.machinery_id) ?? 0);
+        // Un frozen_price 0 (o nulo) NO es un precio válido: cae al precio actual de la máquina.
+        const p = b.frozen_price != null && Number(b.frozen_price) > 0 ? Number(b.frozen_price) : (priceOfMachine.get(b.machinery_id) ?? 0);
         amountByMachine.set(b.machinery_id, (amountByMachine.get(b.machinery_id) ?? 0) + (w / 12) * p);
       }
     });
@@ -1820,8 +1822,8 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
                     }),
                     { day: 0, night: 0, stopped: 0, extra: 0, worked: 0 }
                   );
-                  // Precio congelado del cierre (si lo trae); si no, el actual de la máquina.
-                  const frozen = g.days.find((d) => d.price != null)?.price;
+                  // Precio congelado VÁLIDO del cierre (>0); si no lo trae (o es 0), el actual de la máquina.
+                  const frozen = g.days.find((d) => d.price != null && Number(d.price) > 0)?.price;
                   const price = frozen != null ? Number(frozen) : ((g.serial ? priceBySerial.get(g.serial) : undefined) ?? priceByCode.get(g.code) ?? 0);
                   const amount = (t.worked / 12) * price;
                   const open = !!closureExpanded[g.key];
