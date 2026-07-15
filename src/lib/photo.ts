@@ -131,6 +131,13 @@ export async function captureAndUploadEmployeePhoto(
   return uploadToMachinery(path, body);
 }
 
+/** Quita la foto de un registro (pone photo_url = null). Sirve para empleados,
+ *  aliados y maquinaria. No borra el archivo del bucket (queda huérfano, sin costo). */
+export async function removePhoto(table: string, id: string): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from(table).update({ photo_url: null }).eq('id', id);
+  return { ok: !error, error: error?.message };
+}
+
 /** Selecciona una imagen, la sube al bucket 'machinery' y guarda la URL en la máquina. */
 export async function pickAndUploadPhoto(
   machineryId: string

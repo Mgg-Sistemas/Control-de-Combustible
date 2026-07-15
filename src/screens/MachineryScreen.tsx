@@ -6,7 +6,8 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
-import { pickAndUploadPhoto } from '../lib/photo';
+import { pickAndUploadPhoto, removePhoto } from '../lib/photo';
+import { useConfirm } from '../components/ConfirmProvider';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { Machinery } from '../types/database';
@@ -24,6 +25,7 @@ const FIELDS: Field[] = [
 
 export default function MachineryScreen({ navigation }: any) {
   const { colors } = useTheme();
+  const confirm = useConfirm();
   const { data, loading, refetch } = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -38,6 +40,10 @@ export default function MachineryScreen({ navigation }: any) {
 
   const locate = (m: Machinery) => run(m.id + '-loc', () => captureLocation(m.id));
   const photo = (m: Machinery) => run(m.id + '-photo', () => pickAndUploadPhoto(m.id));
+  const delPhoto = async (m: Machinery) => {
+    const ok = await confirm({ title: 'Quitar foto', message: `¿Quitar la foto de ${m.code}?`, confirmText: 'Quitar', cancelText: 'Cancelar', danger: true });
+    if (ok) run(m.id + '-photo', () => removePhoto('machinery', m.id));
+  };
   const toggleOp = (m: Machinery) =>
     run(m.id + '-op', async () => {
       const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
@@ -120,6 +126,9 @@ export default function MachineryScreen({ navigation }: any) {
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
               <BigBtn label={busy === m.id + '-loc' ? 'Ubicando…' : '📍 ACTUALIZAR UBICACIÓN'} onPress={() => locate(m)} color="#2563EB" disabled={busy === m.id + '-loc'} />
               <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} disabled={busy === m.id + '-photo'} />
+              {m.photo_url ? (
+                <BigBtn label="🗑️ Quitar foto" onPress={() => delPhoto(m)} color={colors.danger} disabled={busy === m.id + '-photo'} />
+              ) : null}
               <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
             </View>
           </Card>

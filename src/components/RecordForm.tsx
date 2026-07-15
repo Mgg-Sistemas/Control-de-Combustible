@@ -32,6 +32,9 @@ export type Field =
       column: string;
       required?: boolean;
       placeholder?: string;
+      /** Muestra los valores como lista DESPLEGABLE buscable (se abre y se cierra),
+       *  permitiendo también escribir uno nuevo. */
+      dropdown?: boolean;
       showIf?: ShowIf;
     }
   | {
@@ -286,6 +289,8 @@ export function RecordForm({
                   <DropdownSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} placeholder={f.placeholder ?? 'Seleccionar…'} clearLabel="— Sin seleccionar" />
                 ) : f.type === 'select' ? (
                   <ChipSelect options={f.options} value={values[f.key]} onChange={(v) => set(f.key, v)} />
+                ) : f.type === 'suggest' && f.dropdown ? (
+                  <DropdownSelect options={lookups[f.key] ?? []} value={values[f.key]} onChange={(v) => set(f.key, v)} placeholder={f.placeholder ?? 'Seleccionar…'} clearLabel="— Sin seleccionar" allowCustom />
                 ) : f.type === 'suggest' ? (
                   <SuggestSelect options={lookups[f.key] ?? []} value={values[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
                 ) : f.type === 'date' ? (
@@ -492,21 +497,26 @@ function DropdownSelect({
   onChange,
   placeholder = 'Seleccionar…',
   clearLabel,
+  allowCustom = false,
 }: {
   options: Option[];
   value?: string;
   onChange: (v: string) => void;
   placeholder?: string;
   clearLabel?: string;
+  /** Permite escribir un valor NUEVO (no listado) desde el buscador. */
+  allowCustom?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const selected = options.find((o) => o.value === value);
+  // Con allowCustom el valor puede no estar en la lista (texto libre): se muestra tal cual.
+  const selected = options.find((o) => o.value === value) ?? (allowCustom && value ? { label: value, value } : undefined);
   const q = norm(query.trim());
   const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
-  const showSearch = options.length > 6;
+  const showSearch = allowCustom || options.length > 6;
+  const canAddCustom = allowCustom && query.trim().length > 0 && !options.some((o) => norm(o.label) === q);
 
   const close = () => { setOpen(false); setQuery(''); };
 
@@ -539,6 +549,11 @@ function DropdownSelect({
             {clearLabel ? (
               <TouchableOpacity onPress={() => { onChange(''); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <Text style={{ color: colors.muted, fontSize: 14, fontStyle: 'italic' }}>{clearLabel}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canAddCustom ? (
+              <TouchableOpacity onPress={() => { onChange(query.trim()); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>➕ Usar «{query.trim()}»</Text>
               </TouchableOpacity>
             ) : null}
             {filtered.map((o) => {
