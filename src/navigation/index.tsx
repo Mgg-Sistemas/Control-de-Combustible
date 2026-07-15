@@ -105,6 +105,17 @@ function HeaderHomeButton() {
   );
 }
 
+/** Botón "Salir" del encabezado (para vistas sin menú "Más", p. ej. supervisor). */
+function HeaderLogoutButton() {
+  const { signOut } = useAuth();
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal: 12, paddingVertical: 4 }} accessibilityLabel="Salir">
+      <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>Salir</Text>
+    </TouchableOpacity>
+  );
+}
+
 function useScreenHeader() {
   const { colors } = useTheme();
   return {
@@ -148,6 +159,27 @@ function MoreStack() {
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
+  );
+}
+
+/** Vista del SUPERVISOR: entra al sistema pero SOLO ve Mapa y Catálogo. La jornada,
+ *  averías y combustible se inician al escanear el QR de la máquina. */
+function SupervisorTabs() {
+  const { colors } = useTheme();
+  const screenHeader = useScreenHeader();
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        ...screenHeader,
+        headerLeft: () => <HeaderLogoutButton />,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.muted,
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+      }}
+    >
+      <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
+      <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
+    </Tab.Navigator>
   );
 }
 
@@ -332,8 +364,9 @@ export default function RootNavigator() {
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />
       ) : role === 'supervisor' ? (
-        // El supervisor sale a revisar máquinas: su ronda con check-in (GPS + estado).
-        <SupervisorScreen />
+        // El supervisor entra al sistema pero SOLO ve Mapa y Catálogo. La jornada,
+        // averías y combustible se inician escaneando el QR de cada máquina.
+        <SupervisorTabs />
       ) : role === 'cocina' ? (
         // Cocina reparte comida: escanea carnets y registra las comidas entregadas.
         <CocinaScreen />

@@ -18,31 +18,21 @@ import { useTheme } from '../theme/ThemeContext';
 export default function LoginScreen() {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
-  const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  // Máxima seguridad: SOLO inicio de sesión. El registro de usuarios lo hace
+  // únicamente el administrador (en Usuarios); nadie puede crear su propia cuenta.
+  const { signIn } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
     setError(null);
-    setInfo(null);
     setLoading(true);
-    const res =
-      mode === 'login'
-        ? await signIn(firstName, lastName, password)
-        : await signUp(firstName, lastName, password);
+    const res = await signIn(firstName, lastName, password);
     setLoading(false);
-    if (res.error) {
-      setError(res.error);
-    } else if (mode === 'signup') {
-      setInfo('Usuario creado. Ya puedes iniciar sesión.');
-      setMode('login');
-      setPassword('');
-    }
+    if (res.error) setError(res.error);
   };
 
   return (
@@ -74,7 +64,7 @@ export default function LoginScreen() {
         <Text style={[styles.brand, { textAlign: 'center' }]}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg, textAlign: 'center' }]}>
-          {mode === 'login' ? 'Inicia sesión con tu nombre y apellido' : 'Crea tu cuenta'}
+          Inicia sesión con tu nombre y apellido
         </Text>
 
         <TextInput
@@ -103,21 +93,14 @@ export default function LoginScreen() {
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {info ? <Text style={styles.info}>{info}</Text> : null}
 
         <TouchableOpacity style={styles.button} onPress={submit} disabled={loading}>
-          <Text style={styles.buttonText}>
-            {loading ? 'Procesando…' : mode === 'login' ? 'Entrar' : 'Registrarme'}
-          </Text>
+          <Text style={styles.buttonText}>{loading ? 'Procesando…' : 'Entrar'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => setMode(mode === 'login' ? 'signup' : 'login')}>
-          <Text style={[typography.muted, { textAlign: 'center', marginTop: spacing.md }]}>
-            {mode === 'login'
-              ? '¿No tienes cuenta? Regístrate'
-              : '¿Ya tienes cuenta? Inicia sesión'}
-          </Text>
-        </TouchableOpacity>
+        <Text style={[typography.muted, { textAlign: 'center', marginTop: spacing.lg, fontSize: 12 }]}>
+          🔒 Acceso restringido. Las cuentas las crea únicamente el administrador.
+        </Text>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

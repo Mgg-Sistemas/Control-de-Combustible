@@ -145,11 +145,11 @@ const SECTIONS: Sec[] = [
     icon: '🪖',
     title: 'Supervisión (rondas de supervisores)',
     blocks: [
-      { t: 'p', text: 'Sirve para saber si los supervisores SÍ están yendo a las máquinas a revisar que estén trabajando. Cada supervisor entra con su usuario (rol Supervisor) y ve su propia pantalla para salir a marcar máquinas.' },
+      { t: 'p', text: 'Sirve para saber si los supervisores SÍ están yendo a las máquinas a revisar que estén trabajando. El supervisor entra al sistema (rol Supervisor) y SOLO ve dos pestañas: 🗺️ Mapa y 🚜 Catálogo. Todo lo demás (iniciar jornada, avería, combustible y el check-in) se hace escaneando el QR de la máquina.' },
       { t: 'p', text: 'Cómo marca el supervisor una máquina:' },
       { t: 'steps', items: [
-        'Entra con su nombre y contraseña (rol Supervisor).',
-        'Escanea el QR de la máquina: se abre la VISTA DE OPERADOR (combustible, ubicación, avería, jornada). Ahí toca "🪖 Hacer check-in de supervisión" (o toca la máquina en su lista "Mis máquinas a revisar").',
+        'Entra con su nombre y contraseña (rol Supervisor). Verá solo Mapa y Catálogo.',
+        'Escanea el QR de la máquina: se abre la VISTA DE OPERADOR (combustible, ubicación, avería, jornada). Ahí toca "🪖 Hacer check-in de supervisión".',
         'El sistema toma su ubicación GPS y calcula qué tan cerca está de la máquina.',
         'Elige el estado: 🟢 Trabajando, 🟡 Parada o 🔴 No está, y escribe una nota si quiere.',
         'Toca "✅ Marcar como revisada". Queda la hora, el estado y la distancia.',
