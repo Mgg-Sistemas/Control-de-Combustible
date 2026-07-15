@@ -197,6 +197,42 @@ function buildHtml(pins: MapPin[]): string {
   });
   map.addControl(new RouteToggle());
 
+  // ── Ubicación del USUARIO logueado (se muestra CADA VEZ que se abre el mapa) ──
+  var userMarker = null, userCircle = null;
+  function userIcon(){ return L.divIcon({ className:'', iconSize:[18,18], iconAnchor:[9,9],
+    html:'<div style="width:14px;height:14px;border-radius:50%;background:#2563EB;border:3px solid #fff;box-shadow:0 0 0 2px rgba(37,99,235,.6)"></div>' }); }
+  map.on('locationfound', function(e){
+    if (userMarker){ userMarker.setLatLng(e.latlng); } else { userMarker = L.marker(e.latlng, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup('📍 Tu ubicación (usuario)'); }
+    if (userCircle){ userCircle.setLatLng(e.latlng).setRadius(e.accuracy); } else { userCircle = L.circle(e.latlng, { radius:e.accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); }
+  });
+  map.on('locationerror', function(){ /* sin permiso o no disponible: se ignora en silencio */ });
+  // Rastrea la posición sin cambiar la vista (para no tapar las máquinas al abrir).
+  map.locate({ watch:true, enableHighAccuracy:true, maximumAge:10000, timeout:15000 });
+  // Botón "centrar en MI ubicación".
+  var LocateBtn = L.Control.extend({ options:{ position:'topleft' }, onAdd:function(){
+    var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
+    a.href='#'; a.title='Mi ubicación'; a.textContent='📍';
+    a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
+    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev); if(userMarker){ map.setView(userMarker.getLatLng(), 16); userMarker.openPopup(); } else { map.locate({ setView:true, maxZoom:16, enableHighAccuracy:true }); } });
+    return c; }});
+  map.addControl(new LocateBtn());
+
+  // Botón PANTALLA COMPLETA (usa la API de pantalla completa del navegador).
+  var FsBtn = L.Control.extend({ options:{ position:'topright' }, onAdd:function(){
+    var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
+    a.href='#'; a.title='Pantalla completa'; a.textContent='⛶';
+    a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
+    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev);
+      try {
+        var el = document.documentElement;
+        if (document.fullscreenElement){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
+        else { (el.requestFullscreen||el.webkitRequestFullscreen).call(el); }
+        setTimeout(function(){ map.invalidateSize(); }, 300);
+      } catch(err){ try { parent.postMessage({ type:'map-fullscreen' }, '*'); } catch(e){} }
+    });
+    return c; }});
+  map.addControl(new FsBtn());
+
   // Polígonos de zonas (prender/apagar desde FUERA del mapa por postMessage).
   var sectorLayers = {};
   var zonesOn = {};
@@ -259,6 +295,8 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height }:
       ref: iframeRef,
       srcDoc: buildHtml(pins),
       onLoad,
+      // Permite mostrar la ubicación del usuario y el modo pantalla completa.
+      allow: 'geolocation; fullscreen',
       style: {
         width: '100%',
         height: height ?? 340,
