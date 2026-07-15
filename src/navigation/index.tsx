@@ -279,9 +279,11 @@ export default function RootNavigator() {
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
     >
-      {qrComidaId ? (
-        // Se abrió por QR de DISTRIBUCIÓN DE COMIDA de una empresa: registrar comidas
-        // (la cocina se verifica con su carnet). Público: inicia sesión anónima.
+      {qrComidaId && !loggedInReal ? (
+        // QR de DISTRIBUCIÓN DE COMIDA: LOGIN DIRECTO (sin vista anónima).
+        <LoginScreen />
+      ) : qrComidaId ? (
+        // Con sesión: registrar comidas de la empresa (la cocina se verifica con su carnet).
         <FoodCompanyScreen companyId={qrComidaId} onExit={exitQrComida} />
       ) : qrAliadoId ? (
         // Se abrió por QR de un aliado: ficha del aliado (solo lectura, sin login).
