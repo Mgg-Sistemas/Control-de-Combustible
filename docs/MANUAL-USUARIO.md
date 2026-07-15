@@ -213,6 +213,16 @@ Con las flechas ◀ ▶ cambias de día.
    cuántas comidas **entregó realmente** y registra.
 
 > Queda guardado con la **empresa**, la **cantidad**, la **hora** y **quién** la registró.
+> Ese registro **ES el control de asistencia/entrega** de la empresa.
+
+**Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
+pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
+30 días*) y verás:
+- **Totales del rango**: total entregado y cuánto por desayuno, almuerzo y cena.
+- **Resumen por empresa**: cuánto entregó cada empresa por tiempo de comida y en cuántos días.
+- Al elegir **una empresa** (filtro de arriba): su **historial día por día** con lo entregado en
+  cada comida, la hora y quién lo registró.
+- Botón **"📄 Descargar reporte PDF"** para imprimir/llevar el control por empresa del rango.
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo

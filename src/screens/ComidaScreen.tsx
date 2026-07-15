@@ -4,11 +4,11 @@ import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { listFoodByDate } from '../lib/foodDistributions';
-import { listCompanyMealsByDate, MEALS, mealLabel } from '../lib/foodCompanyMeals';
+import { listCompanyMealsByDate, listCompanyMealsBetween, MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import { FoodDistribution, FoodCompanyMeal } from '../types/database';
 import { supabase } from '../lib/supabase';
 import { comidaQrUrl, qrPngDataUri } from '../lib/qr';
-import { exportCardImage } from '../lib/pdf';
+import { exportCardImage, exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -22,6 +22,14 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+function niceDay(iso: string): string {
+  return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, weekday: 'short', day: '2-digit', month: 'short' }).format(new Date(iso + 'T12:00:00'));
+}
+function addDaysISO(iso: string, delta: number): string {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
 
 /**
  * Módulo "Distribución de comida" (para el jefe): por día, cuántas comidas se
@@ -30,6 +38,7 @@ function caracasClock(iso: string): string {
  */
 export default function ComidaScreen() {
   const { colors } = useTheme();
+  const [mode, setMode] = useState<'dia' | 'control'>('dia');
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<FoodDistribution[]>([]);
@@ -37,6 +46,13 @@ export default function ComidaScreen() {
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [qrBusy, setQrBusy] = useState<string | null>(null);
   const [qrOpen, setQrOpen] = useState(false);
+  // ── Control por empresa (rango de fechas) ──
+  const [from, setFrom] = useState(addDaysISO(caracasToday(), -6)); // últimos 7 días
+  const [to, setTo] = useState(caracasToday());
+  const [rangeRows, setRangeRows] = useState<FoodCompanyMeal[]>([]);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [companyFilter, setCompanyFilter] = useState<string>('all'); // 'all' o company_id
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +68,104 @@ export default function ComidaScreen() {
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
+
+  // Carga del control por rango (solo en modo control).
+  const loadRange = useCallback(async () => {
+    setRangeLoading(true);
+    const data = await listCompanyMealsBetween(from, to);
+    setRangeRows(data);
+    setRangeLoading(false);
+  }, [from, to]);
+  useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
+
+  // Empresas presentes en el rango (para el filtro).
+  const rangeCompanies = useMemo(() => {
+    const m = new Map<string, string>();
+    rangeRows.forEach((r) => m.set(r.company_id ?? r.company_name, r.company_name));
+    return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [rangeRows]);
+
+  const rangeFiltered = useMemo(
+    () => (companyFilter === 'all' ? rangeRows : rangeRows.filter((r) => (r.company_id ?? r.company_name) === companyFilter)),
+    [rangeRows, companyFilter]
+  );
+
+  // Resumen por empresa: total por tiempo de comida + total + días con entrega.
+  const rangeByCompany = useMemo(() => {
+    const map = new Map<string, { name: string; by: Record<string, number>; total: number; days: Set<string> }>();
+    rangeFiltered.forEach((r) => {
+      const k = r.company_id ?? r.company_name;
+      if (!map.has(k)) map.set(k, { name: r.company_name, by: {}, total: 0, days: new Set() });
+      const g = map.get(k)!;
+      g.by[r.meal_type] = (g.by[r.meal_type] || 0) + (Number(r.delivered) || 0);
+      g.total += Number(r.delivered) || 0;
+      g.days.add(r.meal_date);
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [rangeFiltered]);
+
+  // Totales generales del rango (por tiempo de comida + total).
+  const rangeTotals = useMemo(() => {
+    const by: Record<string, number> = {}; let total = 0;
+    rangeFiltered.forEach((r) => { by[r.meal_type] = (by[r.meal_type] || 0) + (Number(r.delivered) || 0); total += Number(r.delivered) || 0; });
+    return { by, total };
+  }, [rangeFiltered]);
+
+  // Historial día por día (solo cuando hay UNA empresa elegida) → { fecha: {meal: cm} }.
+  const rangeHistory = useMemo(() => {
+    if (companyFilter === 'all') return [];
+    const map = new Map<string, Partial<Record<string, FoodCompanyMeal>>>();
+    rangeFiltered.forEach((r) => {
+      if (!map.has(r.meal_date)) map.set(r.meal_date, {});
+      map.get(r.meal_date)![r.meal_type] = r;
+    });
+    return Array.from(map, ([d, meals]) => ({ date: d, meals })).sort((a, b) => (a.date < b.date ? 1 : -1));
+  }, [rangeFiltered, companyFilter]);
+
+  const rangeCompanyName = companyFilter === 'all' ? 'Todas las empresas' : (rangeCompanies.find((c) => c.id === companyFilter)?.name ?? '');
+
+  const shiftRange = (delta: number) => { setFrom(addDaysISO(from, delta)); setTo(addDaysISO(to, delta)); };
+
+  // Reporte PDF del control por empresa (rango).
+  const downloadRangePdf = async () => {
+    setPdfBusy(true);
+    try {
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
+      const mealHeads = MEALS.map((m) => `<th>${esc(m.label)}</th>`).join('');
+      const bodyRows = rangeByCompany.map((g) => `
+        <tr>
+          <td class="l">${esc(g.name)}</td>
+          ${MEALS.map((m) => `<td>${g.by[m.key] || 0}</td>`).join('')}
+          <td class="b">${g.total}</td>
+          <td>${g.days.size}</td>
+        </tr>`).join('');
+      const totalRow = `
+        <tr class="tot">
+          <td class="l">TOTAL</td>
+          ${MEALS.map((m) => `<td>${rangeTotals.by[m.key] || 0}</td>`).join('')}
+          <td class="b">${rangeTotals.total}</td>
+          <td></td>
+        </tr>`;
+      const html = `
+        <style>
+          *{font-family:Arial,Helvetica,sans-serif}
+          h1{font-size:18px;margin:0 0 2px} .sub{color:#555;font-size:12px;margin:0 0 12px}
+          table{border-collapse:collapse;width:100%;font-size:12px}
+          th,td{border:1px solid #ccc;padding:6px 8px;text-align:center}
+          th{background:#16324F;color:#fff} td.l{text-align:left} td.b{font-weight:800}
+          tr.tot td{background:#EAF1FB;font-weight:800}
+        </style>
+        <h1>🍽️ Control de entregas por empresa</h1>
+        <p class="sub">${esc(rangeCompanyName)} · ${esc(niceDay(from))} a ${esc(niceDay(to))}</p>
+        <table>
+          <thead><tr><th class="l">Empresa</th>${mealHeads}<th>Total</th><th>Días</th></tr></thead>
+          <tbody>${bodyRows}${totalRow}</tbody>
+        </table>`;
+      await exportPdf(html, `Control comida - ${rangeCompanyName} (${from} a ${to})`);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   // Agrupa las comidas por empresa → { desayuno, almuerzo, cena }.
   const companyGroups = useMemo(() => {
@@ -119,11 +233,146 @@ export default function ComidaScreen() {
     </View>
   );
 
+  const modeTab = (key: 'dia' | 'control', label: string) => (
+    <TouchableOpacity
+      onPress={() => setMode(key)}
+      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: mode === key ? colors.primary : colors.surface, borderWidth: 1, borderColor: mode === key ? colors.primary : colors.border }}
+    >
+      <Text style={{ color: mode === key ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <Screen>
       <ConfigBanner />
       <SectionTitle>🍽️ Distribución de comida</SectionTitle>
 
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        {modeTab('dia', '📅 Por día')}
+        {modeTab('control', '📊 Control por empresa')}
+      </View>
+
+      {mode === 'control' ? (
+      <>
+        {/* Rango de fechas */}
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <TouchableOpacity onPress={() => shiftRange(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+              <DateField value={from} onChange={setFrom} maxISO={to} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+              <DateField value={to} onChange={setTo} maxISO={caracasToday()} />
+            </View>
+            <TouchableOpacity onPress={() => shiftRange(1)} disabled={to >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: to >= caracasToday() ? 0.4 : 1 }}>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+            {[['Hoy', 0], ['7 días', 6], ['30 días', 29]].map(([lbl, back]) => (
+              <TouchableOpacity key={lbl as string} onPress={() => { setFrom(addDaysISO(caracasToday(), -(back as number))); setTo(caracasToday()); }} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{lbl}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Card>
+
+        {/* Filtro por empresa */}
+        <Card>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Empresa</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            <TouchableOpacity onPress={() => setCompanyFilter('all')} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === 'all' ? colors.primary : colors.border, backgroundColor: companyFilter === 'all' ? colors.primary : colors.surface }}>
+              <Text style={{ color: companyFilter === 'all' ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>Todas</Text>
+            </TouchableOpacity>
+            {rangeCompanies.map((c) => (
+              <TouchableOpacity key={c.id} onPress={() => setCompanyFilter(c.id)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === c.id ? colors.primary : colors.border, backgroundColor: companyFilter === c.id ? colors.primary : colors.surface }}>
+                <Text style={{ color: companyFilter === c.id ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Card>
+
+        {rangeLoading ? (
+          <Loading />
+        ) : rangeRows.length === 0 ? (
+          <EmptyState title="Sin entregas en este rango" subtitle="No hay comidas registradas por empresa en las fechas elegidas." />
+        ) : (
+          <>
+            {/* Totales generales del rango */}
+            <Card>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                {kpi('Total entregado', rangeTotals.total, colors.primary)}
+                {MEALS.map((m) => kpi(m.label, rangeTotals.by[m.key] || 0, colors.text))}
+              </View>
+            </Card>
+
+            <TouchableOpacity onPress={downloadRangePdf} disabled={pdfBusy} style={{ backgroundColor: '#B91C1C', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Descargar reporte PDF'}</Text>
+            </TouchableOpacity>
+
+            {/* Resumen por empresa */}
+            <SectionTitle>🏢 Resumen por empresa</SectionTitle>
+            {rangeByCompany.map((g) => (
+              <Card key={g.name}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
+                </View>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                  {MEALS.map((m) => (
+                    <Text key={m.key} style={{ color: colors.muted, fontSize: 12 }}>{m.icon} {m.label}: <Text style={{ color: colors.text, fontWeight: '800' }}>{g.by[m.key] || 0}</Text></Text>
+                  ))}
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {g.days.size} día(s)</Text>
+                </View>
+              </Card>
+            ))}
+
+            {/* Historial día por día (una empresa seleccionada) */}
+            {companyFilter !== 'all' ? (
+              <>
+                <SectionTitle>📅 Historial día por día · {rangeCompanyName}</SectionTitle>
+                {rangeHistory.map((h) => {
+                  const dayTotal = MEALS.reduce((a, m) => a + (Number(h.meals[m.key]?.delivered) || 0), 0);
+                  return (
+                    <Card key={h.date}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, textTransform: 'capitalize' }}>{niceDay(h.date)}</Text>
+                        <Text style={{ color: colors.primary, fontWeight: '900' }}>{dayTotal} comida(s)</Text>
+                      </View>
+                      {MEALS.map((m) => {
+                        const cm = h.meals[m.key];
+                        return (
+                          <View key={m.key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontSize: 13 }}>{m.icon} {m.label}</Text>
+                            {cm ? (
+                              <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right', flex: 1, marginLeft: spacing.sm }}>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas · sug. {cm.suggested} · {caracasClock(cm.delivered_at)}{cm.created_by_name ? ` · ${cm.created_by_name}` : ''}
+                              </Text>
+                            ) : (
+                              <Text style={{ color: colors.muted, fontSize: 12 }}>— sin registrar</Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </Card>
+                  );
+                })}
+              </>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.sm }}>
+                Elige una empresa arriba para ver su historial de asistencia/entrega día por día.
+              </Text>
+            )}
+          </>
+        )}
+        <View style={{ height: spacing.xl }} />
+      </>
+      ) : (
+      <>
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
@@ -223,6 +472,8 @@ export default function ComidaScreen() {
         ))
       )}
       <View style={{ height: spacing.xl }} />
+      </>
+      )}
     </Screen>
   );
 }
