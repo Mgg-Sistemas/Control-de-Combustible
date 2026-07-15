@@ -4,7 +4,7 @@ import { Screen, Card, Loading } from '../components/ui';
 import { supabase } from '../lib/supabase';
 import { Aliado } from '../types/database';
 import { qrPngDataUri, aliadoQrUrl } from '../lib/qr';
-import { carnetAliadoHtml, carnetAliadoFront, carnetAliadoBack, carnetAliadoStyles, CARNET_ALIADO_MM } from '../lib/carnet';
+import { carnetAliadoHtml, carnetAliadoFront, carnetAliadoStyles, CARNET_ALIADO_MM } from '../lib/carnet';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -55,21 +55,10 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
     const svg = await getSvg();
     const photoData = await urlToDataUri(ali.photo_url);
     await exportCardImage({
-      styles: carnetAliadoStyles, card: carnetAliadoFront(ali, { photoOverride: photoData ?? undefined }),
+      styles: carnetAliadoStyles, card: carnetAliadoFront(ali, { photoOverride: photoData ?? undefined, qrSvg: svg }),
       mmW: CARNET_ALIADO_MM.w, mmH: CARNET_ALIADO_MM.h, dpi: 300,
-      fileName: `Carnet Aliado (frente) - ${fullName(ali)}`,
+      fileName: `Carnet Aliado - ${fullName(ali)}`,
       htmlForFallback: carnetAliadoHtml(ali, { qrSvg: svg, photoOverride: photoData ?? undefined }),
-    });
-  };
-
-  const imagenReverso = async () => {
-    if (!ali) return;
-    const svg = await getSvg();
-    await exportCardImage({
-      styles: carnetAliadoStyles, card: carnetAliadoBack(ali, { qrSvg: svg }),
-      mmW: CARNET_ALIADO_MM.w, mmH: CARNET_ALIADO_MM.h, dpi: 300,
-      fileName: `Carnet Aliado (reverso) - ${fullName(ali)}`,
-      htmlForFallback: carnetAliadoHtml(ali, { qrSvg: svg }),
     });
   };
 
@@ -87,7 +76,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
 
   // Vista previa (frente y reverso) al estilo de la credencial 54×86.
   const CardFace = ({ children }: { children: React.ReactNode }) => (
-    <View style={{ width: 210, height: 334, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: FICHA.border, overflow: 'hidden', alignItems: 'center', paddingTop: 24, paddingHorizontal: 14 }}>
+    <View style={{ width: 210, height: 360, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: FICHA.border, overflow: 'hidden', alignItems: 'center', paddingTop: 22, paddingHorizontal: 14 }}>
       {/* olas decorativas */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 54, backgroundColor: FICHA.brand, borderBottomRightRadius: 80 }} />
       <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 44, backgroundColor: FICHA.brand, borderTopLeftRadius: 80 }} />
@@ -102,42 +91,32 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
         <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Carnet de aliado</Text>
       </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'center' }}>
-        {/* FRENTE */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center' }}>
+        {/* Única cara: logo + foto + nombre + N° de ficha + QR */}
         <CardFace>
-          <Image source={LOGO} style={{ width: 52, height: 34, marginBottom: 4, zIndex: 1 }} resizeMode="contain" />
+          <Image source={LOGO} style={{ width: 44, height: 30, marginBottom: 4, zIndex: 1 }} resizeMode="contain" />
           {ali.photo_url ? (
-            <Image source={{ uri: ali.photo_url }} style={{ width: 92, height: 110, borderRadius: 6, borderWidth: 1, borderColor: FICHA.brand, zIndex: 1 }} resizeMode="cover" />
+            <Image source={{ uri: ali.photo_url }} style={{ width: 78, height: 90, borderRadius: 6, borderWidth: 1, borderColor: FICHA.brand, zIndex: 1 }} resizeMode="cover" />
           ) : (
-            <View style={{ width: 92, height: 110, borderRadius: 6, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}><Text style={{ fontSize: 44 }}>👤</Text></View>
+            <View style={{ width: 78, height: 90, borderRadius: 6, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}><Text style={{ fontSize: 40 }}>👤</Text></View>
           )}
-          <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 15, textAlign: 'center', marginTop: 6, zIndex: 1 }}>{fullName(ali)}</Text>
+          <Text style={{ color: FICHA.brand, fontWeight: '900', fontSize: 14, textAlign: 'center', marginTop: 5, zIndex: 1 }}>{fullName(ali)}</Text>
           <View style={{ backgroundColor: FICHA.brand, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 2, marginTop: 4, zIndex: 1 }}>
             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 10, letterSpacing: 1 }}>ALIADO</Text>
           </View>
-          <Text style={{ color: FICHA.muted, fontSize: 9, fontWeight: '700', marginTop: 6, zIndex: 1 }}>N° DE FICHA</Text>
-          <Text style={{ color: FICHA.brand, fontSize: 22, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
-        </CardFace>
-
-        {/* REVERSO */}
-        <CardFace>
-          <Image source={LOGO} style={{ width: 58, height: 38, marginBottom: 6, zIndex: 1 }} resizeMode="contain" />
+          <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 5, zIndex: 1 }}>N° DE FICHA</Text>
+          <Text style={{ color: FICHA.brand, fontSize: 20, fontWeight: '900', letterSpacing: 4, zIndex: 1 }}>{ali.ficha_number || '----'}</Text>
           {qrUri ? (
-            <Image source={{ uri: qrUri }} style={{ width: 112, height: 112, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
+            <Image source={{ uri: qrUri }} style={{ width: 64, height: 64, marginTop: 6, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
           ) : null}
-          <Text style={{ color: FICHA.brand, fontSize: 10, fontWeight: '800', textAlign: 'center', marginTop: 6, zIndex: 1 }}>QR de acceso y control</Text>
-          <Text style={{ color: FICHA.text, fontSize: 9, textAlign: 'center', marginTop: 8, zIndex: 1 }}>En caso de pérdida, por favor comunicarse a la empresa.</Text>
-          <Text style={{ color: FICHA.brand, fontSize: 10, fontWeight: '800', marginTop: 3, zIndex: 1 }}>N° de ficha {ali.ficha_number || '----'}</Text>
+          <Text style={{ color: FICHA.muted, fontSize: 8, fontWeight: '700', marginTop: 2, zIndex: 1 }}>QR de acceso y control</Text>
         </CardFace>
       </View>
 
       <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.md, textAlign: 'center' }}>Descargar (54 × 86 mm · 300 dpi)</Text>
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
         <TouchableOpacity onPress={imagenFrente} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#059669' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Frente</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={imagenReverso} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#0891B2' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Reverso</Text>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Imagen</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={carnetPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
           <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 PDF</Text>

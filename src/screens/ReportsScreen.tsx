@@ -197,6 +197,24 @@ const PDF_CSS = `
   .lbl{font-size:10px;color:#6B7280;margin-top:4px}.val{font-size:10px;color:#333}
   .foot{margin-top:26px;padding-top:10px;border-top:1px solid #E5E7EB;text-align:center;color:#9CA3AF;font-size:10px}
 `;
+// Categoría de equipo para el "Conteo de equipos": agrupa por tipo real leyendo el
+// nombre/código. Las categorías pedidas se detectan por palabras clave; el resto
+// queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
+function equipCategory(code: string): string {
+  const c = (code || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (c.includes('volteo') || c.includes('toronto')) return 'CAMIÓN VOLTEO - TORONTO';
+  if (c.includes('pitman')) return 'PITMAN';
+  if (c.includes('jumbo')) return 'JUMBO';
+  if (c.includes('oruga')) return 'TRACTORES DE ORUGA';
+  if (c.includes('lowboy') || c.includes('low boy')) return 'CHUTO CON LOWBOY';
+  if (c.includes('batea')) return 'CHUTO CON BATEA';
+  if (c.includes('volqueta')) return 'CHUTO CON VOLQUETA';
+  if (c.includes('cisterna') && c.includes('agua')) return 'CISTERNA DE AGUA';
+  if (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil'))) return 'CISTERNA DE DIESEL';
+  if (c.includes('plataforma') && !c.includes('grua')) return 'CAMIÓN PLATAFORMA';
+  return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
+}
+
 function pdfShell(title: string, sub: string, body: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
@@ -899,7 +917,7 @@ export default function ReportsScreen({ route }: any) {
     list.forEach((m) => {
       const h = hoursByMachine.get(m.id) ?? 0;
       const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
-      const tk = (String(m.code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
+      const tk = equipCategory(m.code);
       const cc = clasMap.get(ck) ?? { name: ck, count: 0, hours: 0 }; cc.count += 1; cc.hours += h; clasMap.set(ck, cc);
       const tt = tipoMap.get(tk) ?? { name: tk, count: 0, hours: 0 }; tt.count += 1; tt.hours += h; tipoMap.set(tk, tt);
     });
