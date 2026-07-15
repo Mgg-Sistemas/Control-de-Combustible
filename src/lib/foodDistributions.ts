@@ -1,11 +1,12 @@
 import { supabase } from './supabase';
-import { FoodDistribution } from '../types/database';
+import { FoodDistribution, MealType } from '../types/database';
 
 export type SaveFoodInput = {
   employeeId: string | null;
   employeeName: string;
   cedula?: string | null;
   meals: number;
+  mealType?: MealType | null;  // desayuno/almuerzo/cena (1 por día por persona)
   distributionDate: string;   // día ISO (Caracas)
   deliveredAt?: string;       // hora de entrega (ISO). Por defecto ahora.
   note?: string | null;
@@ -22,6 +23,7 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
       employee_name: input.employeeName,
       cedula: (input.cedula ?? '').trim() || null,
       meals: input.meals,
+      meal_type: input.mealType ?? null,
       distribution_date: input.distributionDate,
       delivered_at: input.deliveredAt ?? new Date().toISOString(),
       note: (input.note ?? '').trim() || null,
@@ -30,7 +32,11 @@ export async function saveFoodDistribution(input: SaveFoodInput): Promise<{ data
     })
     .select()
     .single();
-  return { data: (data as FoodDistribution) ?? null, error: error?.message };
+  if (error) {
+    const dup = (error as any).code === '23505' || /duplicate|unique/i.test(error.message);
+    return { data: null, error: dup ? 'Esa comida ya se registró hoy para esta persona.' : error.message };
+  }
+  return { data: (data as FoodDistribution) ?? null };
 }
 
 /** Entregas de comida de una persona en un día (más reciente primero). */

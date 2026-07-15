@@ -4,8 +4,9 @@ import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import { FoodDistribution } from '../types/database';
+import { FoodDistribution, MealType } from '../types/database';
 import { saveFoodDistribution, listForEmployeeDay, deleteFoodDistribution } from '../lib/foodDistributions';
+import { MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import { norm } from '../lib/text';
@@ -49,9 +50,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   const [scanOpen, setScanOpen] = useState(false);
   const [person, setPerson] = useState<Person | null>(null);
   const [todayList, setTodayList] = useState<FoodDistribution[]>([]);
-  const [meals, setMeals] = useState(1);
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [savingMeal, setSavingMeal] = useState<MealType | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [cedula, setCedula] = useState('');
   const [searching, setSearching] = useState(false);
@@ -87,8 +86,6 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
       companyName: (data as any).company?.name ?? 'Sin empresa',
     };
     setPerson(p);
-    setMeals(1);
-    setNote('');
     setTodayList(await listForEmployeeDay(p.id, today));
   };
 
@@ -147,26 +144,28 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
     if (verifyCookByEmployee(emp)) setCookCedula('');
   };
 
-  const registrar = async () => {
+  const doneMeal = (mt: MealType) => todayList.find((d) => d.meal_type === mt) || null;
+
+  const registrarMeal = async (mealType: MealType) => {
     if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
-    if (!person || meals < 1) return;
-    setSaving(true); setNotice(null);
+    if (!person) return;
+    if (doneMeal(mealType)) { setNotice(`ℹ️ ${mealLabel(mealType)} ya se registró hoy para ${person.name}.`); return; }
+    setSavingMeal(mealType); setNotice(null);
     const { data, error } = await saveFoodDistribution({
       employeeId: person.id,
       employeeName: person.name,
       cedula: person.cedula,
-      meals,
+      meals: 1,
+      mealType,
       distributionDate: today,
-      note,
+      note: '',
       createdBy: uid || null,
       createdByName: cook?.name || myName || null,
     });
-    setSaving(false);
+    setSavingMeal(null);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
     setTodayList((prev) => [data, ...prev]);
-    setNote('');
-    setMeals(1);
-    setNotice(`✅ ${data.meals} comida(s) entregada(s) a ${person.name} · ${caracasClock(data.delivered_at)}.`);
+    setNotice(`✅ ${mealLabel(mealType)} registrado para ${person.name} · ${caracasClock(data.delivered_at)}.`);
   };
 
   const borrar = async (id: string) => {
@@ -263,22 +262,30 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
           </Card>
 
           <Card>
-            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>¿Cuántas comidas se le entregan ahora?</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.lg }}>
-              <TouchableOpacity onPress={() => setMeals((m) => Math.max(1, m - 1))} style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.text, fontSize: 26, fontWeight: '900' }}>−</Text>
-              </TouchableOpacity>
-              <Text style={{ color: colors.text, fontSize: 40, fontWeight: '900', minWidth: 60, textAlign: 'center' }}>{meals}</Text>
-              <TouchableOpacity onPress={() => setMeals((m) => Math.min(20, m + 1))} style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 1, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary }}>
-                <Text style={{ color: colors.primaryContrast, fontSize: 26, fontWeight: '900' }}>＋</Text>
-              </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Marca la comida que se le entrega (1 vez por día cada una):</Text>
+            <View style={{ gap: spacing.sm }}>
+              {MEALS.map((mt) => {
+                const done = doneMeal(mt.key);
+                const busy = savingMeal === mt.key;
+                return (
+                  <TouchableOpacity
+                    key={mt.key}
+                    onPress={() => registrarMeal(mt.key)}
+                    disabled={!!done || busy}
+                    style={{ borderRadius: radius.md, padding: spacing.md, backgroundColor: done ? colors.surfaceAlt : mt.color, borderWidth: done ? 1 : 0, borderColor: colors.border, opacity: busy ? 0.6 : 1 }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ color: done ? colors.text : '#fff', fontWeight: '900', fontSize: 18 }}>{mt.icon} {mt.label}</Text>
+                      {done ? (
+                        <Text style={{ color: colors.success, fontWeight: '900', fontSize: 13 }}>✅ {caracasClock(done.delivered_at)}</Text>
+                      ) : (
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{busy ? 'Guardando…' : 'Marcar ›'}</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: spacing.xs }}>Hora de entrega: {caracasClock(new Date().toISOString())} (se guarda al registrar)</Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
-            <TextInput value={note} onChangeText={setNote} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
-            <TouchableOpacity onPress={registrar} disabled={saving} style={{ marginTop: spacing.md, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: saving ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '900' }}>{saving ? 'Guardando…' : `🍽️ Registrar ${meals} comida(s)`}</Text>
-            </TouchableOpacity>
           </Card>
 
           <Card>
@@ -291,7 +298,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
             ) : (
               todayList.map((d) => (
                 <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>🍽️ {d.meals} · {caracasClock(d.delivered_at)}{d.note ? ` · ${d.note}` : ''}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>🍽️ {d.meal_type ? mealLabel(d.meal_type) : `${d.meals} comida(s)`} · {caracasClock(d.delivered_at)}{d.note ? ` · ${d.note}` : ''}</Text>
                   <TouchableOpacity onPress={() => borrar(d.id)}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12 }}>🗑</Text></TouchableOpacity>
                 </View>
               ))

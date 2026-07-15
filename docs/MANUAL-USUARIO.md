@@ -185,10 +185,10 @@ usuario con **rol Cocina** (entra con su nombre y contraseña).
 2. Se **verifica** escaneando **su propio carnet** (o por **cédula**). Solo se habilita si su
    **cargo en nómina** es de cocina/alimentación (**ayudante de cocina, alimentación, cocinero,
    cocina**). Si su cargo no es de cocina, **no puede** ingresar cantidades.
-3. **Escanea el carnet** de quien recibe (o lo busca por **cédula** si el carnet no lee).
+3. **Escanea el carnet de nómina** de la persona (el mismo del empleado) o la busca por **cédula**.
 4. Ve los datos de la persona (foto, cargo, cédula).
-5. Con el contador **− / +** elige cuántas comidas se entregan.
-6. Toca **"🍽️ Registrar"**. Queda guardado con la **hora de entrega**.
+5. Marca **Desayuno**, **Almuerzo** o **Cena**: cada botón se marca **1 sola vez por día** por persona.
+6. Queda guardado con la **hora**. Debajo se ve lo ya marcado hoy a esa persona.
 
 > Debajo se ve lo que ya se le entregó a esa persona **hoy** y el total. Si te equivocaste,
 > puedes borrar una entrega con 🗑.
@@ -202,8 +202,9 @@ repartidas **por empresa** (desayuno/almuerzo/cena) y también **por persona**, 
 Con las flechas ◀ ▶ cambias de día.
 
 **Comida POR EMPRESA (con QR):**
-1. En **Distribución de comida** (jefe), toca **"🖨️ Generar QR por empresa"**: crea una hoja con
-   un **QR por empresa** (logo + QR + nombre) para imprimir y pegar.
+1. En **Distribución de comida** (jefe), toca **"🖼️ QR por empresa (imágenes)"** y descarga el QR
+   de cada empresa como **imagen individual** (logo + QR + nombre). Las **empresas desactivadas
+   no aparecen**.
 2. La cocina **escanea el QR** de la empresa → se abre su pantalla de comidas del día.
 3. Se **verifica** con su carnet/cédula (solo **cargo de cocina/alimentación**).
 4. Toca uno de los **3 botones grandes**: **Desayuno, Almuerzo o Cena** (cada uno **1 sola vez

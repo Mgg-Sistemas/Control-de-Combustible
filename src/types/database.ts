@@ -403,6 +403,7 @@ export interface FoodDistribution {
   employee_name: string;
   cedula: string | null;
   meals: number;
+  meal_type: MealType | null;  // desayuno/almuerzo/cena (1 por día por persona)
   delivered_at: string;        // hora de entrega (ISO UTC)
   distribution_date: string;   // día (ISO Caracas)
   note: string | null;
