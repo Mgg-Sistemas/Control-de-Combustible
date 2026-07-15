@@ -425,8 +425,8 @@ export default function ReportsScreen({ route }: any) {
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo'>('fuel');
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
-  type ConteoMachine = { code: string; serial: string | null; clas: string };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; total: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
   const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
@@ -925,7 +925,7 @@ export default function ReportsScreen({ route }: any) {
   // y por TIPO de equipo (JUMBO, RETROEXCAVADORA…), con totales de estado al final.
   const generateConteo = async () => {
     setLoading(true);
-    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera');
+    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, company:company_id(name)');
     const list = (mach ?? []) as any[];
     // Horas trabajadas por máquina (todas las jornadas registradas). Dedupe por máquina+día.
     const rnds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
@@ -938,27 +938,32 @@ export default function ReportsScreen({ route }: any) {
     });
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
+    const empresaMap = new Map<string, ConteoRow>();
+    const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     list.forEach((m) => {
       const tieneHoras = (hoursByMachine.get(m.id) ?? 0) > 0;
       const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
       const tk = equipCategory(m.code);
+      const ek = companyOf(m);
       const cc = clasMap.get(ck) ?? { name: ck, count: 0, conHoras: 0, sinHoras: 0 }; cc.count += 1; if (tieneHoras) cc.conHoras += 1; else cc.sinHoras += 1; clasMap.set(ck, cc);
       const tt = tipoMap.get(tk) ?? { name: tk, count: 0, conHoras: 0, sinHoras: 0 }; tt.count += 1; if (tieneHoras) tt.conHoras += 1; else tt.sinHoras += 1; tipoMap.set(tk, tt);
+      const ee = empresaMap.get(ek) ?? { name: ek, count: 0, conHoras: 0, sinHoras: 0 }; ee.count += 1; if (tieneHoras) ee.conHoras += 1; else ee.sinHoras += 1; empresaMap.set(ek, ee);
     });
     const byClas = [...clasMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const byTipo = [...tipoMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const byEmpresa = [...empresaMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
     const sinHoras = list.length - conHoras;
     // Listado de máquinas SIN horas (para mostrarlo tal cual, sin agrupar).
     const sinList: ConteoMachine[] = list
       .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
-      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación' }))
-      .sort((a, b) => a.code.localeCompare(b.code));
+      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
+      .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
     // Estado: stand by (en espera) tiene prioridad; luego inactivo (active/operational false); el resto, activo.
     const standby = list.filter((m) => m.en_espera === true).length;
     const inactivos = list.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
     const activos = list.length - standby - inactivos;
-    setConteo({ byClas, byTipo, total: list.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    setConteo({ byClas, byTipo, byEmpresa, total: list.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -974,9 +979,13 @@ export default function ReportsScreen({ route }: any) {
     // En "Sin horas" no se cuenta/agrupa: se lista cada máquina.
     const sinListHtml = `
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas sin horas (${conteo.sinList.length})</h2>
-      <table class="cnt"><thead><tr><th style="width:34px">#</th><th>Máquina</th><th>Serial</th><th>Clasificación</th></tr></thead>
-        <tbody>${conteo.sinList.map((m, i) => `<tr><td>${i + 1}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.clas)}</td></tr>`).join('')}</tbody></table>`;
+      <table class="cnt"><thead><tr><th style="width:34px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Clasificación</th></tr></thead>
+        <tbody>${conteo.sinList.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.clas)}</td></tr>`).join('')}</tbody></table>`;
     const tablasHtml = `
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por empresa${filtroTxt}</h2>
+      <table class="cnt"><thead><tr><th>Empresa</th><th style="text-align:right">${colHead}</th></tr></thead>
+        <tbody>${rowsFor(conteo.byEmpresa)}</tbody>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación${filtroTxt}</h2>
       <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byClas)}</tbody>
@@ -1596,7 +1605,7 @@ export default function ReportsScreen({ route }: any) {
                               <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right' }}>{i + 1}</Text>
                               <View style={{ flex: 1 }}>
                                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
-                                <Text style={{ color: colors.muted, fontSize: 11 }}>{m.serial ? `Serial ${m.serial} · ` : ''}{m.clas}</Text>
+                                <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.clas}</Text>
                               </View>
                             </View>
                           ))
@@ -1604,6 +1613,7 @@ export default function ReportsScreen({ route }: any) {
                       </Card>
                     ) : (
                       <>
+                        {tableCard('Por empresa', conteo.byEmpresa)}
                         {tableCard('Por clasificación', conteo.byClas)}
                         {tableCard('Por tipo de equipo', conteo.byTipo)}
                       </>
