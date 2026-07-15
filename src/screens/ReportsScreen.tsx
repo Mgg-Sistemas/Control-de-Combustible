@@ -427,6 +427,8 @@ export default function ReportsScreen({ route }: any) {
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
+  // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
+  const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
   // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
   const nowRef = new Date();
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
@@ -938,7 +940,11 @@ export default function ReportsScreen({ route }: any) {
   const downloadConteoPdf = async () => {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td><td style="text-align:right;color:#059669">${r.conHoras}</td><td style="text-align:right;color:#B45309">${r.sinHoras}</td></tr>`).join('');
+    const cnt = (r: ConteoRow) => (conteoFilter === 'con' ? r.conHoras : conteoFilter === 'sin' ? r.sinHoras : r.count);
+    const totalCnt = conteoFilter === 'con' ? conteo.conHoras : conteoFilter === 'sin' ? conteo.sinHoras : conteo.total;
+    const colHead = conteoFilter === 'con' ? 'Con horas' : conteoFilter === 'sin' ? 'Sin horas' : 'Cantidad';
+    const filtroTxt = conteoFilter === 'con' ? ' · solo equipos CON horas' : conteoFilter === 'sin' ? ' · solo equipos SIN horas' : '';
+    const rowsFor = (arr: ConteoRow[]) => arr.filter((r) => cnt(r) > 0 || conteoFilter === 'todos').map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${cnt(r)}</td></tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -954,14 +960,14 @@ export default function ReportsScreen({ route }: any) {
         .estado .stb{background:#FFFBEB;border-color:#FDE68A}.estado .stb .v{color:#B45309}
         .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación</h2>
-      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Con horas</th><th style="text-align:right">Sin horas</th></tr></thead>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación${filtroTxt}</h2>
+      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byClas)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${conteo.conHoras}</td><td style="text-align:right">${conteo.sinHoras}</td></tr></tfoot></table>
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo</h2>
-      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Con horas</th><th style="text-align:right">Sin horas</th></tr></thead>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo${filtroTxt}</h2>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byTipo)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${conteo.conHoras}</td><td style="text-align:right">${conteo.sinHoras}</td></tr></tfoot></table>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
       <div class="estado">
         <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos</div></div>
@@ -1499,62 +1505,54 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
 
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-                <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                  <Text style={{ color: colors.success, fontSize: 22, fontWeight: '900' }}>{conteo.conHoras}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Con horas</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                  <Text style={{ color: colors.warning, fontSize: 22, fontWeight: '900' }}>{conteo.sinHoras}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Sin horas</Text>
-                </View>
-              </View>
-
-              <Card>
-                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por clasificación</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 48, textAlign: 'right' }}>CANT.</Text>
-                  <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>CON</Text>
-                  <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>SIN</Text>
-                </View>
-                {conteo.byClas.map((r) => (
-                  <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 48, textAlign: 'right' }}>{r.count}</Text>
-                    <Text style={{ color: colors.success, fontSize: 13, width: 44, textAlign: 'right' }}>{r.conHoras}</Text>
-                    <Text style={{ color: colors.warning, fontSize: 13, width: 44, textAlign: 'right' }}>{r.sinHoras}</Text>
-                  </View>
-                ))}
-                <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 48, textAlign: 'right' }}>{conteo.total}</Text>
-                  <Text style={{ color: colors.success, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.conHoras}</Text>
-                  <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.sinHoras}</Text>
-                </View>
-              </Card>
-
-              <Card>
-                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por tipo de equipo</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 48, textAlign: 'right' }}>CANT.</Text>
-                  <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>CON</Text>
-                  <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>SIN</Text>
-                </View>
-                {conteo.byTipo.map((r) => (
-                  <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
-                    <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 48, textAlign: 'right' }}>{r.count}</Text>
-                    <Text style={{ color: colors.success, fontSize: 13, width: 44, textAlign: 'right' }}>{r.conHoras}</Text>
-                    <Text style={{ color: colors.warning, fontSize: 13, width: 44, textAlign: 'right' }}>{r.sinHoras}</Text>
-                  </View>
-                ))}
-                <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 48, textAlign: 'right' }}>{conteo.total}</Text>
-                  <Text style={{ color: colors.success, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.conHoras}</Text>
-                  <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.sinHoras}</Text>
-                </View>
-              </Card>
+              {/* Botones: Todos / Con horas / Sin horas */}
+              {(() => {
+                const cnt = (r: ConteoRow) => (conteoFilter === 'con' ? r.conHoras : conteoFilter === 'sin' ? r.sinHoras : r.count);
+                const totalCnt = conteoFilter === 'con' ? conteo.conHoras : conteoFilter === 'sin' ? conteo.sinHoras : conteo.total;
+                const colFor = conteoFilter === 'con' ? colors.success : conteoFilter === 'sin' ? colors.warning : colors.primary;
+                const btn = (key: 'todos' | 'con' | 'sin', label: string, c: string) => {
+                  const on = conteoFilter === key;
+                  return (
+                    <TouchableOpacity
+                      onPress={() => setConteoFilter(key)}
+                      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: on ? c : colors.surface, borderWidth: 1, borderColor: on ? c : colors.border }}
+                    >
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                };
+                const tableCard = (title: string, rows: ConteoRow[]) => (
+                  <Card>
+                    <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>{title}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' }}>
+                        {conteoFilter === 'con' ? 'CON HORAS' : conteoFilter === 'sin' ? 'SIN HORAS' : 'CANTIDAD'}
+                      </Text>
+                    </View>
+                    {rows.filter((r) => cnt(r) > 0 || conteoFilter === 'todos').map((r) => (
+                      <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
+                        <Text style={{ color: colFor, fontSize: 14, fontWeight: '800', width: 70, textAlign: 'right' }}>{cnt(r)}</Text>
+                      </View>
+                    ))}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
+                      <Text style={{ color: colFor, fontSize: 15, fontWeight: '900', width: 70, textAlign: 'right' }}>{totalCnt}</Text>
+                    </View>
+                  </Card>
+                );
+                return (
+                  <>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                      {btn('todos', 'Todos', colors.primary)}
+                      {btn('con', `Con horas (${conteo.conHoras})`, colors.success)}
+                      {btn('sin', `Sin horas (${conteo.sinHoras})`, colors.warning)}
+                    </View>
+                    {tableCard('Por clasificación', conteo.byClas)}
+                    {tableCard('Por tipo de equipo', conteo.byTipo)}
+                  </>
+                );
+              })()}
 
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadConteoPdf}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
