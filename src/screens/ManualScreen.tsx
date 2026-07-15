@@ -155,6 +155,7 @@ const SECTIONS: Sec[] = [
         'Toca "✅ Marcar como revisada". Queda la hora, el estado y la distancia.',
       ] },
       { t: 'note', text: 'La cercanía es amplia a propósito (unos 300 m): si la máquina está trabajando y no se puede interrumpir, basta con estar "más o menos cerca". Si el supervisor está lejos, igual se guarda pero queda marcado "lejos ⚠️".' },
+      { t: 'note', text: 'Seguridad: al escanear un QR, la vista queda AISLADA (operador o control de cocina) y NO se puede entrar al resto del sistema; su única salida es "Salir" (cierra sesión). Solo pueden iniciar sesión personas registradas (las cuentas las crea el administrador). Cualquier usuario puede cambiar su propia contraseña con el botón 🔑 (en Más, o junto a "Salir" en las vistas de operador, supervisor y cocina).' },
       { t: 'note', text: 'REGLA IMPORTANTE: si el supervisor NO marca una máquina que trabajó ese día, esa jornada queda "sin validar" y el operador no cobra.' },
       { t: 'p', text: 'Módulo "Supervisión" (para el jefe, en Más): muestra por día quién marcó cada máquina, a qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de "⛔ Jornadas sin validar" (máquinas que trabajaron pero que ningún supervisor marcó). Usa las flechas ◀ ▶ para cambiar de día.' },
     ],
