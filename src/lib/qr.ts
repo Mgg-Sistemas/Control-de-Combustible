@@ -40,6 +40,12 @@ export async function qrSvg(text: string, size = 240): Promise<string> {
   return QRCode.toString(text, { type: 'svg', margin: 1, width: size });
 }
 
+/** Genera el QR como PNG data URI (data:image/png;base64,…). Es lo más fiable para
+ *  mostrarlo en <Image>/<img> y para que SIEMPRE se rasterice al exportar la imagen. */
+export async function qrPngDataUri(text: string, size = 320): Promise<string> {
+  return QRCode.toDataURL(text, { margin: 1, width: size, errorCorrectionLevel: 'M' });
+}
+
 /** SVG → data URI para mostrarlo en <Image> (web). */
 export function svgDataUri(svg: string): string {
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
