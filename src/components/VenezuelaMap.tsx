@@ -28,7 +28,7 @@ function buildHtml(pins: MapPin[]): string {
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"/>
 <script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
-<style>html,body,#map{height:100%;margin:0}.leaflet-control-geocoder{min-width:260px}.leaflet-control-geocoder-form input{width:230px}
+<style>html,body,#map{height:100%;margin:0}.leaflet-control-geocoder-expanded{min-width:260px}.leaflet-control-geocoder-form input{width:230px}
 .zoneLbl{background:rgba(17,24,39,.72);color:#fff;border:0;border-radius:4px;font-weight:700;font-size:11px;padding:2px 6px;box-shadow:none;white-space:nowrap}
 .zoneLbl:before{display:none}</style></head>
 <body><div id="map"></div><script>
@@ -47,7 +47,8 @@ function buildHtml(pins: MapPin[]): string {
     maxZoom: 19, attribution: '© OpenStreetMap'
   });
   sat.addTo(map); // Satélite por defecto
-  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: false }).addTo(map);
+  // Todos los controles/filtros van a la IZQUIERDA y COLAPSADOS, para no tapar el mapa.
+  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true, position: 'topleft' }).addTo(map);
 
   // Buscador de lugares (estados, municipios, parroquias, calles…) limitado a Venezuela.
   if (L.Control && L.Control.Geocoder) {
@@ -57,7 +58,8 @@ function buildHtml(pins: MapPin[]): string {
     L.Control.geocoder({
       geocoder: geocoder,
       defaultMarkGeocode: true,
-      collapsed: false,
+      collapsed: true,
+      position: 'topleft',
       placeholder: 'Buscar estado, municipio, parroquia, calle…',
       errorMessage: 'No se encontró el lugar'
     }).addTo(map);
@@ -99,16 +101,17 @@ function buildHtml(pins: MapPin[]): string {
     btn.textContent = '🗑️ Eliminar ubicación';
     btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
     btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
-    div.appendChild(document.createElement('br'));
+    var brB = document.createElement('br');
+    div.appendChild(brB);
     div.appendChild(btn);
     mk.bindPopup(div);
-    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng] });
+    allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng], div: div, brB: brB, lat: p.lat, lng: p.lng });
   });
 
   // Estado del filtro: empresa seleccionada (null = todas) y si las rutas están visibles.
   var currentCompany = null;
   var routesOn = true;
-  var legendCollapsed = false;
+  var legendCollapsed = true; // colapsada por defecto para no tapar el mapa
   // Aplica el filtro: muestra solo los pines/rutas de la empresa elegida (o todas) y reencuadra.
   function refresh(){
     var bounds = [];
@@ -128,7 +131,7 @@ function buildHtml(pins: MapPin[]): string {
   var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
   var EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
   var RouteToggle = L.Control.extend({
-    options: { position: 'topright' },
+    options: { position: 'topleft' },
     onAdd: function(){
       var c = L.DomUtil.create('div', 'leaflet-bar');
       var a = L.DomUtil.create('a', '', c);
@@ -150,7 +153,7 @@ function buildHtml(pins: MapPin[]): string {
 
   // ── LEYENDA por empresa (clicable): filtra el mapa a esa empresa; "General" = todas ──
   var Legend = L.Control.extend({
-    options: { position: 'bottomleft' },
+    options: { position: 'topleft' },
     onAdd: function(){
       var c = L.DomUtil.create('div', '');
       c.style.cssText = 'background:rgba(255,255,255,0.95);border-radius:8px;padding:8px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.3);font:12px/1.4 Tahoma,Arial,sans-serif;color:#111;max-height:210px;overflow:auto;min-width:170px';
@@ -256,6 +259,36 @@ function buildHtml(pins: MapPin[]): string {
       a:{ lbl:'Límite Nor-Oeste', name:'Punta Caraballeda', lat:10.619689, lng:-66.846207 },
       b:{ lbl:'Límite Este', name:'Punta Tanaguarena', lat:10.611003, lng:-66.818581 } },
   ];
+  // ── ¿En qué SECTOR/zona cae cada máquina? (punto-en-polígono) ──
+  function polyOf(s){
+    if (s.pts && s.pts.length >= 3) return s.pts;
+    var D = 0.007; // misma banda hacia el sur que se dibuja
+    return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]];
+  }
+  function pointInPoly(lat, lng, poly){
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++){
+      var yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1];
+      if (((yi > lat) != (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function zoneOf(lat, lng){
+    for (var i = 0; i < SUBSECTORS.length; i++){ if (pointInPoly(lat, lng, polyOf(SUBSECTORS[i]))) return { name: SUBSECTORS[i].n, near: false }; }
+    var best = null, bd = Infinity;
+    for (var i = 0; i < SUBSECTORS.length; i++){ var pl = polyOf(SUBSECTORS[i]); for (var k = 0; k < pl.length; k++){ var dy = pl[k][0] - lat, dx = pl[k][1] - lng, d = dy*dy + dx*dx; if (d < bd){ bd = d; best = SUBSECTORS[i].n; } } }
+    if (best && bd <= 0.0009) return { name: best, near: true }; // ~3 km
+    return null;
+  }
+  // Añade a cada popup la zona/sector donde se encuentra la máquina.
+  allMarkers.forEach(function(o){
+    var z = zoneOf(o.lat, o.lng);
+    var zl = document.createElement('div');
+    zl.style.marginTop = '2px';
+    zl.innerHTML = '🗺️ Zona: <b>' + (z ? (z.name + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores') + '</b>';
+    if (o.div && o.brB) o.div.insertBefore(zl, o.brB);
+  });
+
   var sectorLayers = {}; // índice -> layerGroup (polígono + marcadores)
   var zonesOn = {};      // índice -> visible?
   SUBSECTORS.forEach(function(s, i){
