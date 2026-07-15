@@ -406,8 +406,8 @@ export default function ReportsScreen({ route }: any) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo'>('fuel');
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
-  type ConteoRow = { name: string; count: number };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; activos: number; inactivos: number; standby: number } | null>(null);
+  type ConteoRow = { name: string; count: number; hours: number };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; totalHours: number; activos: number; inactivos: number; standby: number } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
   const nowRef = new Date();
@@ -883,19 +883,34 @@ export default function ReportsScreen({ route }: any) {
   // y por TIPO de equipo (JUMBO, RETROEXCAVADORA…), con totales de estado al final.
   const generateConteo = async () => {
     setLoading(true);
-    const mach = await selectAllRows('machinery', 'code, clasificacion, active, operational, en_espera');
+    const mach = await selectAllRows('machinery', 'id, code, clasificacion, active, operational, en_espera');
     const list = (mach ?? []) as any[];
-    const clasMap = new Map<string, number>();
-    list.forEach((m) => { const k = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; clasMap.set(k, (clasMap.get(k) ?? 0) + 1); });
-    const byClas = [...clasMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const tipoMap = new Map<string, number>();
-    list.forEach((m) => { const k = (String(m.code || '').trim().split(/\s+/)[0] || '—').toUpperCase(); tipoMap.set(k, (tipoMap.get(k) ?? 0) + 1); });
-    const byTipo = [...tipoMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    // Horas trabajadas por máquina (todas las jornadas registradas). Dedupe por máquina+día.
+    const rnds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
+    const byMD = new Map<string, any>();
+    (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+    const hoursByMachine = new Map<string, number>();
+    byMD.forEach((r) => {
+      const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+      if (w > 0) hoursByMachine.set(r.machinery_id, (hoursByMachine.get(r.machinery_id) ?? 0) + w);
+    });
+    const clasMap = new Map<string, ConteoRow>();
+    const tipoMap = new Map<string, ConteoRow>();
+    list.forEach((m) => {
+      const h = hoursByMachine.get(m.id) ?? 0;
+      const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
+      const tk = (String(m.code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
+      const cc = clasMap.get(ck) ?? { name: ck, count: 0, hours: 0 }; cc.count += 1; cc.hours += h; clasMap.set(ck, cc);
+      const tt = tipoMap.get(tk) ?? { name: tk, count: 0, hours: 0 }; tt.count += 1; tt.hours += h; tipoMap.set(tk, tt);
+    });
+    const byClas = [...clasMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const byTipo = [...tipoMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const totalHours = [...hoursByMachine.values()].reduce((a, b) => a + b, 0);
     // Estado: stand by (en espera) tiene prioridad; luego inactivo (active/operational false); el resto, activo.
     const standby = list.filter((m) => m.en_espera === true).length;
     const inactivos = list.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
     const activos = list.length - standby - inactivos;
-    setConteo({ byClas, byTipo, total: list.length, activos, inactivos, standby });
+    setConteo({ byClas, byTipo, total: list.length, totalHours, activos, inactivos, standby });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -903,7 +918,8 @@ export default function ReportsScreen({ route }: any) {
   const downloadConteoPdf = async () => {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td></tr>`).join('');
+    const fmtH = (n: number) => `${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} h`;
+    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td><td style="text-align:right">${fmtH(r.hours)}</td></tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -912,26 +928,28 @@ export default function ReportsScreen({ route }: any) {
         table.cnt tfoot td{background:#EEF2F7;font-weight:800}
         .estado{display:flex;gap:12px;margin-top:10px}
         .estado .c{flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:12px;text-align:center}
-        .estado .c .v{font-size:26px;font-weight:800}
+        .estado .c .v{font-size:24px;font-weight:800}
         .estado .c .k{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
         .estado .act{background:#ECFDF5;border-color:#A7F3D0}.estado .act .v{color:#059669}
         .estado .ina{background:#FEF2F2;border-color:#FECACA}.estado .ina .v{color:#DC2626}
         .estado .stb{background:#FFFBEB;border-color:#FDE68A}.estado .stb .v{color:#B45309}
+        .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación</h2>
-      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas trabajadas</th></tr></thead>
         <tbody>${rowsFor(conteo.byClas)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${fmtH(conteo.totalHours)}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo</h2>
-      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas trabajadas</th></tr></thead>
         <tbody>${rowsFor(conteo.byTipo)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${fmtH(conteo.totalHours)}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
       <div class="estado">
         <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos</div></div>
         <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos</div></div>
         <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by</div></div>
         <div class="c"><div class="v">${conteo.total}</div><div class="k">Total equipos</div></div>
+        <div class="c hrs"><div class="v">${fmtH(conteo.totalHours)}</div><div class="k">Total horas</div></div>
       </div>`;
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
   };
@@ -1461,31 +1479,48 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
 
+              <View style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>⏱️ Total horas trabajadas</Text>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 18 }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+              </View>
+
               <Card>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Por clasificación</Text>
+                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por clasificación</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 54, textAlign: 'right' }}>CANT.</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 74, textAlign: 'right' }}>HORAS</Text>
+                </View>
                 {conteo.byClas.map((r) => (
-                  <View key={r.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{r.count}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 54, textAlign: 'right' }}>{r.count}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, width: 74, textAlign: 'right' }}>{r.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
                   </View>
                 ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900' }}>{conteo.total}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 54, textAlign: 'right' }}>{conteo.total}</Text>
+                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '900', width: 74, textAlign: 'right' }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
                 </View>
               </Card>
 
               <Card>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Por tipo de equipo</Text>
+                <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por tipo de equipo</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 54, textAlign: 'right' }}>CANT.</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 74, textAlign: 'right' }}>HORAS</Text>
+                </View>
                 {conteo.byTipo.map((r) => (
-                  <View key={r.name} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{r.count}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 54, textAlign: 'right' }}>{r.count}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, width: 74, textAlign: 'right' }}>{r.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
                   </View>
                 ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900' }}>{conteo.total}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 54, textAlign: 'right' }}>{conteo.total}</Text>
+                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '900', width: 74, textAlign: 'right' }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
                 </View>
               </Card>
 
