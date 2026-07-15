@@ -7,9 +7,6 @@ import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { captureAndUploadEmployeePhoto } from '../lib/photo';
-import { qrSvg, aliadoQrUrl } from '../lib/qr';
-import { carnetAliadoHtml } from '../lib/carnet';
-import { exportPdf } from '../lib/pdf';
 import { Aliado } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -73,15 +70,6 @@ export default function AliadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
-  const imprimirCarnet = async (a: Aliado) => {
-    setBusy(a.id + '-carnet');
-    let svg = '';
-    try { svg = await qrSvg(aliadoQrUrl(a.id), 220); } catch {}
-    const html = carnetAliadoHtml(a, { qrSvg: svg });
-    await exportPdf(html, `Carnet Aliado - ${fullName(a)}`);
-    setBusy(null);
-  };
-
   const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
     <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
@@ -139,9 +127,8 @@ export default function AliadosScreen({ navigation }: any) {
                 </Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                   <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(a)} />
-                  <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
+                  <Btn label="🪪 Carnet" color="#2563EB" onPress={() => navigation.navigate('AliadoCard', { aliadoId: a.id })} />
                   <Btn label={busy === a.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === a.id + '-photo'} onPress={() => subirFoto(a)} />
-                  <Btn label={busy === a.id + '-carnet' ? '…' : '⬇️ Carnet'} color="#1E3A5F" disabled={busy === a.id + '-carnet'} onPress={() => imprimirCarnet(a)} />
                 </View>
               </>
             }
