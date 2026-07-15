@@ -181,7 +181,14 @@ const SECTIONS: Sec[] = [
         'Toca uno de los 3 botones grandes: Desayuno, Almuerzo o Cena (cada uno 1 sola vez por día por empresa).',
         'El sistema sugiere el total = máquinas de la empresa × 2 + 15; el cocinero escribe cuántas comidas entregó realmente y registra.',
       ] },
-      { t: 'note', text: 'Cada comida (desayuno/almuerzo/cena) se puede marcar UNA sola vez por día por empresa. Queda guardado con la empresa, la cantidad, la hora y quién la registró.' },
+      { t: 'note', text: 'Cada comida (desayuno/almuerzo/cena) se puede marcar UNA sola vez por día por empresa. Queda guardado con la empresa, la cantidad, la hora y quién la registró. Ese registro ES el control de asistencia/entrega de la empresa.' },
+      { t: 'p', text: 'Control por empresa (asistencia/entrega): en "Distribución de comida" (jefe) toca la pestaña "📊 Control por empresa". Elige un rango de fechas (o los atajos Hoy / 7 días / 30 días) y verás:' },
+      { t: 'steps', items: [
+        'Totales del rango: total entregado y cuánto por desayuno, almuerzo y cena.',
+        'Resumen por empresa: cuánto entregó cada empresa por tiempo de comida y en cuántos días.',
+        'Al elegir UNA empresa (filtro de arriba): su historial día por día, con lo entregado en cada comida, la hora y quién lo registró.',
+        'Botón "📄 Descargar reporte PDF" para imprimir/llevar el control por empresa del rango elegido.',
+      ] },
     ],
   },
   {
