@@ -324,14 +324,15 @@ export function RecordForm({
                     onChangeText={(t) => {
                       if (/cedula|cédula/i.test(f.key)) { set(f.key, onlyDigits(t)); return; }
                       if (f.type === 'number') { set(f.key, onlyDecimal(t)); return; }
-                      const upper = f.type === 'text' && !/mail|correo|url|http/i.test(f.key);
+                      // Texto → MAYÚSCULA, salvo correos/URLs y N° de cuenta (se dañarían).
+                      const upper = f.type === 'text' && !/mail|correo|url|http|account|cuenta/i.test(f.key);
                       set(f.key, upper ? t.toUpperCase() : t);
                     }}
                     placeholder={('placeholder' in f && f.placeholder) || ''}
                     placeholderTextColor={colors.muted}
                     keyboardType={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : 'default'}
                     inputMode={f.type === 'number' || /cedula|cédula/i.test(f.key) ? 'numeric' : undefined}
-                    autoCapitalize={f.type === 'text' && !/cedula|cédula|mail|correo|url|http/i.test(f.key) ? 'characters' : 'none'}
+                    autoCapitalize={f.type === 'text' && !/cedula|cédula|mail|correo|url|http|account|cuenta/i.test(f.key) ? 'characters' : 'none'}
                   />
                 )}
               </View>
