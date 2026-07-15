@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
+import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
 import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
@@ -60,6 +60,12 @@ export default function MapScreen({ navigation, route }: any) {
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [layersOpen, setLayersOpen] = useState(false);
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  // Leyenda de empresa y zonas: ahora viven FUERA del mapa (controlan el mapa por postMessage).
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  const [zonesOn, setZonesOn] = useState<Set<number>>(new Set());
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [zonesOpen, setZonesOpen] = useState(false);
+  const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
 
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
@@ -313,7 +319,76 @@ export default function MapScreen({ navigation, route }: any) {
 
       {shownPins === null ? <Loading /> : shownPins.length === 0 ? (
         <Card><Text style={{ color: colors.muted }}>{focus ? 'Esta máquina no tiene una ubicación actual en el mapa.' : 'No hay puntos visibles. Revisa las 🗂️ Capas (quizás están todas ocultas).'}</Text></Card>
-      ) : <VenezuelaMap pins={shownPins} onDelete={deleteLocation} />}
+      ) : (
+        <>
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} />
+
+          {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
+          {!focus ? (
+            <Card>
+              <TouchableOpacity onPress={() => setLegendOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>🎨 Máquinas por empresa</Text>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>{selectedCompany ? selectedCompany : 'Todas'}  {legendOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {legendOpen ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  {(() => {
+                    const leg = companyLegend(shownPins ?? []);
+                    const rowStyle = (active: boolean) => ({ flexDirection: 'row' as const, alignItems: 'center' as const, gap: spacing.sm, paddingVertical: 6, paddingHorizontal: 8, borderRadius: radius.sm, backgroundColor: active ? colors.surfaceAlt : 'transparent' });
+                    return (
+                      <>
+                        <TouchableOpacity onPress={() => setSelectedCompany(null)} style={rowStyle(selectedCompany === null)}>
+                          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary }} />
+                          <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>🌐 General (todas)</Text>
+                          <Text style={{ color: colors.muted, fontWeight: '800' }}>{leg.total}</Text>
+                        </TouchableOpacity>
+                        {leg.rows.map((r) => (
+                          <TouchableOpacity key={r.company} onPress={() => setSelectedCompany(r.company)} style={rowStyle(selectedCompany === r.company)}>
+                            <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: r.color }} />
+                            <Text style={{ color: colors.text, flex: 1 }} numberOfLines={1}>{r.company}</Text>
+                            <Text style={{ color: colors.muted, fontWeight: '800' }}>{r.count}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </View>
+              ) : null}
+            </Card>
+          ) : null}
+
+          {/* Sectores (zonas) — FUERA del mapa (prende/apaga polígonos en el mapa). */}
+          {!focus ? (
+            <Card>
+              <TouchableOpacity onPress={() => setZonesOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Sectores (zonas)</Text>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>{zonesOn.size}/{MAP_ZONES.length}  {zonesOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {zonesOpen ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                    <TouchableOpacity onPress={() => setZonesOn(new Set(MAP_ZONES.map((_, i) => i)))} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>👁️ Ver todas</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setZonesOn(new Set())} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {MAP_ZONES.map((z, i) => {
+                    const on = zonesOn.has(i);
+                    return (
+                      <TouchableOpacity key={i} onPress={() => toggleZone(i)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6 }}>
+                        <View style={{ width: 15, height: 15, borderRadius: 4, borderWidth: 2, borderColor: z.color, backgroundColor: on ? z.color : 'transparent' }} />
+                        <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{z.n}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </Card>
+          ) : null}
+        </>
+      )}
 
       <SectionTitle>Trazabilidad de ubicaciones</SectionTitle>
       {trace.length === 0 ? (
