@@ -87,7 +87,7 @@ export function carnetHtml(e: Employee, opts: { companyName?: string; qrSvg: str
   </style></head><body>${carnetCard(e, opts)}</body></html>`;
 }
 
-/** Aliado mínimo para el carnet (mismos campos que se muestran). */
+/** Aliado mínimo para el carnet. */
 export type AliadoCard = {
   first_name?: string | null;
   last_name?: string | null;
@@ -97,38 +97,77 @@ export type AliadoCard = {
   photo_url?: string | null;
 };
 
-/** Solo el <div class="card"> del carnet de ALIADO (mismo formato del empleado,
- *  con la etiqueta "ALIADO"). `photoOverride` reemplaza la foto (para exportar imagen). */
-export function carnetAliadoCard(a: AliadoCard, opts: { qrSvg: string; photoOverride?: string }): string {
+export const CARNET_ALIADO_MM = { w: 54, h: 86 };
+
+// Diseño credencial tipo "olas azules" sobre blanco (sin fondo/marca de agua).
+// Dos caras: FRENTE (logo + foto + nombre + N° de ficha) y REVERSO (QR).
+export const carnetAliadoStyles = `
+  *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  html,body{margin:0;padding:0}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif}
+  .card{position:relative;width:54mm;height:86mm;background:#fff;border-radius:3mm;overflow:hidden;
+    display:flex;flex-direction:column;align-items:center;padding:12mm 4mm 9mm}
+  .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
+  .logo,.photoBox,.name,.kind,.ficha,.qr,.lost{position:relative;z-index:1}
+  .logo{height:11mm;width:auto;margin:0 auto 2mm;display:block}
+  .photoBox{width:26mm;height:31mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
+  .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:14mm;color:#9aa7b6}
+  .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
+  .name{font-size:4mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:2.2mm 0 0.6mm}
+  .kind{font-size:2.6mm;font-weight:800;color:#fff;background:#16324F;border-radius:1.2mm;padding:0.8mm 4mm;letter-spacing:.5mm}
+  .ficha{margin-top:2.4mm;text-align:center}
+  .ficha small{display:block;font-size:2.2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
+  .ficha b{font-size:7mm;font-weight:900;color:#16324F;letter-spacing:1.5mm}
+  .qr{width:32mm;height:32mm;background:#fff;padding:1mm;border-radius:1mm;margin:6mm auto 0}
+  .qr svg{width:100%;height:100%;display:block}
+  .lost{font-size:2.6mm;color:#334155;text-align:center;margin-top:6mm;padding:0 3mm;line-height:1.4}
+  .lost b{color:#16324F;display:block;margin-top:1mm}
+`;
+
+/** SVG de olas azules (fondo decorativo del carnet, arriba y abajo). */
+function aliadoWave(): string {
+  return `<svg class="bg" viewBox="0 0 540 860" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="agr" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2E6FB6"/><stop offset="1" stop-color="#16324F"/></linearGradient></defs>
+    <path fill="url(#agr)" d="M0 0 H540 V120 C400 205 150 55 0 165 Z"/>
+    <path fill="#7FB2E6" opacity="0.55" d="M0 165 C150 55 400 205 540 120 V152 C400 237 150 92 0 197 Z"/>
+    <path fill="url(#agr)" d="M0 860 H540 V740 C390 665 150 815 0 705 Z"/>
+    <path fill="#7FB2E6" opacity="0.5" d="M0 705 C150 815 390 665 540 740 V712 C390 637 150 787 0 677 Z"/>
+  </svg>`;
+}
+
+/** FRENTE del carnet de aliado (logo + foto + nombre + N° de ficha). */
+export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string } = {}): string {
   const name = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
   const src = opts.photoOverride ?? a.photo_url;
-  const photo = src
-    ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>`
-    : `<div class="photoBox ph">👤</div>`;
-  const row = (k: string, v?: string | null) =>
-    v ? `<div class="row"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>` : '';
+  const photo = src ? `<div class="photoBox"><img class="photo" src="${esc(src)}"/></div>` : `<div class="photoBox ph">👤</div>`;
   return `<div class="card">
-      <img class="wm" src="${LOGO_DATA_URI}"/>
+      ${aliadoWave()}
       <img class="logo" src="${LOGO_DATA_URI}"/>
       ${photo}
       <div class="name">${esc(name)}</div>
-      <div class="cargo">ALIADO</div>
-      <div class="rows">
-        ${row('N° de ficha', a.ficha_number)}
-        ${row('Cédula', a.cedula)}
-        ${row('Organización', a.organizacion)}
-      </div>
-      <div class="qr">${opts.qrSvg}</div>
-      <div class="foot">Aliado · Carnet de Identificación</div>
+      <div class="kind">ALIADO</div>
+      <div class="ficha"><small>N° DE FICHA</small><b>${esc(a.ficha_number || '----')}</b></div>
     </div>`;
 }
 
-/** Carnet imprimible de ALIADO (54×86 mm). */
-export function carnetAliadoHtml(a: AliadoCard, opts: { qrSvg: string }): string {
+/** REVERSO del carnet de aliado (QR + aviso de pérdida). */
+export function carnetAliadoBack(a: AliadoCard, opts: { qrSvg: string }): string {
+  return `<div class="card">
+      ${aliadoWave()}
+      <img class="logo" src="${LOGO_DATA_URI}"/>
+      <div class="qr">${opts.qrSvg}</div>
+      <div class="lost">En caso de pérdida, por favor comunicarse a la empresa.<b>N° de ficha ${esc(a.ficha_number || '----')}</b></div>
+    </div>`;
+}
+
+/** Carnet imprimible de ALIADO (54×86 mm) — dos caras (frente + reverso). */
+export function carnetAliadoHtml(a: AliadoCard, opts: { qrSvg: string; photoOverride?: string }): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>
-    @page{size:${CARNET_MM.w}mm ${CARNET_MM.h}mm;margin:0}
-    body{display:flex;justify-content:center;align-items:flex-start}
-    @media screen{ body{ padding:16px } }
-    ${carnetStyles}
-  </style></head><body>${carnetAliadoCard(a, opts)}</body></html>`;
+    @page{size:${CARNET_ALIADO_MM.w}mm ${CARNET_ALIADO_MM.h}mm;margin:0}
+    body{margin:0}
+    .card{page-break-after:always}
+    @media screen{ body{ display:flex; gap:16px; padding:16px; flex-wrap:wrap } .card{page-break-after:auto} }
+    ${carnetAliadoStyles}
+  </style></head><body>${carnetAliadoFront(a, opts)}${carnetAliadoBack(a, opts)}</body></html>`;
 }
