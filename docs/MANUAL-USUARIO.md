@@ -119,6 +119,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - El sistema guarda todo en el **Histórico** y deja la pantalla limpia para la siguiente
   semana. Lo cerrado **no se borra**: queda para los reportes y pagos.
 
+**Corregir un cierre ya guardado (reabrir):**
+- Abre el **🗂️ Histórico**, entra al cierre y toca **♻️ Reabrir cierre**.
+- Sus registros **vuelven al control activo** (la semana de ese cierre) para poder
+  **editarlos**, y el cierre **sale del histórico**.
+- Cuando termines de corregir, **vuelve a cerrar el control** (se congela el precio de nuevo).
+
 **Ver reportes:**
 - Toca **📊 Ver reporte**, elige el **rango de fechas** y toca la empresa. Se abre una
   **ventana con la vista previa** del documento y dos botones: **🖨️ Imprimir** y
@@ -173,10 +179,13 @@ usuario con **rol Cocina** (entra con su nombre y contraseña).
 
 **Cómo se registra una comida:**
 1. La persona de **Cocina** inicia sesión.
-2. **Escanea el carnet** de quien recibe (o lo busca por **cédula** si el carnet no lee).
-3. Ve los datos de la persona (foto, cargo, cédula).
-4. Con el contador **− / +** elige cuántas comidas se entregan.
-5. Toca **"🍽️ Registrar"**. Queda guardado con la **hora de entrega**.
+2. Se **verifica** escaneando **su propio carnet** (o por **cédula**). Solo se habilita si su
+   **cargo en nómina** es de cocina/alimentación (**ayudante de cocina, alimentación, cocinero,
+   cocina**). Si su cargo no es de cocina, **no puede** ingresar cantidades.
+3. **Escanea el carnet** de quien recibe (o lo busca por **cédula** si el carnet no lee).
+4. Ve los datos de la persona (foto, cargo, cédula).
+5. Con el contador **− / +** elige cuántas comidas se entregan.
+6. Toca **"🍽️ Registrar"**. Queda guardado con la **hora de entrega**.
 
 > Debajo se ve lo que ya se le entregó a esa persona **hoy** y el total. Si te equivocaste,
 > puedes borrar una entrega con 🗑.
