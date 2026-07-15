@@ -555,7 +555,8 @@ export default function ReportsScreen({ route }: any) {
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
       // Precio efectivo de la ronda: congelado si la ronda está cerrada; si no, el actual.
-      cur.price = r.frozen_price != null ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
+      // Un frozen_price 0 (o nulo) NO es un precio válido: cae al precio actual de la máquina.
+      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
