@@ -1269,6 +1269,11 @@ drop policy if exists fd_write on public.food_distributions;
 create policy fd_write on public.food_distributions for all to authenticated using (true) with check (true);
 create index if not exists food_dist_date_idx on public.food_distributions(distribution_date);
 create index if not exists food_dist_emp_idx on public.food_distributions(employee_id, distribution_date);
+-- Tipo de comida por persona (desayuno/almuerzo/cena), 1 vez por día por persona.
+alter table public.food_distributions add column if not exists meal_type text;
+create unique index if not exists food_dist_person_meal_day
+  on public.food_distributions (employee_id, meal_type, distribution_date)
+  where meal_type is not null and employee_id is not null;
 
 -- Distribución de comida POR EMPRESA: al escanear el QR de una empresa, la cocina
 -- registra por comida (desayuno/almuerzo/cena) cuántas entregó ese día. Sugerido =

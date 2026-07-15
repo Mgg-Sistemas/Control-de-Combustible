@@ -4,11 +4,11 @@ import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { listFoodByDate } from '../lib/foodDistributions';
-import { listCompanyMealsByDate, MEALS } from '../lib/foodCompanyMeals';
+import { listCompanyMealsByDate, MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import { FoodDistribution, FoodCompanyMeal } from '../types/database';
 import { supabase } from '../lib/supabase';
-import { comidaQrUrl, qrSvg } from '../lib/qr';
-import { exportPdf, pdfDocument } from '../lib/pdf';
+import { comidaQrUrl, qrPngDataUri } from '../lib/qr';
+import { exportCardImage } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -34,13 +34,21 @@ export default function ComidaScreen() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<FoodDistribution[]>([]);
   const [companyMeals, setCompanyMeals] = useState<FoodCompanyMeal[]>([]);
-  const [genBusy, setGenBusy] = useState(false);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [qrBusy, setQrBusy] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [rr, cm] = await Promise.all([listFoodByDate(date), listCompanyMealsByDate(date)]);
+    const [rr, cm, { data: comps }] = await Promise.all([
+      listFoodByDate(date),
+      listCompanyMealsByDate(date),
+      // Solo empresas ACTIVAS (las ocultas/desactivadas, p. ej. HBS, no generan QR).
+      supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
+    ]);
     setRows(rr);
     setCompanyMeals(cm);
+    setCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
@@ -59,35 +67,27 @@ export default function ComidaScreen() {
   }, [companyMeals]);
   const companyTotal = companyMeals.reduce((a, c) => a + (Number(c.delivered) || 0), 0);
 
-  // Genera la hoja de QR (uno por empresa): logo + QR + nombre. Para imprimir/pegar.
-  const genQrSheet = async () => {
-    setGenBusy(true);
+  // Descarga el QR de UNA empresa como IMAGEN (logo + QR horizontal + nombre).
+  const downloadCompanyQr = async (c: { id: string; name: string }) => {
+    setQrBusy(c.id);
     try {
-      const { data: comps } = await supabase.from('companies').select('id, name').order('name', { ascending: true });
-      const cards: string[] = [];
-      for (const c of (comps ?? []) as any[]) {
-        let svg = '';
-        try { svg = await qrSvg(comidaQrUrl(c.id), 300); } catch {}
-        cards.push(
-          `<div class="qr-card"><div class="qr-row"><img class="logo" src="${LOGO_DATA_URI}"/><div class="qr">${svg}</div></div><div class="cname">🍽️ ${c.name}</div></div>`
-        );
-      }
-      const html = pdfDocument({
-        title: 'Distribución de comida — QR por empresa',
-        subtitle: 'Escanea el QR de la empresa para registrar las comidas del día (desayuno / almuerzo / cena).',
-        extraCss: `
-          .grid{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px}
-          .qr-card{border:1px solid #ccc;border-radius:12px;padding:14px;width:47%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;page-break-inside:avoid}
-          .qr-row{display:flex;align-items:center;gap:14px}
-          .qr-card .logo{height:64px;width:auto}
-          .qr-card .qr{width:130px;height:130px}
-          .qr-card .qr svg{width:100%;height:100%}
-          .qr-card .cname{margin-top:10px;font-weight:800;font-size:15px;color:#1E3A5F;text-align:center}`,
-        body: `<div class="grid">${cards.join('') || '<p style="text-align:center;color:#888">No hay empresas registradas.</p>'}</div>`,
+      const qr = await qrPngDataUri(comidaQrUrl(c.id), 520);
+      const styles = `
+        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        html,body{margin:0;padding:0}
+        .qcard{width:90mm;height:54mm;background:#fff;font-family:Tahoma,Geneva,Verdana,sans-serif;
+          display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4mm}
+        .qrow{display:flex;align-items:center;gap:7mm}
+        .qlogo{height:28mm;width:auto}
+        .qimg{width:36mm;height:36mm}
+        .qname{margin-top:3mm;font-weight:800;font-size:5mm;color:#16324F;text-align:center;letter-spacing:.2mm}`;
+      const card = `<div class="qcard"><div class="qrow"><img class="qlogo" src="${LOGO_DATA_URI}"/><img class="qimg" src="${qr}"/></div><div class="qname">🍽️ ${c.name}</div></div>`;
+      await exportCardImage({
+        styles, card, mmW: 90, mmH: 54, dpi: 300,
+        fileName: `QR comida - ${c.name}`,
       });
-      await exportPdf(html, 'QR distribucion de comida por empresa');
     } finally {
-      setGenBusy(false);
+      setQrBusy(null);
     }
   };
 
@@ -142,12 +142,34 @@ export default function ComidaScreen() {
       </Card>
 
       <TouchableOpacity
-        onPress={genQrSheet}
-        disabled={genBusy}
-        style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: genBusy ? 0.6 : 1 }}
+        onPress={() => setQrOpen((v) => !v)}
+        style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
       >
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{genBusy ? 'Generando…' : '🖨️ Generar QR por empresa'}</Text>
+        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{qrOpen ? '▲ Ocultar QR por empresa' : '🖼️ QR por empresa (imágenes)'}</Text>
       </TouchableOpacity>
+      {qrOpen ? (
+        <Card>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+            Descarga el QR de cada empresa como imagen (logo + QR + nombre) para imprimir y pegar. Las empresas desactivadas no aparecen.
+          </Text>
+          {companies.length === 0 ? (
+            <Text style={{ color: colors.muted, fontSize: 12 }}>No hay empresas activas.</Text>
+          ) : (
+            companies.map((c) => (
+              <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>🏢 {c.name}</Text>
+                <TouchableOpacity
+                  onPress={() => downloadCompanyQr(c)}
+                  disabled={qrBusy === c.id}
+                  style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: qrBusy === c.id ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{qrBusy === c.id ? 'Generando…' : '🖼️ Descargar QR'}</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </Card>
+      ) : null}
 
       {/* ── Por empresa (desayuno / almuerzo / cena) ── */}
       <SectionTitle>🏢 Por empresa</SectionTitle>
@@ -193,7 +215,7 @@ export default function ComidaScreen() {
             {p.items.map((d) => (
               <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
-                  🍽️ {d.meals} · {caracasClock(d.delivered_at)}{d.created_by_name ? ` · por ${d.created_by_name}` : ''}{d.note ? ` · ${d.note}` : ''}
+                  🍽️ {d.meal_type ? mealLabel(d.meal_type) : `${d.meals} comida(s)`} · {caracasClock(d.delivered_at)}{d.created_by_name ? ` · por ${d.created_by_name}` : ''}{d.note ? ` · ${d.note}` : ''}
                 </Text>
               </View>
             ))}
