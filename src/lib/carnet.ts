@@ -109,14 +109,14 @@ export const carnetAliadoStyles = `
     display:flex;flex-direction:column;align-items:center;padding:12mm 4mm 9mm}
   .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
   .logo,.blogo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel,.lost{position:relative;z-index:1}
-  .logo{height:12mm;width:auto;margin:0 auto 2mm;display:block}
+  .logo{height:10mm;width:auto;margin:0 auto 1.5mm;display:block}
   .blogo{height:14mm;width:auto;margin:0 auto 2mm;display:block}
   .photoBox{width:26mm;height:31mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
   .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:14mm;color:#9aa7b6}
   .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
-  .name{font-size:4mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:2.2mm 0 0.6mm}
+  .name{font-size:4mm;font-weight:800;color:#16324F;text-align:center;line-height:1.1;margin:1.6mm 0 0.6mm}
   .kind{font-size:2.6mm;font-weight:800;color:#fff;background:#16324F;border-radius:1.2mm;padding:0.8mm 4mm;letter-spacing:.5mm}
-  .ficha{margin-top:2.4mm;text-align:center}
+  .ficha{margin-top:1.4mm;text-align:center}
   .ficha small{display:block;font-size:2.2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
   .ficha b{font-size:7mm;font-weight:900;color:#16324F;letter-spacing:1.5mm}
   .qr{width:25mm;height:25mm;background:#fff;padding:1mm;border-radius:1mm;margin:2mm auto 0}
@@ -133,8 +133,8 @@ function aliadoWave(): string {
       <stop offset="0" stop-color="#2E6FB6"/><stop offset="1" stop-color="#16324F"/></linearGradient></defs>
     <path fill="url(#agr)" d="M0 0 H540 V120 C400 205 150 55 0 165 Z"/>
     <path fill="#7FB2E6" opacity="0.55" d="M0 165 C150 55 400 205 540 120 V152 C400 237 150 92 0 197 Z"/>
-    <path fill="url(#agr)" d="M0 860 H540 V740 C390 665 150 815 0 705 Z"/>
-    <path fill="#7FB2E6" opacity="0.5" d="M0 705 C150 815 390 665 540 740 V712 C390 637 150 787 0 677 Z"/>
+    <path fill="url(#agr)" d="M0 860 H540 V812 C400 762 140 858 0 796 Z"/>
+    <path fill="#7FB2E6" opacity="0.5" d="M0 796 C140 858 400 762 540 812 V788 C400 738 140 834 0 772 Z"/>
   </svg>`;
 }
 
