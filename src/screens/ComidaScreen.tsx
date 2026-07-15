@@ -4,7 +4,12 @@ import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { listFoodByDate } from '../lib/foodDistributions';
-import { FoodDistribution } from '../types/database';
+import { listCompanyMealsByDate, MEALS } from '../lib/foodCompanyMeals';
+import { FoodDistribution, FoodCompanyMeal } from '../types/database';
+import { supabase } from '../lib/supabase';
+import { comidaQrUrl, qrSvg } from '../lib/qr';
+import { exportPdf, pdfDocument } from '../lib/pdf';
+import { LOGO_DATA_URI } from '../lib/logoData';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -28,13 +33,63 @@ export default function ComidaScreen() {
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<FoodDistribution[]>([]);
+  const [companyMeals, setCompanyMeals] = useState<FoodCompanyMeal[]>([]);
+  const [genBusy, setGenBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setRows(await listFoodByDate(date));
+    const [rr, cm] = await Promise.all([listFoodByDate(date), listCompanyMealsByDate(date)]);
+    setRows(rr);
+    setCompanyMeals(cm);
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
+
+  // Agrupa las comidas por empresa → { desayuno, almuerzo, cena }.
+  const companyGroups = useMemo(() => {
+    const map = new Map<string, { name: string; meals: Partial<Record<string, FoodCompanyMeal>>; total: number }>();
+    companyMeals.forEach((cm) => {
+      const k = cm.company_id ?? cm.company_name;
+      if (!map.has(k)) map.set(k, { name: cm.company_name, meals: {}, total: 0 });
+      const g = map.get(k)!;
+      g.meals[cm.meal_type] = cm;
+      g.total += Number(cm.delivered) || 0;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [companyMeals]);
+  const companyTotal = companyMeals.reduce((a, c) => a + (Number(c.delivered) || 0), 0);
+
+  // Genera la hoja de QR (uno por empresa): logo + QR + nombre. Para imprimir/pegar.
+  const genQrSheet = async () => {
+    setGenBusy(true);
+    try {
+      const { data: comps } = await supabase.from('companies').select('id, name').order('name', { ascending: true });
+      const cards: string[] = [];
+      for (const c of (comps ?? []) as any[]) {
+        let svg = '';
+        try { svg = await qrSvg(comidaQrUrl(c.id), 300); } catch {}
+        cards.push(
+          `<div class="qr-card"><div class="qr-row"><img class="logo" src="${LOGO_DATA_URI}"/><div class="qr">${svg}</div></div><div class="cname">🍽️ ${c.name}</div></div>`
+        );
+      }
+      const html = pdfDocument({
+        title: 'Distribución de comida — QR por empresa',
+        subtitle: 'Escanea el QR de la empresa para registrar las comidas del día (desayuno / almuerzo / cena).',
+        extraCss: `
+          .grid{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px}
+          .qr-card{border:1px solid #ccc;border-radius:12px;padding:14px;width:47%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;page-break-inside:avoid}
+          .qr-row{display:flex;align-items:center;gap:14px}
+          .qr-card .logo{height:64px;width:auto}
+          .qr-card .qr{width:130px;height:130px}
+          .qr-card .qr svg{width:100%;height:100%}
+          .qr-card .cname{margin-top:10px;font-weight:800;font-size:15px;color:#1E3A5F;text-align:center}`,
+        body: `<div class="grid">${cards.join('') || '<p style="text-align:center;color:#888">No hay empresas registradas.</p>'}</div>`,
+      });
+      await exportPdf(html, 'QR distribucion de comida por empresa');
+    } finally {
+      setGenBusy(false);
+    }
+  };
 
   const shiftDay = (delta: number) => {
     const d = new Date(date + 'T12:00:00');
@@ -80,12 +135,52 @@ export default function ComidaScreen() {
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Comidas repartidas', totalMeals, colors.primary)}
-          {kpi('Personas', byPerson.length, colors.text)}
-          {kpi('Entregas', rows.length, colors.text)}
+          {kpi('Por empresa', companyTotal, colors.primary)}
+          {kpi('Por persona', totalMeals, colors.text)}
+          {kpi('Empresas', companyGroups.length, colors.text)}
         </View>
       </Card>
 
+      <TouchableOpacity
+        onPress={genQrSheet}
+        disabled={genBusy}
+        style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: genBusy ? 0.6 : 1 }}
+      >
+        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{genBusy ? 'Generando…' : '🖨️ Generar QR por empresa'}</Text>
+      </TouchableOpacity>
+
+      {/* ── Por empresa (desayuno / almuerzo / cena) ── */}
+      <SectionTitle>🏢 Por empresa</SectionTitle>
+      {companyGroups.length === 0 ? (
+        <EmptyState title="Sin comidas por empresa este día" subtitle="Escanea el QR de una empresa para registrar sus comidas." />
+      ) : (
+        companyGroups.map((g) => (
+          <Card key={g.name}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
+              <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
+            </View>
+            {MEALS.map((mt) => {
+              const cm = g.meals[mt.key];
+              return (
+                <View key={mt.key} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>{mt.icon} {mt.label}</Text>
+                  {cm ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right', flex: 1, marginLeft: spacing.sm }}>
+                      <Text style={{ color: colors.success, fontWeight: '800' }}>{cm.delivered}</Text> entregadas · sug. {cm.suggested} · {caracasClock(cm.delivered_at)}{cm.created_by_name ? ` · ${cm.created_by_name}` : ''}
+                    </Text>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>—</Text>
+                  )}
+                </View>
+              );
+            })}
+          </Card>
+        ))
+      )}
+
+      {/* ── Por persona (entrega individual escaneando el carnet) ── */}
+      <SectionTitle>👤 Por persona</SectionTitle>
       {byPerson.length === 0 ? (
         <EmptyState title="Sin entregas este día" subtitle="No se registró distribución de comida en la fecha elegida." />
       ) : (

@@ -411,6 +411,26 @@ export interface FoodDistribution {
   created_at: string;
 }
 
+export type MealType = 'desayuno' | 'almuerzo' | 'cena';
+
+/** Comida entregada a una EMPRESA en un día (desayuno/almuerzo/cena), 1 vez por día. */
+export interface FoodCompanyMeal {
+  id: string;
+  company_id: string | null;
+  company_name: string;
+  meal_type: MealType;
+  meal_date: string;           // día (ISO Caracas)
+  machines: number;            // nº de máquinas de la empresa al registrar
+  suggested: number;           // sugerido = máquinas × 2 + 15
+  delivered: number;           // lo que el cocinero entregó realmente
+  delivered_at: string;        // hora de entrega (ISO UTC)
+  note: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_by_cargo: string | null;
+  created_at: string;
+}
+
 /** Estado con que el supervisor marca la máquina al visitarla. */
 export type VisitStatus = 'trabajando' | 'parada' | 'no_esta';
 
