@@ -35,6 +35,7 @@ import EmpleadosScreen from '../screens/EmpleadosScreen';
 import EmployeeCardScreen from '../screens/EmployeeCardScreen';
 import AliadosScreen from '../screens/AliadosScreen';
 import AliadoCardScreen from '../screens/AliadoCardScreen';
+import AliadoInfoScreen from '../screens/AliadoInfoScreen';
 import NominaScreen from '../screens/NominaScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
@@ -286,8 +287,8 @@ export default function RootNavigator() {
         // Con sesión: registrar comidas de la empresa (la cocina se verifica con su carnet).
         <FoodCompanyScreen companyId={qrComidaId} onExit={exitQrComida} />
       ) : qrAliadoId ? (
-        // Se abrió por QR de un aliado: ficha del aliado (solo lectura, sin login).
-        <AliadoCardScreen aliadoId={qrAliadoId} onExit={exitQrAliado} />
+        // Se abrió por QR de un aliado: muestra su INFORMACIÓN (no el carnet).
+        <AliadoInfoScreen aliadoId={qrAliadoId} onExit={exitQrAliado} />
       ) : qrEmployeeId && loggedInCocina ? (
         // Carnet escaneado por COCINA con sesión: abre directo el registro de
         // comida de esa persona (con el nombre de quien reparte ya cargado).
