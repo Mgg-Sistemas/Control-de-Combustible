@@ -72,6 +72,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
+  const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -81,15 +82,20 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   const q = norm(query.trim());
   const shown = useMemo(
-    () => employees.filter((e) =>
-      !q ||
-      norm(fullName(e)).includes(q) ||
-      norm(e.cedula).includes(q) ||
-      norm(e.ficha_number).includes(q) ||
-      norm(e.cargo).includes(q) ||
-      norm(companyName(e.company_id)).includes(q)
-    ),
-    [employees, q, companies]
+    () => employees
+      .filter((e) =>
+        !q ||
+        norm(fullName(e)).includes(q) ||
+        norm(e.cedula).includes(q) ||
+        norm(e.ficha_number).includes(q) ||
+        norm(e.cargo).includes(q) ||
+        norm(companyName(e.company_id)).includes(q)
+      )
+      .sort((a, b) => {
+        const cmp = fullName(a).localeCompare(fullName(b), 'es', { sensitivity: 'base' });
+        return sortDir === 'az' ? cmp : -cmp;
+      }),
+    [employees, q, companies, sortDir]
   );
 
   // Agrupa por empresa (acordeón).
@@ -160,6 +166,23 @@ export default function EmpleadosScreen({ navigation }: any) {
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
+
+      {/* Orden alfabético por nombre */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Orden:</Text>
+        {([['az', 'A → Z'], ['za', 'Z → A']] as const).map(([key, label]) => {
+          const on = sortDir === key;
+          return (
+            <TouchableOpacity
+              key={key}
+              onPress={() => setSortDir(key)}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+            >
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {loading && employees.length === 0 ? (
         <Loading />
