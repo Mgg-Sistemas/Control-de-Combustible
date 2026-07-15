@@ -32,6 +32,8 @@ import ManualScreen from '../screens/ManualScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
 import EmpleadosScreen from '../screens/EmpleadosScreen';
 import EmployeeCardScreen from '../screens/EmployeeCardScreen';
+import AliadosScreen from '../screens/AliadosScreen';
+import AliadoCardScreen from '../screens/AliadoCardScreen';
 import NominaScreen from '../screens/NominaScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
@@ -131,6 +133,8 @@ function MoreStack() {
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
+      <Stack.Screen name="Aliados" component={AliadosScreen} options={{ title: 'Aliados' }} />
+      <Stack.Screen name="AliadoCard" component={AliadoCardScreen} options={{ title: 'Ficha de aliado' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
@@ -220,6 +224,7 @@ export default function RootNavigator() {
   const { session, configured, locked, role, signOut } = useAuth();
   const [qrMachineId, clearQr] = useQrParam('maquina');
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
+  const [qrAliadoId, clearQrAliado] = useQrParam('aliado');
   const [wantLogin, clearWantLogin] = useQrParam('login');
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
@@ -227,6 +232,7 @@ export default function RootNavigator() {
   // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
   const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); clearWantLogin(); }, [isAnon, signOut, clearQr, clearWantLogin]);
   const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); clearWantLogin(); }, [isAnon, signOut, clearQrEmp, clearWantLogin]);
+  const exitQrAliado = React.useCallback(() => { if (isAnon) { signOut(); } clearQrAliado(); }, [isAnon, signOut, clearQrAliado]);
   // Pide iniciar sesión desde una vista abierta por QR (para que quede el nombre
   // de quien registra). Cierra la sesión anónima y marca ?login=1 conservando el
   // parámetro del QR (?maquina o ?empleado).
@@ -267,7 +273,10 @@ export default function RootNavigator() {
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
     >
-      {qrEmployeeId && loggedInCocina ? (
+      {qrAliadoId ? (
+        // Se abrió por QR de un aliado: ficha del aliado (solo lectura, sin login).
+        <AliadoCardScreen aliadoId={qrAliadoId} onExit={exitQrAliado} />
+      ) : qrEmployeeId && loggedInCocina ? (
         // Carnet escaneado por COCINA con sesión: abre directo el registro de
         // comida de esa persona (con el nombre de quien reparte ya cargado).
         <CocinaScreen initialEmployeeId={qrEmployeeId} onConsumed={exitQrEmp} />

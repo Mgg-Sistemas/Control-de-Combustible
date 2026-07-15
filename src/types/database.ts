@@ -154,6 +154,28 @@ export interface Employee {
   created_at: string;
 }
 
+/** Aliado: contacto/colaborador externo con ficha y carnet propios. */
+export interface Aliado {
+  id: string;
+  ficha_number: string | null;   // número de ficha (4 dígitos aleatorio, único)
+  first_name: string;
+  last_name: string;
+  cedula: string | null;
+  organizacion: string | null;   // empresa/institución del aliado
+  rol: string | null;            // rol o cargo del aliado
+  photo_url: string | null;
+  blood_type: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  status: 'activo' | 'inactivo' | 'suspendido';
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 /** Tabulador maestro de precios por jornada (clasificación + modelo).
  *  Editable desde Control de pagos. La sincronización lo aplica a
  *  machinery.price_per_hour (precios ACTUALES); los cierres viejos NO se tocan

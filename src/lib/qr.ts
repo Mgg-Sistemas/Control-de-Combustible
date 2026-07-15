@@ -25,6 +25,11 @@ export function employeeQrUrl(employeeId: string): string {
   return `${QR_ORIGIN}/?empleado=${encodeURIComponent(employeeId)}`;
 }
 
+/** URL que codifica el QR de un aliado: abre su ficha (datos del aliado). */
+export function aliadoQrUrl(aliadoId: string): string {
+  return `${QR_ORIGIN}/?aliado=${encodeURIComponent(aliadoId)}`;
+}
+
 /** Genera el QR como cadena SVG (puro, sin canvas — funciona en web y en print). */
 export async function qrSvg(text: string, size = 240): Promise<string> {
   return QRCode.toString(text, { type: 'svg', margin: 1, width: size });
