@@ -8,8 +8,17 @@ import { FoodDistribution } from '../types/database';
 import { saveFoodDistribution, listForEmployeeDay, deleteFoodDistribution } from '../lib/foodDistributions';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
+import { norm } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+
+// Solo el personal de cocina/alimentación puede ingresar cantidades. Se valida por
+// el CARGO en nómina (ayudante de cocina, alimentación, cocinero, cocina, …).
+const COOK_KEYS = ['cocina', 'cociner', 'aliment'];
+const isCookCargo = (cargo?: string | null): boolean => {
+  const n = norm(cargo ?? '');
+  return !!n && COOK_KEYS.some((k) => n.includes(k));
+};
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -46,6 +55,11 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   const [notice, setNotice] = useState<string | null>(null);
   const [cedula, setCedula] = useState('');
   const [searching, setSearching] = useState(false);
+  // Persona de cocina VERIFICADA (por su propio carnet) que habilita el registro.
+  const [cook, setCook] = useState<{ name: string; cargo: string } | null>(null);
+  const [scanMode, setScanMode] = useState<'cook' | 'person'>('person');
+  const [cookCedula, setCookCedula] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
   React.useEffect(() => {
     if (!uid) { setLoading(false); return; }
@@ -98,7 +112,43 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
     else setNotice('❌ No hay ninguna persona con esa cédula.');
   };
 
+  // ── Verificación del que reparte: escanea SU carnet (o busca por cédula). Solo
+  //    si su cargo en nómina es de cocina/alimentación queda habilitado.
+  const verifyCookByEmployee = (empData: any): boolean => {
+    const cargo = empData?.cargo ?? '';
+    const name = `${empData?.first_name ?? ''} ${empData?.last_name ?? ''}`.trim() || 'Sin nombre';
+    if (!isCookCargo(cargo)) {
+      setCook(null);
+      setNotice(`❌ ${name}${cargo ? ` (${cargo})` : ''} no tiene cargo de cocina/alimentación: no puede ingresar cantidades.`);
+      return false;
+    }
+    setCook({ name, cargo });
+    setNotice(`✅ Verificado: ${name} — ${cargo}. Ya puedes registrar las comidas.`);
+    return true;
+  };
+
+  const verifyCook = async (employeeId: string) => {
+    setScanOpen(false);
+    setVerifying(true); setNotice(null);
+    const { data } = await supabase.from('employees').select('first_name, last_name, cargo').eq('id', employeeId).maybeSingle();
+    setVerifying(false);
+    if (!data) { setNotice('❌ Ese carnet no corresponde a una persona registrada.'); return; }
+    verifyCookByEmployee(data);
+  };
+
+  const buscarCookPorCedula = async () => {
+    const ci = cookCedula.trim();
+    if (ci.length < 5) { setNotice('❌ Escribe tu cédula completa.'); return; }
+    setVerifying(true); setNotice(null);
+    const { data } = await supabase.from('employees').select('first_name, last_name, cargo').eq('cedula', ci).limit(1);
+    setVerifying(false);
+    const emp = data && data[0];
+    if (!emp) { setNotice('❌ No hay ninguna persona con esa cédula.'); return; }
+    if (verifyCookByEmployee(emp)) setCookCedula('');
+  };
+
   const registrar = async () => {
+    if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
     if (!person || meals < 1) return;
     setSaving(true); setNotice(null);
     const { data, error } = await saveFoodDistribution({
@@ -109,7 +159,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
       distributionDate: today,
       note,
       createdBy: uid || null,
-      createdByName: myName || null,
+      createdByName: cook?.name || myName || null,
     });
     setSaving(false);
     if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
@@ -143,26 +193,59 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
         </TouchableOpacity>
       </View>
 
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🍽️ Entregar comida</Text>
-        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Escanea el carnet de la persona para registrar su comida.</Text>
-        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet</Text>
-        </TouchableOpacity>
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Busca por cédula:</Text>
-        <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
-          <TextInput value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
-          <TouchableOpacity onPress={buscarPorCedula} disabled={searching} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
-            <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : 'Buscar'}</Text>
+      {!cook ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🔒 Verifícate para repartir</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+            Solo el personal de cocina/alimentación puede ingresar cantidades. Escanea TU carnet para habilitar el registro.
+          </Text>
+          <TouchableOpacity onPress={() => { setScanMode('cook'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear mi carnet</Text>
           </TouchableOpacity>
-        </View>
-      </Card>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Verifícate por cédula:</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+            <TextInput value={cookCedula} onChangeText={(t) => setCookCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Tu cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
+            <TouchableOpacity onPress={buscarCookPorCedula} disabled={verifying} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{verifying ? '…' : 'Verificar'}</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      ) : (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>👨‍🍳 {cook.name}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11 }}>{cook.cargo} · autorizado para repartir</Text>
+            </View>
+            <TouchableOpacity onPress={() => { setCook(null); setPerson(null); setNotice(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cambiar</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      )}
+
+      {cook ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🍽️ Entregar comida</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Escanea el carnet de la persona para registrar su comida.</Text>
+          <TouchableOpacity onPress={() => { setScanMode('person'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet</Text>
+          </TouchableOpacity>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Busca por cédula:</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
+            <TextInput value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
+            <TouchableOpacity onPress={buscarPorCedula} disabled={searching} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : 'Buscar'}</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      ) : null}
 
       {notice ? (
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {person ? (
+      {cook && person ? (
         <>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
@@ -227,8 +310,9 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
             onClose={() => setScanOpen(false)}
             onDetected={(text) => {
               const id = parseEmployeeId(text);
-              if (id) openPerson(id);
-              else { setScanOpen(false); setNotice('❌ Ese QR no es un carnet de persona.'); }
+              if (!id) { setScanOpen(false); setNotice('❌ Ese QR no es un carnet de persona.'); return; }
+              if (scanMode === 'cook') verifyCook(id);
+              else openPerson(id);
             }}
           />
         </View>

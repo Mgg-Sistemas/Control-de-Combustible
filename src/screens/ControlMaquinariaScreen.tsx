@@ -392,6 +392,61 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     setClosures((data ?? []) as ControlClosure[]);
   };
 
+  // ── Reabrir un cierre: devuelve sus rondas al control activo (editables) y quita
+  //    el cierre del histórico. Al terminar de corregir, se vuelve a cerrar (y se
+  //    congela el precio de nuevo). Es lo más seguro: reusa toda la lógica existente.
+  const [reabriendo, setReabriendo] = useState<string | null>(null);
+  const reabrirCierre = async (c: ControlClosure) => {
+    const from = c.detail?.dateFrom ?? c.closure_date;
+    const to = c.detail?.dateTo ?? c.closure_date;
+    const rangeTxt = from === to ? `del ${fmtDMY(from)}` : `del ${fmtDMY(from)} al ${fmtDMY(to)}`;
+    const ok = await confirm({
+      title: 'Reabrir cierre',
+      message: `¿Reabrir el cierre ${rangeTxt}? Sus registros vuelven al control activo para editarlos y el cierre sale del histórico. Cuando termines, vuelve a cerrar el control.`,
+      confirmText: 'Reabrir',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    setReabriendo(c.id);
+    // Pares exactos (máquina, fecha) del snapshot → solo reabrimos esas rondas cerradas.
+    const byDate = new Map<string, Set<string>>();
+    (c.detail?.machines ?? []).forEach((m) => {
+      if (m.machineId && m.date) {
+        if (!byDate.has(m.date)) byDate.set(m.date, new Set());
+        byDate.get(m.date)!.add(m.machineId);
+      }
+    });
+    try {
+      for (const [d, ids] of byDate) {
+        // closed=false + limpia el precio congelado (se vuelve a congelar al re-cerrar).
+        const { error } = await supabase
+          .from('machine_rounds')
+          .update({ closed: false, frozen_price: null })
+          .eq('round_date', d)
+          .in('machinery_id', Array.from(ids))
+          .eq('closed', true);
+        if (error) throw error;
+      }
+      const { error: delErr } = await supabase.from('control_closures').delete().eq('id', c.id);
+      if (delErr) throw delErr;
+    } catch (e: any) {
+      setReabriendo(null);
+      return Alert.alert('Aviso', e?.message ?? 'No se pudo reabrir el cierre.');
+    }
+    setReabriendo(null);
+    setClosureSel(null);
+    setClosures((prev) => prev.filter((x) => x.id !== c.id));
+    setHistOpen(false);
+    // Ampliar el bloque para que se vea todo el rango reabierto (arranca el lunes del inicio).
+    let span = 0;
+    for (let d = weekStartISO(from); d <= to && span < 62; d = addDaysISO(d, 1)) span++;
+    setDate(from);
+    setDayCount(Math.min(62, Math.max(7, span)));
+    setNotice(`♻️ Cierre ${rangeTxt} reabierto. Los registros volvieron al control activo (semana del ${fmtDMY(from)}). Edítalos y vuelve a cerrar.`);
+    load(true);
+  };
+
   const shiftCell = (h?: number) => (h ? `${h} h` : '—');
   const opCell = (name?: string, ci?: string) => (name ? `${name}${ci ? `<br/><span style="color:#888">C.I ${ci}</span>` : ''}` : '—');
   const downloadClosurePdf = async (c: ControlClosure) => {
@@ -1713,6 +1768,16 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
               <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => downloadClosurePdf(closureSel)}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                disabled={reabriendo === closureSel.id}
+                style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                onPress={() => reabrirCierre(closureSel)}
+              >
+                <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+                Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
+              </Text>
               <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setClosureSel(null)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
