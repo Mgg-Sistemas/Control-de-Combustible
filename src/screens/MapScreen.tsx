@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
@@ -65,6 +65,7 @@ export default function MapScreen({ navigation, route }: any) {
   const [zonesOn, setZonesOn] = useState<Set<number>>(new Set());
   const [legendOpen, setLegendOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false); // mapa en pantalla completa
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
 
   const load = React.useCallback(async () => {
@@ -188,6 +189,7 @@ export default function MapScreen({ navigation, route }: any) {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     const h = (e: any) => {
       if (e?.data?.type === 'map-delete-pin' && e.data.id) deleteLocation(e.data.id, e.data.name);
+      else if (e?.data?.type === 'map-fullscreen') setFullscreen(true);
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
@@ -321,6 +323,13 @@ export default function MapScreen({ navigation, route }: any) {
         <Card><Text style={{ color: colors.muted }}>{focus ? 'Esta máquina no tiene una ubicación actual en el mapa.' : 'No hay puntos visibles. Revisa las 🗂️ Capas (quizás están todas ocultas).'}</Text></Card>
       ) : (
         <>
+          <TouchableOpacity
+            onPress={() => setFullscreen(true)}
+            activeOpacity={0.85}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
+          >
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
+          </TouchableOpacity>
           <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} />
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
@@ -428,6 +437,27 @@ export default function MapScreen({ navigation, route }: any) {
           );
         })
       )}
+
+      {/* Mapa en PANTALLA COMPLETA (con ubicación del usuario). */}
+      <Modal visible={fullscreen} animationType="slide" onRequestClose={() => setFullscreen(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>🗺️ Mapa {focus ? `· ${focus.code}` : ''}</Text>
+            <TouchableOpacity onPress={() => setFullscreen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.25)' }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>✕ Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flex: 1 }}>
+            <VenezuelaMap
+              pins={shownPins ?? []}
+              onDelete={deleteLocation}
+              selectedCompany={selectedCompany}
+              zones={zonesOn}
+              height={Math.max(320, Dimensions.get('window').height - 56)}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Ruta de la máquina: historial de ubicaciones por fecha y hora. */}
       <Modal visible={!!routeFor} animationType="slide" transparent onRequestClose={() => setRouteFor(null)}>
