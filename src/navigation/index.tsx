@@ -301,28 +301,26 @@ export default function RootNavigator() {
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo
         // lectura). Cocina puede tocar "Soy de cocina" para entrar con su nombre.
         <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} />
-      ) : qrMachineId && loggedInSup ? (
-        // QR de máquina y hay un SUPERVISOR con sesión: entra a la VISTA DE OPERADOR
-        // (combustible, ubicación, avería, jornada) y desde ahí puede hacer el
-        // check-in de supervisión (GPS) con el botón correspondiente.
-        supCheckin ? (
-          <SupervisorScreen initialMachineId={qrMachineId} onConsumed={() => setSupCheckin(false)} />
-        ) : (
-          <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorCheckin={() => setSupCheckin(true)} />
-        )
+      ) : qrMachineId && !loggedInReal ? (
+        // Al escanear el QR de una máquina: LOGIN DIRECTO (sin vista anónima).
+        // Tras iniciar sesión, cae en la vista de operador de esa máquina.
+        <LoginScreen />
       ) : qrMachineId && roleLoading ? (
         // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : qrMachineId && wantLogin && !loggedInReal ? (
-        // El supervisor pidió iniciar sesión desde la vista rápida del QR.
-        <LoginScreen />
+      ) : qrMachineId && loggedInSup ? (
+        // Supervisor con sesión: VISTA DE OPERADOR (combustible, ubicación, avería,
+        // jornada) y desde ahí el botón de check-in de supervisión (GPS).
+        supCheckin ? (
+          <SupervisorScreen initialMachineId={qrMachineId} onConsumed={() => setSupCheckin(false)} />
+        ) : (
+          <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorCheckin={() => setSupCheckin(true)} />
+        )
       ) : qrMachineId ? (
-        // Se abrió por QR de una máquina: vista rápida SIN login (la pantalla
-        // inicia una sesión anónima para poder registrar la jornada). El
-        // supervisor puede tocar "Soy supervisor" para entrar con su nombre.
-        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
+        // Otro rol con sesión (admin/operador): vista de operador de esa máquina.
+        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} />
       ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (
