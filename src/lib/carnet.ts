@@ -110,7 +110,7 @@ export const carnetAliadoStyles = `
   .bg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0}
   .logo,.blogo,.photoBox,.name,.kind,.ficha,.qr,.qrlabel,.lost{position:relative;z-index:1}
   .logo{height:12mm;width:auto;margin:0 auto 2mm;display:block}
-  .blogo{height:18mm;width:auto;margin:0 auto 3mm;display:block}
+  .blogo{height:14mm;width:auto;margin:0 auto 2mm;display:block}
   .photoBox{width:26mm;height:31mm;border-radius:2mm;border:0.5mm solid #16324F;background:#eef2f7;overflow:hidden;display:block}
   .photoBox.ph{display:flex;align-items:center;justify-content:center;font-size:14mm;color:#9aa7b6}
   .photo{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
@@ -119,10 +119,10 @@ export const carnetAliadoStyles = `
   .ficha{margin-top:2.4mm;text-align:center}
   .ficha small{display:block;font-size:2.2mm;font-weight:700;color:#5b6b7c;letter-spacing:.3mm}
   .ficha b{font-size:7mm;font-weight:900;color:#16324F;letter-spacing:1.5mm}
-  .qr{width:34mm;height:34mm;background:#fff;padding:1mm;border-radius:1mm;margin:4mm auto 0}
+  .qr{width:25mm;height:25mm;background:#fff;padding:1mm;border-radius:1mm;margin:2mm auto 0}
   .qr svg,.qr img{width:100%;height:100%;display:block}
-  .qrlabel{font-size:2.9mm;font-weight:800;color:#16324F;text-align:center;letter-spacing:.3mm;margin:2.5mm 0 0}
-  .lost{font-size:2.6mm;color:#334155;text-align:center;margin-top:4mm;padding:0 3mm;line-height:1.4}
+  .qrlabel{font-size:2.9mm;font-weight:800;color:#16324F;text-align:center;letter-spacing:.3mm;margin:2mm 0 0}
+  .lost{font-size:2.5mm;color:#334155;text-align:center;margin-top:2mm;padding:0 3mm;line-height:1.35}
   .lost b{color:#16324F;display:block;margin-top:1mm}
 `;
 
@@ -157,10 +157,13 @@ export function carnetAliadoFront(a: AliadoCard, opts: { photoOverride?: string 
 export function carnetAliadoBack(a: AliadoCard, opts: { qrSvg: string }): string {
   // El QR se embebe como imagen (data URI) para que SIEMPRE se rasterice al
   // exportar la imagen (el <svg> suelto a veces no sale en el PNG).
-  const qr = opts.qrSvg
-    ? (opts.qrSvg.trim().startsWith('<svg')
-        ? `<img src="data:image/svg+xml;utf8,${encodeURIComponent(opts.qrSvg)}"/>`
-        : opts.qrSvg)
+  const q = (opts.qrSvg || '').trim();
+  const qr = q
+    ? (q.startsWith('data:')
+        ? `<img src="${q}"/>`
+        : q.startsWith('<svg')
+          ? `<img src="data:image/svg+xml;utf8,${encodeURIComponent(q)}"/>`
+          : q)
     : '';
   return `<div class="card">
       ${aliadoWave()}
