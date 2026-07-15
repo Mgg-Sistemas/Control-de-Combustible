@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -430,6 +430,22 @@ export default function ReportsScreen({ route }: any) {
   const [conteoPreview, setConteoPreview] = useState(false);
   // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
   const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
+  // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
+  // los MISMOS parámetros cuando cambian las jornadas (realtime). Se limpia al cerrar.
+  const liveRef = useRef<null | (() => void)>(null);
+
+  // Realtime: si se agrega/edita una jornada (o flete/máquina) mientras el reporte de
+  // jornada está abierto, se regenera solo con los mismos filtros (en vivo, sin tocar nada).
+  useEffect(() => {
+    let timer: any;
+    const bump = () => { clearTimeout(timer); timer = setTimeout(() => liveRef.current?.(), 500); };
+    const ch = supabase.channel('rt-reportes-jornada');
+    ['machine_rounds', 'fletes', 'machinery'].forEach((t) =>
+      ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
+    );
+    ch.subscribe();
+    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
+  }, []);
   // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
   const nowRef = new Date();
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
@@ -438,6 +454,8 @@ export default function ReportsScreen({ route }: any) {
   const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
+  // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
+  useEffect(() => { if (!roundsPreview) liveRef.current = null; }, [roundsPreview]);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
   const [companyRif, setCompanyRif] = useState<Record<string, string>>({}); // nombre → RIF (para imprimir en reportes)
@@ -524,9 +542,11 @@ export default function ReportsScreen({ route }: any) {
     setPreview(true);
   };
 
-  const generateRounds = async (fromArg: string = from, toArg: string = to, companiesArg?: string[] | null) => {
+  const generateRounds = async (fromArg: string = from, toArg: string = to, companiesArg?: string[] | null, silent = false) => {
     const cos = companiesArg && companiesArg.length ? companiesArg : null;
-    setLoading(true);
+    // Recordar los parámetros para la actualización EN VIVO (realtime) del reporte abierto.
+    liveRef.current = () => generateRounds(fromArg, toArg, companiesArg, true);
+    if (!silent) setLoading(true);
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
@@ -1742,6 +1762,10 @@ export default function ReportsScreen({ route }: any) {
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0))}
             </Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Solo equipos que trabajaron</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.xs }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+              <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>En vivo · se actualiza solo al agregar o editar jornadas</Text>
+            </View>
           </Card>
 
           {/* Alcance del informe: general (todas) o una empresa. Regenera al tocar. */}
