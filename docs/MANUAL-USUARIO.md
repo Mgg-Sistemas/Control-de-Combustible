@@ -158,7 +158,8 @@ para salir a marcar máquinas.
 
 **Cómo marca el supervisor una máquina:**
 1. Entra con su nombre y contraseña (rol Supervisor).
-2. **Escanea el QR** de la máquina (o la toca en su lista "Mis máquinas a revisar").
+2. **Escanea el QR** de la máquina: se abre la **vista de operador** y ahí toca
+   **"🪖 Hacer check-in de supervisión"** (o toca la máquina en su lista "Mis máquinas a revisar").
 3. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
 4. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
 5. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.

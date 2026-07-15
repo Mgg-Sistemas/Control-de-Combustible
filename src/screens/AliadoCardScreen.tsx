@@ -105,7 +105,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, justifyContent: 'center' }}>
         {/* FRENTE */}
         <CardFace>
-          <Image source={LOGO} style={{ width: 44, height: 30, marginBottom: 6, zIndex: 1 }} resizeMode="contain" />
+          <Image source={LOGO} style={{ width: 60, height: 40, marginBottom: 6, zIndex: 1 }} resizeMode="contain" />
           {ali.photo_url ? (
             <Image source={{ uri: ali.photo_url }} style={{ width: 96, height: 116, borderRadius: 6, borderWidth: 1, borderColor: FICHA.brand, zIndex: 1 }} resizeMode="cover" />
           ) : (
@@ -121,11 +121,12 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
 
         {/* REVERSO */}
         <CardFace>
-          <Image source={LOGO} style={{ width: 44, height: 30, marginBottom: 10, zIndex: 1 }} resizeMode="contain" />
+          <Image source={LOGO} style={{ width: 74, height: 48, marginBottom: 8, zIndex: 1 }} resizeMode="contain" />
           {qrUri ? (
-            <Image source={{ uri: qrUri }} style={{ width: 120, height: 120, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
+            <Image source={{ uri: qrUri }} style={{ width: 124, height: 124, zIndex: 1, backgroundColor: '#fff' }} resizeMode="contain" />
           ) : null}
-          <Text style={{ color: FICHA.text, fontSize: 10, textAlign: 'center', marginTop: 16, zIndex: 1 }}>En caso de pérdida, por favor comunicarse a la empresa.</Text>
+          <Text style={{ color: FICHA.brand, fontSize: 10, fontWeight: '800', textAlign: 'center', marginTop: 8, zIndex: 1 }}>QR de acceso y control</Text>
+          <Text style={{ color: FICHA.text, fontSize: 10, textAlign: 'center', marginTop: 10, zIndex: 1 }}>En caso de pérdida, por favor comunicarse a la empresa.</Text>
           <Text style={{ color: FICHA.brand, fontSize: 10, fontWeight: '800', marginTop: 4, zIndex: 1 }}>N° de ficha {ali.ficha_number || '----'}</Text>
         </CardFace>
       </View>
