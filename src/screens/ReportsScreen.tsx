@@ -706,9 +706,9 @@ export default function ReportsScreen({ route }: any) {
       <p class="muted" style="margin-top:6px">Resumen de equipos (horas × precio). No incluye fletes/viajes; ver el detalle por empresa.</p>`;
     const content = `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
-      ${generalBlockJ}
       <h2 style="margin-top:20px">Estado de la flota de maquinaria</h2>
       <table><tbody>
         <tr><td style="width:70%"><b>Total de activos</b></td><td style="text-align:right;font-weight:800">${fleetStatus.total} unidades</td></tr>
