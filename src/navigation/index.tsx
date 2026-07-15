@@ -28,6 +28,7 @@ import ComidaScreen from '../screens/ComidaScreen';
 import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
+import ChangePassword from '../components/ChangePassword';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
@@ -171,7 +172,12 @@ function SupervisorTabs() {
     <Tab.Navigator
       screenOptions={{
         ...screenHeader,
-        headerLeft: () => <HeaderLogoutButton />,
+        headerLeft: () => (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <ChangePassword variant="icon" />
+            <HeaderLogoutButton />
+          </View>
+        ),
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
@@ -267,11 +273,14 @@ export default function RootNavigator() {
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
   const isAnon = !!(session as any)?.user?.is_anonymous;
-  // Al salir de la vista del QR: si era anónimo, cerrar esa sesión temporal.
-  const exitQr = React.useCallback(() => { if (isAnon) { signOut(); } clearQr(); clearWantLogin(); }, [isAnon, signOut, clearQr, clearWantLogin]);
-  const exitQrEmp = React.useCallback(() => { if (isAnon) { signOut(); } clearQrEmp(); clearWantLogin(); }, [isAnon, signOut, clearQrEmp, clearWantLogin]);
+  // Al salir de una vista abierta por QR: SIEMPRE se cierra la sesión y se vuelve al
+  // login. Escanear un QR NO es una puerta al sistema: la vista (operador / control de
+  // cocina) queda aislada; su única salida es cerrar sesión (no entrar a la app).
+  const exitQr = React.useCallback(() => { signOut(); clearQr(); clearWantLogin(); }, [signOut, clearQr, clearWantLogin]);
+  const exitQrEmp = React.useCallback(() => { signOut(); clearQrEmp(); clearWantLogin(); }, [signOut, clearQrEmp, clearWantLogin]);
+  const exitQrComida = React.useCallback(() => { signOut(); clearQrComida(); }, [signOut, clearQrComida]);
+  // El QR de aliado es solo INFORMACIÓN pública: si era anónimo, cierra esa sesión temporal.
   const exitQrAliado = React.useCallback(() => { if (isAnon) { signOut(); } clearQrAliado(); }, [isAnon, signOut, clearQrAliado]);
-  const exitQrComida = React.useCallback(() => { if (isAnon) { signOut(); } clearQrComida(); }, [isAnon, signOut, clearQrComida]);
   // Pide iniciar sesión desde una vista abierta por QR (para que quede el nombre
   // de quien registra). Cierra la sesión anónima y marca ?login=1 conservando el
   // parámetro del QR (?maquina o ?empleado).

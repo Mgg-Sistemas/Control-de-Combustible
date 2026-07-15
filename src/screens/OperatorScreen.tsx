@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import ChangePassword from '../components/ChangePassword';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
@@ -165,9 +166,12 @@ export default function OperatorScreen() {
           <Text style={{ color: colors.muted, fontSize: 12 }}>Operador</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi jornada'}</Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <ChangePassword variant="icon" />
+          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Máquina seleccionada */}
