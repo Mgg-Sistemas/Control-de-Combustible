@@ -264,6 +264,90 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
       .single();
     if (error) { Alert.alert('Aviso', error.message); return; }
     setRounds((p) => ({ ...p, [rkey(m.id, dISO)]: data as MachineRound }));
+    // Si la ronda editada YA estaba cerrada, sincroniza el histórico en el acto
+    // (para que el reporte cerrado refleje el cambio sin tener que reabrir el cierre).
+    if ((data as any)?.closed) syncClosedRound(m, dISO, data as MachineRound);
+  };
+
+  // Sincroniza la copia congelada del cierre (control_closures.detail.machines) cuando
+  // se modifica una jornada YA CERRADA desde el control. Actualiza la fila existente,
+  // agrega la que faltaba (día que se sumó después) o la quita si se dejó en 0.
+  const syncClosedRound = async (m: Machinery, dISO: string, row: MachineRound) => {
+    if (!row?.closed) return;
+    const dayH = Number(row.day_hours) || 0;
+    const nightH = Number(row.night_hours) || 0;
+    const stopped = Number(row.hours_stopped) || 0;
+    const ot = Number(row.overtime_hours) || 0;
+    const worked = workedFromShifts(dayH, nightH, stopped, ot);
+    const hasHours = dayH + nightH > 0 || stopped > 0 || ot > 0;
+    try {
+      // Cierres cuyo rango [dateFrom..dateTo] cubre esta fecha (closure_date = dateTo).
+      const { data: cls } = await supabase
+        .from('control_closures')
+        .select('*')
+        .gte('closure_date', dISO)
+        .order('closure_date', { ascending: true });
+      const candidates = (cls ?? []).filter((c: any) => {
+        const from = c.detail?.dateFrom ?? c.closure_date;
+        const to = c.detail?.dateTo ?? c.closure_date;
+        return from <= dISO && dISO <= to;
+      });
+      if (candidates.length === 0) return;
+      // Prioriza el cierre que ya tiene ESTA máquina; si no, el primero que cubra la fecha.
+      const target =
+        candidates.find((c: any) => (c.detail?.machines ?? []).some((x: any) => x.machineId === m.id)) ?? candidates[0];
+      const machines = [...(((target.detail?.machines ?? []) as ClosureMachine[]))];
+      const idx = machines.findIndex(
+        (x) => x.date === dISO && (x.machineId ? x.machineId === m.id : !!m.serial && x.serial === m.serial)
+      );
+      // Precio congelado: el de la ronda, o el de otra fila de la misma máquina en el cierre, o el de la máquina.
+      const priceFrozen =
+        row.frozen_price != null
+          ? Number(row.frozen_price)
+          : machines.find((x) => x.machineId === m.id && x.price != null)?.price ??
+            (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
+      const entry: ClosureMachine = {
+        code: m.code ?? '—',
+        machineId: m.id,
+        serial: m.serial ?? m.plate ?? null,
+        company: m.company_id ? (companies[m.company_id] ?? 'Sin empresa') : 'Sin empresa',
+        operator: [row.day_operator, row.night_operator].filter(Boolean).join(' / '),
+        cedula: '',
+        date: dISO,
+        dayOperator: row.day_operator ?? '',
+        dayCedula: row.day_operator_ci ?? '',
+        nightOperator: row.night_operator ?? '',
+        nightCedula: row.night_operator_ci ?? '',
+        dayHours: dayH,
+        nightHours: nightH,
+        hoursStopped: stopped,
+        overtime: ot,
+        worked,
+        price: Number(priceFrozen) || 0,
+      };
+      if (idx >= 0) {
+        if (hasHours) machines[idx] = entry;
+        else machines.splice(idx, 1); // se quitó toda la jornada → sale del cierre
+      } else if (hasHours) {
+        machines.push(entry);
+      } else {
+        return; // nada que sincronizar
+      }
+      machines.sort((a, b) =>
+        a.date === b.date ? String(a.code).localeCompare(String(b.code)) : String(a.date).localeCompare(String(b.date))
+      );
+      const uniqueMachines = new Set(machines.map((s) => s.machineId || s.serial || s.code)).size;
+      await supabase
+        .from('control_closures')
+        .update({ detail: { ...(target.detail ?? {}), machines, totalMachines: uniqueMachines } })
+        .eq('id', target.id);
+      // Si esa ronda no tenía precio congelado, congélalo ahora (para que los reportes lo usen).
+      if (row.frozen_price == null && hasHours && entry.price) {
+        await supabase.from('machine_rounds').update({ frozen_price: entry.price }).eq('machinery_id', m.id).eq('round_date', dISO);
+      }
+    } catch {
+      // No romper la edición si falla la sincronización del histórico.
+    }
   };
 
   // Fija el turno de DÍA o NOCHE (0 / 6 / 12 h) de una máquina en un día.
