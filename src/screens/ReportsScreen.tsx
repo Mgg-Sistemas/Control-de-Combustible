@@ -424,8 +424,8 @@ export default function ReportsScreen({ route }: any) {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo'>('fuel');
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
-  type ConteoRow = { name: string; count: number; hours: number };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; totalHours: number; activos: number; inactivos: number; standby: number } | null>(null);
+  type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; total: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Reporte "Control camiones Entradas/Salidas" (por mes → semanas dom→sáb).
   const nowRef = new Date();
@@ -915,20 +915,21 @@ export default function ReportsScreen({ route }: any) {
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
     list.forEach((m) => {
-      const h = hoursByMachine.get(m.id) ?? 0;
+      const tieneHoras = (hoursByMachine.get(m.id) ?? 0) > 0;
       const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
       const tk = equipCategory(m.code);
-      const cc = clasMap.get(ck) ?? { name: ck, count: 0, hours: 0 }; cc.count += 1; cc.hours += h; clasMap.set(ck, cc);
-      const tt = tipoMap.get(tk) ?? { name: tk, count: 0, hours: 0 }; tt.count += 1; tt.hours += h; tipoMap.set(tk, tt);
+      const cc = clasMap.get(ck) ?? { name: ck, count: 0, conHoras: 0, sinHoras: 0 }; cc.count += 1; if (tieneHoras) cc.conHoras += 1; else cc.sinHoras += 1; clasMap.set(ck, cc);
+      const tt = tipoMap.get(tk) ?? { name: tk, count: 0, conHoras: 0, sinHoras: 0 }; tt.count += 1; if (tieneHoras) tt.conHoras += 1; else tt.sinHoras += 1; tipoMap.set(tk, tt);
     });
     const byClas = [...clasMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     const byTipo = [...tipoMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const totalHours = [...hoursByMachine.values()].reduce((a, b) => a + b, 0);
+    const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
+    const sinHoras = list.length - conHoras;
     // Estado: stand by (en espera) tiene prioridad; luego inactivo (active/operational false); el resto, activo.
     const standby = list.filter((m) => m.en_espera === true).length;
     const inactivos = list.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
     const activos = list.length - standby - inactivos;
-    setConteo({ byClas, byTipo, total: list.length, totalHours, activos, inactivos, standby });
+    setConteo({ byClas, byTipo, total: list.length, conHoras, sinHoras, activos, inactivos, standby });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -936,8 +937,7 @@ export default function ReportsScreen({ route }: any) {
   const downloadConteoPdf = async () => {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const fmtH = (n: number) => `${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} h`;
-    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td><td style="text-align:right">${fmtH(r.hours)}</td></tr>`).join('');
+    const rowsFor = (arr: ConteoRow[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td><td style="text-align:right;color:#059669">${r.conHoras}</td><td style="text-align:right;color:#B45309">${r.sinHoras}</td></tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -954,20 +954,21 @@ export default function ReportsScreen({ route }: any) {
         .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación</h2>
-      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas trabajadas</th></tr></thead>
+      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Con horas</th><th style="text-align:right">Sin horas</th></tr></thead>
         <tbody>${rowsFor(conteo.byClas)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${fmtH(conteo.totalHours)}</td></tr></tfoot></table>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${conteo.conHoras}</td><td style="text-align:right">${conteo.sinHoras}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo</h2>
-      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas trabajadas</th></tr></thead>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Con horas</th><th style="text-align:right">Sin horas</th></tr></thead>
         <tbody>${rowsFor(conteo.byTipo)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${fmtH(conteo.totalHours)}</td></tr></tfoot></table>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td><td style="text-align:right">${conteo.conHoras}</td><td style="text-align:right">${conteo.sinHoras}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
       <div class="estado">
         <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos</div></div>
         <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos</div></div>
         <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by</div></div>
         <div class="c"><div class="v">${conteo.total}</div><div class="k">Total equipos</div></div>
-        <div class="c hrs"><div class="v">${fmtH(conteo.totalHours)}</div><div class="k">Total horas</div></div>
+        <div class="c hrs"><div class="v">${conteo.conHoras}</div><div class="k">Con horas</div></div>
+        <div class="c stb"><div class="v">${conteo.sinHoras}</div><div class="k">Sin horas</div></div>
       </div>`;
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
   };
@@ -1497,48 +1498,60 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
 
-              <View style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>⏱️ Total horas trabajadas</Text>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 18 }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.success, fontSize: 22, fontWeight: '900' }}>{conteo.conHoras}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Con horas</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.warning, fontSize: 22, fontWeight: '900' }}>{conteo.sinHoras}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>Sin horas</Text>
+                </View>
               </View>
 
               <Card>
                 <View style={{ flexDirection: 'row', marginBottom: 4 }}>
                   <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por clasificación</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 54, textAlign: 'right' }}>CANT.</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 74, textAlign: 'right' }}>HORAS</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 48, textAlign: 'right' }}>CANT.</Text>
+                  <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>CON</Text>
+                  <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>SIN</Text>
                 </View>
                 {conteo.byClas.map((r) => (
                   <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 54, textAlign: 'right' }}>{r.count}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12, width: 74, textAlign: 'right' }}>{r.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 48, textAlign: 'right' }}>{r.count}</Text>
+                    <Text style={{ color: colors.success, fontSize: 13, width: 44, textAlign: 'right' }}>{r.conHoras}</Text>
+                    <Text style={{ color: colors.warning, fontSize: 13, width: 44, textAlign: 'right' }}>{r.sinHoras}</Text>
                   </View>
                 ))}
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 54, textAlign: 'right' }}>{conteo.total}</Text>
-                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '900', width: 74, textAlign: 'right' }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 48, textAlign: 'right' }}>{conteo.total}</Text>
+                  <Text style={{ color: colors.success, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.conHoras}</Text>
+                  <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.sinHoras}</Text>
                 </View>
               </Card>
 
               <Card>
                 <View style={{ flexDirection: 'row', marginBottom: 4 }}>
                   <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>Por tipo de equipo</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 54, textAlign: 'right' }}>CANT.</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 74, textAlign: 'right' }}>HORAS</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 48, textAlign: 'right' }}>CANT.</Text>
+                  <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>CON</Text>
+                  <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '700', width: 44, textAlign: 'right' }}>SIN</Text>
                 </View>
                 {conteo.byTipo.map((r) => (
                   <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 54, textAlign: 'right' }}>{r.count}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12, width: 74, textAlign: 'right' }}>{r.hours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', width: 48, textAlign: 'right' }}>{r.count}</Text>
+                    <Text style={{ color: colors.success, fontSize: 13, width: 44, textAlign: 'right' }}>{r.conHoras}</Text>
+                    <Text style={{ color: colors.warning, fontSize: 13, width: 44, textAlign: 'right' }}>{r.sinHoras}</Text>
                   </View>
                 ))}
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
-                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 54, textAlign: 'right' }}>{conteo.total}</Text>
-                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '900', width: 74, textAlign: 'right' }}>{conteo.totalHours.toLocaleString(undefined, { maximumFractionDigits: 1 })} h</Text>
+                  <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '900', width: 48, textAlign: 'right' }}>{conteo.total}</Text>
+                  <Text style={{ color: colors.success, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.conHoras}</Text>
+                  <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '900', width: 44, textAlign: 'right' }}>{conteo.sinHoras}</Text>
                 </View>
               </Card>
 
