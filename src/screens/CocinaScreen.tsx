@@ -12,6 +12,7 @@ import { parseEmployeeId } from './ScanQrScreen';
 import { norm } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 // Solo el personal de cocina/alimentación puede ingresar cantidades. Se valida por
 // el CARGO en nómina (ayudante de cocina, alimentación, cocinero, cocina, …).
@@ -235,9 +236,12 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
           <Text style={{ color: colors.muted, fontSize: 12 }}>Cocina</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{myName || 'Distribución de comida'}</Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <ChangePasswordButton />
+          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {!cook ? (

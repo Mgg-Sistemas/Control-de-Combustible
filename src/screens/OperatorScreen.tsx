@@ -14,6 +14,7 @@ import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 /** Fecha local de hoy en "AAAA-MM-DD". */
 function todayISO(): string {
@@ -165,9 +166,12 @@ export default function OperatorScreen() {
           <Text style={{ color: colors.muted, fontSize: 12 }}>Operador</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi jornada'}</Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <ChangePasswordButton />
+          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Máquina seleccionada */}
