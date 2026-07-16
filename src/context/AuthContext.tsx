@@ -102,12 +102,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Realtime: si un admin cambia los permisos del usuario, se aplican EN VIVO
     // (sin necesidad de cerrar y volver a iniciar sesión).
-    const permCh = supabase
-      .channel(`perms-${uid}`)
-      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'module_permissions', filter: `user_id=eq.${uid}` }, () => loadPerms())
-      .subscribe();
+    // Blindaje: si por cualquier razón quedó un canal previo con este mismo topic
+    // (efecto reejecutado, StrictMode, reconexión), lo eliminamos ANTES de crear
+    // el nuevo. Así nunca se agrega un listener sobre un canal ya suscrito
+    // (error "cannot add postgres_changes callbacks after subscribe()").
+    const permTopic = `perms-${uid}`;
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === permTopic || c.topic === `realtime:${permTopic}`)
+      .forEach((c) => supabase.removeChannel(c));
+    let permCh: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      permCh = supabase
+        .channel(permTopic)
+        .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'module_permissions', filter: `user_id=eq.${uid}` }, () => loadPerms())
+        .subscribe();
+    } catch (e) {
+      // Si aun así falla, no rompemos la app: los permisos se cargaron arriba con
+      // loadPerms() y se recargan al reingresar. Solo perdemos el "en vivo".
+      console.warn('perms realtime no disponible:', e);
+    }
 
     // Realtime Presence: cada usuario logueado se anuncia en este canal.
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === 'online-users' || c.topic === 'realtime:online-users')
+      .forEach((c) => supabase.removeChannel(c));
     const channel = supabase.channel('online-users', {
       config: { presence: { key: uid } },
     });
@@ -123,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       active = false;
-      supabase.removeChannel(permCh);
+      if (permCh) supabase.removeChannel(permCh);
       supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
