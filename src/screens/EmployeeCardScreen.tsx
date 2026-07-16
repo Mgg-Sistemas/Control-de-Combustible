@@ -8,6 +8,7 @@ import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } fr
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import QrInactive from '../components/QrInactive';
 
 const LOGO = require('../../assets/logo.png');
 const FICHA_BG = require('../../assets/ficha-bg.jpg');
@@ -104,16 +105,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   };
 
   if (loading) return <Screen><Loading /></Screen>;
-  if (!emp) {
-    return (
-      <Screen>
-        <Card><Text style={{ color: colors.danger, fontWeight: '700' }}>No se encontró la ficha de este código QR.</Text></Card>
-        <TouchableOpacity onPress={onExit} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
-          <Text style={{ color: colors.text, fontWeight: '700' }}>← Ir al sistema</Text>
-        </TouchableOpacity>
-      </Screen>
-    );
-  }
+  // Empleado eliminado → QR DESACTIVADO: solo el logo de la empresa (sin datos).
+  if (!emp) return <QrInactive onExit={onExit} />;
 
   const st = STATUS[emp.status] ?? STATUS.activo;
   const age = ageFrom(emp.birth_date);

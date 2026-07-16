@@ -16,6 +16,7 @@ import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import QrInactive from '../components/QrInactive';
 
 /** Distancia en METROS entre dos coordenadas (fórmula de Haversine). */
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
@@ -445,16 +446,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><Loading /></Screen>;
-  if (!machine) {
-    return (
-      <Screen>
-        <Card><Text style={{ color: colors.danger, fontWeight: '700' }}>No se encontró la máquina de este código QR.</Text></Card>
-        <TouchableOpacity onPress={onExit} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
-          <Text style={{ color: colors.text, fontWeight: '700' }}>← Ir al sistema</Text>
-        </TouchableOpacity>
-      </Screen>
-    );
-  }
+  // Máquina eliminada → QR DESACTIVADO: solo el logo de la empresa (sin datos).
+  if (!machine) return <QrInactive onExit={onExit} />;
 
   const big = (bg: string, icon: string, label: string, onPress: () => void) => (
     <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={{ backgroundColor: bg, borderRadius: radius.lg, paddingVertical: spacing.xl, alignItems: 'center', marginBottom: spacing.md }}>
