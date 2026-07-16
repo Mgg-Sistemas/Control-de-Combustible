@@ -25,6 +25,8 @@ type AuthState = {
   /** Bloqueado a la espera de huella (sesión existe pero no se ha desbloqueado). */
   locked: boolean;
   signIn: (firstName: string, lastName: string, password: string) => Promise<{ error?: string }>;
+  /** Inicio de sesión BLINDADO por cédula + contraseña (solo personas registradas con cédula). */
+  signInWithCedula: (cedula: string, password: string) => Promise<{ error?: string }>;
   signUp: (
     firstName: string,
     lastName: string,
@@ -142,6 +144,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {};
   };
 
+  // Inicio de sesión BLINDADO: por CÉDULA + contraseña. La cédula se traduce al
+  // correo interno con una función segura de la BD; si la cédula no está registrada
+  // (o el usuario no tiene cédula asignada), no deja entrar y pide avisar al admin.
+  const signInWithCedula: AuthState['signInWithCedula'] = async (cedula, password) => {
+    const ci = (cedula ?? '').trim();
+    if (!ci) return { error: 'Ingresa tu cédula.' };
+    if (!password) return { error: 'Ingresa tu contraseña.' };
+    const { data: email, error: rpcErr } = await supabase.rpc('login_email_for_cedula', { p_cedula: ci });
+    if (rpcErr) return { error: 'No se pudo validar la cédula. Revisa tu conexión e inténtalo de nuevo.' };
+    if (!email) return { error: 'Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar.' };
+    const { error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    if (error) {
+      return {
+        error: error.message.toLowerCase().includes('invalid')
+          ? 'Cédula o contraseña incorrectas.'
+          : error.message,
+      };
+    }
+    setLocked(false);
+    return {};
+  };
+
   const signUp: AuthState['signUp'] = async (firstName, lastName, password) => {
     const v = validateName(firstName, lastName);
     if (v) return { error: v };
@@ -189,9 +213,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         moduleLevel,
         canSee,
         signIn,
-        signUp,
+        signInWithCedula,
         signOut,
         unlock,
+        signUp,
       }}
     >
       {children}

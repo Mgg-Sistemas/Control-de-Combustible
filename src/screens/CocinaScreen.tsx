@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
-import ChangePassword from '../components/ChangePassword';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -188,12 +187,9 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
           <Text style={{ color: colors.muted, fontSize: 12 }}>Cocina</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{myName || 'Distribución de comida'}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-          <ChangePassword variant="icon" />
-          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+        </TouchableOpacity>
       </View>
 
       {!cook ? (
