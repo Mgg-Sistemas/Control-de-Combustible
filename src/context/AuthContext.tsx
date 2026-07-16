@@ -123,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       active = false;
+      supabase.removeChannel(permCh);
       supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
