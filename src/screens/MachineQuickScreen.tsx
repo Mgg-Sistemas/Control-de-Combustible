@@ -11,6 +11,7 @@ import { captureLocation, warmLocation, getCurrentCoords } from '../lib/location
 import { formatUTM } from '../lib/utm';
 import { onlyDecimal } from '../lib/text';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
+import { classifyMobility, mobilityBadge, MobilityStatus } from '../lib/mobility';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
@@ -96,6 +97,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const [locating, setLocating] = useState(false);
   // Ubicación EN VIVO del operador logueado (para ver qué tan cerca está de la máquina).
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  // Clasificación DERIVADA fijo/móvil (deducida de las ubicaciones de sus jornadas).
+  const [mobility, setMobility] = useState<{ status: MobilityStatus; spreadM: number; points: number }>({ status: 'indef', spreadM: 0, points: 0 });
+  // Última ubicación conocida del equipo (para móviles no hay pin fijo).
+  const [lastLoc, setLastLoc] = useState<{ lat: number; lng: number } | null>(null);
   // Escáner del carnet del operador.
   const [scanCarnetOpen, setScanCarnetOpen] = useState(false);
 
@@ -179,6 +184,35 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
       setMachine(m ? ({ ...(m as any), companyName: (m as any).company?.name ?? 'Sin empresa' }) : null);
+      // ── Fijo/Móvil DERIVADO: junta las coordenadas de todas sus jornadas
+      //    (inicio y fin) + su pin manual, y clasifica (300 m, 2 ubic. distintas). ──
+      (async () => {
+        try {
+          const { data: asgs } = await supabase
+            .from('operator_assignments')
+            .select('start_lat, start_lng, end_lat, end_lng, created_at')
+            .eq('machinery_id', machineId)
+            .order('created_at', { ascending: false })
+            .limit(200);
+          const rows = (asgs ?? []) as any[];
+          const pts: ({ lat: number; lng: number } | null)[] = [];
+          rows.forEach((r) => {
+            if (r.start_lat != null && r.start_lng != null) pts.push({ lat: Number(r.start_lat), lng: Number(r.start_lng) });
+            if (r.end_lat != null && r.end_lng != null) pts.push({ lat: Number(r.end_lat), lng: Number(r.end_lng) });
+          });
+          if ((m as any)?.latitude != null && (m as any)?.longitude != null) pts.push({ lat: Number((m as any).latitude), lng: Number((m as any).longitude) });
+          setMobility(classifyMobility(pts));
+          // Última ubicación conocida = el punto más reciente con GPS.
+          const last = rows.find((r) => (r.end_lat != null && r.end_lng != null) || (r.start_lat != null && r.start_lng != null));
+          if (last) {
+            const la = last.end_lat != null ? last.end_lat : last.start_lat;
+            const lo = last.end_lng != null ? last.end_lng : last.start_lng;
+            if (la != null && lo != null) setLastLoc({ lat: Number(la), lng: Number(lo) });
+          } else if ((m as any)?.latitude != null) {
+            setLastLoc({ lat: Number((m as any).latitude), lng: Number((m as any).longitude) });
+          }
+        } catch {}
+      })();
       // Al escanear SIEMPRE se muestra "INICIO DE JORNADA": cada operador empieza
       // su propia jornada (no se hereda el estado de la máquina ni de otro operador).
       setJornadaActive(false);
@@ -407,11 +441,16 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   );
 
   // Ubicación en vivo del operador vs. la máquina (para ver qué tan cerca está).
+  const isMovil = mobility.status === 'movil';
+  const badge = mobilityBadge(mobility.status);
   const hasMachineCoords = machine.latitude != null && machine.longitude != null;
-  const machinePins: MapPin[] = hasMachineCoords
-    ? [{ id: machine.id, name: machine.code, lat: Number(machine.latitude), lng: Number(machine.longitude), active: '', operational: true, company: machine.companyName ?? '', route: [] }]
+  // Para equipos MÓVILES no hay pin fijo: se muestra la "última ubicación conocida".
+  const pinLoc = isMovil ? lastLoc : (hasMachineCoords ? { lat: Number(machine.latitude), lng: Number(machine.longitude) } : null);
+  const machinePins: MapPin[] = pinLoc
+    ? [{ id: machine.id, name: isMovil ? `${machine.code} (última ubic.)` : machine.code, lat: pinLoc.lat, lng: pinLoc.lng, active: '', operational: true, company: machine.companyName ?? '', route: [] }]
     : [];
-  const distM = userLoc && hasMachineCoords ? distanceMeters(userLoc.lat, userLoc.lng, Number(machine.latitude), Number(machine.longitude)) : null;
+  // La distancia solo tiene sentido para equipos FIJOS (tienen un punto de referencia).
+  const distM = !isMovil && userLoc && hasMachineCoords ? distanceMeters(userLoc.lat, userLoc.lng, Number(machine.latitude), Number(machine.longitude)) : null;
   const distColor = distM == null ? colors.muted : distM <= 150 ? colors.success : distM <= 500 ? colors.warning : colors.danger;
   const distText = distM == null ? null : distM < 1000 ? `${Math.round(distM)} m` : `${(distM / 1000).toFixed(2)} km`;
 
@@ -422,6 +461,12 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           <Text style={{ color: colors.muted, fontSize: 12 }}>Máquina</Text>
           <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900' }}>{machine.code}</Text>
           <Text style={{ color: colors.muted, fontSize: 13 }}>{(machine.tipo || 'Sin tipo')}{machine.referencia ? ` · ${machine.referencia}` : ''} · {machine.companyName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            <Text style={{ fontSize: 11 }}>{badge.emoji}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>
+              Equipo {badge.text}{mobility.status === 'indef' ? ' (aún sin suficientes ubicaciones)' : ''}
+            </Text>
+          </View>
         </View>
         <TouchableOpacity onPress={onExit} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Sistema</Text>
@@ -434,11 +479,16 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
 
       {view === 'home' ? (
         <View style={{ marginTop: spacing.md }}>
-          {/* Ubicación EN TIEMPO REAL: mapa con el operador (punto azul) y la máquina + distancia. */}
+          {/* Ubicación EN TIEMPO REAL. Para equipos FIJOS: distancia operador ↔ máquina.
+              Para MÓVILES: no hay punto fijo, se muestra la última ubicación conocida. */}
           <Card>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📍 Tu ubicación vs. la máquina</Text>
-              {distText ? (
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>
+                {isMovil ? '📍 Ubicación registrada (equipo móvil)' : '📍 Tu ubicación vs. la máquina'}
+              </Text>
+              {isMovil ? (
+                <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 12 }}>{userLoc ? '✓ GPS activo' : 'Ubicando…'}</Text>
+              ) : distText ? (
                 <Text style={{ color: distColor, fontWeight: '900', fontSize: 14 }}>
                   {distM != null && distM <= 150 ? '✓ ' : ''}{distText}
                 </Text>
@@ -446,15 +496,17 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{userLoc ? 'Máquina sin ubicación' : 'Ubicando…'}</Text>
               )}
             </View>
-            {hasMachineCoords ? (
+            {(machinePins.length > 0 || userLoc) ? (
               <VenezuelaMap pins={machinePins} height={220} />
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12 }}>
-                Esta máquina aún no tiene ubicación en el mapa. Toca “ACTUALIZAR UBICACIÓN” para marcarla.
+                {isMovil ? 'Aún no hay ubicaciones registradas. Se guardarán al iniciar y finalizar la jornada.' : 'Esta máquina aún no tiene ubicación en el mapa. Toca “ACTUALIZAR UBICACIÓN” para marcarla.'}
               </Text>
             )}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-              El punto azul es tu ubicación en tiempo real{distText ? `. Estás a ${distText} de la máquina.` : ' (permite el acceso al GPS).'}
+              {isMovil
+                ? 'Equipo móvil (sin ubicación fija). El punto azul es tu ubicación en vivo; se guarda dónde inicia y termina cada jornada.'
+                : `El punto azul es tu ubicación en tiempo real${distText ? `. Estás a ${distText} de la máquina.` : ' (permite el acceso al GPS).'}`}
             </Text>
           </Card>
 
