@@ -30,6 +30,11 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+/** Comida sugerida según la hora de Caracas: desayuno < 11, almuerzo < 16, cena. */
+function servingByTime(): MealType {
+  const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: CARACAS_TZ, hour: '2-digit', hour12: false }).format(new Date())) % 24;
+  return h < 11 ? 'desayuno' : h < 16 ? 'almuerzo' : 'cena';
+}
 
 type Person = { id: string; name: string; cedula: string | null; cargo: string | null; photo_url: string | null; companyName: string };
 
@@ -56,9 +61,13 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   const [searching, setSearching] = useState(false);
   // Persona de cocina VERIFICADA (por su propio carnet) que habilita el registro.
   const [cook, setCook] = useState<{ name: string; cargo: string } | null>(null);
-  const [scanMode, setScanMode] = useState<'cook' | 'person'>('person');
+  const [scanMode, setScanMode] = useState<'cook' | 'person' | 'quick'>('quick');
   const [cookCedula, setCookCedula] = useState('');
   const [verifying, setVerifying] = useState(false);
+  // Comida que se está sirviendo AHORA (torniquete): cada carnet escaneado registra
+  // esa comida a la persona; solo puede pasar una vez por comida al día.
+  const [serving, setServing] = useState<MealType>(servingByTime());
+  const [served, setServed] = useState(0); // contador de esta sesión
 
   React.useEffect(() => {
     if (!uid) { setLoading(false); return; }
@@ -105,8 +114,47 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
     const { data } = await supabase.from('employees').select('id').eq('cedula', ci).limit(1);
     setSearching(false);
     const emp = data && data[0];
-    if (emp) { setCedula(''); openPerson((emp as any).id); }
+    if (emp) { setCedula(''); quickDeliver((emp as any).id); }
     else setNotice('❌ No hay ninguna persona con esa cédula.');
+  };
+
+  // ── Entrega RÁPIDA (torniquete): al escanear el carnet, registra la comida que
+  //    se está sirviendo. Cada persona solo puede pasar UNA vez por comida al día. ─
+  const quickDeliver = async (employeeId: string) => {
+    setScanOpen(false); setNotice(null);
+    if (!cook) { setNotice('❌ Primero verifícate escaneando tu carnet de cocina.'); return; }
+    const { data } = await supabase
+      .from('employees')
+      .select('id, first_name, last_name, cedula, cargo, photo_url, company:company_id(name)')
+      .eq('id', employeeId)
+      .maybeSingle();
+    if (!data) { setPerson(null); setNotice('❌ El carnet no corresponde a una persona registrada.'); return; }
+    const p: Person = {
+      id: (data as any).id,
+      name: `${(data as any).first_name ?? ''} ${(data as any).last_name ?? ''}`.trim() || 'Sin nombre',
+      cedula: (data as any).cedula ?? null,
+      cargo: (data as any).cargo ?? null,
+      photo_url: (data as any).photo_url ?? null,
+      companyName: (data as any).company?.name ?? 'Sin empresa',
+    };
+    setPerson(p);
+    const list = await listForEmployeeDay(p.id, today);
+    setTodayList(list);
+    // ¿Ya pasó por esta comida hoy? No se registra de nuevo.
+    const already = list.find((d) => d.meal_type === serving);
+    if (already) {
+      setNotice(`⚠️ ${p.name} YA pasó por ${mealLabel(serving).toUpperCase()} hoy (${caracasClock(already.delivered_at)}). No se registró de nuevo.`);
+      return;
+    }
+    const { data: saved, error } = await saveFoodDistribution({
+      employeeId: p.id, employeeName: p.name, cedula: p.cedula,
+      meals: 1, mealType: serving, distributionDate: today, note: '',
+      createdBy: uid || null, createdByName: cook?.name || myName || null,
+    });
+    if (error || !saved) { setNotice('❌ ' + (error ?? 'No se pudo registrar.')); return; }
+    setTodayList((prev) => [saved, ...prev]);
+    setServed((s) => s + 1);
+    setNotice(`✅ ${mealLabel(serving).toUpperCase()} entregado a ${p.name} · ${caracasClock(saved.delivered_at)}.`);
   };
 
   // ── Verificación del que reparte: escanea SU carnet (o busca por cédula). Solo
@@ -226,22 +274,38 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
       {cook ? (
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🍽️ Entregar comida</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Escanea el carnet de la persona para registrar su comida.</Text>
-          <TouchableOpacity onPress={() => { setScanMode('person'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Elige la comida que se está sirviendo. Cada carnet escaneado registra 1 comida a esa persona (solo puede pasar una vez por comida).</Text>
+          {/* Selector de la comida que se está sirviendo ahora. */}
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+            {MEALS.map((mt) => {
+              const active = serving === mt.key;
+              return (
+                <TouchableOpacity
+                  key={mt.key}
+                  onPress={() => setServing(mt.key)}
+                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? mt.color : colors.surface, borderWidth: 1, borderColor: active ? mt.color : colors.border }}
+                >
+                  <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{mt.icon} {mt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Sirviendo: <Text style={{ color: colors.text, fontWeight: '800' }}>{mealLabel(serving).toUpperCase()}</Text> · Entregadas en esta sesión: <Text style={{ color: colors.primary, fontWeight: '800' }}>{served}</Text></Text>
+          <TouchableOpacity onPress={() => { setScanMode('quick'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet — entregar {mealLabel(serving).toUpperCase()}</Text>
           </TouchableOpacity>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Busca por cédula:</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
             <TextInput value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
             <TouchableOpacity onPress={buscarPorCedula} disabled={searching} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : 'Buscar'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : 'Entregar'}</Text>
             </TouchableOpacity>
           </View>
         </Card>
       ) : null}
 
       {notice ? (
-        <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
+        <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : notice.startsWith('⚠️') ? colors.warning : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
       {cook && person ? (
@@ -319,6 +383,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
               const id = parseEmployeeId(text);
               if (!id) { setScanOpen(false); setNotice('❌ Ese QR no es un carnet de persona.'); return; }
               if (scanMode === 'cook') verifyCook(id);
+              else if (scanMode === 'quick') quickDeliver(id);
               else openPerson(id);
             }}
           />

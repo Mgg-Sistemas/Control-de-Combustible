@@ -30,6 +30,17 @@ function addDaysISO(iso: string, delta: number): string {
   d.setDate(d.getDate() + delta);
   return d.toISOString().slice(0, 10);
 }
+/** Lunes de la semana de `iso` (semana lunes→domingo). */
+function startOfWeekISO(iso: string): string {
+  const d = new Date(iso + 'T12:00:00');
+  const dow = (d.getDay() + 6) % 7; // lunes = 0
+  d.setDate(d.getDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+/** Primer día del mes de `iso`. */
+function startOfMonthISO(iso: string): string {
+  return iso.slice(0, 8) + '01';
+}
 
 /**
  * Módulo "Distribución de comida" (para el jefe): por día, cuántas comidas se
@@ -252,7 +263,7 @@ export default function ComidaScreen() {
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         {modeTab('dia', '📅 Por día')}
-        {modeTab('control', '📊 Control por empresa')}
+        {modeTab('control', '📊 Reportes (día/semana/rango)')}
       </View>
 
       {mode === 'control' ? (
@@ -276,11 +287,21 @@ export default function ComidaScreen() {
             </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-            {[['Hoy', 0], ['7 días', 6], ['30 días', 29]].map(([lbl, back]) => (
-              <TouchableOpacity key={lbl as string} onPress={() => { setFrom(addDaysISO(caracasToday(), -(back as number))); setTo(caracasToday()); }} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
-                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{lbl}</Text>
-              </TouchableOpacity>
-            ))}
+            {([
+              { lbl: 'Hoy', f: caracasToday(), t: caracasToday() },
+              { lbl: 'Ayer', f: addDaysISO(caracasToday(), -1), t: addDaysISO(caracasToday(), -1) },
+              { lbl: 'Esta semana', f: startOfWeekISO(caracasToday()), t: caracasToday() },
+              { lbl: 'Este mes', f: startOfMonthISO(caracasToday()), t: caracasToday() },
+              { lbl: '7 días', f: addDaysISO(caracasToday(), -6), t: caracasToday() },
+              { lbl: '30 días', f: addDaysISO(caracasToday(), -29), t: caracasToday() },
+            ]).map((p) => {
+              const active = from === p.f && to === p.t;
+              return (
+                <TouchableOpacity key={p.lbl} onPress={() => { setFrom(p.f); setTo(p.t); }} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}>
+                  <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{p.lbl}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </Card>
 
