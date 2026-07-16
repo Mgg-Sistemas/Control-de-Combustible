@@ -11,6 +11,7 @@ import { norm, onlyDecimal } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee } from '../types/database';
 import { exportPdf } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
+import { cotizacionHtml, CotizItem } from '../lib/cotizacion';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -633,6 +634,134 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   );
 }
 
+// ── Cotización ───────────────────────────────────────────────────────────────
+type CotizRow = { key: string; codigo: string; referencia: string; descripcion: string; cant: string; precio: string };
+function CotizacionTab() {
+  const { colors } = useTheme();
+  const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
+
+  const [cliente, setCliente] = useState('');
+  const [rif, setRif] = useState('');
+  const [dir, setDir] = useState('');
+  const [numero, setNumero] = useState('');
+  const [condPago, setCondPago] = useState('CONTADO');
+  const [moneda, setMoneda] = useState('Dólares');
+  const [iva, setIva] = useState('16');
+  const [rows, setRows] = useState<CotizRow[]>([]);
+  const [q, setQ] = useState('');
+  const [pickOpen, setPickOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  let seq = 0;
+  const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
+  const addBlank = () => setRows((r) => [...r, { key: newKey(), codigo: '', referencia: '', descripcion: '', cant: '1', precio: '0' }]);
+  const addFromProduct = (it: InventoryLevel) => {
+    setRows((r) => [...r, { key: newKey(), codigo: it.sku || '', referencia: '', descripcion: it.name, cant: '1', precio: String(Number(it.avg_cost) || 0) }]);
+    setPickOpen(false); setQ('');
+  };
+  const upd = (key: string, field: keyof CotizRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
+  const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
+
+  const base = rows.reduce((s, x) => s + (parseNum(x.cant) * parseNum(x.precio)), 0);
+  const ivaN = Math.round(base * (parseNum(iva) || 0)) / 100;
+  const total = base + ivaN;
+
+  const nq = norm(q);
+  const productos = levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.sku ?? '').includes(nq)).slice(0, 25);
+
+  const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+
+  const generar = async () => {
+    if (!cliente.trim()) return Alert.alert('Aviso', 'Escribe el nombre del cliente.');
+    const items: CotizItem[] = rows.filter((x) => x.descripcion.trim()).map((x) => ({ codigo: x.codigo.trim() || null, referencia: x.referencia.trim() || null, descripcion: x.descripcion.trim(), cant: parseNum(x.cant), precio: parseNum(x.precio) }));
+    if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un ítem con descripción.');
+    setBusy(true);
+    try {
+      await exportPdf(cotizacionHtml({ numero: numero.trim() || null, fecha: todayDMY(), cliente: cliente.trim(), clienteRif: rif.trim() || null, clienteDir: dir.trim() || null, condicionPago: condPago.trim() || null, moneda: moneda.trim() || null, ivaPct: parseNum(iva), items }), `Cotizacion ${numero.trim() || todayDMY()}`);
+    } catch (e: any) { setBusy(false); return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
+    setBusy(false);
+  };
+
+  const inp = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <SectionTitle>Cotización</SectionTitle>
+
+      <Card>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cliente</Text>
+        <TextInput value={cliente} onChangeText={(t) => setCliente(t.toUpperCase())} autoCapitalize="characters" placeholder="NOMBRE DEL CLIENTE" placeholderTextColor={colors.muted} style={inp} />
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>R.I.F</Text><TextInput value={rif} onChangeText={(t) => setRif(t.toUpperCase())} placeholder="J-..." placeholderTextColor={colors.muted} style={inp} /></View>
+          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>N° cotización</Text><TextInput value={numero} onChangeText={setNumero} placeholder="Opcional" placeholderTextColor={colors.muted} style={inp} /></View>
+        </View>
+        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Dirección (opcional)</Text>
+        <TextInput value={dir} onChangeText={setDir} placeholder="Dirección del cliente" placeholderTextColor={colors.muted} style={inp} />
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Condición de pago</Text><TextInput value={condPago} onChangeText={(t) => setCondPago(t.toUpperCase())} style={inp} /></View>
+          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Moneda</Text><TextInput value={moneda} onChangeText={setMoneda} style={inp} /></View>
+          <View style={{ width: 74 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>IVA %</Text><TextInput value={iva} onChangeText={(t) => setIva(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={inp} /></View>
+        </View>
+      </Card>
+
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+        <TouchableOpacity onPress={() => setPickOpen((v) => !v)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📦 Traer del inventario</Text></TouchableOpacity>
+        <TouchableOpacity onPress={addBlank} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>＋ Línea libre</Text></TouchableOpacity>
+      </View>
+
+      {pickOpen ? (
+        <Card>
+          <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto por nombre o SKU…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+          <View style={{ maxHeight: 200 }}>
+            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              {productos.map((it) => (
+                <TouchableOpacity key={it.id} onPress={() => addFromProduct(it)} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{it.name}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{it.sku ? `${it.sku} · ` : ''}PMP {usd(it.avg_cost)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Card>
+      ) : null}
+
+      {rows.map((x) => (
+        <Card key={x.key}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Ítem</Text>
+            <TouchableOpacity onPress={() => rm(x.key)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑 Quitar</Text></TouchableOpacity>
+          </View>
+          <TextInput value={x.descripcion} onChangeText={(t) => upd(x.key, 'descripcion', t)} placeholder="Descripción" placeholderTextColor={colors.muted} style={inp} />
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6 }}>
+            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Código</Text><TextInput value={x.codigo} onChangeText={(t) => upd(x.key, 'codigo', t)} style={inp} /></View>
+            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Referencia</Text><TextInput value={x.referencia} onChangeText={(t) => upd(x.key, 'referencia', t)} style={inp} /></View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
+            <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.cant} onChangeText={(t) => upd(x.key, 'cant', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
+            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio unit.</Text><TextInput value={x.precio} onChangeText={(t) => upd(x.key, 'precio', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
+            <View style={{ alignItems: 'flex-end', minWidth: 80 }}><Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text><Text style={{ color: colors.text, fontWeight: '800' }}>{usd(parseNum(x.cant) * parseNum(x.precio))}</Text></View>
+          </View>
+        </Card>
+      ))}
+
+      {rows.length ? (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>Base imponible</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(base)}</Text></View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>I.V.A. ({parseNum(iva)}%)</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(ivaN)}</Text></View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL</Text><Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{usd(total)}</Text></View>
+        </Card>
+      ) : (
+        <EmptyState title="Sin ítems" subtitle="Trae productos del inventario o agrega líneas libres." />
+      )}
+
+      <TouchableOpacity onPress={generar} disabled={busy} style={{ backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm, marginBottom: spacing.lg, opacity: busy ? 0.6 : 1 }}>
+        <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar cotización (PDF)'}</Text>
+      </TouchableOpacity>
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -642,6 +771,7 @@ export default function InventarioScreen() {
     { key: 'existencias', label: 'Existencias', icon: '📦' },
     { key: 'salidas', label: 'Salidas', icon: '📤' },
     { key: 'nota', label: 'Nota de entrega', icon: '🧾' },
+    { key: 'cotizacion', label: 'Cotización', icon: '📄' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
   ];
   const [active, setActive] = useState('existencias');
@@ -662,7 +792,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
       </View>
     </View>
   );
