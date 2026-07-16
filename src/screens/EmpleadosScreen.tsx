@@ -11,7 +11,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml } from '../lib/constancia';
-import { exportPdf } from '../lib/pdf';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -74,29 +74,46 @@ export default function EmpleadosScreen({ navigation }: any) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
+  const [cargoFilter, setCargoFilter] = useState(''); // '' = todos los cargos
+  const [cargosOpen, setCargosOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
+  // Etiqueta del cargo, normalizada para agrupar (mayúsculas, sin espacios extra).
+  const cargoLabel = (e: Employee) => (e.cargo || '').trim().toUpperCase() || 'SIN CARGO';
 
   const q = norm(query.trim());
+  // Empleados que pasan la BÚSQUEDA de texto (base para contar por cargo).
+  const baseFiltered = useMemo(
+    () => employees.filter((e) =>
+      !q ||
+      norm(fullName(e)).includes(q) ||
+      norm(e.cedula).includes(q) ||
+      norm(e.ficha_number).includes(q) ||
+      norm(e.cargo).includes(q) ||
+      norm(companyName(e.company_id)).includes(q)
+    ),
+    [employees, q, companies]
+  );
+
+  // Conteo por cargo (para los chips-filtro y el reporte): [cargo, cantidad], de mayor a menor.
+  const cargoCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    baseFiltered.forEach((e) => { const k = cargoLabel(e); map.set(k, (map.get(k) ?? 0) + 1); });
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [baseFiltered]);
+
   const shown = useMemo(
-    () => employees
-      .filter((e) =>
-        !q ||
-        norm(fullName(e)).includes(q) ||
-        norm(e.cedula).includes(q) ||
-        norm(e.ficha_number).includes(q) ||
-        norm(e.cargo).includes(q) ||
-        norm(companyName(e.company_id)).includes(q)
-      )
+    () => baseFiltered
+      .filter((e) => !cargoFilter || cargoLabel(e) === cargoFilter)
       .sort((a, b) => {
         const cmp = fullName(a).localeCompare(fullName(b), 'es', { sensitivity: 'base' });
         return sortDir === 'az' ? cmp : -cmp;
       }),
-    [employees, q, companies, sortDir]
+    [baseFiltered, cargoFilter, sortDir]
   );
 
   // Agrupa por empresa (acordeón).
@@ -158,6 +175,38 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
+  // Reporte PDF: cantidad de empleados por cargo (ej. ADMINISTRATIVO 40, OBRERO 20…).
+  const reportePorCargo = async () => {
+    setBusy('reporte-cargo');
+    const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const total = cargoCounts.reduce((s, [, n]) => s + n, 0);
+    const rows = cargoCounts.map(([cargo, n]) =>
+      `<tr><td>${esc(cargo)}</td><td class="r">${n}</td></tr>`
+    ).join('');
+    const filtroTxt = q ? ` · Búsqueda: "${esc(query.trim())}"` : '';
+    const body = `
+      <table>
+        <thead><tr><th>Cargo</th><th class="r">Cantidad</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="2">Sin empleados</td></tr>'}</tbody>
+        <tfoot><tr><td>TOTAL</td><td class="r">${total}</td></tr></tfoot>
+      </table>`;
+    const extraCss = `
+      table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+      th,td{border:1px solid #c9d2dc;padding:7px 10px;text-align:left}
+      th{background:#1E3A5F;color:#fff}
+      td.r,th.r{text-align:right}
+      tbody tr:nth-child(even) td{background:#f4f7fb}
+      tfoot td{font-weight:800;background:#eef2f7;border-top:2px solid #1E3A5F}`;
+    const html = pdfDocument({
+      title: 'Empleados por cargo',
+      subtitle: `${total} empleado(s) · ${cargoCounts.length} cargo(s)${filtroTxt}`,
+      body,
+      extraCss,
+    });
+    await exportPdf(html, 'Empleados por cargo');
+    setBusy(null);
+  };
+
   const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
     <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
@@ -198,6 +247,48 @@ export default function EmpleadosScreen({ navigation }: any) {
           );
         })}
       </View>
+
+      {/* Filtro por CARGO (tipo) + reporte por cargo */}
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+          <TouchableOpacity onPress={() => setCargosOpen((v) => !v)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🏷️ Cargo: </Text>
+            <Text style={{ color: cargoFilter ? colors.primary : colors.muted, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+              {cargoFilter || 'Todos'}
+            </Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={reportePorCargo} disabled={busy === 'reporte-cargo'} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: busy === 'reporte-cargo' ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === 'reporte-cargo' ? 'Generando…' : '📊 Reporte'}</Text>
+          </TouchableOpacity>
+        </View>
+        {cargosOpen ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+            <TouchableOpacity
+              onPress={() => { setCargoFilter(''); setCargosOpen(false); }}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: !cargoFilter ? colors.primary : colors.border, backgroundColor: !cargoFilter ? colors.primary : colors.surface }}
+            >
+              <Text style={{ color: !cargoFilter ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
+            </TouchableOpacity>
+            {cargoCounts.map(([cargo, n]) => {
+              const on = cargoFilter === cargo;
+              return (
+                <TouchableOpacity
+                  key={cargo}
+                  onPress={() => { setCargoFilter(on ? '' : cargo); setCargosOpen(false); }}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                >
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{cargo} · {n}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+            Toca para filtrar por tipo de cargo. El reporte lista la cantidad por cargo (ej. ADMINISTRATIVO {cargoCounts.find(([c]) => c === 'ADMINISTRATIVO')?.[1] ?? 0}, OBRERO {cargoCounts.find(([c]) => c === 'OBRERO')?.[1] ?? 0}…).
+          </Text>
+        )}
+      </Card>
 
       {loading && employees.length === 0 ? (
         <Loading />
