@@ -47,28 +47,28 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
-    @page{ margin:2cm }
+    @page{ margin:1.4cm; size:letter }
     *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact }
     html,body{ margin:0; padding:0 }
-    body{ font-family:'Times New Roman', Georgia, serif; color:#1a1a1a; font-size:12.5pt; line-height:1.5 }
-    @media screen{ body{ padding:28px 34px; background:#fff } }
-    .head{ text-align:center; border-bottom:3px solid #1E3A5F; padding-bottom:10px; margin-bottom:18px }
-    .head img{ height:78px; width:auto }
-    .head .co{ color:#1E3A5F; font-weight:800; font-size:12pt; letter-spacing:.3px; margin-top:4px }
-    h1{ font-size:15pt; text-align:center; color:#1E3A5F; margin:6px 0 2px; text-transform:uppercase; letter-spacing:.3px }
-    .sub{ text-align:center; color:#555; font-size:10.5pt; font-style:italic; margin-bottom:16px }
-    .meta{ margin:0 0 14px }
+    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:10.5pt; line-height:1.32 }
+    @media screen{ body{ padding:20px 30px; background:#fff } }
+    .head{ text-align:center; border-bottom:2.5px solid #1E3A5F; padding-bottom:7px; margin-bottom:11px }
+    .head img{ height:58px; width:auto }
+    .head .co{ color:#1E3A5F; font-weight:700; font-size:10.5pt; letter-spacing:.2px; margin-top:3px }
+    h1{ font-size:12.5pt; text-align:center; color:#1E3A5F; margin:4px 0 1px; text-transform:uppercase; letter-spacing:.2px }
+    .sub{ text-align:center; color:#555; font-size:9pt; font-style:italic; margin-bottom:9px }
+    .meta{ margin:0 0 9px }
     .meta b{ color:#1E3A5F }
-    p{ text-align:justify; margin:9px 0 }
+    p{ text-align:justify; margin:6px 0 }
     .fill{ font-weight:700; border-bottom:1px solid #1a1a1a; padding:0 4px }
-    h2{ font-size:12pt; color:#1E3A5F; margin:16px 0 6px; border-bottom:1px solid #d7e3f4; padding-bottom:3px }
-    ol{ margin:6px 0; padding-left:20px }
-    ol li{ margin:7px 0; text-align:justify }
-    .firma{ margin-top:46px; text-align:center }
-    .firma .line{ width:280px; margin:0 auto; border-top:1px solid #1a1a1a; padding-top:6px; font-size:11pt }
-    .datos{ margin-top:14px; font-size:11.5pt }
-    .datos div{ margin:4px 0 }
-    .foot{ margin-top:26px; text-align:center; color:#9aa4b2; font-size:9pt; border-top:1px solid #e5e7eb; padding-top:8px }
+    h2{ font-size:10.5pt; color:#1E3A5F; margin:11px 0 4px; border-bottom:1px solid #d7e3f4; padding-bottom:2px }
+    ol{ margin:4px 0; padding-left:18px }
+    ol li{ margin:5px 0; text-align:justify }
+    .firma{ margin-top:34px; text-align:center }
+    .firma .line{ width:260px; margin:0 auto; border-top:1px solid #1a1a1a; padding-top:5px; font-size:9.5pt }
+    .datos{ margin-top:11px; font-size:10pt }
+    .datos div{ margin:3px 0 }
+    .foot{ margin-top:18px; text-align:center; color:#9aa4b2; font-size:8pt; border-top:1px solid #e5e7eb; padding-top:6px }
   </style></head><body>
     <div class="head">
       <img src="${LOGO_DATA_URI}"/>
