@@ -28,6 +28,12 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 > ¿Olvidaste la contraseña? Toca **"¿Olvidaste tu contraseña?"** y sigue las
 > instrucciones que llegan a tu correo.
 
+> **Cambiar tu contraseña (todos los usuarios):** ya dentro del sistema puedes
+> cambiar tu clave cuando quieras. Administrador: **Más → Seguridad → "🔑 Cambiar
+> mi contraseña"**. Operador, Supervisor y Cocina: el botón **"🔑 Contraseña"**
+> arriba, junto a **Salir**. Escribe la nueva clave (mínimo 6 caracteres),
+> repítela y guarda. La próxima vez entras con la nueva.
+
 ---
 
 ## 3. Cómo moverte por el sistema
@@ -153,16 +159,20 @@ campo.
 
 ### 4.8b. Supervisión (rondas de supervisores)
 Sirve para saber si los supervisores **sí están yendo a las máquinas** a revisar que estén
-trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y ve su propia pantalla
-para salir a marcar máquinas.
+trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y su pantalla principal es
+**🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-**Cómo marca el supervisor una máquina:**
-1. Entra con su nombre y contraseña (rol Supervisor).
-2. **Escanea el QR** de la máquina: se abre la **vista de operador** y ahí toca
-   **"🪖 Hacer check-in de supervisión"** (o toca la máquina en su lista "Mis máquinas a revisar").
+**Cómo marca el supervisor una máquina (dos formas, las dos valen):**
+1. Entra con su cédula y contraseña (rol Supervisor). Cae en la pestaña **🪖 Revisar**.
+2. **Desde la lista:** busca la máquina y **tócala** (o toca **"📷 Escanear QR"** si la tiene
+   pegada). **Ya no hace falta el QR físico** para marcarla.
 3. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
 4. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
 5. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
+
+> Antes el supervisor **solo** podía marcar escaneando el QR físico de cada máquina; ahora su
+> pantalla **🪖 Revisar** lista todas las máquinas y puede marcar cualquiera directo. El check-in
+> aparece de inmediato en el módulo **Supervisión** (Traza por supervisor) y **valida la jornada**.
 
 > La cercanía es **amplia a propósito** (unos 300 m): si la máquina está trabajando y no se
 > puede interrumpir, basta con estar "más o menos cerca". Si está lejos, igual se guarda pero
@@ -223,6 +233,31 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
 - Al elegir **una empresa** (filtro de arriba): su **historial día por día** con lo entregado en
   cada comida, la hora y quién lo registró.
 - Botón **"📄 Descargar reporte PDF"** para imprimir/llevar el control por empresa del rango.
+
+### 4.8d. Inventario (materiales, nota de entrega y cotización)
+Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
+ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
+promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
+incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salidas, Nota de entrega, Cotización
+y Movimientos**.
+
+**Nota de salida / entrega** — el documento que se hace cuando salen materiales:
+1. Ve a la pestaña **"Nota de entrega"**.
+2. Busca cada producto y agrégalo; indica la **cantidad** de cada uno.
+3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** a quienes se
+   entrega (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
+4. Toca **"🧾 Generar nota (PDF)"**: se abre la **vista previa** con logo, fecha, productos y la
+   línea de firma autorizado.
+5. Toca **🖨️ Imprimir** para guardar/imprimir. **Recién ahí se descuenta del inventario.**
+
+> **IMPORTANTE:** la salida se descuenta del inventario **SOLO cuando confirmas**
+> (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
+> se pierde** lo que ya elegiste: productos, cantidades, máquina y empleados quedan tal cual para
+> seguir editándolos.
+
+**Cotización:** en la pestaña **"Cotización"** armas un presupuesto para un cliente (código,
+referencia, descripción, cantidad y precio). El **I.V.A. se coloca como MONTO** (lo escribes tú,
+no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
