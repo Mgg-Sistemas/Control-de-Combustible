@@ -94,9 +94,9 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
       <li><b>Uso del carnet:</b> El carnet entregado es de uso personal e intransferible. Su único propósito es la identificación visual y el control de acceso a las instalaciones o áreas de trabajo para la ejecución de las tareas asignadas.</li>
     </ol>
 
-    <div class="sign-block">
-      <p>Leído y firmado en señal de total conformidad por el colaborador:</p>
+    <p>Leído y firmado en señal de total conformidad por el colaborador:</p>
 
+    <div class="sign-block">
       <div class="firma">
         <div class="line">Firma del Colaborador</div>
       </div>
