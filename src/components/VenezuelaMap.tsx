@@ -258,6 +258,21 @@ function buildHtml(pins: MapPin[]): string {
     return c; }});
   map.addControl(new FsBtn());
 
+  // Botón GRANDE "Salir de pantalla completa": aparece SOLO cuando el mapa está en
+  // pantalla completa del navegador, para que siempre se pueda quitar fácilmente.
+  var exitFsBtn = document.createElement('button');
+  exitFsBtn.textContent = '✕ Salir de pantalla completa';
+  exitFsBtn.style.cssText = 'position:fixed;top:10px;right:10px;z-index:100000;display:none;background:#DC2626;color:#fff;border:none;border-radius:10px;padding:11px 15px;font-size:14px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer';
+  exitFsBtn.onclick = function(){ try { (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document); } catch(e){} };
+  document.body.appendChild(exitFsBtn);
+  function onFsChange(){
+    var fs = document.fullscreenElement || document.webkitFullscreenElement;
+    exitFsBtn.style.display = fs ? 'block' : 'none';
+    setTimeout(function(){ map.invalidateSize(); }, 200);
+  }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
   // Polígonos de zonas (prender/apagar desde FUERA del mapa por postMessage).
   var sectorLayers = {};
   var zonesOn = {};
