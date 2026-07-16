@@ -238,7 +238,9 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       setFullName((prof as any)?.full_name ?? '');
       const tks = (tk ?? []) as { id: string; name: string; fuel: string }[];
       setTanks(tks);
-      setFTank(tks[0]?.id ?? '');
+      // Por defecto NO se vincula tanque: el combustible se maneja por litros
+      // (carga directa de la bomba). El operador puede elegir un tanque si aplica.
+      setFTank('');
       setLoading(false);
     })();
   }, [machineId, uid]);
@@ -766,8 +768,12 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           {machine.daily_consumption_l != null && Number(machine.daily_consumption_l) > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Tope: {(Number(machine.daily_consumption_l) * 2).toLocaleString()} L (2× consumo diario).</Text>
           ) : null}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Tanque de origen</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Origen (opcional)</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4 }}>
+            {/* Por defecto: DIRECTO DE BOMBA (sin tanque). No descuenta ningún tanque. */}
+            <TouchableOpacity onPress={() => setFTank('')} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: fTank === '' ? colors.primary : colors.border, backgroundColor: fTank === '' ? colors.primary : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: fTank === '' ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: fTank === '' ? '700' : '400' }}>⛽ Directo de bomba</Text>
+            </TouchableOpacity>
             {tanks.map((t) => {
               const on = fTank === t.id;
               return (
@@ -776,8 +782,8 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
                 </TouchableOpacity>
               );
             })}
-            {tanks.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>No hay tanques activos.</Text> : null}
           </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Si es "Directo de bomba" solo se registran los litros; elegir un tanque descuenta de su stock.</Text>
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             <TouchableOpacity onPress={() => setView('home')} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>

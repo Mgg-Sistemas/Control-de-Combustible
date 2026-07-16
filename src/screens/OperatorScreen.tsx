@@ -80,7 +80,8 @@ export default function OperatorScreen() {
       setSel(mine[0] ?? null);
       const tks = ((tk ?? []) as { id: string; name: string; fuel: string }[]);
       setTanks(tks);
-      setFTank(tks[0]?.id ?? '');
+      // Por defecto sin tanque: combustible por litros (carga directa de la bomba).
+      setFTank('');
       setLoading(false);
     })();
   }, [uid]);
@@ -268,8 +269,12 @@ export default function OperatorScreen() {
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Tope: {(Number(sel.daily_consumption_l) * 2).toLocaleString()} L (2× el consumo diario de {Number(sel.daily_consumption_l).toLocaleString()} L).</Text>
             ) : null}
 
-            <Text style={lbl}>Tanque de origen</Text>
+            <Text style={lbl}>Origen (opcional)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+              {/* Por defecto DIRECTO DE BOMBA (sin tanque): solo se registran los litros. */}
+              <TouchableOpacity onPress={() => setFTank('')} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: fTank === '' ? colors.primary : colors.border, backgroundColor: fTank === '' ? colors.primary : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: fTank === '' ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: fTank === '' ? '700' : '400' }}>⛽ Directo de bomba</Text>
+              </TouchableOpacity>
               {tanks.map((t) => {
                 const on = fTank === t.id;
                 return (
@@ -278,8 +283,8 @@ export default function OperatorScreen() {
                   </TouchableOpacity>
                 );
               })}
-              {tanks.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>No hay tanques activos.</Text> : null}
             </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>"Directo de bomba" solo registra los litros; elegir un tanque descuenta de su stock.</Text>
 
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, fontWeight: '700' }}>Recorrido de la ruta (opcional)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>

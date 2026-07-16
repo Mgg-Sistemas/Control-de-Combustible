@@ -126,7 +126,8 @@ export function DispatchesScreen() {
         { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
         { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
         { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
-        { key: 'tank_id', label: 'Tanque origen', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
+        // Tanque OPCIONAL: vacío = carga directa de la bomba (solo litros, no descuenta stock).
+        { key: 'tank_id', label: 'Tanque origen (opcional · vacío = directo de bomba)', type: 'lookup', table: 'tanks', labelCol: 'name' },
       ]}
       renderItem={(d) => (
         <>

@@ -8,7 +8,9 @@ export type MachineDispatchInput = {
   machineryId: string;
   dispatchDate: string; // AAAA-MM-DD
   liters: number;
-  tankId: string;
+  /** Tanque de origen. OPCIONAL: si se deja vacío, es carga DIRECTA de la bomba
+   *  (solo se registran los litros, no se descuenta ningún tanque). */
+  tankId?: string | null;
   operator?: string | null;
   kmIda?: number | null;
   kmVuelta?: number | null;
@@ -29,7 +31,7 @@ export async function insertMachineDispatch(
 ): Promise<{ error?: string }> {
   const liters = Number(input.liters);
   if (!isFinite(liters) || liters <= 0) return { error: 'Ingresa los litros surtidos (mayor a 0).' };
-  if (!input.tankId) return { error: 'Selecciona el tanque de origen.' };
+  // El tanque es OPCIONAL: sin tanque = carga directa de la bomba (solo litros).
   if (!input.dispatchDate) return { error: 'Selecciona la fecha.' };
 
   // Tope: no se puede solicitar más de 2× el consumo diario de la máquina.
@@ -45,7 +47,7 @@ export async function insertMachineDispatch(
     asset_kind: 'maquinaria',
     machinery_id: input.machineryId,
     liters,
-    tank_id: input.tankId,
+    tank_id: input.tankId || null,
     driver_operator: (input.operator ?? '').trim() || null,
     km_ida: input.kmIda ?? null,
     km_vuelta: input.kmVuelta ?? null,
