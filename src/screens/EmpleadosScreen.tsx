@@ -10,6 +10,7 @@ import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
+import { constanciaCarnetHtml } from '../lib/constancia';
 import { exportPdf } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -143,6 +144,20 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy(null);
   };
 
+  // Constancia de ENTREGA DE CARNET (trabajo a destajo) para imprimir y firmar.
+  const imprimirConstancia = async (e: Employee) => {
+    setBusy(e.id + '-const');
+    const html = constanciaCarnetHtml({
+      fullName: fullName(e),
+      cedula: e.cedula,
+      companyName: companyName(e.company_id),
+      city: e.city,
+      state: e.state,
+    });
+    await exportPdf(html, `Constancia entrega carnet - ${fullName(e)}`);
+    setBusy(null);
+  };
+
   const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
     <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 90, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
       <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
@@ -223,6 +238,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
+                        <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Constancia'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
