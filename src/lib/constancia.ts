@@ -13,6 +13,17 @@ function hoyLargo(): string {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+/** Sello de impresión: "15/07/2026, 03:42 p. m." (fecha y hora en que se imprime). */
+function selloImpresion(): string {
+  const d = new Date();
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  const fecha = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  let h = d.getHours();
+  const ampm = h < 12 ? 'a. m.' : 'p. m.';
+  h = h % 12 || 12;
+  return `${fecha}, ${p2(h)}:${p2(d.getMinutes())} ${ampm}`;
+}
+
 export type ConstanciaData = {
   fullName: string;
   cedula?: string | null;
@@ -32,6 +43,7 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
   const empresa = esc(d.companyName || COMPANY_NAME);
   const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fecha = esc(hoyLargo());
+  const impreso = esc(selloImpresion());
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
@@ -91,6 +103,6 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
       <div><b>C.I:</b> ${ci}</div>
     </div>
 
-    <div class="foot">${esc(COMPANY_NAME)} · Constancia de entrega de ficha / carnet</div>
+    <div class="foot">${esc(COMPANY_NAME)} · Constancia de entrega de ficha / carnet &nbsp;·&nbsp; Impreso el ${impreso}</div>
   </body></html>`;
 }
