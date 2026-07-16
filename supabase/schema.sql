@@ -198,7 +198,8 @@ create table if not exists public.dispatches (
   odometer_km      numeric(12,2),
   hourmeter_h      numeric(12,2),
   driver_operator  text,
-  tank_id          uuid not null references public.tanks(id),
+  -- Tanque OPCIONAL: si es null, es carga DIRECTA de la bomba (solo litros, no descuenta stock).
+  tank_id          uuid references public.tanks(id),
   authorization_id uuid references public.authorizations(id),
   created_by       uuid references public.profiles(id),
   created_at       timestamptz not null default now(),
@@ -276,12 +277,16 @@ begin
     delete from stock_movements where source_table='dispatches' and source_id = OLD.id;
   end if;
   if (TG_OP in ('INSERT','UPDATE')) then
-    select current_l into available from tank_levels where id = NEW.tank_id;
-    if coalesce(available,0) < NEW.liters then
-      raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+    -- Solo descuenta stock si el surtido viene de un TANQUE. Si tank_id es null, es
+    -- carga DIRECTA de bomba: solo se registran los litros, no se toca ningún tanque.
+    if NEW.tank_id is not null then
+      select current_l into available from tank_levels where id = NEW.tank_id;
+      if coalesce(available,0) < NEW.liters then
+        raise exception 'Stock insuficiente en el tanque (disponible %, solicitado %)', available, NEW.liters;
+      end if;
+      insert into stock_movements(tank_id, movement, liters, source_table, source_id)
+      values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
     end if;
-    insert into stock_movements(tank_id, movement, liters, source_table, source_id)
-    values (NEW.tank_id, 'consumo', -NEW.liters, 'dispatches', NEW.id);
   end if;
   if (TG_OP = 'DELETE') then return OLD; end if;
   return NEW;
