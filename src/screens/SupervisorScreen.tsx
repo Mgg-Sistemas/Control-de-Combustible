@@ -12,6 +12,7 @@ import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 const CARACAS_TZ = 'America/Caracas';
 /** Día ISO (AAAA-MM-DD) de hoy en horario de Caracas. */
@@ -203,9 +204,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
           <Text style={{ color: colors.muted, fontSize: 12 }}>Supervisor</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
         </View>
-        <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          <ChangePasswordButton />
+          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Card>

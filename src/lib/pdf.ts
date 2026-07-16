@@ -88,18 +88,20 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
  *   imprime la página actual, por eso el documento se renderiza en un iframe.
  * - Nativo: genera el archivo y abre la hoja para compartir/guardar.
  */
-export async function exportPdf(html: string, fileName?: string): Promise<void> {
+export async function exportPdf(html: string, fileName?: string): Promise<boolean> {
   // Nombre sugerido del archivo (sin extensión). En web el navegador lo toma
   // del título del documento que se imprime; por eso lo pasamos al iframe.
+  // Devuelve `true` si el usuario CONFIRMÓ (imprimió / guardó) y `false` si
+  // CANCELÓ la vista previa (para no ejecutar efectos como descontar stock).
   const name = sanitizeFileName(fileName);
   if (Platform.OS === 'web') {
-    await previewHtmlWeb(html, name);
-    return;
+    return await previewHtmlWeb(html, name);
   }
   const { uri } = await Print.printToFileAsync({ html });
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: name || 'Reporte' });
   }
+  return true;
 }
 
 /**
@@ -183,11 +185,11 @@ function sanitizeFileName(name?: string): string {
  * (con su logo y estilos); solo al tocar Imprimir se abre el diálogo de la
  * impresora. Reemplaza el salto directo al diálogo del navegador.
  */
-function previewHtmlWeb(html: string, fileName?: string): Promise<void> {
+function previewHtmlWeb(html: string, fileName?: string): Promise<boolean> {
   return new Promise((resolve) => {
     const d: any = (globalThis as any).document;
     if (!d || !d.body) {
-      resolve();
+      resolve(false);
       return;
     }
 
@@ -259,13 +261,17 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<void> {
     // al "Guardar como PDF". Lo fijamos en el iframe.
     if (fileName) { try { cdoc.title = fileName; } catch (e) {} }
 
+    // Solo se considera CONFIRMADO si el usuario tocó "Imprimir" (guardar/imprimir).
+    // Si cierra con "Cancelar", Escape o clic afuera, se resuelve `false` para que
+    // quien llama NO ejecute efectos (p. ej. descontar del inventario).
+    let printed = false;
     let closed = false;
     const cleanup = () => {
       if (closed) return;
       closed = true;
       try { d.removeEventListener('keydown', onKey); } catch (e) {}
       try { overlay.remove(); } catch (e) {}
-      resolve();
+      resolve(printed);
     };
     const onKey = (ev: any) => { if (ev.key === 'Escape') cleanup(); };
 
@@ -278,6 +284,10 @@ function previewHtmlWeb(html: string, fileName?: string): Promise<void> {
       try {
         cw.focus();
         cw.print();
+        // El usuario mandó a imprimir/guardar: queda CONFIRMADO. Al cerrar la
+        // vista previa se resolverá `true`. Cambiamos "Cancelar" por "Cerrar".
+        printed = true;
+        btnCancel.textContent = 'Cerrar';
       } catch (e) {
         // ignorar
       }

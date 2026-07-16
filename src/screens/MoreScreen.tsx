@@ -12,6 +12,7 @@ import {
 } from '../lib/biometric';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
@@ -131,6 +132,9 @@ export default function MoreScreen({ navigation }: any) {
       </Card>
 
       <SectionTitle>Seguridad</SectionTitle>
+      <View style={{ marginBottom: spacing.md }}>
+        <ChangePasswordButton variant="row" />
+      </View>
       <Card>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flex: 1, paddingRight: spacing.md }}>

@@ -427,7 +427,6 @@ function SalidasTab({ canWrite }: { canWrite: boolean }) {
 function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
-  const confirm = useConfirm();
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
@@ -467,33 +466,19 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 
   const generar = async () => {
     if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto a la nota.');
-    // Validación de cantidades y stock (la salida SIEMPRE descuenta del inventario).
+    // Validación de cantidades y stock (la salida descuenta del inventario SOLO al confirmar).
     for (const c of cart) {
       if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
       if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
     }
-    const ok = await confirm({
-      title: 'Generar nota de entrega',
-      message: `Se registrará la SALIDA de ${cart.length} producto(s) y se descontará del inventario. ¿Continuar?`,
-      confirmText: 'Generar',
-    });
-    if (!ok) return;
     setBusy(true);
-    // Registra la salida de cada producto: SIEMPRE descuenta del inventario.
-    {
-      const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
-      const rows = cart.map((c) => ({
-        item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: `NOTA DE ENTREGA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
-        company_id: c.company_id, created_by: session?.user?.id ?? null,
-      }));
-      const { error } = await supabase.from('inventory_movements').insert(rows);
-      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
-    }
-    // Documento PDF.
+    // 1) VISTA PREVIA PRIMERO. Solo si el usuario imprime/guarda (confirma) se
+    //    descuenta del inventario. Si CANCELA, no se descuenta nada y NO se pierde
+    //    lo seleccionado (el carrito queda tal cual para seguir editándolo).
     const items: NotaItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
+    let confirmado = false;
     try {
-      await exportPdf(notaEntregaHtml({
+      confirmado = await exportPdf(notaEntregaHtml({
         fecha: todayDMY(),
         destino: destino.trim() || null,
         maquina: machineryId ? machineName(machineryId) : null,
@@ -504,9 +489,26 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       setBusy(false);
       return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
     }
+    if (!confirmado) {
+      // Canceló la vista previa: no se descuenta y se conserva la selección.
+      setBusy(false);
+      return;
+    }
+    // 2) CONFIRMADO: registra la salida de cada producto (descuenta del inventario).
+    {
+      const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
+      const rows = cart.map((c) => ({
+        item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
+        reason: `NOTA DE ENTREGA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
+        company_id: c.company_id, created_by: session?.user?.id ?? null,
+      }));
+      const { error } = await supabase.from('inventory_movements').insert(rows);
+      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+    }
     setBusy(false);
     setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery('');
     refetch();
+    Alert.alert('Listo', 'Nota generada. La salida se descontó del inventario.');
   };
 
   if (loading) return <Screen><Loading /></Screen>;
