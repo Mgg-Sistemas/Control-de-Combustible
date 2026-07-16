@@ -58,6 +58,12 @@ export default function UsersScreen() {
     refetch();
   };
 
+  const unlockUser = async (u: Profile) => {
+    const { error } = await supabase.from('profiles').update({ locked: false, failed_attempts: 0, locked_at: null }).eq('id', u.id);
+    if (error) { Alert.alert('Aviso', `No se pudo desbloquear: ${error.message}`); return; }
+    refetch();
+  };
+
   const removeUser = async (u: Profile) => {
     const ok = await confirm({
       title: 'Eliminar usuario',
@@ -130,6 +136,7 @@ export default function UsersScreen() {
                       {isSelf ? ' (tú)' : ''}
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{u.cedula ? `C.I. ${u.cedula}` : 'Sin cédula'}</Text>
+                    {u.locked ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>🔒 BLOQUEADO por intentos fallidos</Text> : null}
                   </View>
                 </View>
                 <Badge label={online ? 'En línea' : 'Desconectado'} tone={online ? 'success' : 'muted'} />
@@ -166,6 +173,14 @@ export default function UsersScreen() {
                 >
                   <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>✏️ Editar / contraseña</Text>
                 </TouchableOpacity>
+                {u.locked ? (
+                  <TouchableOpacity
+                    onPress={() => unlockUser(u)}
+                    style={{ borderWidth: 1, borderColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>🔓 Desbloquear</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {!isSelf ? (
                   <TouchableOpacity
                     onPress={() => removeUser(u)}
