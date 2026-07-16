@@ -13,6 +13,9 @@ export interface Profile {
   role: UserRole;
   active: boolean;
   cedula: string | null; // cédula del usuario (única entre usuarios)
+  failed_attempts?: number; // intentos de login fallidos (se bloquea al 3ro)
+  locked?: boolean; // bloqueado por intentos fallidos (el admin desbloquea)
+  locked_at?: string | null;
   created_at: string;
 }
 

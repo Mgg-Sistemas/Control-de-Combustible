@@ -172,17 +172,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const ci = (cedula ?? '').trim();
     if (!ci) return { error: 'Ingresa tu cédula.' };
     if (!password) return { error: 'Ingresa tu contraseña.' };
-    const { data: email, error: rpcErr } = await supabase.rpc('login_email_for_cedula', { p_cedula: ci });
+    // Estado del usuario: correo interno + si está BLOQUEADO por intentos fallidos.
+    const { data: statusRows, error: rpcErr } = await supabase.rpc('login_status_for_cedula', { p_cedula: ci });
     if (rpcErr) return { error: 'No se pudo validar la cédula. Revisa tu conexión e inténtalo de nuevo.' };
+    const status: any = Array.isArray(statusRows) ? statusRows[0] : statusRows;
+    const email = status?.email;
     if (!email) return { error: 'Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar.' };
+    if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
     const { error } = await supabase.auth.signInWithPassword({ email: String(email), password });
     if (error) {
-      return {
-        error: error.message.toLowerCase().includes('invalid')
-          ? 'Cédula o contraseña incorrectas.'
-          : error.message,
-      };
+      const invalid = error.message.toLowerCase().includes('invalid');
+      if (!invalid) return { error: error.message };
+      // Contraseña incorrecta: registra el intento; al 3ro se bloquea el usuario.
+      const { data: fRows } = await supabase.rpc('register_failed_login', { p_cedula: ci });
+      const f: any = Array.isArray(fRows) ? fRows[0] : fRows;
+      if (f?.locked) return { error: '🔒 Usuario BLOQUEADO tras 3 intentos fallidos. El administrador de sistemas debe desbloquearlo.' };
+      const left = Math.max(0, 3 - (Number(f?.attempts) || 0));
+      return { error: `Cédula o contraseña incorrectas. ${left === 1 ? 'Te queda 1 intento' : `Te quedan ${left} intentos`} antes del bloqueo.` };
     }
+    // Éxito: limpia el contador de intentos fallidos.
+    await supabase.rpc('reset_failed_login', { p_cedula: ci });
     setLocked(false);
     return {};
   };

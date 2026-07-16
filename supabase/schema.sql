@@ -1337,6 +1337,51 @@ $fn$;
 revoke all on function public.login_email_for_cedula(text) from public;
 grant execute on function public.login_email_for_cedula(text) to anon, authenticated;
 
+-- ── Blindaje del login: bloqueo por intentos fallidos ────────────────────────
+-- Se cuenta cada contraseña incorrecta; al 3er intento el usuario queda BLOQUEADO
+-- y solo un administrador puede desbloquearlo (desde la pantalla de Usuarios).
+alter table public.profiles
+  add column if not exists failed_attempts int not null default 0,
+  add column if not exists locked boolean not null default false,
+  add column if not exists locked_at timestamptz;
+
+-- Estado de login por cédula: correo interno + si está bloqueado.
+create or replace function public.login_status_for_cedula(p_cedula text)
+  returns table(email text, locked boolean)
+  language sql security definer set search_path = public, auth
+as $fn$
+  select au.email::text, coalesce(p.locked, false)
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where p.cedula = btrim(p_cedula) and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+
+-- Registra un intento fallido; bloquea al llegar a 3. Devuelve intentos + estado.
+create or replace function public.register_failed_login(p_cedula text)
+  returns table(attempts int, locked boolean)
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles
+  set failed_attempts = coalesce(failed_attempts, 0) + 1,
+      locked = (coalesce(failed_attempts, 0) + 1) >= 3,
+      locked_at = case when (coalesce(failed_attempts, 0) + 1) >= 3 then now() else locked_at end
+  where btrim(cedula) = btrim(p_cedula)
+  returning failed_attempts, locked
+$fn$;
+
+-- Limpia el contador al iniciar sesión correctamente.
+create or replace function public.reset_failed_login(p_cedula text)
+  returns void
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles set failed_attempts = 0, locked = false, locked_at = null
+  where btrim(cedula) = btrim(p_cedula)
+$fn$;
+
+revoke all on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) from public;
+grant execute on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) to anon, authenticated;
+
 -- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
