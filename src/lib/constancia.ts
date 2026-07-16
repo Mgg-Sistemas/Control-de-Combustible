@@ -40,10 +40,7 @@ export type ConstanciaData = {
 export function constanciaCarnetHtml(d: ConstanciaData): string {
   const nombre = esc(d.fullName || '____________________');
   const ci = esc(d.cedula || '____________________');
-  const empresaRaw = String(d.companyName ?? '').trim();
-  const empresa = empresaRaw && !/^sin\s+empresa$/i.test(empresaRaw)
-    ? esc(empresaRaw)
-    : '<span style="display:inline-block;min-width:150px"></span>';
+  const empresa = 'SOS LA GUAIRA';
   const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
   const fecha = esc(hoyLargo());
   const impreso = esc(selloImpresion());
