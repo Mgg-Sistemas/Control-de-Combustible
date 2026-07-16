@@ -202,8 +202,16 @@ const PDF_CSS = `
 // queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
 function equipCategory(code: string): string {
   const c = (code || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // ── Camiones: cada tipo con su nombre propio (no un cajón genérico "CAMION"). ──
   if (c.includes('volteo') || c.includes('toronto')) return 'CAMIÓN VOLTEO - TORONTO';
-  if (c.includes('pitman')) return 'PITMAN';
+  if (c.includes('pitman')) return 'CAMIÓN BRAZO PITMAN';
+  if (c.includes('cava')) return 'CAMIÓN CAVA SECA';
+  if (c.includes('cesta')) return 'CAMIÓN CESTA';
+  if (c.includes('soldadura')) return 'CAMIÓN DE SOLDADURA';
+  if (c.includes('refrigerad')) return 'CAMIÓN REFRIGERADO';
+  if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA'; // incluye "CAMION GRUA PLATAFORMA"
+  if (c.includes('camion') && c.includes('servicio')) return 'CAMIÓN DE SERVICIO';
+  // ── Otros tipos de maquinaria. ──
   if (c.includes('jumbo')) return 'JUMBO';
   if (c.includes('oruga')) return 'TRACTORES DE ORUGA';
   if (c.includes('lowboy') || c.includes('low boy')) return 'CHUTO CON LOWBOY';
@@ -211,7 +219,6 @@ function equipCategory(code: string): string {
   if (c.includes('volqueta')) return 'CHUTO CON VOLQUETA';
   if (c.includes('cisterna') && c.includes('agua')) return 'CISTERNA DE AGUA';
   if (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil'))) return 'CISTERNA DE DIESEL';
-  if (c.includes('plataforma') && !c.includes('grua')) return 'CAMIÓN PLATAFORMA';
   // "MINI" / "MINI SHOWER" → MINISHOWER (evita que queden como "MINI").
   if (c.includes('mini') || c.includes('shower')) return 'MINISHOWER';
   return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
