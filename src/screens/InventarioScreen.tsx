@@ -467,23 +467,24 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 
   const generar = async () => {
     if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto a la nota.');
-    // Validación de cantidades y stock.
+    // Validación de cantidades y stock (la salida SIEMPRE descuenta del inventario).
     for (const c of cart) {
       if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
-      if (descontar && c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
+      if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
     }
     const ok = await confirm({
       title: 'Generar nota de entrega',
-      message: `${descontar ? 'Se registrará la SALIDA de ' : 'Se generará la nota de '} ${cart.length} producto(s)${descontar ? ' (descuenta del inventario)' : ' (sin descontar del inventario)'}. ¿Continuar?`,
+      message: `Se registrará la SALIDA de ${cart.length} producto(s) y se descontará del inventario. ¿Continuar?`,
       confirmText: 'Generar',
     });
     if (!ok) return;
     setBusy(true);
-    // Registra la salida de cada producto (si se pidió descontar).
-    if (descontar) {
+    // Registra la salida de cada producto: SIEMPRE descuenta del inventario.
+    {
+      const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: destino.trim().toUpperCase() ? `NOTA DE ENTREGA · ${destino.trim().toUpperCase()}` : 'NOTA DE ENTREGA',
+        reason: `NOTA DE ENTREGA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
         company_id: c.company_id, created_by: session?.user?.id ?? null,
       }));
       const { error } = await supabase.from('inventory_movements').insert(rows);
@@ -533,12 +534,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               <TouchableOpacity onPress={() => removeFromCart(c.id)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑</Text></TouchableOpacity>
             </View>
           ))}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
-            <TouchableOpacity onPress={() => setDescontar((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={{ fontSize: 18 }}>{descontar ? '☑️' : '⬜'}</Text>
-              <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Descontar del inventario (registrar salida)</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>Al generar, la salida se descuenta del inventario automáticamente.</Text>
           {/* Máquina: lista desplegable/colapsable de TODAS las máquinas, filtrable. */}
           <TouchableOpacity onPress={() => setMachOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚜 Máquina: <Text style={{ color: machineryId ? colors.primary : colors.muted }}>{machineryId ? machineName(machineryId) : 'elegir…'}</Text></Text>
@@ -646,7 +642,7 @@ function CotizacionTab() {
   const [numero, setNumero] = useState('');
   const [condPago, setCondPago] = useState('CONTADO');
   const [moneda, setMoneda] = useState('Dólares');
-  const [iva, setIva] = useState('16');
+  const [iva, setIva] = useState('0'); // MONTO del IVA (lo coloca el usuario)
   const [rows, setRows] = useState<CotizRow[]>([]);
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
@@ -663,7 +659,7 @@ function CotizacionTab() {
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
 
   const base = rows.reduce((s, x) => s + (parseNum(x.cant) * parseNum(x.precio)), 0);
-  const ivaN = Math.round(base * (parseNum(iva) || 0)) / 100;
+  const ivaN = parseNum(iva); // monto del IVA (lo coloca el usuario)
   const total = base + ivaN;
 
   const nq = norm(q);
@@ -677,7 +673,7 @@ function CotizacionTab() {
     if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un ítem con descripción.');
     setBusy(true);
     try {
-      await exportPdf(cotizacionHtml({ numero: numero.trim() || null, fecha: todayDMY(), cliente: cliente.trim(), clienteRif: rif.trim() || null, clienteDir: dir.trim() || null, condicionPago: condPago.trim() || null, moneda: moneda.trim() || null, ivaPct: parseNum(iva), items }), `Cotizacion ${numero.trim() || todayDMY()}`);
+      await exportPdf(cotizacionHtml({ numero: numero.trim() || null, fecha: todayDMY(), cliente: cliente.trim(), clienteRif: rif.trim() || null, clienteDir: dir.trim() || null, condicionPago: condPago.trim() || null, moneda: moneda.trim() || null, ivaMonto: parseNum(iva), items }), `Cotizacion ${numero.trim() || todayDMY()}`);
     } catch (e: any) { setBusy(false); return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
     setBusy(false);
   };
@@ -701,7 +697,7 @@ function CotizacionTab() {
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
           <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Condición de pago</Text><TextInput value={condPago} onChangeText={(t) => setCondPago(t.toUpperCase())} style={inp} /></View>
           <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Moneda</Text><TextInput value={moneda} onChangeText={setMoneda} style={inp} /></View>
-          <View style={{ width: 74 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>IVA %</Text><TextInput value={iva} onChangeText={(t) => setIva(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={inp} /></View>
+          <View style={{ width: 100 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>IVA (monto)</Text><TextInput value={iva} onChangeText={(t) => setIva(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={inp} /></View>
         </View>
       </Card>
 
@@ -748,7 +744,7 @@ function CotizacionTab() {
       {rows.length ? (
         <Card>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>Base imponible</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(base)}</Text></View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>I.V.A. ({parseNum(iva)}%)</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(ivaN)}</Text></View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>I.V.A.</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(ivaN)}</Text></View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL</Text><Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{usd(total)}</Text></View>
         </Card>
       ) : (

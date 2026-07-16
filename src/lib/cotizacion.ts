@@ -16,7 +16,7 @@ export type CotizData = {
   clienteDir?: string | null;
   condicionPago?: string | null;
   moneda?: string | null;   // ej. "Dólares"
-  ivaPct?: number;          // % de IVA (ej. 16)
+  ivaMonto?: number;        // MONTO del IVA (lo coloca el usuario)
   comentario?: string | null;
   items: CotizItem[];
 };
@@ -32,9 +32,8 @@ const money = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocale
  * descripción · cant · precio · total) y totales (base imponible, IVA, total).
  */
 export function cotizacionHtml(d: CotizData): string {
-  const ivaPct = d.ivaPct == null ? 16 : Number(d.ivaPct);
   const base = d.items.reduce((s, it) => s + (Number(it.cant) || 0) * (Number(it.precio) || 0), 0);
-  const iva = Math.round(base * ivaPct) / 100;
+  const iva = Math.max(0, Number(d.ivaMonto) || 0); // monto del IVA lo coloca el usuario
   const total = base + iva;
 
   const rows = d.items.map((it) => {
@@ -104,7 +103,7 @@ export function cotizacionHtml(d: CotizData): string {
 
     <div class="tot">
       <div class="row"><span>Base imponible</span><span>${money(base)}</span></div>
-      <div class="row"><span>I.V.A. (${ivaPct}%)</span><span>${money(iva)}</span></div>
+      <div class="row"><span>I.V.A.</span><span>${money(iva)}</span></div>
       <div class="row g"><span>TOTAL</span><span>${money(total)}</span></div>
     </div>
 
