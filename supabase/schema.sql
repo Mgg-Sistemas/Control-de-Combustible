@@ -863,9 +863,18 @@ create table if not exists public.operator_assignments (
   horometro_inicial numeric(12,2),
   horometro_final numeric(12,2),
   horometro_photo text,
+  -- Ubicación GPS del operador al INICIAR y al FINALIZAR la jornada (traza en tiempo real).
+  start_lat double precision,
+  start_lng double precision,
+  end_lat double precision,
+  end_lng double precision,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
+alter table public.operator_assignments add column if not exists start_lat double precision;
+alter table public.operator_assignments add column if not exists start_lng double precision;
+alter table public.operator_assignments add column if not exists end_lat   double precision;
+alter table public.operator_assignments add column if not exists end_lng   double precision;
 create unique index if not exists uq_operator_day on public.operator_assignments(cedula, work_date);
 create index if not exists idx_opasg_machine on public.operator_assignments(machinery_id);
 create index if not exists idx_opasg_date on public.operator_assignments(work_date);

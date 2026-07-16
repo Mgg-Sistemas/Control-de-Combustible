@@ -382,6 +382,11 @@ export interface OperatorAssignment {
   horometro_inicial: number | null;
   horometro_final: number | null;
   horometro_photo: string | null;
+  // Ubicación GPS del operador al INICIAR y al FINALIZAR la jornada (traza).
+  start_lat: number | null;
+  start_lng: number | null;
+  end_lat: number | null;
+  end_lng: number | null;
   created_by: string | null;
   created_at: string;
 }
