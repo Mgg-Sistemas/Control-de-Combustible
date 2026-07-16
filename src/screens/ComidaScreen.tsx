@@ -61,6 +61,7 @@ export default function ComidaScreen() {
   const [from, setFrom] = useState(addDaysISO(caracasToday(), -6)); // últimos 7 días
   const [to, setTo] = useState(caracasToday());
   const [rangeRows, setRangeRows] = useState<FoodCompanyMeal[]>([]);
+  const [rangePersons, setRangePersons] = useState<FoodDistribution[]>([]); // entregas individuales del rango
   const [rangeLoading, setRangeLoading] = useState(false);
   const [companyFilter, setCompanyFilter] = useState<string>('all'); // 'all' o company_id
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -80,14 +81,34 @@ export default function ComidaScreen() {
   }, [date]);
   useEffect(() => { load(); }, [load]);
 
-  // Carga del control por rango (solo en modo control).
+  // Carga del control por rango (solo en modo control): comidas por empresa + entregas por persona.
   const loadRange = useCallback(async () => {
     setRangeLoading(true);
-    const data = await listCompanyMealsBetween(from, to);
-    setRangeRows(data);
+    const [comp, persons] = await Promise.all([
+      listCompanyMealsBetween(from, to),
+      listFoodByDate(from, to),
+    ]);
+    setRangeRows(comp);
+    setRangePersons(persons);
     setRangeLoading(false);
   }, [from, to]);
   useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
+
+  // Resumen POR PERSONA en el rango (entregas individuales por carnet).
+  const rangeByPerson = useMemo(() => {
+    const map = new Map<string, { name: string; cedula: string; total: number; by: Record<string, number>; days: Set<string> }>();
+    rangePersons.forEach((r) => {
+      const k = r.employee_id ?? (r.cedula || r.employee_name);
+      if (!map.has(k)) map.set(k, { name: r.employee_name, cedula: (r as any).cedula ?? '', total: 0, by: {}, days: new Set() });
+      const g = map.get(k)!;
+      const n = Number(r.meals) || 0;
+      g.total += n;
+      if (r.meal_type) g.by[r.meal_type] = (g.by[r.meal_type] || 0) + n;
+      g.days.add(r.distribution_date);
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [rangePersons]);
+  const rangePersonsTotal = useMemo(() => rangePersons.reduce((a, r) => a + (Number(r.meals) || 0), 0), [rangePersons]);
 
   // Empresas presentes en el rango (para el filtro).
   const rangeCompanies = useMemo(() => {
@@ -157,21 +178,45 @@ export default function ComidaScreen() {
           <td class="b">${rangeTotals.total}</td>
           <td></td>
         </tr>`;
+      // Tabla POR PERSONA (solo cuando se ven todas las empresas y hay entregas individuales).
+      const personaTable = (companyFilter === 'all' && rangeByPerson.length > 0) ? `
+        <h2>👤 Entregas por persona</h2>
+        <table>
+          <thead><tr><th class="l">Persona</th><th>Cédula</th>${mealHeads}<th>Total</th><th>Días</th></tr></thead>
+          <tbody>
+            ${rangeByPerson.map((p) => `
+              <tr>
+                <td class="l">${esc(p.name)}</td>
+                <td>${esc(p.cedula || '—')}</td>
+                ${MEALS.map((m) => `<td>${p.by[m.key] || 0}</td>`).join('')}
+                <td class="b">${p.total}</td>
+                <td>${p.days.size}</td>
+              </tr>`).join('')}
+            <tr class="tot">
+              <td class="l">TOTAL</td><td></td>
+              ${MEALS.map(() => '<td></td>').join('')}
+              <td class="b">${rangePersonsTotal}</td><td></td>
+            </tr>
+          </tbody>
+        </table>` : '';
       const html = `
         <style>
           *{font-family:Arial,Helvetica,sans-serif}
-          h1{font-size:18px;margin:0 0 2px} .sub{color:#555;font-size:12px;margin:0 0 12px}
+          h1{font-size:18px;margin:0 0 2px} h2{font-size:14px;margin:18px 0 6px;color:#16324F}
+          .sub{color:#555;font-size:12px;margin:0 0 12px}
           table{border-collapse:collapse;width:100%;font-size:12px}
           th,td{border:1px solid #ccc;padding:6px 8px;text-align:center}
           th{background:#16324F;color:#fff} td.l{text-align:left} td.b{font-weight:800}
           tr.tot td{background:#EAF1FB;font-weight:800}
         </style>
-        <h1>🍽️ Control de entregas por empresa</h1>
+        <h1>🍽️ Control de entregas de comida</h1>
         <p class="sub">${esc(rangeCompanyName)} · ${esc(niceDay(from))} a ${esc(niceDay(to))}</p>
+        <h2>🏢 Entregas por empresa</h2>
         <table>
           <thead><tr><th class="l">Empresa</th>${mealHeads}<th>Total</th><th>Días</th></tr></thead>
           <tbody>${bodyRows}${totalRow}</tbody>
-        </table>`;
+        </table>
+        ${personaTable}`;
       await exportPdf(html, `Control comida - ${rangeCompanyName} (${from} a ${to})`);
     } finally {
       setPdfBusy(false);
@@ -322,14 +367,18 @@ export default function ComidaScreen() {
 
         {rangeLoading ? (
           <Loading />
-        ) : rangeRows.length === 0 ? (
-          <EmptyState title="Sin entregas en este rango" subtitle="No hay comidas registradas por empresa en las fechas elegidas." />
+        ) : (rangeRows.length === 0 && rangePersons.length === 0) ? (
+          <EmptyState title="Sin entregas en este rango" subtitle="No hay comidas registradas (por empresa ni por persona) en las fechas elegidas." />
         ) : (
           <>
             {/* Totales generales del rango */}
             <Card>
               <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                {kpi('Total entregado', rangeTotals.total, colors.primary)}
+                {kpi('Por empresa', rangeTotals.total, colors.primary)}
+                {kpi('Por persona', rangePersonsTotal, colors.text)}
+                {kpi('Total', rangeTotals.total + rangePersonsTotal, colors.success)}
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
                 {MEALS.map((m) => kpi(m.label, rangeTotals.by[m.key] || 0, colors.text))}
               </View>
             </Card>
@@ -339,21 +388,46 @@ export default function ComidaScreen() {
             </TouchableOpacity>
 
             {/* Resumen por empresa */}
-            <SectionTitle>🏢 Resumen por empresa</SectionTitle>
-            {rangeByCompany.map((g) => (
-              <Card key={g.name}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
-                  <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
-                  {MEALS.map((m) => (
-                    <Text key={m.key} style={{ color: colors.muted, fontSize: 12 }}>{m.icon} {m.label}: <Text style={{ color: colors.text, fontWeight: '800' }}>{g.by[m.key] || 0}</Text></Text>
-                  ))}
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {g.days.size} día(s)</Text>
-                </View>
-              </Card>
-            ))}
+            {rangeByCompany.length > 0 ? (
+              <>
+                <SectionTitle>🏢 Resumen por empresa</SectionTitle>
+                {rangeByCompany.map((g) => (
+                  <Card key={g.name}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                      {MEALS.map((m) => (
+                        <Text key={m.key} style={{ color: colors.muted, fontSize: 12 }}>{m.icon} {m.label}: <Text style={{ color: colors.text, fontWeight: '800' }}>{g.by[m.key] || 0}</Text></Text>
+                      ))}
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {g.days.size} día(s)</Text>
+                    </View>
+                  </Card>
+                ))}
+              </>
+            ) : null}
+
+            {/* Resumen POR PERSONA en el rango (entregas por carnet). Independiente de la empresa. */}
+            {companyFilter === 'all' && rangeByPerson.length > 0 ? (
+              <>
+                <SectionTitle>👤 Por persona (rango)</SectionTitle>
+                {rangeByPerson.map((p) => (
+                  <Card key={(p.cedula || p.name) + p.total}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>👤 {p.name}{p.cedula ? <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>  · C.I {p.cedula}</Text> : null}</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '900' }}>{p.total} comida(s)</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                      {MEALS.map((m) => (
+                        <Text key={m.key} style={{ color: colors.muted, fontSize: 12 }}>{m.icon} {m.label}: <Text style={{ color: colors.text, fontWeight: '800' }}>{p.by[m.key] || 0}</Text></Text>
+                      ))}
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>📆 {p.days.size} día(s)</Text>
+                    </View>
+                  </Card>
+                ))}
+              </>
+            ) : null}
 
             {/* Historial día por día (una empresa seleccionada) */}
             {companyFilter !== 'all' ? (
