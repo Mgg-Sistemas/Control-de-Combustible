@@ -201,8 +201,33 @@ function buildHtml(pins: MapPin[]): string {
   var userMarker = null, userCircle = null;
   function userIcon(){ return L.divIcon({ className:'', iconSize:[18,18], iconAnchor:[9,9],
     html:'<div style="width:14px;height:14px;border-radius:50%;background:#2563EB;border:3px solid #fff;box-shadow:0 0 0 2px rgba(37,99,235,.6)"></div>' }); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function distM(aLat,aLng,bLat,bLng){ var R=6371000, tr=function(d){return d*Math.PI/180;};
+    var dLat=tr(bLat-aLat), dLng=tr(bLng-aLng);
+    var s=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(tr(aLat))*Math.cos(tr(bLat))*Math.sin(dLng/2)*Math.sin(dLng/2);
+    return 2*R*Math.asin(Math.sqrt(s)); }
+  function fmtD(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
+  // Popup de MI ubicación: lista las máquinas más cercanas (≤20 km) con su distancia.
+  function nearbyHtml(lat,lng){
+    if(!pins.length) return '<b>📍 Tu ubicación</b><br/><span style="color:#777">No hay máquinas en el mapa.</span>';
+    var arr = pins.map(function(p){ return { p:p, d:distM(lat,lng,p.lat,p.lng) }; }).sort(function(a,b){ return a.d-b.d; });
+    var near = arr.filter(function(x){ return x.d<=20000; }).slice(0,8);
+    var h = '<b>📍 Tu ubicación</b><br/><span style="color:#555;font-size:12px">Máquinas cercanas (≤20 km):</span>';
+    if(!near.length){ var c=arr[0]; return h + '<br/><span style="color:#777;font-size:12px">Ninguna a menos de 20 km. La más cercana: <b>'+esc(c.p.name)+'</b> a '+fmtD(c.d)+'.</span>'; }
+    h += '<div style="margin-top:4px;max-height:170px;overflow:auto">';
+    near.forEach(function(x){
+      var dot = x.p.operational===false ? '#DC2626' : '#16A34A';
+      h += '<div style="padding:3px 0;border-top:1px solid #eee;font-size:12px">'
+        + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+dot+';margin-right:5px"></span>'
+        + '<b>'+esc(x.p.name)+'</b> · <span style="color:#2563EB;font-weight:700">'+fmtD(x.d)+'</span>'
+        + '<br/><span style="color:#777">'+esc(x.p.company||'')+'</span></div>';
+    });
+    h += '</div>';
+    return h;
+  }
   map.on('locationfound', function(e){
-    if (userMarker){ userMarker.setLatLng(e.latlng); } else { userMarker = L.marker(e.latlng, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup('📍 Tu ubicación (usuario)'); }
+    var html = nearbyHtml(e.latlng.lat, e.latlng.lng);
+    if (userMarker){ userMarker.setLatLng(e.latlng); userMarker.setPopupContent(html); } else { userMarker = L.marker(e.latlng, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup(html, { maxWidth:260 }); }
     if (userCircle){ userCircle.setLatLng(e.latlng).setRadius(e.accuracy); } else { userCircle = L.circle(e.latlng, { radius:e.accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); }
   });
   map.on('locationerror', function(){ /* sin permiso o no disponible: se ignora en silencio */ });
