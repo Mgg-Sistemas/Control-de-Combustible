@@ -47,11 +47,12 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
-    @page{ margin:1.4cm; size:letter }
+    @page{ margin:2cm; size:letter }
     *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact }
     html,body{ margin:0; padding:0 }
-    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:10.5pt; line-height:1.32 }
+    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:10.5pt; line-height:1.32; display:flex; flex-direction:column; min-height:100vh }
     @media screen{ body{ padding:20px 30px; background:#fff } }
+    .sign-block{ margin-top:auto }
     .head{ text-align:center; border-bottom:2.5px solid #1E3A5F; padding-bottom:7px; margin-bottom:11px }
     .head img{ height:58px; width:auto }
     .head .co{ color:#1E3A5F; font-weight:700; font-size:10.5pt; letter-spacing:.2px; margin-top:3px }
@@ -93,14 +94,16 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
       <li><b>Uso del carnet:</b> El carnet entregado es de uso personal e intransferible. Su único propósito es la identificación visual y el control de acceso a las instalaciones o áreas de trabajo para la ejecución de las tareas asignadas.</li>
     </ol>
 
-    <p>Leído y firmado en señal de total conformidad por el colaborador:</p>
+    <div class="sign-block">
+      <p>Leído y firmado en señal de total conformidad por el colaborador:</p>
 
-    <div class="firma">
-      <div class="line">Firma del Colaborador</div>
-    </div>
-    <div class="datos">
-      <div><b>Nombre:</b> ${nombre}</div>
-      <div><b>C.I:</b> ${ci}</div>
+      <div class="firma">
+        <div class="line">Firma del Colaborador</div>
+      </div>
+      <div class="datos">
+        <div><b>Nombre:</b> ${nombre}</div>
+        <div><b>C.I:</b> ${ci}</div>
+      </div>
     </div>
 
     <div class="foot">${esc(COMPANY_NAME)} · Constancia de entrega de ficha / carnet &nbsp;·&nbsp; Impreso el ${impreso}</div>
