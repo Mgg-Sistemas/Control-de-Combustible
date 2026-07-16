@@ -9,12 +9,20 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company } from '../types/database';
+import { exportPdf } from '../lib/pdf';
+import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
 function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+/** Siguiente SKU incremental "INV-0001" a partir de los SKU existentes. */
+function nextSkuFrom(skus: (string | null | undefined)[]): string {
+  let max = 0;
+  skus.forEach((s) => { const m = String(s ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; } });
+  return 'INV-' + String(max + 1).padStart(4, '0');
+}
 const nowISO = () => new Date().toISOString();
 function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
 
@@ -104,8 +112,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     if (levels.some((it) => norm(it.name) === norm(cleanName))) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
     setBusy(true);
     const company = companyId || companies[0]?.id || null;
+    // SKU incremental: se recalcula al vuelo (con los SKU actuales) para no chocar.
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
+    const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: sku.trim().toUpperCase() || null, min_stock: parseNum(minStock), company_id: company })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), company_id: company })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -120,6 +131,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setBusy(false);
     setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setCompanyId(''); setInitStock(''); setInitCost('');
     refetch();
+  };
+
+  // Abre el modal calculando el próximo SKU incremental para mostrarlo.
+  const openCreate = async () => {
+    const { data } = await supabase.from('inventory_items').select('sku');
+    setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
+    setOpen(true);
   };
 
   if (loading) return <Screen><Loading /></Screen>;
@@ -145,7 +163,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
         <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto…" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
         {canWrite ? (
-          <TouchableOpacity onPress={() => setOpen(true)} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md }}>
+          <TouchableOpacity onPress={openCreate} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Producto</Text>
           </TouchableOpacity>
         ) : null}
@@ -205,8 +223,10 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <TextInput value={unit} onChangeText={(t) => setUnit(t.toUpperCase())} autoCapitalize="characters" placeholder="UND, LT, KG…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>SKU / código</Text>
-                  <TextInput value={sku} onChangeText={(t) => setSku(t.toUpperCase())} autoCapitalize="characters" placeholder="Opcional" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>SKU (automático)</Text>
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, justifyContent: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>{sku || 'INV-…'}</Text>
+                  </View>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Stock mínimo</Text>
@@ -417,6 +437,140 @@ function SalidasTab({ canWrite }: { canWrite: boolean }) {
   );
 }
 
+// ── Nota de salida / entrega ─────────────────────────────────────────────────
+function NotaTab({ canWrite }: { canWrite: boolean }) {
+  const { colors } = useTheme();
+  const { session } = useAuth();
+  const confirm = useConfirm();
+  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+
+  const [q, setQ] = useState('');
+  const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
+  const [destino, setDestino] = useState('');
+  const [descontar, setDescontar] = useState(true); // registra la salida (descuenta stock)
+  const [busy, setBusy] = useState(false);
+
+  const nq = norm(q);
+  const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? '' : '');
+  const inCart = (id: string) => cart.find((c) => c.id === id);
+
+  const addToCart = (it: InventoryLevel) => {
+    if (inCart(it.id)) return;
+    setCart((prev) => [...prev, { id: it.id, name: it.name, unit: it.unit || '', qty: 1, avg_cost: Number(it.avg_cost) || 0, stock: Number(it.stock) || 0, company_id: it.company_id ?? null }]);
+  };
+  const setQty = (id: string, t: string) => {
+    const n = parseNum(onlyDecimal(t));
+    setCart((prev) => prev.map((c) => (c.id === id ? { ...c, qty: n } : c)));
+  };
+  const removeFromCart = (id: string) => setCart((prev) => prev.filter((c) => c.id !== id));
+
+  const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+
+  const generar = async () => {
+    if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto a la nota.');
+    // Validación de cantidades y stock.
+    for (const c of cart) {
+      if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
+      if (descontar && c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
+    }
+    const ok = await confirm({
+      title: 'Generar nota de entrega',
+      message: `${descontar ? 'Se registrará la SALIDA de ' : 'Se generará la nota de '} ${cart.length} producto(s)${descontar ? ' (descuenta del inventario)' : ' (sin descontar del inventario)'}. ¿Continuar?`,
+      confirmText: 'Generar',
+    });
+    if (!ok) return;
+    setBusy(true);
+    // Registra la salida de cada producto (si se pidió descontar).
+    if (descontar) {
+      const rows = cart.map((c) => ({
+        item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
+        reason: destino.trim().toUpperCase() ? `NOTA DE ENTREGA · ${destino.trim().toUpperCase()}` : 'NOTA DE ENTREGA',
+        company_id: c.company_id, created_by: session?.user?.id ?? null,
+      }));
+      const { error } = await supabase.from('inventory_movements').insert(rows);
+      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+    }
+    // Documento PDF.
+    const items: NotaItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
+    const empresa = companyName(cart[0]?.company_id ?? null) || undefined;
+    try {
+      await exportPdf(notaEntregaHtml({ fecha: todayDMY(), destino: destino.trim() || null, empresa, items }), `Nota de entrega - ${todayDMY()}`);
+    } catch (e: any) {
+      setBusy(false);
+      return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
+    }
+    setBusy(false);
+    setCart([]); setDestino('');
+    refetch();
+  };
+
+  if (loading) return <Screen><Loading /></Screen>;
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <SectionTitle>Nota de salida / entrega</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+        Agrega los productos que salen, indica la cantidad y genera el documento con logo, fecha y línea de firma autorizado.
+      </Text>
+
+      {/* Productos en la nota (carrito) */}
+      {cart.length > 0 ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>🧾 Productos en la nota ({cart.length})</Text>
+          {cart.map((c) => (
+            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{c.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Stock: {qtyFmt(c.stock)} {c.unit}</Text>
+              </View>
+              <TextInput value={String(c.qty)} onChangeText={(t) => setQty(c.id, t)} keyboardType="numeric" inputMode="decimal" style={{ width: 66, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: (descontar && c.qty > c.stock) ? colors.danger : colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+              <Text style={{ color: colors.muted, fontSize: 12, width: 34 }}>{c.unit}</Text>
+              <TouchableOpacity onPress={() => removeFromCart(c.id)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑</Text></TouchableOpacity>
+            </View>
+          ))}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}>
+            <TouchableOpacity onPress={() => setDescontar((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 18 }}>{descontar ? '☑️' : '⬜'}</Text>
+              <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Descontar del inventario (registrar salida)</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo (opcional)</Text>
+          <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MÁQUINA 010…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota (PDF)'}</Text>
+          </TouchableOpacity>
+        </Card>
+      ) : null}
+
+      <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto con stock…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }} />
+
+      {filtered.length === 0 ? (
+        <EmptyState title="Sin stock disponible" subtitle="No hay productos con existencia para la nota." />
+      ) : filtered.map((it) => {
+        const added = !!inCart(it.id);
+        return (
+          <Card key={it.id}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Stock: {qtyFmt(it.stock)} {it.unit || ''}</Text>
+              </View>
+              {canWrite ? (
+                <TouchableOpacity onPress={() => addToCart(it)} disabled={added} style={{ backgroundColor: added ? colors.surfaceAlt : colors.primary, borderWidth: added ? 1 : 0, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                  <Text style={{ color: added ? colors.muted : colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>{added ? '✓ Agregado' : '+ Agregar'}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Card>
+        );
+      })}
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -425,6 +579,7 @@ export default function InventarioScreen() {
   const TABS = [
     { key: 'existencias', label: 'Existencias', icon: '📦' },
     { key: 'salidas', label: 'Salidas', icon: '📤' },
+    { key: 'nota', label: 'Nota de entrega', icon: '🧾' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
   ];
   const [active, setActive] = useState('existencias');
@@ -445,7 +600,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : <MovimientosTab />}
       </View>
     </View>
   );
