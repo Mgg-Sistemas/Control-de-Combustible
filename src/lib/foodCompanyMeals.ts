@@ -22,6 +22,11 @@ export const mealLabel = (k: MealType) => MEALS.find((m) => m.key === k)?.label 
 /** Total sugerido de comidas = (máquinas de la empresa × 2) + 15. */
 export const suggestedMeals = (machines: number) => Math.max(0, Number(machines) || 0) * 2 + 15;
 
+/** Margen permitido por encima del sugerido (comidas extra que se toleran). */
+export const MEAL_TOLERANCE = 8;
+/** Tope máximo de comidas que se pueden registrar = sugerido + margen. */
+export const maxDeliverable = (suggested: number) => (Math.max(0, Number(suggested) || 0)) + MEAL_TOLERANCE;
+
 /** Cuenta las máquinas de una empresa (para calcular el sugerido). */
 export async function countCompanyMachines(companyId: string): Promise<number> {
   const { count } = await supabase

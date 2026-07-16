@@ -8,7 +8,7 @@ import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import {
   MEALS, mealLabel, suggestedMeals, countCompanyMachines,
-  listForCompanyDay, saveCompanyMeal, isCookCargo,
+  listForCompanyDay, saveCompanyMeal, isCookCargo, maxDeliverable, MEAL_TOLERANCE,
 } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, MealType } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -57,6 +57,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const [saving, setSaving] = useState(false);
 
   const suggested = suggestedMeals(machines);
+  const maxAllowed = maxDeliverable(suggested); // sugerido + margen permitido
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,6 +125,11 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const registrar = async () => {
     if (!mealFor || !cook) return;
     const delivered = Math.max(0, parseInt(qty || '0', 10) || 0);
+    // No se puede pasar del sugerido más allá del margen permitido (evita inflar comidas).
+    if (delivered > maxAllowed) {
+      setNotice(`❌ Máximo permitido: ${maxAllowed} comidas (sugerido ${suggested} + margen de ${MEAL_TOLERANCE}). Ajusta la cantidad.`);
+      return;
+    }
     setSaving(true); setNotice(null);
     const { data, error } = await saveCompanyMeal({
       companyId, companyName, mealType: mealFor, mealDate: today,
@@ -249,13 +255,18 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
               Sugerido: {suggested} ({machines} máquinas × 2 + 15). Escribe cuántas comidas entregaste realmente.
             </Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>Comidas entregadas</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>Comidas entregadas (máx. {maxAllowed})</Text>
             <TextInput
               value={qty}
               onChangeText={(t) => setQty(t.replace(/[^0-9]/g, ''))}
               keyboardType="number-pad" inputMode="numeric"
-              style={[input, { fontSize: 28, fontWeight: '900', textAlign: 'center', marginTop: 4 }]}
+              style={[input, { fontSize: 28, fontWeight: '900', textAlign: 'center', marginTop: 4, borderColor: (parseInt(qty || '0', 10) || 0) > maxAllowed ? colors.danger : colors.border }]}
             />
+            {(parseInt(qty || '0', 10) || 0) > maxAllowed ? (
+              <Text style={{ color: colors.danger, fontSize: 12, marginTop: 4, fontWeight: '700' }}>
+                Supera el máximo permitido ({maxAllowed} = sugerido {suggested} + margen {MEAL_TOLERANCE}).
+              </Text>
+            ) : null}
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
             <TextInput value={note} onChangeText={setNote} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
