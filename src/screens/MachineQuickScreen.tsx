@@ -9,7 +9,7 @@ import { upsertMachineRound } from '../lib/machineRounds';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { captureLocation, warmLocation, getCurrentCoords } from '../lib/location';
 import { formatUTM } from '../lib/utm';
-import { onlyDecimal } from '../lib/text';
+import { onlyDecimal, norm } from '../lib/text';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { classifyMobility, mobilityBadge, MobilityStatus } from '../lib/mobility';
 import QrScanner from '../components/QrScanner';
@@ -53,6 +53,13 @@ function shiftOf(hour: number): { key: 'day' | 'night'; label: string } {
     : { key: 'night', label: '🌙 Jornada de noche' };
 }
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
+
+// Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
+const OPERATOR_CARGOS = ['operador', 'chofer', 'servicios generales', 'obrero'];
+const isOperatorCargo = (cargo?: string | null): boolean => {
+  const n = norm(cargo ?? '');
+  return !!n && OPERATOR_CARGOS.some((k) => n.includes(k));
+};
 
 const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
   { key: 'caucho', label: 'Caucho', icon: '🛞' },
@@ -122,7 +129,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const [opLast, setOpLast] = useState('');
   const [opCedula, setOpCedula] = useState('');
   // Vínculo con RRHH: al escribir la cédula, se busca en Empleados y se autocompleta.
-  const [empMatch, setEmpMatch] = useState<{ name: string; cargo: string | null } | null>(null);
+  const [empMatch, setEmpMatch] = useState<{ name: string; cargo: string | null; allowed: boolean } | null>(null);
   const [empSearching, setEmpSearching] = useState(false);
   const [hIni, setHIni] = useState('');
   const [hFin, setHFin] = useState('');
@@ -163,7 +170,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       if (emp) {
         setOpFirst((emp.first_name || '').trim());
         setOpLast((emp.last_name || '').trim());
-        setEmpMatch({ name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cargo: emp.cargo ?? null });
+        setEmpMatch({ name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cargo: emp.cargo ?? null, allowed: isOperatorCargo(emp.cargo) });
       } else {
         setEmpMatch(null);
       }
@@ -310,12 +317,23 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     const { data } = await supabase.from('employees').select('first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
     const emp = data as any;
     if (!emp) { setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+    // Solo OPERADORES / CHOFERES / SERVICIOS GENERALES / OBREROS pueden iniciar jornada.
+    if (!isOperatorCargo(emp.cargo)) {
+      setEmpMatch(null);
+      setNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede iniciar jornada en la máquina.`);
+      return;
+    }
+    if (!(emp.cedula || '').trim()) {
+      setNotice(`❌ ${nombre} no tiene CÉDULA en nómina. Pídele al administrador que la agregue para poder iniciar jornada.`);
+      return;
+    }
     setOpFirst((emp.first_name || '').trim());
     setOpLast((emp.last_name || '').trim());
     setOpCedula((emp.cedula || '').trim());
-    setEmpMatch({ name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cargo: emp.cargo ?? null });
+    setEmpMatch({ name: nombre, cargo: emp.cargo ?? null, allowed: true });
     setView('jini');
-    setNotice(`✅ Operador identificado: ${`${emp.first_name || ''} ${emp.last_name || ''}`.trim()}${emp.cargo ? ` · ${emp.cargo}` : ''}.`);
+    setNotice(`✅ Operador identificado: ${nombre}${emp.cargo ? ` · ${emp.cargo}` : ''}.`);
   };
 
   // ── INICIO DE JORNADA: registra operador (nombre/apellido/cédula) + horómetro
@@ -324,6 +342,11 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     if (!machine) return;
     const first = opFirst.trim(), last = opLast.trim(), ci = opCedula.trim();
     if (!first || !last || !ci) { setNotice('❌ Completa nombre, apellido y cédula.'); return; }
+    // Blindaje: la cédula debe ser de un empleado en NÓMINA con cargo permitido.
+    const { data: empRows } = await supabase.from('employees').select('cargo').eq('cedula', ci).limit(1);
+    const empCargo = (empRows && (empRows[0] as any)?.cargo) ?? null;
+    if (!empCargo) { setNotice('❌ Esa cédula no está en nómina. Solo personal de nómina puede iniciar jornada.'); return; }
+    if (!isOperatorCargo(empCargo)) { setNotice(`❌ Cargo "${empCargo}" no autorizado. Solo OPERADORES, CHOFERES, SERVICIOS GENERALES u OBREROS pueden iniciar jornada.`); return; }
     const hi = Number((hIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJornadaBusy(true); setNotice(null);
@@ -582,9 +605,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
             empSearching ? (
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Buscando en empleados…</Text>
             ) : empMatch ? (
-              <View style={{ marginTop: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.success }}>
-                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 13 }}>✓ {empMatch.name}</Text>
+              <View style={{ marginTop: 6, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: empMatch.allowed ? colors.success : colors.danger }}>
+                <Text style={{ color: empMatch.allowed ? colors.success : colors.danger, fontWeight: '800', fontSize: 13 }}>{empMatch.allowed ? '✓' : '⛔'} {empMatch.name}</Text>
                 {empMatch.cargo ? <Text style={{ color: colors.muted, fontSize: 12 }}>{empMatch.cargo} · registrado en RRHH</Text> : <Text style={{ color: colors.muted, fontSize: 12 }}>Registrado en RRHH</Text>}
+                {!empMatch.allowed ? <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700', marginTop: 2 }}>Cargo no autorizado. Solo OPERADORES, CHOFERES, SERVICIOS GENERALES u OBREROS.</Text> : null}
               </View>
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>No estás en la lista de empleados. Escribe tu nombre y apellido abajo.</Text>
