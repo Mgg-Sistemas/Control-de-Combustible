@@ -8,7 +8,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
-import { InventoryItem, InventoryLevel, InventoryMovement, Company } from '../types/database';
+import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee } from '../types/database';
 import { exportPdf } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { spacing, radius } from '../theme';
@@ -37,12 +37,12 @@ const CATEGORIES: { key: string; label: string; icon: string }[] = [
 ];
 const catInfo = (key: string | null) => CATEGORIES.find((c) => c.key === key) || { key: key || 'otros', label: key ? key.toUpperCase() : 'Sin categoría', icon: '📦' };
 
-/** Agrupa una lista por empresa (company_id) para el acordeón. */
-function groupByCompany<T extends { company_id: string | null }>(items: T[], nameOf: (id: string | null) => string) {
+/** Agrupa una lista por equipo (machinery_id) para el acordeón. */
+function groupByMachine<T extends { machinery_id: string | null }>(items: T[], nameOf: (id: string | null) => string) {
   const m = new Map<string, { key: string; name: string; items: T[] }>();
   items.forEach((it) => {
-    const k = it.company_id ?? '__none__';
-    const g = m.get(k) ?? { key: k, name: nameOf(it.company_id), items: [] };
+    const k = it.machinery_id ?? '__none__';
+    const g = m.get(k) ?? { key: k, name: nameOf(it.machinery_id), items: [] };
     g.items.push(it);
     m.set(k, g);
   });
@@ -85,7 +85,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
-  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -94,12 +94,15 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [unit, setUnit] = useState('');
   const [sku, setSku] = useState('');
   const [minStock, setMinStock] = useState('');
-  const [companyId, setCompanyId] = useState('');
+  const [machineryId, setMachineryId] = useState('');
+  const [machineQuery, setMachineQuery] = useState('');
   const [initStock, setInitStock] = useState('');
   const [initCost, setInitCost] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
+  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machineName = (id: string | null) => { if (!id) return 'Sin equipo'; const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : 'Equipo'; };
+  const machineCompany = (id: string | null) => (id ? machines.find((x) => x.id === id)?.company_id ?? null : null);
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq)), [levels, nq]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
@@ -111,12 +114,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // Evita duplicados por nombre (mismo material ya registrado).
     if (levels.some((it) => norm(it.name) === norm(cleanName))) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
     setBusy(true);
-    const company = companyId || companies[0]?.id || null;
+    const machine = machineryId || null;
+    const company = machineCompany(machine); // la empresa se deriva del equipo
     // SKU incremental: se recalcula al vuelo (con los SKU actuales) para no chocar.
     const { data: skuRows } = await supabase.from('inventory_items').select('sku');
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), company_id: company })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), machinery_id: machine, company_id: company })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -129,7 +133,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
     }
     setBusy(false);
-    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setCompanyId(''); setInitStock(''); setInitCost('');
+    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost('');
     refetch();
   };
 
@@ -171,7 +175,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
-      ) : groupByCompany(filtered, companyName).map((grp) => (
+      ) : groupByMachine(filtered, machineName).map((grp) => (
         <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length} defaultOpen={!!nq}>
           {grp.items.map((it) => {
             const low = Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0;
@@ -234,21 +238,31 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               </View>
             </Card>
-            {companies.length > 1 ? (
-              <Card>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                  {companies.map((c) => {
-                    const on = (companyId || companies[0]?.id) === c.id;
-                    return (
-                      <TouchableOpacity key={c.id} onPress={() => setCompanyId(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.name}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Equipo / máquina</Text>
+              {machineryId ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>🚜 {machineName(machineryId)}</Text>
+                  <TouchableOpacity onPress={() => { setMachineryId(''); setMachineQuery(''); }}><Text style={{ color: colors.danger, fontWeight: '700' }}>Cambiar</Text></TouchableOpacity>
                 </View>
-              </Card>
-            ) : null}
+              ) : (
+                <>
+                  <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Buscar equipo por código o serial…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  <View style={{ maxHeight: 190 }}>
+                    <ScrollView keyboardShouldPersistTaps="handled">
+                      {machines
+                        .filter((m) => { const s = norm(machineQuery); return !s || norm(`${m.code} ${m.serial ?? ''}`).includes(s); })
+                        .slice(0, 25)
+                        .map((m) => (
+                          <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachineQuery(''); }} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{machineLabel(m)}</Text>
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
+            </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Existencia inicial (opcional)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si ya tienes este material a mano, carga la cantidad y su costo unitario. Se registra como INVENTARIO INICIAL y fija el PMP de arranque.</Text>
@@ -443,18 +457,27 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { session } = useAuth();
   const confirm = useConfirm();
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
-  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
 
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
   const [destino, setDestino] = useState('');
   const [descontar, setDescontar] = useState(true); // registra la salida (descuenta stock)
   const [busy, setBusy] = useState(false);
+  // Equipo y empleados que reciben (para la nota).
+  const [machineryId, setMachineryId] = useState('');
+  const [machineQuery, setMachineQuery] = useState('');
+  const [empQuery, setEmpQuery] = useState('');
+  const [empSel, setEmpSel] = useState<{ id: string; name: string }[]>([]);
 
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
-  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? '' : '');
   const inCart = (id: string) => cart.find((c) => c.id === id);
+  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machineName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
+  const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
+  const toggleEmp = (e: Employee) => setEmpSel((prev) => prev.some((x) => x.id === (e as any).id) ? prev.filter((x) => x.id !== (e as any).id) : [...prev, { id: (e as any).id, name: empName(e) }]);
 
   const addToCart = (it: InventoryLevel) => {
     if (inCart(it.id)) return;
@@ -494,15 +517,20 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     }
     // Documento PDF.
     const items: NotaItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
-    const empresa = companyName(cart[0]?.company_id ?? null) || undefined;
     try {
-      await exportPdf(notaEntregaHtml({ fecha: todayDMY(), destino: destino.trim() || null, empresa, items }), `Nota de entrega - ${todayDMY()}`);
+      await exportPdf(notaEntregaHtml({
+        fecha: todayDMY(),
+        destino: destino.trim() || null,
+        maquina: machineryId ? machineName(machineryId) : null,
+        empleados: empSel.map((e) => e.name),
+        items,
+      }), `Nota de entrega - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
       return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
     }
     setBusy(false);
-    setCart([]); setDestino('');
+    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery('');
     refetch();
   };
 
@@ -537,8 +565,61 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Descontar del inventario (registrar salida)</Text>
             </TouchableOpacity>
           </View>
+          {/* Equipo / máquina al que se entrega */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Máquina / equipo (opcional)</Text>
+          {machineryId ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>🚜 {machineName(machineryId)}</Text>
+              <TouchableOpacity onPress={() => { setMachineryId(''); setMachineQuery(''); }}><Text style={{ color: colors.danger, fontWeight: '700' }}>Quitar</Text></TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Buscar equipo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              {machineQuery.trim() ? (
+                <View style={{ maxHeight: 150 }}>
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {machines.filter((m) => norm(`${m.code} ${m.serial ?? ''}`).includes(norm(machineQuery))).slice(0, 20).map((m) => (
+                      <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachineQuery(''); }} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{machineLabel(m)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+            </>
+          )}
+
+          {/* Empleados que reciben */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Entregado a (empleados)</Text>
+          {empSel.length ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+              {empSel.map((e) => (
+                <TouchableOpacity key={e.id} onPress={() => setEmpSel((prev) => prev.filter((x) => x.id !== e.id))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                  <Text style={{ color: colors.primaryContrast, fontSize: 12, fontWeight: '700' }}>{e.name}</Text>
+                  <Text style={{ color: colors.primaryContrast, fontSize: 12 }}>✕</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+          <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Buscar empleado por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          {empQuery.trim() ? (
+            <View style={{ maxHeight: 150 }}>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {employees.filter((e) => norm(empName(e)).includes(norm(empQuery))).slice(0, 20).map((e) => {
+                  const on = empSel.some((x) => x.id === (e as any).id);
+                  return (
+                    <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo (opcional)</Text>
-          <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MÁQUINA 010…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
           <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota (PDF)'}</Text>
           </TouchableOpacity>

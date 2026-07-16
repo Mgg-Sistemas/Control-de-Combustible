@@ -960,9 +960,11 @@ create table if not exists public.inventory_items (
   min_stock numeric not null default 0,        -- alerta de stock mínimo
   avg_cost numeric not null default 0,          -- Precio Medio Ponderado (PMP), recalculado en cada entrada
   company_id uuid references public.companies(id),
+  machinery_id uuid references public.machinery(id) on delete set null, -- equipo al que pertenece el material (el inventario se vincula por EQUIPO, no por empresa)
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
+alter table public.inventory_items add column if not exists machinery_id uuid references public.machinery(id) on delete set null;
 alter table public.inventory_items enable row level security;
 drop policy if exists inv_items_select on public.inventory_items;
 create policy inv_items_select on public.inventory_items for select to authenticated using (true);
@@ -997,7 +999,8 @@ create index if not exists idx_inv_mov_order on public.inventory_movements(order
 create or replace view public.inventory_levels as
 select
   i.id, i.name, i.category, i.unit, i.sku, i.min_stock, i.avg_cost, i.company_id, i.active, i.created_at,
-  coalesce(sum(case when m.kind='entrada' then m.qty when m.kind in ('salida','consumo') then -m.qty when m.kind='ajuste' then m.qty else 0 end), 0)::numeric(14,2) as stock
+  coalesce(sum(case when m.kind='entrada' then m.qty when m.kind in ('salida','consumo') then -m.qty when m.kind='ajuste' then m.qty else 0 end), 0)::numeric(14,2) as stock,
+  i.machinery_id
 from public.inventory_items i
 left join public.inventory_movements m on m.item_id = i.id
 group by i.id;
