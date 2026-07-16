@@ -517,7 +517,11 @@ function DropdownSelect({
   const q = norm(query.trim());
   const filtered = q ? options.filter((o) => norm(o.label).includes(q)) : options;
   const showSearch = allowCustom || options.length > 6;
-  const canAddCustom = allowCustom && query.trim().length > 0 && !options.some((o) => norm(o.label) === q);
+  // Valor nuevo SIEMPRE en MAYÚSCULA (unifica may/min). Solo se puede AGREGAR si no
+  // existe ya uno igual (sin importar mayúsculas/acentos) → evita duplicados.
+  const customValue = query.trim().toUpperCase();
+  const exists = options.some((o) => norm(o.label) === q);
+  const canAddCustom = allowCustom && query.trim().length > 0 && !exists;
 
   const close = () => { setOpen(false); setQuery(''); };
 
@@ -553,9 +557,14 @@ function DropdownSelect({
               </TouchableOpacity>
             ) : null}
             {canAddCustom ? (
-              <TouchableOpacity onPress={() => { onChange(query.trim()); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>➕ Usar «{query.trim()}»</Text>
+              <TouchableOpacity onPress={() => { onChange(customValue); close(); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>➕ Usar «{customValue}»</Text>
               </TouchableOpacity>
+            ) : null}
+            {allowCustom && query.trim().length > 0 && exists ? (
+              <View style={{ paddingVertical: 8, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>Ese valor ya existe: elígelo de la lista (no se crea duplicado).</Text>
+              </View>
             ) : null}
             {filtered.map((o) => {
               const active = o.value === value;
