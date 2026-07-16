@@ -114,13 +114,12 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // Evita duplicados por nombre (mismo material ya registrado).
     if (levels.some((it) => norm(it.name) === norm(cleanName))) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
     setBusy(true);
-    const machine = machineryId || null;
-    const company = machineCompany(machine); // la empresa se deriva del equipo
     // SKU incremental: se recalcula al vuelo (con los SKU actuales) para no chocar.
     const { data: skuRows } = await supabase.from('inventory_items').select('sku');
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
+    // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), machinery_id: machine, company_id: company })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), machinery_id: null, company_id: null })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -128,7 +127,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     if (qi > 0) {
       const { error: mErr } = await supabase.from('inventory_movements').insert({
         item_id: ins.id, kind: 'entrada', qty: qi, unit_cost: parseNum(initCost) || 0,
-        reason: 'INVENTARIO INICIAL', company_id: company, created_by: session?.user?.id ?? null,
+        reason: 'INVENTARIO INICIAL', company_id: null, created_by: session?.user?.id ?? null,
       });
       if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
     }
@@ -175,9 +174,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
-      ) : groupByMachine(filtered, machineName).map((grp) => (
-        <AccordionGroup key={grp.key} title={grp.name} count={grp.items.length} defaultOpen={!!nq}>
-          {grp.items.map((it) => {
+      ) : filtered.map((it) => {
             const low = Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0;
             return (
               <ExpandableCard
@@ -208,9 +205,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 }
               />
             );
-          })}
-        </AccordionGroup>
-      ))}
+      })}
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <Screen>
@@ -238,31 +233,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 </View>
               </View>
             </Card>
-            <Card>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Equipo / máquina</Text>
-              {machineryId ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>🚜 {machineName(machineryId)}</Text>
-                  <TouchableOpacity onPress={() => { setMachineryId(''); setMachineQuery(''); }}><Text style={{ color: colors.danger, fontWeight: '700' }}>Cambiar</Text></TouchableOpacity>
-                </View>
-              ) : (
-                <>
-                  <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Buscar equipo por código o serial…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                  <View style={{ maxHeight: 190 }}>
-                    <ScrollView keyboardShouldPersistTaps="handled">
-                      {machines
-                        .filter((m) => { const s = norm(machineQuery); return !s || norm(`${m.code} ${m.serial ?? ''}`).includes(s); })
-                        .slice(0, 25)
-                        .map((m) => (
-                          <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachineQuery(''); }} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{machineLabel(m)}</Text>
-                          </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                  </View>
-                </>
-              )}
-            </Card>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (Nota de entrega).</Text>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Existencia inicial (opcional)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si ya tienes este material a mano, carga la cantidad y su costo unitario. Se registra como INVENTARIO INICIAL y fija el PMP de arranque.</Text>
@@ -468,8 +439,10 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   // Equipo y empleados que reciben (para la nota).
   const [machineryId, setMachineryId] = useState('');
   const [machineQuery, setMachineQuery] = useState('');
+  const [machOpen, setMachOpen] = useState(false);
   const [empQuery, setEmpQuery] = useState('');
   const [empSel, setEmpSel] = useState<{ id: string; name: string }[]>([]);
+  const [empOpen, setEmpOpen] = useState(false);
 
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
@@ -565,34 +538,40 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.text, fontSize: 12, flex: 1 }}>Descontar del inventario (registrar salida)</Text>
             </TouchableOpacity>
           </View>
-          {/* Equipo / máquina al que se entrega */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Máquina / equipo (opcional)</Text>
-          {machineryId ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>🚜 {machineName(machineryId)}</Text>
-              <TouchableOpacity onPress={() => { setMachineryId(''); setMachineQuery(''); }}><Text style={{ color: colors.danger, fontWeight: '700' }}>Quitar</Text></TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Buscar equipo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-              {machineQuery.trim() ? (
-                <View style={{ maxHeight: 150 }}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                    {machines.filter((m) => norm(`${m.code} ${m.serial ?? ''}`).includes(norm(machineQuery))).slice(0, 20).map((m) => (
-                      <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachineQuery(''); }} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{machineLabel(m)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
+          {/* Máquina: lista desplegable/colapsable de TODAS las máquinas, filtrable. */}
+          <TouchableOpacity onPress={() => setMachOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🚜 Máquina: <Text style={{ color: machineryId ? colors.primary : colors.muted }}>{machineryId ? machineName(machineryId) : 'elegir…'}</Text></Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{machOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {machOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Filtrar por código o serial…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              {machineryId ? (
+                <TouchableOpacity onPress={() => setMachineryId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
               ) : null}
-            </>
-          )}
+              <View style={{ maxHeight: 200 }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {machines.filter((m) => { const s = norm(machineQuery); return !s || norm(`${m.code} ${m.serial ?? ''}`).includes(s); }).map((m) => {
+                    const on = machineryId === m.id;
+                    return (
+                      <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{machineLabel(m)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
 
-          {/* Empleados que reciben */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Entregado a (empleados)</Text>
+          {/* Empleados: lista desplegable/colapsable de TODA la nómina, filtrable, multi. */}
+          <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Entregado a: <Text style={{ color: empSel.length ? colors.primary : colors.muted }}>{empSel.length ? `${empSel.length} empleado(s)` : 'elegir…'}</Text></Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
           {empSel.length ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
               {empSel.map((e) => (
                 <TouchableOpacity key={e.id} onPress={() => setEmpSel((prev) => prev.filter((x) => x.id !== e.id))} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                   <Text style={{ color: colors.primaryContrast, fontSize: 12, fontWeight: '700' }}>{e.name}</Text>
@@ -601,20 +580,22 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               ))}
             </View>
           ) : null}
-          <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Buscar empleado por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-          {empQuery.trim() ? (
-            <View style={{ maxHeight: 150 }}>
-              <ScrollView keyboardShouldPersistTaps="handled">
-                {employees.filter((e) => norm(empName(e)).includes(norm(empQuery))).slice(0, 20).map((e) => {
-                  const on = empSel.some((x) => x.id === (e as any).id);
-                  return (
-                    <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                      <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+          {empOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginTop: 2 }}>
+              <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Filtrar por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              <View style={{ maxHeight: 220 }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {employees.filter((e) => { const s = norm(empQuery); return !s || norm(empName(e)).includes(s); }).map((e) => {
+                    const on = empSel.some((x) => x.id === (e as any).id);
+                    return (
+                      <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
             </View>
           ) : null}
 
