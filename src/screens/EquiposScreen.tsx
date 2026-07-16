@@ -17,6 +17,7 @@ import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
+import MachineQuickScreen from './MachineQuickScreen';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -140,7 +141,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [qrFor, setQrFor] = useState<Machinery | null>(null);
   const [qrStr, setQrStr] = useState<string>('');
   // Guardia / militar encargado actual por máquina (historial acumulable).
-  const { session } = useAuth();
+  const { session, role } = useAuth();
+  // SOLO los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el QR).
+  const isSupervisor = role === 'supervisor';
+  const [jornadaFor, setJornadaFor] = useState<Machinery | null>(null);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
   // Operadores que ha tenido cada máquina (desplegable en la ficha). Una máquina puede tener varios.
   type OpItem = { key: string; name: string; cedula: string; last: string; days: number };
@@ -843,6 +847,13 @@ export default function EquiposScreen({ navigation, route }: any) {
             <Text style={{ color: colors.muted, fontSize: 12 }}>Sin operadores registrados.</Text>
           )}
         </View>
+      ) : null}
+
+      {/* SOLO supervisores: iniciar jornada de esta máquina sin escanear el QR. */}
+      {isSupervisor ? (
+        <TouchableOpacity onPress={() => setJornadaFor(m)} style={{ marginTop: spacing.sm, backgroundColor: '#1E9E4A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🕒 Iniciar jornada</Text>
+        </TouchableOpacity>
       ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
@@ -1595,6 +1606,13 @@ export default function EquiposScreen({ navigation, route }: any) {
         onClose={() => setFormOpen(false)}
         onSaved={handleSaved}
       />
+
+      {/* SOLO supervisores: vista de la máquina (iniciar jornada) sin escanear el QR. */}
+      <Modal visible={!!jornadaFor} animationType="slide" onRequestClose={() => setJornadaFor(null)}>
+        {jornadaFor ? (
+          <MachineQuickScreen machineId={jornadaFor.id} onExit={() => setJornadaFor(null)} />
+        ) : null}
+      </Modal>
     </Screen>
   );
 }
