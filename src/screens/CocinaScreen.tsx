@@ -13,6 +13,7 @@ import { norm } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 // Solo el personal de cocina/alimentación puede ingresar cantidades. Se valida por
 // el CARGO en nómina (ayudante de cocina, alimentación, cocinero, cocina, …).
@@ -77,6 +78,12 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
       setLoading(false);
     });
   }, [uid]);
+
+  // TIEMPO REAL: si otro dispositivo registra/borra una comida de la persona
+  // que tengo abierta, su lista de hoy se actualiza sola.
+  useRealtimeRefresh(['food_distributions'], () => {
+    if (person) listForEmployeeDay(person.id, today).then(setTodayList);
+  });
 
   const openPerson = async (employeeId: string) => {
     setScanOpen(false);
