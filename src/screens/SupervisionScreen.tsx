@@ -27,6 +27,13 @@ const STATUS_META: Record<VisitStatus, { icon: string; label: string; color: str
 };
 
 type Round = { machinery_id: string; worked: number; code: string; companyName: string; operator: string | null };
+type Jornada = {
+  id: string; operator: string; cedula: string; code: string; companyName: string;
+  started_at: string; ended_at: string | null; worked_hours: number | null;
+  start_lat: number | null; start_lng: number | null; end_lat: number | null; end_lng: number | null;
+};
+const mapsUrl = (lat?: number | null, lng?: number | null) => `https://www.google.com/maps?q=${lat},${lng}`;
+const openUrl = (url: string) => { try { (globalThis as any).open?.(url, '_blank'); } catch {} };
 
 /**
  * Módulo de SUPERVISIÓN (para el jefe): traza de las rondas de los supervisores
@@ -41,17 +48,32 @@ export default function SupervisionScreen() {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
+  const [jornadas, setJornadas] = useState<Jornada[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [vs, { data: rs }] = await Promise.all([
+    const [vs, { data: rs }, { data: js }] = await Promise.all([
       listVisits(date),
       supabase
         .from('machine_rounds')
         .select('machinery_id, day_hours, night_hours, day_operator, night_operator, machine:machinery_id(code, company:company_id(name))')
         .eq('round_date', date),
+      supabase
+        .from('operator_assignments')
+        .select('id, first_name, last_name, cedula, company_name, started_at, ended_at, worked_hours, start_lat, start_lng, end_lat, end_lng, machine:machinery_id(code)')
+        .eq('work_date', date)
+        .order('started_at', { ascending: true }),
     ]);
     setVisits(vs);
+    setJornadas(((js ?? []) as any[]).map((j) => ({
+      id: j.id,
+      operator: `${j.first_name ?? ''} ${j.last_name ?? ''}`.trim() || '—',
+      cedula: j.cedula ?? '',
+      code: j.machine?.code ?? '—',
+      companyName: j.company_name ?? 'Sin empresa',
+      started_at: j.started_at, ended_at: j.ended_at, worked_hours: j.worked_hours,
+      start_lat: j.start_lat, start_lng: j.start_lng, end_lat: j.end_lat, end_lng: j.end_lng,
+    })));
     const rounds = ((rs ?? []) as any[])
       .filter((r) => workedOf(r) > 0)
       .map((r) => ({
@@ -144,6 +166,47 @@ export default function SupervisionScreen() {
           ))
         )}
       </Card>
+
+      {/* ── JORNADAS DEL DÍA (operadores) — traza de inicio/fin + ubicación ── */}
+      <SectionTitle>🚜 Jornadas de operadores</SectionTitle>
+      {jornadas.length === 0 ? (
+        <EmptyState title="Sin jornadas este día" subtitle="Aquí aparece cada jornada que los operadores inician y finalizan al escanear el QR de la máquina." />
+      ) : (
+        jornadas.map((j) => {
+          const enCurso = !j.ended_at;
+          return (
+            <Card key={j.id}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👷 {j.operator}{j.cedula ? <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>  · C.I {j.cedula}</Text> : null}</Text>
+                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }}>🚜 {j.code} · {j.companyName}</Text>
+                </View>
+                {enCurso ? (
+                  <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
+                ) : (
+                  <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked_hours ?? 0} h</Text>
+                )}
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>Inicio</Text>
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{caracasClock(j.started_at)}</Text>
+                  {j.start_lat != null && j.start_lng != null ? (
+                    <Text onPress={() => openUrl(mapsUrl(j.start_lat, j.start_lng))} style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>📍 Ver ubicación ↗</Text>
+                  ) : <Text style={{ color: colors.muted, fontSize: 11 }}>sin ubicación</Text>}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>Fin</Text>
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{j.ended_at ? caracasClock(j.ended_at) : '—'}</Text>
+                  {j.end_lat != null && j.end_lng != null ? (
+                    <Text onPress={() => openUrl(mapsUrl(j.end_lat, j.end_lng))} style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>📍 Ver ubicación ↗</Text>
+                  ) : <Text style={{ color: colors.muted, fontSize: 11 }}>{enCurso ? '—' : 'sin ubicación'}</Text>}
+                </View>
+              </View>
+            </Card>
+          );
+        })
+      )}
 
       {/* ── TRAZA POR SUPERVISOR ── */}
       <SectionTitle>Traza por supervisor</SectionTitle>

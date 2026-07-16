@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Modal } from 'react-native';
 import { Screen, Card, Loading } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -7,11 +7,22 @@ import { Machinery, MaintenanceMaterial, OperatorAssignment } from '../types/dat
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
 import { captureAndUploadPhoto } from '../lib/photo';
-import { captureLocation, warmLocation } from '../lib/location';
+import { captureLocation, warmLocation, getCurrentCoords } from '../lib/location';
 import { formatUTM } from '../lib/utm';
 import { onlyDecimal } from '../lib/text';
+import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
+import QrScanner from '../components/QrScanner';
+import { parseEmployeeId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+
+/** Distancia en METROS entre dos coordenadas (fórmula de Haversine). */
+function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000, toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat), dLng = toRad(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
 
 function todayISO(): string {
   const d = new Date();
@@ -83,6 +94,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
 
   // Mapa
   const [locating, setLocating] = useState(false);
+  // Ubicación EN VIVO del operador logueado (para ver qué tan cerca está de la máquina).
+  const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  // Escáner del carnet del operador.
+  const [scanCarnetOpen, setScanCarnetOpen] = useState(false);
 
   // Mantenimiento
   const [material, setMaterial] = useState<MaintenanceMaterial | null>(null);
@@ -115,6 +130,15 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   }, []);
   // Pre-calienta el GPS para que "MAPA" marque la ubicación al instante.
   useEffect(() => { warmLocation(); }, []);
+  // Ubicación EN TIEMPO REAL del operador: se toma al abrir (escanear el QR) y se
+  // refresca cada 6 s para ver en el mapa qué tan cerca está de la máquina.
+  useEffect(() => {
+    let active = true;
+    const tick = async () => { const r = await getCurrentCoords(); if (active && r.ok && r.lat != null && r.lng != null) setUserLoc({ lat: r.lat, lng: r.lng }); };
+    tick();
+    const id = setInterval(tick, 6000);
+    return () => { active = false; clearInterval(id); };
+  }, []);
 
   // Vínculo con RRHH: al escribir la cédula (solo dígitos), buscar en Empleados y
   // autocompletar nombre/apellido. La lectura de employees es pública (sirve por QR).
@@ -150,7 +174,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, tipo, referencia, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
@@ -243,6 +267,23 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     setHorPhoto(r.url ?? null);
   };
 
+  // Escanear el CARNET del operador (QR ?empleado=<id>): trae sus datos de RRHH y
+  // autocompleta el inicio de jornada (así se va mostrando la traza del operador).
+  const onCarnetScanned = async (text: string) => {
+    setScanCarnetOpen(false);
+    const id = parseEmployeeId(text);
+    if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
+    const { data } = await supabase.from('employees').select('first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
+    const emp = data as any;
+    if (!emp) { setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    setOpFirst((emp.first_name || '').trim());
+    setOpLast((emp.last_name || '').trim());
+    setOpCedula((emp.cedula || '').trim());
+    setEmpMatch({ name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cargo: emp.cargo ?? null });
+    setView('jini');
+    setNotice(`✅ Operador identificado: ${`${emp.first_name || ''} ${emp.last_name || ''}`.trim()}${emp.cargo ? ` · ${emp.cargo}` : ''}.`);
+  };
+
   // ── INICIO DE JORNADA: registra operador (nombre/apellido/cédula) + horómetro
   //    inicial y foto. Regla: 1 máquina por operador por día. Marca "En obra".
   const confirmarInicio = async () => {
@@ -269,6 +310,9 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       return;
     }
 
+    // Ubicación en TIEMPO REAL del operador al iniciar (para la traza).
+    const startCoords = userLoc ?? (await getCurrentCoords().then((r) => (r.ok && r.lat != null ? { lat: r.lat, lng: r.lng as number } : null)).catch(() => null));
+
     const full = `${first} ${last}`;
     // 1) Asignación del operador (upsert por cédula+día → si reabre la misma máquina, actualiza).
     const asgPayload: any = {
@@ -276,6 +320,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       company_name: machine.companyName ?? null, work_date: iso, shift: sh.key,
       started_at: now.toISOString(), ended_at: null, worked_hours: null,
       horometro_inicial: hi, horometro_final: null, horometro_photo: horPhoto, created_by: authorId,
+      start_lat: startCoords?.lat ?? null, start_lng: startCoords?.lng ?? null,
     };
     const { data: asgRow, error: eAsg } = await supabase
       .from('operator_assignments')
@@ -325,7 +370,9 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       supabase.from('machinery').update({ exit_at: now.toISOString(), exit_date: roundDate, last_horometro: hf }).eq('id', machine.id),
       upsertMachineRound(machine.id, roundDate, roundPatch, uid),
     ];
-    if (asg) ops.push(supabase.from('operator_assignments').update({ ended_at: now.toISOString(), worked_hours: hours, horometro_final: hf }).eq('id', asg.id));
+    // Ubicación en TIEMPO REAL del operador al finalizar (para la traza).
+    const endCoords = userLoc ?? (await getCurrentCoords().then((r) => (r.ok && r.lat != null ? { lat: r.lat, lng: r.lng as number } : null)).catch(() => null));
+    if (asg) ops.push(supabase.from('operator_assignments').update({ ended_at: now.toISOString(), worked_hours: hours, horometro_final: hf, end_lat: endCoords?.lat ?? null, end_lng: endCoords?.lng ?? null }).eq('id', asg.id));
     const results = await Promise.all(ops);
     setJornadaBusy(false);
     const err = results.find((r: any) => r?.error)?.error;
@@ -359,6 +406,15 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     </TouchableOpacity>
   );
 
+  // Ubicación en vivo del operador vs. la máquina (para ver qué tan cerca está).
+  const hasMachineCoords = machine.latitude != null && machine.longitude != null;
+  const machinePins: MapPin[] = hasMachineCoords
+    ? [{ id: machine.id, name: machine.code, lat: Number(machine.latitude), lng: Number(machine.longitude), active: '', operational: true, company: machine.companyName ?? '', route: [] }]
+    : [];
+  const distM = userLoc && hasMachineCoords ? distanceMeters(userLoc.lat, userLoc.lng, Number(machine.latitude), Number(machine.longitude)) : null;
+  const distColor = distM == null ? colors.muted : distM <= 150 ? colors.success : distM <= 500 ? colors.warning : colors.danger;
+  const distText = distM == null ? null : distM < 1000 ? `${Math.round(distM)} m` : `${(distM / 1000).toFixed(2)} km`;
+
   return (
     <Screen>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -378,6 +434,33 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
 
       {view === 'home' ? (
         <View style={{ marginTop: spacing.md }}>
+          {/* Ubicación EN TIEMPO REAL: mapa con el operador (punto azul) y la máquina + distancia. */}
+          <Card>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📍 Tu ubicación vs. la máquina</Text>
+              {distText ? (
+                <Text style={{ color: distColor, fontWeight: '900', fontSize: 14 }}>
+                  {distM != null && distM <= 150 ? '✓ ' : ''}{distText}
+                </Text>
+              ) : (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{userLoc ? 'Máquina sin ubicación' : 'Ubicando…'}</Text>
+              )}
+            </View>
+            {hasMachineCoords ? (
+              <VenezuelaMap pins={machinePins} height={220} />
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>
+                Esta máquina aún no tiene ubicación en el mapa. Toca “ACTUALIZAR UBICACIÓN” para marcarla.
+              </Text>
+            )}
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
+              El punto azul es tu ubicación en tiempo real{distText ? `. Estás a ${distText} de la máquina.` : ' (permite el acceso al GPS).'}
+            </Text>
+          </Card>
+
+          {/* Escanear el CARNET del operador → muestra sus datos e inicia la traza. */}
+          {big('#0EA5E9', '📷', 'ESCANEAR CARNET (OPERADOR)', () => { setNotice(null); setScanCarnetOpen(true); })}
+
           {/* INICIO / FIN DE JORNADA — verde cuando está en obra, gris cuando no. */}
           <TouchableOpacity
             onPress={jornadaActive ? abrirFin : abrirInicio}
@@ -428,7 +511,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       {view === 'jini' ? (
         <Card>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, marginBottom: spacing.xs, letterSpacing: 0.5 }}>⏱️ INICIO DE JORNADA</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Ingresa tu cédula (no necesita iniciar sesión).</Text>
+          <TouchableOpacity onPress={() => { setNotice(null); setScanCarnetOpen(true); }} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#0EA5E9' }}>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>📷 Escanear mi carnet</Text>
+          </TouchableOpacity>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Escanea tu carnet o ingresa tu cédula (no necesita iniciar sesión).</Text>
           <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula</Text>
           <TextInput
             value={opCedula}
@@ -581,6 +667,16 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           </View>
         </Card>
       ) : null}
+
+      {/* Escáner del carnet del operador (QR ?empleado=<id>). */}
+      <Modal visible={scanCarnetOpen} animationType="slide" onRequestClose={() => setScanCarnetOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner
+            onClose={() => setScanCarnetOpen(false)}
+            onDetected={onCarnetScanned}
+          />
+        </View>
+      </Modal>
     </Screen>
   );
 }
