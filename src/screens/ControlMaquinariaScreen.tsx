@@ -158,6 +158,23 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [opFirst, setOpFirst] = useState('');
   const [opLast, setOpLast] = useState('');
   const [opCedula, setOpCedula] = useState('');
+  // Al escribir la C.I del operador, se busca en NÓMINA y se autocompleta nombre/apellido.
+  const [opLookup, setOpLookup] = useState<'idle' | 'searching' | 'found' | 'none'>('idle');
+  useEffect(() => {
+    if (!opFor) { setOpLookup('idle'); return; }
+    const ci = opCedula.trim();
+    if (ci.length < 6) { setOpLookup('idle'); return; }
+    let cancel = false;
+    setOpLookup('searching');
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('employees').select('first_name, last_name').eq('cedula', ci).limit(1);
+      if (cancel) return;
+      const emp = data && (data[0] as any);
+      if (emp) { setOpFirst((emp.first_name || '').trim()); setOpLast((emp.last_name || '').trim()); setOpLookup('found'); }
+      else setOpLookup('none');
+    }, 400);
+    return () => { cancel = true; clearTimeout(t); };
+  }, [opCedula, opFor]);
 
   // Bloque de días: arranca el lunes de la fecha elegida y muestra `dayCount` días
   // (por defecto 7, pero se pueden añadir 8, 10, … los que se necesiten).
@@ -1670,15 +1687,22 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
             </Text>
             {opFor ? <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>{opFor.m.code} · {dayLabel(opFor.d)}</Text> : null}
 
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula (se busca en nómina)</Text>
+            <TextInput value={opCedula} onChangeText={(t) => setOpCedula(onlyDigits(t))} placeholder="C.I del operador" placeholderTextColor={colors.muted} keyboardType="numeric" inputMode="numeric"
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4 }} />
+            {opLookup === 'searching' ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Buscando en nómina…</Text>
+            ) : opLookup === 'found' ? (
+              <Text style={{ color: colors.success, fontSize: 12, marginTop: 4, fontWeight: '700' }}>✓ {`${opFirst} ${opLast}`.trim()} · encontrado en nómina</Text>
+            ) : opLookup === 'none' ? (
+              <Text style={{ color: colors.warning, fontSize: 12, marginTop: 4 }}>No está en nómina. Escribe el nombre y apellido a mano.</Text>
+            ) : null}
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nombre</Text>
             <TextInput value={opFirst} onChangeText={setOpFirst} placeholder="Nombre" placeholderTextColor={colors.muted} autoCapitalize="words"
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
             <Text style={{ color: colors.muted, fontSize: 12 }}>Apellido</Text>
             <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} autoCapitalize="words"
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula</Text>
-            <TextInput value={opCedula} onChangeText={(t) => setOpCedula(onlyDigits(t))} placeholder="C.I" placeholderTextColor={colors.muted} keyboardType="numeric" inputMode="numeric"
-              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4 }} />
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setOpFor(null)}>
