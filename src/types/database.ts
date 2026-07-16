@@ -309,6 +309,7 @@ export interface InventoryItem {
   min_stock: number;
   avg_cost: number;       // Precio Medio Ponderado (PMP)
   company_id: string | null;
+  machinery_id: string | null; // equipo/máquina al que pertenece el material
   active: boolean;
   created_at: string;
 }

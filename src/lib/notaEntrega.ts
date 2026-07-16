@@ -7,6 +7,8 @@ export type NotaData = {
   numero?: string | null;
   destino?: string | null;
   empresa?: string | null;
+  maquina?: string | null;      // equipo al que se entrega
+  empleados?: string[];         // empleados que reciben
   items: NotaItem[];
 };
 
@@ -66,6 +68,8 @@ export function notaEntregaHtml(d: NotaData): string {
       <div><b>Fecha:</b> ${esc(d.fecha)}${d.numero ? ` &nbsp;·&nbsp; <b>N°:</b> ${esc(d.numero)}` : ''}</div>
       <div>${d.empresa ? `<b>Empresa:</b> ${esc(d.empresa)}` : ''}</div>
     </div>
+    ${d.maquina ? `<div class="meta"><div><b>Máquina / equipo:</b> ${esc(d.maquina)}</div></div>` : ''}
+    ${d.empleados && d.empleados.length ? `<div class="meta"><div><b>Entregado a:</b> ${esc(d.empleados.join(' · '))}</div></div>` : ''}
     ${d.destino ? `<div class="meta"><div><b>Destino / motivo:</b> ${esc(d.destino)}</div></div>` : ''}
 
     <table>
