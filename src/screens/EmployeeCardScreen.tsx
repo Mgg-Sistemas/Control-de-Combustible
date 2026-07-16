@@ -37,7 +37,6 @@ const STATUS: Record<string, { label: string; color: string }> = {
 export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; onCocinaLogin?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const employeeId: string = props.employeeId ?? props.route?.params?.employeeId ?? '';
-  const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
   const onCocinaLogin = props.onCocinaLogin;
 
   const [loading, setLoading] = useState(true);
@@ -106,7 +105,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
 
   if (loading) return <Screen><Loading /></Screen>;
   // Empleado eliminado → QR DESACTIVADO: solo el logo de la empresa (sin datos).
-  if (!emp) return <QrInactive onExit={onExit} />;
+  if (!emp) return <QrInactive />;
 
   const st = STATUS[emp.status] ?? STATUS.activo;
   const age = ageFrom(emp.birth_date);
