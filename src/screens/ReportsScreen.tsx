@@ -210,6 +210,7 @@ function equipCategory(code: string): string {
   if (c.includes('soldadura')) return 'CAMIÓN DE SOLDADURA';
   if (c.includes('refrigerad')) return 'CAMIÓN REFRIGERADO';
   if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA'; // incluye "CAMION GRUA PLATAFORMA"
+  if (c.includes('pick') || c.includes('camioneta')) return 'CAMIÓN PICK-UP';
   if (c.includes('camion') && c.includes('servicio')) return 'CAMIÓN DE SERVICIO';
   // ── Otros tipos de maquinaria. ──
   if (c.includes('jumbo')) return 'JUMBO';
