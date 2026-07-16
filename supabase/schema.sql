@@ -1305,5 +1305,29 @@ create index if not exists fcm_date_idx on public.food_company_meals(meal_date);
 create index if not exists fcm_company_idx on public.food_company_meals(company_id, meal_date);
 
 -- ============================================================================
+-- LOGIN BLINDADO POR CÉDULA
+-- ============================================================================
+-- El inicio de sesión es por CÉDULA + contraseña. Supabase Auth usa email, así que
+-- esta función SEGURA (security definer) traduce la cédula al correo interno del
+-- usuario. Devuelve NULL si la cédula no está registrada (o no tiene cédula), y en
+-- ese caso el login muestra: "Pídele al administrador de sistemas que agregue la
+-- CÉDULA para poder ingresar". No expone datos sensibles (el correo es sintético).
+create or replace function public.login_email_for_cedula(p_cedula text)
+  returns text
+  language sql
+  security definer
+  set search_path = public, auth
+as $fn$
+  select au.email::text
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where p.cedula = btrim(p_cedula)
+    and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+revoke all on function public.login_email_for_cedula(text) from public;
+grant execute on function public.login_email_for_cedula(text) to anon, authenticated;
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
