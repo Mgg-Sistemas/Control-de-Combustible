@@ -18,11 +18,10 @@ import { useTheme } from '../theme/ThemeContext';
 export default function LoginScreen() {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
-  // Máxima seguridad: SOLO inicio de sesión. El registro de usuarios lo hace
-  // únicamente el administrador (en Usuarios); nadie puede crear su propia cuenta.
-  const { signIn } = useAuth();
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  // Máxima seguridad: SOLO inicio de sesión, BLINDADO por CÉDULA + contraseña.
+  // El registro de usuarios lo hace únicamente el administrador (en Usuarios).
+  const { signInWithCedula } = useAuth();
+  const [cedula, setCedula] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +29,7 @@ export default function LoginScreen() {
   const submit = async () => {
     setError(null);
     setLoading(true);
-    const res = await signIn(firstName, lastName, password);
+    const res = await signInWithCedula(cedula, password);
     setLoading(false);
     if (res.error) setError(res.error);
   };
@@ -64,24 +63,18 @@ export default function LoginScreen() {
         <Text style={[styles.brand, { textAlign: 'center' }]}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg, textAlign: 'center' }]}>
-          Inicia sesión con tu nombre y apellido
+          Inicia sesión con tu cédula y contraseña
         </Text>
 
         <TextInput
           style={styles.input}
-          placeholder="Nombre"
+          placeholder="Cédula"
           placeholderTextColor={colors.muted}
-          value={firstName}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-        />
-        <TextInput
-          style={styles.input}
-          placeholder="Apellido"
-          placeholderTextColor={colors.muted}
-          value={lastName}
-          onChangeText={setLastName}
-          autoCapitalize="words"
+          value={cedula}
+          onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))}
+          keyboardType="number-pad"
+          inputMode="numeric"
+          autoCapitalize="none"
         />
         <TextInput
           style={styles.input}
@@ -90,6 +83,7 @@ export default function LoginScreen() {
           secureTextEntry
           value={password}
           onChangeText={setPassword}
+          autoCapitalize="none"
         />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}

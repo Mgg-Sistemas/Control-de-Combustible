@@ -28,7 +28,6 @@ import ComidaScreen from '../screens/ComidaScreen';
 import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
-import ChangePassword from '../components/ChangePassword';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
@@ -172,12 +171,7 @@ function SupervisorTabs() {
     <Tab.Navigator
       screenOptions={{
         ...screenHeader,
-        headerLeft: () => (
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <ChangePassword variant="icon" />
-            <HeaderLogoutButton />
-          </View>
-        ),
+        headerLeft: () => <HeaderLogoutButton />,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
