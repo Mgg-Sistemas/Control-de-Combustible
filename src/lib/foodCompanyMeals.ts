@@ -70,6 +70,20 @@ export async function listCompanyMealsBetween(from: string, to: string): Promise
   return (data ?? []) as FoodCompanyMeal[];
 }
 
+/** Comidas de UNA empresa en un rango de fechas (para su reporte). */
+export async function listForCompanyBetween(companyId: string, from: string, to: string): Promise<FoodCompanyMeal[]> {
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  const { data } = await supabase
+    .from('food_company_meals')
+    .select('*')
+    .eq('company_id', companyId)
+    .gte('meal_date', a)
+    .lte('meal_date', b)
+    .order('meal_date', { ascending: false })
+    .order('meal_type', { ascending: true });
+  return (data ?? []) as FoodCompanyMeal[];
+}
+
 export type SaveCompanyMealInput = {
   companyId: string;
   companyName: string;

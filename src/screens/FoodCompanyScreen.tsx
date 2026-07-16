@@ -9,8 +9,12 @@ import { parseEmployeeId } from './ScanQrScreen';
 import {
   MEALS, mealLabel, suggestedMeals, countCompanyMachines,
   listForCompanyDay, saveCompanyMeal, isCookCargo, maxDeliverable, MEAL_TOLERANCE,
+  listForCompanyBetween,
 } from '../lib/foodCompanyMeals';
 import { FoodCompanyMeal, MealType } from '../types/database';
+import { exportPdf } from '../lib/pdf';
+import { LOGO_DATA_URI } from '../lib/logoData';
+import { COMPANY_NAME } from '../lib/company';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -35,8 +39,11 @@ function caracasNiceDate(iso: string): string {
  */
 export default function FoodCompanyScreen({ companyId, onExit }: { companyId: string; onExit?: () => void }) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
   const uid = session?.user?.id ?? '';
+  // El reporte de entregas es SOLO para supervisores y administradores. La cocina
+  // (o quien entra por el QR sin ser admin/supervisor) solo registra, no ve reportes.
+  const canSeeReport = role === 'admin' || role === 'supervisor';
   const isAnon = !!(session?.user as any)?.is_anonymous;
   const authorId = isAnon ? null : (uid || null);
   const today = caracasToday();
@@ -55,6 +62,9 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const [qty, setQty] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  // Reporte por empresa (PDF)
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [reportDays, setReportDays] = useState(30);
 
   const suggested = suggestedMeals(machines);
   const maxAllowed = maxDeliverable(suggested); // sugerido + margen permitido
@@ -141,6 +151,54 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
     setMeals((prev) => [...prev, data]);
     setMealFor(null);
     setNotice(`✅ ${mealLabel(mealFor)}: ${delivered} comida(s) registradas para ${companyName}.`);
+  };
+
+  // ── Reporte PDF de las entregas de ESTA empresa (últimos N días) ──────────────
+  const daysAgoISO = (iso: string, n: number) => {
+    const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10);
+  };
+  const dmy = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+  const verReporte = async () => {
+    setPdfBusy(true); setNotice(null);
+    try {
+      const from = daysAgoISO(today, Math.max(0, reportDays - 1));
+      const rows = await listForCompanyBetween(companyId, from, today);
+      const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
+      const byDay = new Map<string, Partial<Record<MealType, FoodCompanyMeal>>>();
+      rows.forEach((r) => { if (!byDay.has(r.meal_date)) byDay.set(r.meal_date, {}); byDay.get(r.meal_date)![r.meal_type] = r; });
+      const days = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
+      const totals: Record<MealType, number> = { desayuno: 0, almuerzo: 0, cena: 0 };
+      const bodyRows = days.map((d) => {
+        const g = byDay.get(d)!;
+        let tot = 0;
+        MEALS.forEach((m) => { const v = Number(g[m.key]?.delivered) || 0; tot += v; totals[m.key] += v; });
+        return `<tr><td class="l">${esc(dmy(d))}</td>${MEALS.map((m) => `<td>${g[m.key] ? g[m.key]!.delivered : '—'}</td>`).join('')}<td class="b">${tot}</td></tr>`;
+      }).join('');
+      const grand = totals.desayuno + totals.almuerzo + totals.cena;
+      const totalRow = `<tr class="tot"><td class="l">TOTAL</td>${MEALS.map((m) => `<td>${totals[m.key]}</td>`).join('')}<td class="b">${grand}</td></tr>`;
+      const html = `
+        <style>
+          *{font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+          .head{display:flex;align-items:center;gap:12px;border-bottom:2px solid #16324F;padding-bottom:8px;margin-bottom:12px}
+          .head img{height:52px;width:auto} h1{font-size:18px;margin:0} .sub{color:#555;font-size:12px;margin-top:2px}
+          table{border-collapse:collapse;width:100%;font-size:12px}
+          th,td{border:1px solid #ccc;padding:6px 8px;text-align:center}
+          th{background:#16324F;color:#fff} td.l{text-align:left} td.b{font-weight:800}
+          tr.tot td{background:#EAF1FB;font-weight:800}
+          .foot{margin-top:16px;color:#9aa4b2;font-size:10px;text-align:center;border-top:1px solid #e5e7eb;padding-top:6px}
+        </style>
+        <div class="head"><img src="${LOGO_DATA_URI}"/><div><h1>🍽️ Reporte de comida por empresa</h1><div class="sub">${esc(companyName)} · ${esc(dmy(from))} a ${esc(dmy(today))} · ${days.length} día(s)</div></div></div>
+        <table>
+          <thead><tr><th class="l">Fecha</th>${MEALS.map((m) => `<th>${esc(m.label)}</th>`).join('')}<th>Total</th></tr></thead>
+          <tbody>${bodyRows || `<tr><td colspan="${MEALS.length + 2}">Sin registros en el período.</td></tr>`}${days.length ? totalRow : ''}</tbody>
+        </table>
+        <div class="foot">${esc(COMPANY_NAME)} · Distribución de comida</div>`;
+      await exportPdf(html, `Comida - ${companyName} (${from} a ${today})`);
+    } catch (e: any) {
+      setNotice('❌ No se pudo generar el reporte: ' + (e?.message ?? e));
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
@@ -244,6 +302,30 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
           </TouchableOpacity>
         );
       })}
+
+      {/* Reporte de la empresa (PDF): SOLO admin/supervisor. Cocina no lo ve. */}
+      {canSeeReport ? (
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📄 Reporte de entregas</Text>
+        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>
+          Comidas entregadas a {companyName}, día por día. Elige el período y descarga el PDF.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+          {[{ n: 7, l: '7 días' }, { n: 30, l: '30 días' }, { n: 90, l: '90 días' }].map((o) => (
+            <TouchableOpacity
+              key={o.n}
+              onPress={() => setReportDays(o.n)}
+              style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: reportDays === o.n ? colors.primary : colors.border, backgroundColor: reportDays === o.n ? colors.primary : colors.surface }}
+            >
+              <Text style={{ color: reportDays === o.n ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.l}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity onPress={verReporte} disabled={pdfBusy} style={{ backgroundColor: '#B91C1C', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Ver / descargar reporte PDF'}</Text>
+        </TouchableOpacity>
+      </Card>
+      ) : null}
 
       <View style={{ height: spacing.xl }} />
 
