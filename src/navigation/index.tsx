@@ -341,10 +341,14 @@ export default function RootNavigator() {
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo
         // lectura). Cocina puede tocar "Soy de cocina" para entrar con su nombre.
         <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} />
-      ) : qrMachineId && !loggedInReal ? (
-        // Al escanear el QR de una máquina: LOGIN DIRECTO (sin vista anónima).
-        // Tras iniciar sesión, cae en la vista de operador de esa máquina.
+      ) : qrMachineId && wantLogin && !loggedInReal ? (
+        // El SUPERVISOR pidió iniciar sesión (con su nombre) desde la vista de la máquina.
         <LoginScreen />
+      ) : qrMachineId && !loggedInReal ? (
+        // OPERADOR SIN usuario: vista de operador ANÓNIMA de esa máquina. Se identifica
+        // DENTRO de la pantalla con su carnet + cédula (deben coincidir) antes de ver los
+        // botones (combustible, avería, ubicar, jornada). El supervisor puede iniciar sesión.
+        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
       ) : qrMachineId && roleLoading ? (
         // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>

@@ -112,6 +112,14 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   // Escáner del carnet del operador.
   const [scanCarnetOpen, setScanCarnetOpen] = useState(false);
 
+  // ── Puerta de identificación (solo entrada ANÓNIMA por QR): el operador se
+  //    identifica ANTES de ver los botones, escaneando su carnet y confirmando su
+  //    cédula (deben coincidir). Los que entran con usuario real no pasan por aquí.
+  const [identified, setIdentified] = useState(false);
+  const [gateEmp, setGateEmp] = useState<{ id: string; first: string; last: string; name: string; cargo: string | null; cedula: string } | null>(null);
+  const [gateCedula, setGateCedula] = useState('');
+  const [gateScanOpen, setGateScanOpen] = useState(false);
+
   // Mantenimiento
   const [material, setMaterial] = useState<MaintenanceMaterial | null>(null);
   const [qty, setQty] = useState('');
@@ -337,6 +345,35 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
     setNotice(`✅ Operador identificado: ${nombre}${emp.cargo ? ` · ${emp.cargo}` : ''}.`);
   };
 
+  // ── PUERTA DE IDENTIFICACIÓN (entrada anónima) ─────────────────────────────
+  // 1) Escanea su carnet → valida cargo y que tenga cédula en nómina.
+  const onGateCarnet = async (text: string) => {
+    setGateScanOpen(false);
+    const id = parseEmployeeId(text);
+    if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
+    const emp = data as any;
+    if (!emp) { setGateEmp(null); setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+    if (!isOperatorCargo(emp.cargo)) { setGateEmp(null); setNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede usar la máquina.`); return; }
+    if (!(emp.cedula || '').trim()) { setGateEmp(null); setNotice(`❌ ${nombre} no tiene CÉDULA en nómina. Pídele al administrador que la agregue.`); return; }
+    setGateEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim() });
+    setNotice(`📇 Carnet de ${nombre} leído. Confirma su cédula para entrar.`);
+  };
+  // 2) Confirma la cédula: debe COINCIDIR con la del carnet escaneado.
+  const confirmGate = () => {
+    const digits = (s: string) => (s || '').replace(/\D/g, '');
+    if (!gateEmp) { setNotice('❌ Primero escanea tu carnet.'); return; }
+    if (digits(gateCedula).length < 6) { setNotice('❌ Escribe tu cédula completa.'); return; }
+    if (digits(gateCedula) !== digits(gateEmp.cedula)) { setNotice('❌ La cédula no coincide con el carnet escaneado.'); return; }
+    // Identidad confirmada: se precarga para la jornada y se atribuyen las acciones.
+    setOpFirst(gateEmp.first); setOpLast(gateEmp.last); setOpCedula(gateEmp.cedula);
+    setEmpMatch({ name: gateEmp.name, cargo: gateEmp.cargo, allowed: true });
+    setFullName(gateEmp.name);
+    setIdentified(true);
+    setNotice(`✅ Identificado: ${gateEmp.name}${gateEmp.cargo ? ` · ${gateEmp.cargo}` : ''}. Ya puedes registrar.`);
+  };
+
   // ── INICIO DE JORNADA: registra operador (nombre/apellido/cédula) + horómetro
   //    inicial y foto. Regla: 1 máquina por operador por día. Marca "En obra".
   const confirmarInicio = async () => {
@@ -470,6 +507,9 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const distM = !isMovil && userLoc && hasMachineCoords ? distanceMeters(userLoc.lat, userLoc.lng, Number(machine.latitude), Number(machine.longitude)) : null;
   const distColor = distM == null ? colors.muted : distM <= 150 ? colors.success : distM <= 500 ? colors.warning : colors.danger;
   const distText = distM == null ? null : distM < 1000 ? `${Math.round(distM)} m` : `${(distM / 1000).toFixed(2)} km`;
+  // Entrada anónima por QR (operador sin usuario): debe identificarse antes de los
+  // botones. `onSupervisorLogin` solo llega en ese flujo, así que es la señal segura.
+  const needsIdent = !!onSupervisorLogin && !identified;
 
   return (
     <Screen>
@@ -494,7 +534,54 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {view === 'home' ? (
+      {/* PUERTA DE IDENTIFICACIÓN: entrada anónima por QR. El operador (sin usuario)
+          escanea su carnet y confirma su cédula ANTES de ver los botones. */}
+      {view === 'home' && needsIdent ? (
+        <View style={{ marginTop: spacing.md }}>
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>👷 Identifícate para usar esta máquina</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>
+              Escanea tu carnet y confirma tu cédula. Solo OPERADOR, CHOFER, SERVICIOS GENERALES u OBRERO de la nómina.
+            </Text>
+
+            <TouchableOpacity onPress={() => { setNotice(null); setGateScanOpen(true); }} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#0EA5E9' }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>📷 {gateEmp ? 'Volver a escanear carnet' : 'Escanear mi carnet'}</Text>
+            </TouchableOpacity>
+
+            {gateEmp ? (
+              <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.success }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📇 {gateEmp.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{gateEmp.cargo || 'Sin cargo'}</Text>
+              </View>
+            ) : null}
+
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Confirma tu cédula</Text>
+            <TextInput
+              value={gateCedula}
+              onChangeText={(t) => setGateCedula(t.replace(/\D/g, ''))}
+              placeholder="Tu número de cédula"
+              placeholderTextColor={colors.muted}
+              keyboardType="numeric"
+              inputMode="numeric"
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+            />
+
+            <TouchableOpacity onPress={confirmGate} disabled={!gateEmp} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: gateEmp ? '#1E9E4A' : colors.border, opacity: gateEmp ? 1 : 0.7 }}>
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>✅ ENTRAR</Text>
+            </TouchableOpacity>
+          </Card>
+
+          {/* Supervisor: entrar con su nombre (login) en vez de la vista anónima. */}
+          {onSupervisorLogin ? (
+            <TouchableOpacity onPress={onSupervisorLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🪖 ¿Eres supervisor? Inicia sesión con tu nombre</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Para que quede registrada tu ronda con tu nombre.</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      {view === 'home' && !needsIdent ? (
         <View style={{ marginTop: spacing.md }}>
           {/* Ubicación EN TIEMPO REAL. Para equipos FIJOS: distancia operador ↔ máquina.
               Para MÓVILES: no hay punto fijo, se muestra la última ubicación conocida. */}
@@ -744,6 +831,16 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
           <QrScanner
             onClose={() => setScanCarnetOpen(false)}
             onDetected={onCarnetScanned}
+          />
+        </View>
+      </Modal>
+
+      {/* Escáner del carnet para la PUERTA de identificación (entrada anónima). */}
+      <Modal visible={gateScanOpen} animationType="slide" onRequestClose={() => setGateScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner
+            onClose={() => setGateScanOpen(false)}
+            onDetected={onGateCarnet}
           />
         </View>
       </Modal>
