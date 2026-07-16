@@ -162,8 +162,9 @@ function MoreStack() {
   );
 }
 
-/** Vista del SUPERVISOR: entra al sistema pero SOLO ve Mapa y Catálogo. La jornada,
- *  averías y combustible se inician al escanear el QR de la máquina. */
+/** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
+ *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
+ *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
 function SupervisorTabs() {
   const { colors } = useTheme();
   const screenHeader = useScreenHeader();
@@ -177,6 +178,7 @@ function SupervisorTabs() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
+      <Tab.Screen name="Revisar" component={SupervisorScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
     </Tab.Navigator>
