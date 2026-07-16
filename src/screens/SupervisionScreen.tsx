@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -88,6 +89,10 @@ export default function SupervisionScreen() {
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
+
+  // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
+  // jornada, la supervisión del día se actualiza sola.
+  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments'], () => { load(); });
 
   const shiftDay = (delta: number) => {
     const d = new Date(date + 'T12:00:00');

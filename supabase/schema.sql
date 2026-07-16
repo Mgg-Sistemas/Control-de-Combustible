@@ -1386,5 +1386,25 @@ revoke all on function public.login_status_for_cedula(text), public.register_fai
 grant execute on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) to anon, authenticated;
 
 -- ============================================================================
+-- TIEMPO REAL (Realtime): tablas cuyas pantallas se refrescan solas al cambiar.
+-- Sin estar en la publicación `supabase_realtime`, el cliente se suscribe pero la
+-- BD nunca envía los cambios (la pantalla no se actualiza hasta refrescar a mano).
+-- `add table` falla si la tabla ya está publicada; por eso se ignora el error.
+-- ============================================================================
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'employees', 'food_distributions', 'food_company_meals', 'supervisor_visits',
+    'operator_assignments', 'inventory_movements', 'inventory_items'
+  ] loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null; when others then null;
+    end;
+  end loop;
+end $$;
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

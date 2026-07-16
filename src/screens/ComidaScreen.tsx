@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { comidaQrUrl, qrPngDataUri } from '../lib/qr';
 import { exportCardImage, exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -93,6 +94,13 @@ export default function ComidaScreen() {
     setRangeLoading(false);
   }, [from, to]);
   useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
+
+  // TIEMPO REAL: cuando la cocina registra/borra una comida (por persona o por
+  // empresa), esta pantalla se actualiza sola, sin tener que refrescar a mano.
+  useRealtimeRefresh(['food_distributions', 'food_company_meals'], () => {
+    load();
+    if (mode === 'control') loadRange();
+  });
 
   // Resumen POR PERSONA en el rango (entregas individuales por carnet).
   const rangeByPerson = useMemo(() => {
