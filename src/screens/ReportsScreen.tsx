@@ -1057,6 +1057,21 @@ export default function ReportsScreen({ route }: any) {
         <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Por tipo y zona (solo ubicados)</h2>
         <table class="cnt"><thead><tr><th>Tipo (total)</th><th>Distribución por zona</th></tr></thead><tbody>${tzRows}</tbody></table>`;
     }
+    // Máquinas SIN ubicación por tipo (ej. 3 jumbos, 5 tractores…).
+    let sinUbicHtml = '';
+    if (conteoZona === '__all__') {
+      const su = new Map<string, number>();
+      conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') su.set(r.tipo, (su.get(r.tipo) ?? 0) + 1); });
+      const sinUbic = conteo.total - conteo.ubicados;
+      if (sinUbic) {
+        const suRows = [...su.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es')).map(([t, n]) => `<tr><td>${esc(t)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('');
+        sinUbicHtml = `
+          <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas SIN ubicación en el mapa · por tipo</h2>
+          <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+            <tbody>${suRows}</tbody>
+            <tfoot><tr><td>TOTAL SIN UBICACIÓN</td><td style="text-align:right">${sinUbic}</td></tr></tfoot></table>`;
+      }
+    }
     const tablasHtml = `${zonaSummary}
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación · ${esc(zonaTxt)}</h2>
       <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
@@ -1067,7 +1082,8 @@ export default function ReportsScreen({ route }: any) {
         <tbody>${rowsFor(byTipo)}</tbody>
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
       ${dispoHtml}
-      ${tipoZonaHtml}`;
+      ${tipoZonaHtml}
+      ${sinUbicHtml}`;
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -1709,6 +1725,27 @@ export default function ReportsScreen({ route }: any) {
                         </View>
                       );
                     })}
+                  </Card>
+                );
+              })() : null}
+
+              {/* Máquinas SIN ubicación (no marcan GPS), desglosadas por tipo de equipo. */}
+              {conteoZona === '__all__' ? (() => {
+                const m = new Map<string, number>();
+                conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1); });
+                const rows = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
+                const sinUbic = conteo.total - conteo.ubicados;
+                if (!sinUbic) return null;
+                return (
+                  <Card>
+                    <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>📍 Sin ubicación en el mapa ({sinUbic})</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Máquinas activas que aún no marcan GPS, por tipo de equipo.</Text>
+                    {rows.map(([tipo, n]) => (
+                      <View key={tipo} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{tipo}</Text>
+                        <Text style={{ color: colors.warning, fontSize: 14, fontWeight: '800' }}>{n}</Text>
+                      </View>
+                    ))}
                   </Card>
                 );
               })() : null}
