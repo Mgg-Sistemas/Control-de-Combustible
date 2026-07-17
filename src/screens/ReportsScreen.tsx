@@ -210,7 +210,7 @@ function equipCategory(code: string): string {
   if (c.includes('soldadura')) return 'CAMIÓN DE SOLDADURA';
   if (c.includes('refrigerad')) return 'CAMIÓN REFRIGERADO';
   if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA'; // incluye "CAMION GRUA PLATAFORMA"
-  if (c.includes('pick') || c.includes('camioneta')) return 'CAMIÓN PICK-UP';
+  if (c.includes('pick') || c.includes('camioneta')) return 'CAMIONETA PICK-UP';
   if (c.includes('camion') && c.includes('servicio')) return 'CAMIÓN DE SERVICIO';
   // ── Otros tipos de maquinaria. ──
   if (c.includes('jumbo')) return 'JUMBO';
@@ -963,9 +963,11 @@ export default function ReportsScreen({ route }: any) {
       const tt = tipoMap.get(tk) ?? { name: tk, count: 0, conHoras: 0, sinHoras: 0 }; tt.count += 1; if (tieneHoras) tt.conHoras += 1; else tt.sinHoras += 1; tipoMap.set(tk, tt);
       const ee = empresaMap.get(ek) ?? { name: ek, count: 0, conHoras: 0, sinHoras: 0 }; ee.count += 1; if (tieneHoras) ee.conHoras += 1; else ee.sinHoras += 1; empresaMap.set(ek, ee);
     });
-    const byClas = [...clasMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const byTipo = [...tipoMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const byEmpresa = [...empresaMap.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    // Orden ALFABÉTICO por nombre (es-VE) en las tres tablas del conteo.
+    const alfa = (a: ConteoRow, b: ConteoRow) => a.name.localeCompare(b.name, 'es');
+    const byClas = [...clasMap.values()].sort(alfa);
+    const byTipo = [...tipoMap.values()].sort(alfa);
+    const byEmpresa = [...empresaMap.values()].sort(alfa);
     const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
     const sinHoras = list.length - conHoras;
     // Listado de máquinas SIN horas (para mostrarlo tal cual, sin agrupar).
