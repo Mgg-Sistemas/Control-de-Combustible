@@ -46,14 +46,16 @@ export default function AliadosScreen({ navigation }: any) {
 
   const q = norm(query.trim());
   const shown = useMemo(
-    () => aliados.filter((a) =>
-      !q ||
-      norm(fullName(a)).includes(q) ||
-      norm(a.cedula).includes(q) ||
-      norm(a.ficha_number).includes(q) ||
-      norm(a.rol).includes(q) ||
-      norm(a.organizacion).includes(q)
-    ),
+    () => aliados
+      .filter((a) =>
+        !q ||
+        norm(fullName(a)).includes(q) ||
+        norm(a.cedula).includes(q) ||
+        norm(a.ficha_number).includes(q) ||
+        norm(a.rol).includes(q) ||
+        norm(a.organizacion).includes(q)
+      )
+      .sort((a, b) => fullName(a).localeCompare(fullName(b), 'es', { sensitivity: 'base' })),
     [aliados, q]
   );
 

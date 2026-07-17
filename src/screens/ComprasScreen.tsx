@@ -195,7 +195,7 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
-  const { data: reqs, loading, refetch } = useTable<PurchaseRequest>('purchase_requests', { orderBy: 'created_at' });
+  const { data: reqs, loading, refetch } = useTable<PurchaseRequest>('purchase_requests', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: catalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
@@ -335,7 +335,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
-  const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at' });
+  const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
   const { data: catalog, refetch: refetchCatalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
@@ -486,7 +486,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 // ── Resumen / Reportes de gasto ──────────────────────────────────────────────
 function ResumenTab() {
   const { colors } = useTheme();
-  const { data: orders, loading } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at' });
+  const { data: orders, loading } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
 
