@@ -1419,6 +1419,92 @@ revoke all on function public.login_status_for_cedula(text), public.register_fai
 grant execute on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) to anon, authenticated;
 
 -- ============================================================================
+-- CONTROL DE PAGO A PERSONAL (dentro de Nómina)
+-- Calcula el pago derivando tarifas del SUELDO BASE (tarifa_dia = base/dias_mes,
+-- tarifa_hora = base/horas_mes) según días u horas trabajados. Los operadores se
+-- cargan AUTOMÁTICO desde operator_assignments (por cédula, dentro del rango) y el
+-- resto del personal a mano. Con only_validated, una jornada solo suma si tiene
+-- visita del supervisor (supervisor_visits, misma máquina y fecha, status
+-- 'trabajando'). Bonos, deducciones y abonos con saldo (staff_pay_payments).
+-- ============================================================================
+create table if not exists public.staff_pay_config (
+  id int primary key default 1,
+  dias_mes int not null default 30,
+  horas_mes int not null default 240,
+  updated_at timestamptz not null default now(),
+  constraint staff_pay_config_singleton check (id = 1)
+);
+insert into public.staff_pay_config (id) values (1) on conflict (id) do nothing;
+
+create table if not exists public.staff_pay_periods (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  name text not null,
+  period_type text not null default 'semana' check (period_type in ('dia','semana','quincena')),
+  date_from date not null,
+  date_to date not null,
+  mode text not null default 'dias' check (mode in ('dias','horas')),
+  only_validated boolean not null default true,
+  status text not null default 'borrador' check (status in ('borrador','aprobada','pagada')),
+  total_amount numeric(14,2) not null default 0,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_spp_company on public.staff_pay_periods(company_id);
+create index if not exists idx_spp_status on public.staff_pay_periods(status);
+
+create table if not exists public.staff_pay_items (
+  id uuid primary key default gen_random_uuid(),
+  period_id uuid not null references public.staff_pay_periods(id) on delete cascade,
+  employee_id uuid references public.employees(id) on delete set null,
+  cedula text,
+  person_name text not null,
+  cargo text,
+  source text not null default 'manual' check (source in ('auto','manual')),
+  base_salary numeric(14,2) not null default 0,
+  tarifa_dia numeric(14,4) not null default 0,
+  tarifa_hora numeric(14,4) not null default 0,
+  dias numeric(8,2) not null default 0,
+  horas numeric(10,2) not null default 0,
+  jornadas_validadas int not null default 0,
+  jornadas_pendientes int not null default 0,
+  overridden boolean not null default false,
+  devengado numeric(14,2) not null default 0,
+  bonos jsonb not null default '[]'::jsonb,
+  deducciones jsonb not null default '[]'::jsonb,
+  total numeric(14,2) not null default 0,
+  nota text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_spi_period on public.staff_pay_items(period_id);
+create index if not exists idx_spi_cedula on public.staff_pay_items(cedula);
+
+create table if not exists public.staff_pay_payments (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.staff_pay_items(id) on delete cascade,
+  monto numeric(14,2) not null,
+  metodo text not null default 'efectivo',
+  fecha date not null default (now() at time zone 'America/Caracas')::date,
+  nota text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_spp2_item on public.staff_pay_payments(item_id);
+
+alter table public.staff_pay_config   enable row level security;
+alter table public.staff_pay_periods  enable row level security;
+alter table public.staff_pay_items    enable row level security;
+alter table public.staff_pay_payments enable row level security;
+drop policy if exists spc_all on public.staff_pay_config;
+create policy spc_all on public.staff_pay_config for all to authenticated using (true) with check (true);
+drop policy if exists spp_all on public.staff_pay_periods;
+create policy spp_all on public.staff_pay_periods for all to authenticated using (true) with check (true);
+drop policy if exists spi_all on public.staff_pay_items;
+create policy spi_all on public.staff_pay_items for all to authenticated using (true) with check (true);
+drop policy if exists spp2_all on public.staff_pay_payments;
+create policy spp2_all on public.staff_pay_payments for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- TIEMPO REAL (Realtime): tablas cuyas pantallas se refrescan solas al cambiar.
 -- Sin estar en la publicación `supabase_realtime`, el cliente se suscribe pero la
 -- BD nunca envía los cambios (la pantalla no se actualiza hasta refrescar a mano).

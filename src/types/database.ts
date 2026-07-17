@@ -240,6 +240,75 @@ export interface PayrollItem {
   created_at: string;
 }
 
+// ===== CONTROL DE PAGO A PERSONAL (dentro de Nómina) =====
+
+/** Concepto con monto (bono o deducción). */
+export interface StaffPayLine {
+  label: string;
+  amount: number;
+}
+
+/** Divisores globales para derivar tarifas del sueldo base. */
+export interface StaffPayConfig {
+  id: number;
+  dias_mes: number;   // tarifa_dia = base / dias_mes
+  horas_mes: number;  // tarifa_hora = base / horas_mes
+  updated_at: string;
+}
+
+/** Período de pago a personal (borrador → aprobada → pagada). */
+export interface StaffPayPeriod {
+  id: string;
+  company_id: string | null;
+  name: string;
+  period_type: 'dia' | 'semana' | 'quincena';
+  date_from: string;
+  date_to: string;
+  mode: 'dias' | 'horas';
+  only_validated: boolean; // solo cuentan jornadas validadas por el supervisor
+  status: 'borrador' | 'aprobada' | 'pagada';
+  total_amount: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** Línea por persona. total = devengado + Σbonos − Σdeducciones. */
+export interface StaffPayItem {
+  id: string;
+  period_id: string;
+  employee_id: string | null;
+  cedula: string | null;
+  person_name: string;
+  cargo: string | null;
+  source: 'auto' | 'manual';   // auto = jornadas de operador; manual = a mano
+  base_salary: number;
+  tarifa_dia: number;
+  tarifa_hora: number;
+  dias: number;
+  horas: number;
+  jornadas_validadas: number;
+  jornadas_pendientes: number;
+  overridden: boolean;         // días/horas ajustados a mano
+  devengado: number;
+  bonos: StaffPayLine[];
+  deducciones: StaffPayLine[];
+  total: number;
+  nota: string | null;
+  created_at: string;
+}
+
+/** Abono (pago parcial) de una línea de persona. */
+export interface StaffPayPayment {
+  id: string;
+  item_id: string;
+  monto: number;
+  metodo: string;
+  fecha: string;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 // ===== F3 COMPRAS =====
 
 export interface Supplier {
