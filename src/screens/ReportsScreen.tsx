@@ -1667,24 +1667,7 @@ export default function ReportsScreen({ route }: any) {
                       <>
                         {tableCard('Por clasificación', conteo.byClas)}
                         {tableCard('Por tipo de equipo', conteo.byTipo)}
-                        {/* Listado completo de equipos activos por clasificación (sin empresas). */}
-                        <Card>
-                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Listado de equipos activos ({conteo.activos})</Text>
-                          {conteo.roster.map((g) => (
-                            <View key={g.clas} style={{ marginTop: spacing.sm }}>
-                              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{g.clas} — {g.items.length}</Text>
-                              {g.items.map((it, i) => (
-                                <View key={`${g.clas}-${it.code}-${it.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                                  <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.code}</Text>
-                                    <Text style={{ color: colors.muted, fontSize: 11 }}>{it.tipo}{it.serial ? ` · Serial ${it.serial}` : ''}</Text>
-                                  </View>
-                                </View>
-                              ))}
-                            </View>
-                          ))}
-                        </Card>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca la tarjeta "Activos" (arriba) para ver el listado de equipos, o descarga el PDF.</Text>
                       </>
                     )}
                   </>
