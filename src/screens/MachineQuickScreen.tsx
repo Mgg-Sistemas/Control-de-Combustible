@@ -407,6 +407,20 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       return;
     }
 
+    // Regla: una máquina puede tener MÁXIMO 4 operadores por día.
+    const { data: opsToday } = await supabase
+      .from('operator_assignments')
+      .select('cedula')
+      .eq('machinery_id', machine.id)
+      .eq('work_date', iso);
+    const soloDigitos = (s: string) => (s || '').replace(/\D/g, '');
+    const cedulasHoy = new Set((opsToday ?? []).map((o: any) => soloDigitos(o.cedula)));
+    if (!cedulasHoy.has(soloDigitos(ci)) && cedulasHoy.size >= 4) {
+      setJornadaBusy(false);
+      setNotice('❌ Esta máquina ya tiene 4 operadores hoy (máximo permitido). No se puede agregar otro.');
+      return;
+    }
+
     // Ubicación en TIEMPO REAL del operador al iniciar (para la traza).
     const startCoords = userLoc ?? (await getCurrentCoords().then((r) => (r.ok && r.lat != null ? { lat: r.lat, lng: r.lng as number } : null)).catch(() => null));
 
