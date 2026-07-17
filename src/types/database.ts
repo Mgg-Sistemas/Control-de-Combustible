@@ -80,6 +80,7 @@ export interface Machinery {
   operator_id: string | null; // operador asignado por defecto (rol operador) — para la vista de operador
   grupo: string | null;
   encargado: string | null;
+  zona: string | null; // ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del conteo
   tipo: string | null; // MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — para agrupar
   clasificacion: string | null; // CLASIFICACIÓN de la máquina (Excavadora, Volteo, Retro...) — para agrupar
   referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes

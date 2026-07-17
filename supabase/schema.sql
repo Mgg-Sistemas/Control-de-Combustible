@@ -653,6 +653,8 @@ alter table public.machinery add column if not exists price_per_hour numeric(12,
 -- Grupo y encargado de la maquinaria (se muestran en el catálogo).
 alter table public.machinery add column if not exists grupo text;
 alter table public.machinery add column if not exists encargado text;
+-- ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del Conteo de equipos.
+alter table public.machinery add column if not exists zona text;
 
 -- MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — agrupa reportes por modelo.
 -- (La columna se llama `tipo` por historia; hoy representa el MODELO.)

@@ -18,6 +18,7 @@ import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaSc
 import { canonTipo } from './EquiposScreen';
 import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
+import { equipCategory, zonaLabel, sortZonas } from '../lib/equipos';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -200,37 +201,6 @@ const PDF_CSS = `
 // Categoría de equipo para el "Conteo de equipos": agrupa por tipo real leyendo el
 // nombre/código. Las categorías pedidas se detectan por palabras clave; el resto
 // queda por la primera palabra del código (p. ej. PAYLOADER, RETROEXCAVADORA…).
-function equipCategory(code: string): string {
-  const c = (code || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  // ── Camiones: cada tipo con su nombre propio (no un cajón genérico "CAMION"). ──
-  if (c.includes('volteo') || c.includes('toronto')) return 'CAMIÓN VOLTEO - TORONTO';
-  if (c.includes('pitman')) return 'CAMIÓN BRAZO PITMAN';
-  // Va antes que plataforma: "CAMION GRUA PLATAFORMA" es su propia categoría.
-  if (c.includes('grua') && c.includes('plataforma')) return 'CAMIÓN GRÚA PLATAFORMA';
-  if (c.includes('grua')) return 'GRÚAS TELESCÓPICAS';
-  // OJO: usar límite de palabra para "cava" — "RETROEXCAVADORA" contiene "cava".
-  if (/\bcava\b/.test(c)) return 'CAMIÓN CAVA SECA';
-  if (c.includes('cesta')) return 'CAMIÓN CESTA';
-  if (c.includes('soldadura')) return 'CAMIÓN DE SOLDADURA';
-  if (c.includes('refrigerad')) return 'CAMIÓN REFRIGERADO';
-  if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA';
-  if (c.includes('pick') || c.includes('camioneta')) return 'CAMIONETA PICK-UP';
-  if (c.includes('camion') && c.includes('servicio')) return 'CAMIÓN DE SERVICIO';
-  // ── Otros tipos de maquinaria. ──
-  if (c.includes('jumbo')) return 'JUMBO';
-  if (c.includes('oruga')) return 'TRACTORES DE ORUGA';
-  if (c.includes('lowboy') || c.includes('low boy')) return 'CHUTO CON LOWBOY';
-  if (c.includes('batea')) return 'CHUTO CON BATEA';
-  if (c.includes('volqueta')) return 'CHUTO CON VOLQUETA';
-  if (c.includes('cisterna') && c.includes('agua')) return 'CISTERNA DE AGUA';
-  // Tanque/cisterna de combustible (diesel/gasoil) → TANQUE DE COMBUSTIBLE.
-  if (c.includes('tanque') || c.includes('combustible') || (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil')))) return 'TANQUE DE COMBUSTIBLE';
-  if (c.includes('compresor')) return 'COMPRESOR CON MARTILLO';
-  // "MINI" / "MINI SHOWER" → MINISHOWER (evita que queden como "MINI").
-  if (c.includes('mini') || c.includes('shower')) return 'MINISHOWER';
-  return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
-}
-
 function pdfShell(title: string, sub: string, body: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title><style>${PDF_CSS}</style></head><body>
     <div class="top">
@@ -443,12 +413,16 @@ export default function ReportsScreen({ route }: any) {
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
   type MachineDetail = { code: string; serial: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby' };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  // Fila activa cruda (con su ZONA) para recalcular el conteo al filtrar por zona, en vivo.
+  type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; tieneHoras: boolean };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[] } | null>(null);
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
-  // El conteo se muestra siempre por CANTIDAD (sin filtro de horas).
-  const conteoFilter = 'todos' as 'todos' | 'con' | 'sin';
+  // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
+  const [conteoZona, setConteoZona] = useState<string>('__all__');
+  // Al reabrir el conteo, arranca mostrando todas las zonas.
+  useEffect(() => { if (conteoPreview) setConteoZona('__all__'); }, [conteoPreview]);
   // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
   // los MISMOS parámetros cuando cambian las jornadas (realtime). Se limpia al cerrar.
   const liveRef = useRef<null | (() => void)>(null);
@@ -475,6 +449,8 @@ export default function ReportsScreen({ route }: any) {
   const [roundsPreview, setRoundsPreview] = useState(false);
   // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
   useEffect(() => { if (!roundsPreview) liveRef.current = null; }, [roundsPreview]);
+  // Igual para el conteo: al cerrarlo se apaga la sincronización en vivo.
+  useEffect(() => { if (!conteoPreview) liveRef.current = null; }, [conteoPreview]);
   const [roundsCompany, setRoundsCompany] = useState<string | null>(null); // empresa seleccionada (sincronía con Control)
   const [companyList, setCompanyList] = useState<string[]>([]); // empresas para el selector del reporte
   const [companyRif, setCompanyRif] = useState<Record<string, string>>({}); // nombre → RIF (para imprimir en reportes)
@@ -944,7 +920,8 @@ export default function ReportsScreen({ route }: any) {
   // y por TIPO de equipo (JUMBO, RETROEXCAVADORA…), con totales de estado al final.
   const generateConteo = async () => {
     setLoading(true);
-    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, company:company_id(name)');
+    liveRef.current = generateConteo; // se sincroniza solo cuando se cambia/actualiza una máquina
+    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, zona, company:company_id(name)');
     const all = (mach ?? []) as any[];
     // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
     // (active/operational = false) y los que están en espera (stand by).
@@ -990,7 +967,17 @@ export default function ReportsScreen({ route }: any) {
     const machinesAll: MachineDetail[] = all
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
-    setConteo({ byClas, byTipo, machinesAll, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    // Filas ACTIVAS con su ZONA (base del filtro por zona; las tablas se recalculan al vuelo).
+    const activeRows: ActiveRow[] = list.map((m) => ({
+      code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m),
+      tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
+      zona: zonaLabel(m.zona), tieneHoras: (hoursByMachine.get(m.id) ?? 0) > 0,
+    }));
+    // Conteo por ZONA para los chips del filtro (zonas conocidas primero, "Sin zona" al final).
+    const zonaCountMap = new Map<string, number>();
+    activeRows.forEach((r) => zonaCountMap.set(r.zona, (zonaCountMap.get(r.zona) ?? 0) + 1));
+    const zonaCounts = sortZonas([...zonaCountMap.keys()]).map((name) => ({ name, count: zonaCountMap.get(name) ?? 0 }));
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -998,24 +985,32 @@ export default function ReportsScreen({ route }: any) {
   const downloadConteoPdf = async () => {
     if (!conteo) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const cnt = (r: ConteoRow) => (conteoFilter === 'con' ? r.conHoras : conteoFilter === 'sin' ? r.sinHoras : r.count);
-    const totalCnt = conteoFilter === 'con' ? conteo.conHoras : conteoFilter === 'sin' ? conteo.sinHoras : conteo.total;
-    const colHead = conteoFilter === 'con' ? 'Con horas' : conteoFilter === 'sin' ? 'Sin horas' : 'Cantidad';
-    const filtroTxt = conteoFilter === 'con' ? ' · solo equipos CON horas' : conteoFilter === 'sin' ? ' · solo equipos SIN horas' : '';
-    const rowsFor = (arr: ConteoRow[]) => arr.filter((r) => cnt(r) > 0 || conteoFilter === 'todos').map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${cnt(r)}</td></tr>`).join('');
-    // En "Sin horas" no se cuenta/agrupa: se lista cada máquina.
-    const sinListHtml = `
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas sin horas (${conteo.sinList.length})</h2>
-      <table class="cnt"><thead><tr><th style="width:34px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Clasificación</th></tr></thead>
-        <tbody>${conteo.sinList.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.clas)}</td></tr>`).join('')}</tbody></table>`;
-    const tablasHtml = `
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación${filtroTxt}</h2>
-      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">${colHead}</th></tr></thead>
-        <tbody>${rowsFor(conteo.byClas)}</tbody>
+    // Respeta la ZONA elegida en el filtro: recalcula las tablas con esas máquinas.
+    const rowsZona = conteoZona === '__all__' ? conteo.activeRows : conteo.activeRows.filter((r) => r.zona === conteoZona);
+    const aggregate = (key: 'clas' | 'tipo') => {
+      const m = new Map<string, number>();
+      rowsZona.forEach((r) => m.set(r[key], (m.get(r[key]) ?? 0) + 1));
+      return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    };
+    const byClas = aggregate('clas');
+    const byTipo = aggregate('tipo');
+    const totalCnt = rowsZona.length;
+    const zonaTxt = conteoZona === '__all__' ? 'todas las zonas' : conteoZona;
+    const rowsFor = (arr: { name: string; count: number }[]) => arr.map((r) => `<tr><td>${esc(r.name)}</td><td style="text-align:right;font-weight:700">${r.count}</td></tr>`).join('');
+    // Resumen "a disposición de" por zona (solo cuando se ven todas las zonas).
+    const zonaSummary = conteoZona === '__all__' ? `
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas a disposición por zona</h2>
+      <table class="cnt"><thead><tr><th>Zona</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${conteo.zonaCounts.map((z) => `<tr><td>${esc(z.name)}</td><td style="text-align:right;font-weight:700">${z.count}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>` : '';
+    const tablasHtml = `${zonaSummary}
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación · ${esc(zonaTxt)}</h2>
+      <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${rowsFor(byClas)}</tbody>
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo${filtroTxt}</h2>
-      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">${colHead}</th></tr></thead>
-        <tbody>${rowsFor(conteo.byTipo)}</tbody>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por tipo · ${esc(zonaTxt)}</h2>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${rowsFor(byTipo)}</tbody>
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>`;
     const body = `
       <style>
@@ -1024,8 +1019,11 @@ export default function ReportsScreen({ route }: any) {
         table.cnt th{background:#1E3A5F;color:#fff}
         table.cnt tfoot td{background:#EEF2F7;font-weight:800}
       </style>
-      ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}`;
-    await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos ACTIVOS por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
+      ${tablasHtml}`;
+    const sub = conteoZona === '__all__'
+      ? 'Cantidad de equipos ACTIVOS por zona, clasificación y tipo'
+      : `Equipos ACTIVOS a disposición de ${esc(conteoZona)} · por clasificación y tipo`;
+    await exportPdf(pdfShell('CONTEO DE EQUIPOS', sub, body), 'Reportes - Conteo de equipos');
   };
 
   // Imprime el LISTADO del detalle (activos / inactivos / stand by / total flota).
@@ -1578,23 +1576,58 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
 
-              {/* Botones: Todos / Con horas / Sin horas */}
+              {/* Filtro por ZONA: cada chip muestra cuántas máquinas hay a disposición de esa
+                  zona. Al elegir una, las tablas de abajo se recalculan solo con esa zona. */}
               {(() => {
-                const cnt = (r: ConteoRow) => (conteoFilter === 'con' ? r.conHoras : conteoFilter === 'sin' ? r.sinHoras : r.count);
-                const totalCnt = conteoFilter === 'con' ? conteo.conHoras : conteoFilter === 'sin' ? conteo.sinHoras : conteo.total;
-                const colFor = conteoFilter === 'con' ? colors.success : conteoFilter === 'sin' ? colors.warning : colors.primary;
+                const chips: { key: string; label: string; count: number }[] = [
+                  { key: '__all__', label: 'Todas', count: conteo.total },
+                  ...conteo.zonaCounts.map((z) => ({ key: z.name, label: z.name, count: z.count })),
+                ];
+                return (
+                  <Card>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: 6 }}>🗺️ Filtrar por zona (a disposición de)</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {chips.map((z) => {
+                        const on = conteoZona === z.key;
+                        return (
+                          <TouchableOpacity key={z.key} onPress={() => setConteoZona(z.key)}
+                            style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{z.label} · {z.count}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {conteoZona !== '__all__' ? (
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
+                        Mostrando solo <Text style={{ fontWeight: '800', color: colors.text }}>{conteoZona}</Text>. Las tablas cuentan las máquinas a disposición de esa zona.
+                      </Text>
+                    ) : null}
+                  </Card>
+                );
+              })()}
+
+              {/* Tablas del conteo (recalculadas según la zona elegida). */}
+              {(() => {
+                const rowsZona = conteoZona === '__all__' ? conteo.activeRows : conteo.activeRows.filter((r) => r.zona === conteoZona);
+                const aggregate = (key: 'clas' | 'tipo'): ConteoRow[] => {
+                  const m = new Map<string, ConteoRow>();
+                  rowsZona.forEach((r) => { const k = r[key]; const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
+                  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+                };
+                const byClas = aggregate('clas');
+                const byTipo = aggregate('tipo');
+                const totalCnt = rowsZona.length;
+                const colFor = colors.primary;
                 const tableCard = (title: string, rows: ConteoRow[]) => (
                   <Card>
                     <View style={{ flexDirection: 'row', marginBottom: 4 }}>
                       <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>{title}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' }}>
-                        {conteoFilter === 'con' ? 'CON HORAS' : conteoFilter === 'sin' ? 'SIN HORAS' : 'CANTIDAD'}
-                      </Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' }}>CANTIDAD</Text>
                     </View>
-                    {rows.filter((r) => cnt(r) > 0 || conteoFilter === 'todos').map((r) => (
+                    {rows.map((r) => (
                       <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                        <Text style={{ color: colFor, fontSize: 14, fontWeight: '800', width: 70, textAlign: 'right' }}>{cnt(r)}</Text>
+                        <Text style={{ color: colFor, fontSize: 14, fontWeight: '800', width: 70, textAlign: 'right' }}>{r.count}</Text>
                       </View>
                     ))}
                     <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
@@ -1605,8 +1638,8 @@ export default function ReportsScreen({ route }: any) {
                 );
                 return (
                   <>
-                    {tableCard('Por clasificación', conteo.byClas)}
-                    {tableCard('Por tipo de equipo', conteo.byTipo)}
+                    {tableCard('Por clasificación', byClas)}
+                    {tableCard('Por tipo de equipo', byTipo)}
                   </>
                 );
               })()}

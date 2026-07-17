@@ -126,7 +126,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Al cerrar un corte, el sistema CONGELA el precio de cada máquina de ese corte. Así, aunque en el siguiente corte suba o baje el precio de una máquina, el corte cerrado sigue mostrando su total original (en el reporte y en el Histórico). Los cortes abiertos usan el precio actual.' },
       { t: 'note', text: 'Para ver un reporte: toca 📊 Ver reporte, elige el rango de fechas y la empresa. Se abre una ventana con la vista previa del documento y dos botones: 🖨️ Imprimir y Cancelar. Toca Imprimir para mandarlo a la impresora o guardarlo como PDF.' },
       { t: 'note', text: 'El PDF de una empresa se guarda con su nombre y el rango, por ejemplo "Reporte Ferreconstrucciones del 06 al 12". Si al guardar/imprimir el encabezado azul se ve gris, activa la opción "Gráficos de fondo" (Background graphics) en el diálogo de impresión.' },
-      { t: 'note', text: 'Conteo de equipos: en Reportes, la pestaña 📊 Conteo equipos muestra cuántos equipos hay por clasificación (ej. REMOCIÓN Y EXCAVACIÓN 70) y por tipo (JUMBO, RETROEXCAVADORA…). Arriba tiene tres botones: "Todos", "Con horas" y "Sin horas". "Todos" y "Con horas" muestran el conteo agrupado por EMPRESA, por clasificación y por tipo; "Sin horas" NO cuenta: muestra el LISTADO de las máquinas que no trabajaron (empresa, nombre, serial y clasificación). Al final, los totales de la flota: activos, inactivos y stand by, más el total con/sin horas. El PDF sale con el filtro elegido. No depende de fechas (cuenta todo el catálogo). Se puede descargar en PDF.' },
+      { t: 'note', text: 'Conteo de equipos: en Reportes, la pestaña 📊 Conteo equipos muestra cuántos equipos ACTIVOS hay por clasificación (ej. REMOCIÓN Y EXCAVACIÓN 70) y por tipo (JUMBO, RETROEXCAVADORA…). Tiene un filtro por ZONA (a disposición de): cada chip muestra cuántas máquinas hay en esa zona (ej. Gobernación 9, FANB 5, CVM 4, Zona Este…, Sin zona…); al tocar una zona, las tablas se recalculan solo con esas máquinas (así ves "cuántos tractores en Zona Este", etc.). La zona de cada máquina se asigna en el catálogo de Equipos (campo "Zona / a disposición de"). Al final, los totales de la flota: activos, inactivos y stand by. El reporte se actualiza solo cada vez que se cambia o agrega una máquina, y no depende de fechas (cuenta todo el catálogo). Se puede descargar en PDF (incluye el resumen por zona).' },
     ],
   },
   {
@@ -226,7 +226,8 @@ const SECTIONS: Sec[] = [
         'Autorizaciones: cuando algo necesita permiso, se pide aquí y la persona autorizada lo aprueba o rechaza.',
         'Mantenimiento: se registran las máquinas que necesitan reparación.',
         'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
-        'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por categoría (camiones y transporte, grúas, excavadoras, cargadores, compactadores…) o por máquina individual. Usa "Mostrar todas" / "Ocultar todas" o toca una categoría para ver sus máquinas y elegir una por una.',
+        'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por TIPO de equipo (igual que el Conteo: payloaders, jumbos, tractores, cisternas…), cada uno con su cantidad. Usa "Mostrar todas" / "Ocultar todas" o toca un tipo para ver sus máquinas y elegir una por una.',
+        'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
       ] },
     ],
   },

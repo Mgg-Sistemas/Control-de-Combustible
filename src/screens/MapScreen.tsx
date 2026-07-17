@@ -6,31 +6,26 @@ import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/Ve
 import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
-import { norm } from '../lib/text';
+import { equipCategory } from '../lib/equipos';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
-// Categorías del mapa: agrupan las máquinas por lo que son (para prender/apagar
-// capas). Se prueba con el código + tipo + clasificación (sin acentos, minúscula).
-const CATS: { key: string; label: string; icon: string; re: RegExp }[] = [
-  { key: 'transporte', label: 'Camiones y transporte', icon: '🚛', re: /camion|chuto|volteo|volquet|toronto|pipa|cisterna|batea|gandola|plataforma|lowboy|remolque/ },
-  { key: 'grua', label: 'Grúas', icon: '🏗️', re: /grua/ },
-  { key: 'excavacion', label: 'Excavadoras / Retro', icon: '⛏️', re: /excavad|retro|pala|martillo|oruga/ },
-  { key: 'carga', label: 'Cargadores / Tractores', icon: '🚜', re: /cargador|payloader|bulldozer|tractor|motonivel|nivelad|bobcat|minicarg/ },
-  { key: 'compactacion', label: 'Compactadores / Rodillos', icon: '🧱', re: /compact|rodillo|vibro|apisonad/ },
-];
-const CAT_OTHER = { key: 'otros', label: 'Otras máquinas', icon: '🔧' };
-const CAT_META: Record<string, { label: string; icon: string }> = {
-  ...Object.fromEntries(CATS.map((c) => [c.key, { label: c.label, icon: c.icon }])),
-  [CAT_OTHER.key]: { label: CAT_OTHER.label, icon: CAT_OTHER.icon },
-};
-const CAT_ORDER = [...CATS.map((c) => c.key), CAT_OTHER.key];
-/** Categoría de una máquina según su código/tipo/clasificación. */
+// Capas del mapa: una por TIPO ESPECÍFICO de equipo (JUMBO, PAYLOADER, TRACTORES…),
+// EXACTAMENTE igual que el "Conteo de equipos" (usa la misma clasificación).
+const CAT_OTHER_KEY = '—';
+/** Tipo (categoría fina) de una máquina, igual que en el conteo. */
 function catOf(p: MapPin): string {
-  const s = norm(`${p.name || ''} ${p.tipo || ''} ${p.clasificacion || ''}`);
-  for (const c of CATS) if (c.re.test(s)) return c.key;
-  return CAT_OTHER.key;
+  return equipCategory(p.name) || CAT_OTHER_KEY;
+}
+/** Ícono por tipo (aproximado por palabras clave; si no calza → 🔧). */
+function iconFor(cat: string): string {
+  const c = cat.toLowerCase();
+  if (c.includes('grúa') || c.includes('grua')) return '🏗️';
+  if (c.includes('retro') || c.includes('excavad') || c.includes('jumbo') || c.includes('martillo')) return '⛏️';
+  if (c.includes('payloader') || c.includes('cargador') || c.includes('tractor') || c.includes('bulldozer') || c.includes('nivelad')) return '🚜';
+  if (c.includes('camión') || c.includes('camion') || c.includes('chuto') || c.includes('cisterna') || c.includes('tanque') || c.includes('camioneta') || c.includes('autobus')) return '🚛';
+  return '🔧';
 }
 
 type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string };
@@ -214,16 +209,17 @@ export default function MapScreen({ navigation, route }: any) {
   const groups = useMemo(() => {
     const g = new Map<string, MapPin[]>();
     (pins ?? []).forEach((p) => {
-      const k = pinCat.get(p.id) ?? CAT_OTHER.key;
+      const k = pinCat.get(p.id) ?? CAT_OTHER_KEY;
       if (!g.has(k)) g.set(k, []);
       g.get(k)!.push(p);
     });
     g.forEach((arr) => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     return g;
   }, [pins, pinCat]);
-  const presentCats = CAT_ORDER.filter((k) => groups.has(k));
+  // Tipos presentes, en orden ALFABÉTICO (igual que el conteo "por tipo").
+  const presentCats = useMemo(() => [...groups.keys()].sort((a, b) => a.localeCompare(b, 'es')), [groups]);
 
-  const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER.key) && !hiddenIds.has(p.id);
+  const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER_KEY) && !hiddenIds.has(p.id);
   // El mapa muestra: la enfocada (si hay), o las que pasan el filtro de capas.
   const shownPins = pins === null ? null : (focus ? pins.filter((p) => p.id === focus.id) : (pins ?? []).filter(isMachineShown));
 
@@ -281,7 +277,7 @@ export default function MapScreen({ navigation, route }: any) {
                 const list = groups.get(k) ?? [];
                 const catHidden = hiddenCats.has(k);
                 const shownInCat = catHidden ? 0 : list.filter((p) => !hiddenIds.has(p.id)).length;
-                const meta = CAT_META[k];
+                const meta = { icon: iconFor(k), label: k };
                 const expanded = expandedCat === k;
                 return (
                   <View key={k} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 }}>
