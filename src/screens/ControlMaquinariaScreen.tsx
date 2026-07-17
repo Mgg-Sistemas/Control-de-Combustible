@@ -984,10 +984,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
     norm(m.code).includes(q) ||
     norm(m.serial).includes(q) ||
     (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
+  // El control SOLO muestra equipos ACTIVOS: si una máquina se desactiva (active=false)
+  // desaparece del control; al reactivarla, vuelve a aparecer automáticamente.
+  const esActiva = (m: Machinery) => (m as any).active !== false;
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
-  const shown = machines.filter((m) => !m.en_espera && matchCompany(m) && matchText(m));
+  const shown = machines.filter((m) => esActiva(m) && !m.en_espera && matchCompany(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
-  const enEspera = machines.filter((m) => m.en_espera && matchCompany(m) && matchText(m));
+  const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompany(m) && matchText(m));
   const enEsperaByCompany = (() => {
     const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
     enEspera.forEach((it) => {
