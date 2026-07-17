@@ -1062,6 +1062,11 @@ begin
       raise exception 'No autorizado: sesion anonima no puede modificar datos sensibles de la maquina';
     end if;
   end if;
+  -- La ANALISTA puede cargar/editar/eliminar jornadas, pero NO modificar el PRECIO.
+  if public.current_role() = 'analista'
+     and (new.price_per_hour is distinct from old.price_per_hour) then
+    raise exception 'No autorizado: el rol analista no puede modificar el precio de la maquina';
+  end if;
   return new;
 end;
 $$;
