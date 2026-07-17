@@ -193,7 +193,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setUnit(it.unit || '');
     setSku((it as any).sku || '');
     setMinStock(it.min_stock != null ? String(it.min_stock) : '');
-    setInitStock(''); setInitCost('');
+    setInitStock('');
+    // Costo unitario (PMP) prellenado, editable.
+    setInitCost(it.avg_cost != null ? String(it.avg_cost) : '');
     setOpen(true);
   };
 
@@ -205,12 +207,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
-      const { error } = await supabase.from('inventory_items')
-        .update({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock) })
-        .eq('id', editingId);
+      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock) };
+      // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
+      if (initCost.trim() !== '') patch.avg_cost = parseNum(initCost);
+      const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
       setBusy(false);
       if (error) return Alert.alert('Aviso', error.message);
-      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock('');
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost('');
       refetch();
       return;
     }
@@ -426,7 +429,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (Nota de entrega).</Text>
             {editingId ? (
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>El stock y el PMP no se editan a mano: se ajustan con entradas/salidas (Movimientos).</Text>
+              <Card>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario (PMP)</Text>
+                <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Puedes corregir el costo unitario del producto aquí. El stock se ajusta con entradas/salidas (Movimientos).</Text>
+              </Card>
             ) : (
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Existencia inicial (opcional)</Text>
