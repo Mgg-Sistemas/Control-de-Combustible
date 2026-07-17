@@ -26,6 +26,38 @@ function decodeB64(b64: string): Uint8Array {
 // y horómetro no necesitan alta resolución).
 const PICK_QUALITY = 0.35;
 
+// Resultado "cancelado" uniforme (sirve para web y nativo).
+const CANCELED = { canceled: true, assets: null } as unknown as ImagePicker.ImagePickerResult;
+
+/**
+ * En WEB, expo-image-picker NO resuelve la promesa cuando el usuario CANCELA el
+ * selector de archivos (no hay evento de cancelación en <input type=file>), así que
+ * el `await` se cuelga y el botón se queda en "Subiendo…" para siempre.
+ * Este wrapper detecta el cierre del diálogo por el `focus` de la ventana: si se
+ * eligió archivo, la promesa real resuelve enseguida; si se canceló, nunca resuelve,
+ * así que tras un pequeño margen lo damos por cancelado y liberamos el botón.
+ * En nativo devuelve la promesa tal cual (allí sí resuelve al cancelar).
+ */
+async function pick(
+  launch: () => Promise<ImagePicker.ImagePickerResult>
+): Promise<ImagePicker.ImagePickerResult> {
+  const real = launch();
+  if (Platform.OS !== 'web') return real;
+  return await new Promise<ImagePicker.ImagePickerResult>((resolve) => {
+    let settled = false;
+    const finish = (r: ImagePicker.ImagePickerResult) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('focus', onFocus);
+      resolve(r);
+    };
+    // La ventana recupera el foco cuando el diálogo se cierra (elija o cancele).
+    const onFocus = () => setTimeout(() => finish(CANCELED), 1500);
+    window.addEventListener('focus', onFocus);
+    real.then(finish).catch(() => finish(CANCELED));
+  });
+}
+
 /** Convierte el asset elegido en el cuerpo a subir. En WEB usa el blob directo
  *  (rápido, evita el decode base64); en NATIVO usa base64. */
 async function assetToBody(asset: any): Promise<Blob | Uint8Array | null> {
@@ -69,7 +101,7 @@ export async function captureAndUploadPhoto(
   try {
     const cam = await ImagePicker.requestCameraPermissionsAsync();
     if (cam.granted) {
-      res = await ImagePicker.launchCameraAsync({ quality: PICK_QUALITY, base64: webBase64 });
+      res = await pick(() => ImagePicker.launchCameraAsync({ quality: PICK_QUALITY, base64: webBase64 }));
     }
   } catch {
     res = null;
@@ -78,7 +110,7 @@ export async function captureAndUploadPhoto(
   if (!res || res.canceled || !res.assets?.[0]) {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return { ok: false, error: 'Permiso de cámara/galería denegado.' };
-    res = await ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 });
+    res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: webBase64 }));
   }
   if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
 
@@ -104,7 +136,7 @@ export async function captureAndUploadEmployeePhoto(
   try {
     const cam = await ImagePicker.requestCameraPermissionsAsync();
     if (cam.granted) {
-      res = await ImagePicker.launchCameraAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] });
+      res = await pick(() => ImagePicker.launchCameraAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] }));
     }
   } catch {
     res = null;
@@ -112,7 +144,7 @@ export async function captureAndUploadEmployeePhoto(
   if (!res || res.canceled || !res.assets?.[0]) {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return { ok: false, error: 'Permiso de cámara/galería denegado.' };
-    res = await ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] });
+    res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: 0.85, base64: false, allowsEditing: !web, aspect: [5, 6] }));
   }
   if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
 
@@ -145,7 +177,7 @@ export async function pickAndUploadPhoto(
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
 
-  const res = await ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: Platform.OS !== 'web' });
+  const res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: Platform.OS !== 'web' }));
   if (res.canceled || !res.assets?.[0]) return { ok: false };
 
   const body = await assetToBody(res.assets[0]);
