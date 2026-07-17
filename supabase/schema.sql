@@ -78,10 +78,11 @@ returns boolean
 language plpgsql stable security definer set search_path = public as $$
 declare lvl text;
 begin
+  if public.is_anon() then return false; end if; -- anónimos nunca escriben por módulos
   if public.is_admin() then return true; end if;
   select mp.level into lvl from public.module_permissions mp
     where mp.user_id = auth.uid() and mp.module = mod limit 1;
-  if lvl is null then return true; end if; -- sin fila = por defecto escritura
+  if lvl is null then return true; end if; -- sin fila = por defecto escritura (usuarios logueados)
   return lvl in ('escritura','full');
 end;
 $$;
@@ -489,7 +490,7 @@ alter table public.price_tariffs enable row level security;
 drop policy if exists price_tariffs_read on public.price_tariffs;
 create policy price_tariffs_read on public.price_tariffs for select using (true);
 drop policy if exists price_tariffs_write on public.price_tariffs;
-create policy price_tariffs_write on public.price_tariffs for all to authenticated using (true) with check (true);
+create policy price_tariffs_write on public.price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
 -- Tabulador POR EMPRESA: sobrescribe el precio general de un modelo para una
 -- empresa puntual (no todas cobran igual). Al sincronizar, cada máquina usa el
@@ -506,7 +507,7 @@ alter table public.company_price_tariffs enable row level security;
 drop policy if exists cpt_read on public.company_price_tariffs;
 create policy cpt_read on public.company_price_tariffs for select using (true);
 drop policy if exists cpt_write on public.company_price_tariffs;
-create policy cpt_write on public.company_price_tariffs for all to authenticated using (true) with check (true);
+create policy cpt_write on public.company_price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
 -- Fletes/viajes CON FECHA: cada flete pertenece a una empresa (y opcionalmente a una
 -- máquina) y tiene su fecha, para que en los reportes aparezca SOLO en la semana en que
@@ -710,7 +711,7 @@ alter table public.company_payments enable row level security;
 drop policy if exists cp_select on public.company_payments;
 create policy cp_select on public.company_payments for select to authenticated using (true);
 drop policy if exists cp_write on public.company_payments;
-create policy cp_write on public.company_payments for all to authenticated using (true) with check (true);
+create policy cp_write on public.company_payments for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
 -- ============================================================================
 -- OPERADOR por máquina y día + CIERRES DE CONTROL (histórico de maquinaria)
@@ -808,8 +809,8 @@ create table if not exists public.payrolls (
 );
 alter table public.payrolls enable row level security;
 create policy pr_read on public.payrolls for select to authenticated using (true);
-create policy pr_insert on public.payrolls for insert to authenticated with check (true);
-create policy pr_delete on public.payrolls for delete to authenticated using (true);
+create policy pr_insert on public.payrolls for insert to authenticated with check (not public.is_anon());
+create policy pr_delete on public.payrolls for delete to authenticated using (not public.is_anon());
 create index if not exists idx_payroll_company on public.payrolls(company_name);
 
 -- ============================================================================
@@ -1047,6 +1048,26 @@ $$;
 drop policy if exists machinery_anon_update on public.machinery;
 create policy machinery_anon_update on public.machinery for update to authenticated
   using (public.is_anon()) with check (public.is_anon());
+-- El anónimo puede actualizar ubicación/estado, pero NO precio ni identidad de la
+-- máquina (RLS es por fila, no por columna → este trigger bloquea esas columnas).
+create or replace function public.machinery_guard_anon()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_anon() then
+    if (new.price_per_hour is distinct from old.price_per_hour)
+       or (new.code is distinct from old.code)
+       or (new.serial is distinct from old.serial)
+       or (new.clasificacion is distinct from old.clasificacion)
+       or (new.company_id is distinct from old.company_id) then
+      raise exception 'No autorizado: sesion anonima no puede modificar datos sensibles de la maquina';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_machinery_guard_anon on public.machinery;
+create trigger trg_machinery_guard_anon before update on public.machinery
+  for each row execute function public.machinery_guard_anon();
 drop policy if exists ml_anon_insert on public.machinery_locations;
 create policy ml_anon_insert on public.machinery_locations for insert to authenticated
   with check (public.is_anon());
@@ -1103,7 +1124,7 @@ alter table public.employees enable row level security;
 drop policy if exists employees_read on public.employees;
 create policy employees_read on public.employees for select using (true);
 drop policy if exists employees_write on public.employees;
-create policy employees_write on public.employees for all to authenticated using (true) with check (true);
+create policy employees_write on public.employees for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 -- N° de ficha AUTOMÁTICO: correlativo de 4 dígitos (0001, 0002, …) asignado al crear
 -- cuando no se envía uno manual.
 create sequence if not exists public.employees_ficha_seq;
@@ -1212,11 +1233,11 @@ alter table public.payroll_items enable row level security;
 drop policy if exists pp_read on public.payroll_periods;
 create policy pp_read on public.payroll_periods for select to authenticated using (true);
 drop policy if exists pp_write on public.payroll_periods;
-create policy pp_write on public.payroll_periods for all to authenticated using (true) with check (true);
+create policy pp_write on public.payroll_periods for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 drop policy if exists pi_read on public.payroll_items;
 create policy pi_read on public.payroll_items for select to authenticated using (true);
 drop policy if exists pi_write on public.payroll_items;
-create policy pi_write on public.payroll_items for all to authenticated using (true) with check (true);
+create policy pi_write on public.payroll_items for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
 -- ============================================================================
 -- ÍNDICES DE RENDIMIENTO (filtros/joins más frecuentes)
