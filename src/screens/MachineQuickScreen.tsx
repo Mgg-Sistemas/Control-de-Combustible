@@ -407,17 +407,18 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       return;
     }
 
-    // Regla: una máquina puede tener MÁXIMO 4 operadores por día.
-    const { data: opsToday } = await supabase
+    // Regla: MÁXIMO 2 operadores por TURNO (día/noche) → hasta 4 al día.
+    const { data: opsTurno } = await supabase
       .from('operator_assignments')
       .select('cedula')
       .eq('machinery_id', machine.id)
-      .eq('work_date', iso);
+      .eq('work_date', iso)
+      .eq('shift', sh.key);
     const soloDigitos = (s: string) => (s || '').replace(/\D/g, '');
-    const cedulasHoy = new Set((opsToday ?? []).map((o: any) => soloDigitos(o.cedula)));
-    if (!cedulasHoy.has(soloDigitos(ci)) && cedulasHoy.size >= 4) {
+    const cedulasTurno = new Set((opsTurno ?? []).map((o: any) => soloDigitos(o.cedula)));
+    if (!cedulasTurno.has(soloDigitos(ci)) && cedulasTurno.size >= 2) {
       setJornadaBusy(false);
-      setNotice('❌ Esta máquina ya tiene 4 operadores hoy (máximo permitido). No se puede agregar otro.');
+      setNotice(`❌ El turno de ${sh.key === 'day' ? 'DÍA' : 'NOCHE'} de esta máquina ya tiene 2 operadores (máximo por turno).`);
       return;
     }
 
