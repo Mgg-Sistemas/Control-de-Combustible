@@ -3,6 +3,7 @@ import { Platform, View, Text, TouchableOpacity, Linking } from 'react-native';
 import { Card } from './ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { SUBSECTORS } from '../lib/mapZones';
 
 export type MapPin = {
   id: string;
@@ -36,57 +37,8 @@ export function companyLegend(pins: MapPin[]): { rows: { company: string; color:
   return { rows: order.map((co) => ({ company: co, color: color[co], count: count[co] })), total: pins.length };
 }
 
-// ── SUB-SECTORES (zonas de La Guaira). El ORDEN define el índice para prender/apagar. ──
-const SUBSECTORS: any[] = [
-  { n:'Oeste · Sub 7: Catamare', color:'#D946EF',
-    a:{ lbl:'Límite Oeste', name:'Central Eléctrica J.J. Sánchez', lat:10.586938, lng:-67.079676 },
-    b:{ lbl:'Límite Este', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 } },
-  { n:'Oeste · Sub 6: Centrocatia', color:'#EC4899',
-    a:{ lbl:'Límite Oeste', name:'Playa La Zorra', lat:10.598137, lng:-67.044345 },
-    b:{ lbl:'Límite Este', name:'Quebrada Tacagua', lat:10.607800, lng:-67.030371 } },
-  { n:'Oeste · Sub 4: Hugo Chávez', color:'#F43F5E',
-    a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
-    b:{ lbl:'Límite Este', name:'Residencial Jurel', lat:10.610310, lng:-67.008093 } },
-  { n:'Oeste · Sub 3: Franja Costera', color:'#84CC16',
-    a:{ lbl:'Límite Oeste', name:'Av. El Balneario', lat:10.609909, lng:-67.028679 },
-    b:{ lbl:'Límite Sur', name:'Zona Perimetral Norte Aeropuerto', lat:10.606976, lng:-66.998483 } },
-  { n:'Oeste · Sub 5: Aeropuerto', color:'#EAB308',
-    a:{ lbl:'Límite Oeste', name:'Final Aeropuerto de Maiquetía', lat:10.601648, lng:-67.017346 },
-    b:{ lbl:'Límite Este', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 } },
-  { n:'Oeste · Sub 2: El Trébol', color:'#F97316',
-    a:{ lbl:'Límite Oeste', name:'Elevado de Pariata', lat:10.598585, lng:-66.961161 },
-    b:{ lbl:'Límite Este', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 } },
-  { n:'Oeste · Sub 1: El Chorro', color:'#EF4444',
-    a:{ lbl:'Límite Oeste', name:'Inicio Puerto de La Guaira', lat:10.602632, lng:-66.933117 },
-    b:{ lbl:'Límite Este', name:'Punta Mulato', lat:10.603567, lng:-66.912374 } },
-  { n:'Este · Sub 1: Álamo', color:'#F97316',
-    a:{ lbl:'Límite Oeste', name:'Punta Mulato', lat:10.603567, lng:-66.912374 },
-    b:{ lbl:'Límite Este', name:'Río Macuto', lat:10.607051, lng:-66.896534 } },
-  { n:'Este · Sub 2: Macuto', color:'#22C55E',
-    a:{ lbl:'Límite Oeste', name:'Río Macuto', lat:10.607051, lng:-66.896534 },
-    b:{ lbl:'Límite Este', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 } },
-  { n:'Este · Sub 3: Camurí Chico', color:'#3B82F6',
-    a:{ lbl:'Límite Oeste', name:'Quebrada El Cojo', lat:10.611158, lng:-66.887963 },
-    b:{ lbl:'Límite Este', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 } },
-  { n:'Este · Sub 4: El Palmar', color:'#EAB308',
-    a:{ lbl:'Límite Oeste', name:'Quebrada Camurí Chico', lat:10.611496, lng:-66.870785 },
-    b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
-  { n:'Caraballeda', color:'#EC4899',
-    pts:[
-      [10.61470, -66.85180],
-      [10.61680, -66.84330],
-      [10.61760, -66.83560],
-      [10.60420, -66.83660],
-      [10.60250, -66.84760],
-      [10.60650, -66.85320],
-    ] },
-  { n:'Este · Sub 6: Caribe', color:'#8B5CF6',
-    a:{ lbl:'Límite Sur', name:'Av. 10 A', lat:10.613268, lng:-66.857451 },
-    b:{ lbl:'Límite Este', name:'Quebrada San Juan', lat:10.612721, lng:-66.852966 } },
-  { n:'Este · Sub 7: Tanaguarena', color:'#06B6D4',
-    a:{ lbl:'Límite Nor-Oeste', name:'Punta Caraballeda', lat:10.619689, lng:-66.846207 },
-    b:{ lbl:'Límite Este', name:'Punta Tanaguarena', lat:10.611003, lng:-66.818581 } },
-];
+// Las zonas (SUBSECTORS) ahora vienen de los KMZ oficiales, con polígonos REALES de
+// La Guaira → ver src/lib/mapZones.ts. El ORDEN define el índice para prender/apagar.
 /** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
 export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
 
