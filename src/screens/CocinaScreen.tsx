@@ -70,6 +70,10 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   // esa comida a la persona; solo puede pasar una vez por comida al día.
   const [serving, setServing] = useState<MealType>(servingByTime());
   const [served, setServed] = useState(0); // contador de esta sesión
+  // Modo de entrega: torniquete (registra la comida fija de la sesión) o
+  // "elegir por persona" (al escanear abre a la persona y el cocinero elige la
+  // comida — p. ej. alguien que llega a almorzar a las 4pm).
+  const [scanChoose, setScanChoose] = useState(false);
 
   React.useEffect(() => {
     if (!uid) { setLoading(false); return; }
@@ -122,7 +126,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
     const { data } = await supabase.from('employees').select('id').eq('cedula', ci).limit(1);
     setSearching(false);
     const emp = data && data[0];
-    if (emp) { setCedula(''); quickDeliver((emp as any).id); }
+    if (emp) { setCedula(''); scanChoose ? openPerson((emp as any).id) : quickDeliver((emp as any).id); }
     else setNotice('❌ No hay ninguna persona con esa cédula.');
   };
 
@@ -285,31 +289,63 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
       {cook ? (
         <Card>
           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🍽️ Entregar comida</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Elige la comida que se está sirviendo. Cada carnet escaneado registra 1 comida a esa persona (solo puede pasar una vez por comida).</Text>
-          {/* Selector de la comida que se está sirviendo ahora. */}
+          {/* Modo de entrega. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
-            {MEALS.map((mt) => {
-              const active = serving === mt.key;
+            {[
+              { on: false, icon: '⚡', label: 'Torniquete', hint: 'comida fija' },
+              { on: true, icon: '🖐', label: 'Elegir por persona', hint: 'p. ej. almuerzo 4pm' },
+            ].map((m) => {
+              const active = scanChoose === m.on;
               return (
                 <TouchableOpacity
-                  key={mt.key}
-                  onPress={() => setServing(mt.key)}
-                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? mt.color : colors.surface, borderWidth: 1, borderColor: active ? mt.color : colors.border }}
+                  key={String(m.on)}
+                  onPress={() => setScanChoose(m.on)}
+                  style={{ flex: 1, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? colors.primary : colors.surface, borderWidth: 1, borderColor: active ? colors.primary : colors.border }}
                 >
-                  <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{mt.icon} {mt.label}</Text>
+                  <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{m.icon} {m.label}</Text>
+                  <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 10, marginTop: 1 }}>{m.hint}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Sirviendo: <Text style={{ color: colors.text, fontWeight: '800' }}>{mealLabel(serving).toUpperCase()}</Text> · Entregadas en esta sesión: <Text style={{ color: colors.primary, fontWeight: '800' }}>{served}</Text></Text>
-          <TouchableOpacity onPress={() => { setScanMode('quick'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet — entregar {mealLabel(serving).toUpperCase()}</Text>
-          </TouchableOpacity>
+
+          {scanChoose ? (
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Al escanear se abre a la persona y tú eliges la comida (desayuno / almuerzo / cena). Ideal cuando alguien llega fuera de hora.</Text>
+              <TouchableOpacity onPress={() => { setScanMode('quick'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet — elegir comida</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Elige la comida que se está sirviendo. Cada carnet escaneado registra esa comida (solo puede pasar una vez por comida).</Text>
+              {/* Selector de la comida que se está sirviendo ahora. */}
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                {MEALS.map((mt) => {
+                  const active = serving === mt.key;
+                  return (
+                    <TouchableOpacity
+                      key={mt.key}
+                      onPress={() => setServing(mt.key)}
+                      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: active ? mt.color : colors.surface, borderWidth: 1, borderColor: active ? mt.color : colors.border }}
+                    >
+                      <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{mt.icon} {mt.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Sirviendo: <Text style={{ color: colors.text, fontWeight: '800' }}>{mealLabel(serving).toUpperCase()}</Text> · Entregadas en esta sesión: <Text style={{ color: colors.primary, fontWeight: '800' }}>{served}</Text></Text>
+              <TouchableOpacity onPress={() => { setScanMode('quick'); setScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear carnet — entregar {mealLabel(serving).toUpperCase()}</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Busca por cédula:</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
             <TextInput value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
             <TouchableOpacity onPress={buscarPorCedula} disabled={searching} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : 'Entregar'}</Text>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{searching ? '…' : (scanChoose ? 'Abrir' : 'Entregar')}</Text>
             </TouchableOpacity>
           </View>
         </Card>
@@ -394,7 +430,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
               const id = parseEmployeeId(text);
               if (!id) { setScanOpen(false); setNotice('❌ Ese QR no es un carnet de persona.'); return; }
               if (scanMode === 'cook') verifyCook(id);
-              else if (scanMode === 'quick') quickDeliver(id);
+              else if (scanMode === 'quick') { scanChoose ? openPerson(id) : quickDeliver(id); }
               else openPerson(id);
             }}
           />
