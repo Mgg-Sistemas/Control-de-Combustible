@@ -11,6 +11,7 @@ import { norm, onlyDecimal } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee } from '../types/database';
 import { exportPdf } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
+import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { cotizacionHtml, CotizItem } from '../lib/cotizacion';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -1039,6 +1040,208 @@ function CotizacionTab() {
   );
 }
 
+// ── Nota de traslado (entre máquinas: origen → destino) ──────────────────────
+// Elige materiales del inventario y los TRASLADA de una máquina/empleado (origen)
+// a otra máquina/empleado (destino). Al confirmar: genera el PDF, descuenta el
+// stock (salida) y guarda el registro en inventory_transfers (casado con máquina
+// y empleado de cada lado).
+function TrasladoTab({ canWrite }: { canWrite: boolean }) {
+  const { colors } = useTheme();
+  const { session } = useAuth();
+  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
+  const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+
+  const [q, setQ] = useState('');
+  const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
+  const [motivo, setMotivo] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Origen y destino (máquina + empleado responsable de cada lado).
+  const [fromMachId, setFromMachId] = useState('');
+  const [fromEmpId, setFromEmpId] = useState('');
+  const [toMachId, setToMachId] = useState('');
+  const [toEmpId, setToEmpId] = useState('');
+  const [open, setOpen] = useState<string | null>(null); // 'fromMach' | 'fromEmp' | 'toMach' | 'toEmp'
+  const [pick, setPick] = useState('');
+
+  const nq = norm(q);
+  const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
+  const inCart = (id: string) => cart.find((c) => c.id === id);
+  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
+  const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
+  const empNameById = (id: string) => { const e = employees.find((x) => (x as any).id === id); return e ? empName(e) : ''; };
+
+  const addToCart = (it: InventoryLevel) => {
+    if (inCart(it.id)) return;
+    setCart((prev) => [...prev, { id: it.id, name: it.name, unit: it.unit || '', qty: 1, avg_cost: Number(it.avg_cost) || 0, stock: Number(it.stock) || 0, company_id: it.company_id ?? null }]);
+  };
+  const setQty = (id: string, t: string) => { const n = parseNum(onlyDecimal(t)); setCart((prev) => prev.map((c) => (c.id === id ? { ...c, qty: n } : c))); };
+  const removeFromCart = (id: string) => setCart((prev) => prev.filter((c) => c.id !== id));
+
+  const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+
+  // Selector desplegable reutilizable (máquina o empleado).
+  const Selector = ({ id, icon, label, valueId, valueText, onPick, options }: {
+    id: string; icon: string; label: string; valueId: string; valueText: string;
+    onPick: (v: string) => void; options: { id: string; text: string }[];
+  }) => {
+    const isOpen = open === id;
+    return (
+      <View style={{ marginTop: spacing.sm }}>
+        <TouchableOpacity onPress={() => { setOpen(isOpen ? null : id); setPick(''); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{icon} {label}: <Text style={{ color: valueId ? colors.primary : colors.muted }}>{valueId ? valueText : 'elegir…'}</Text></Text>
+          <Text style={{ color: colors.primary, fontWeight: '800' }}>{isOpen ? '▲' : '▼'}</Text>
+        </TouchableOpacity>
+        {isOpen ? (
+          <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+            <TextInput value={pick} onChangeText={setPick} placeholder="Filtrar…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+            {valueId ? <TouchableOpacity onPress={() => { onPick(''); }} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity> : null}
+            <View style={{ maxHeight: 200 }}>
+              <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                {options.filter((o) => { const s = norm(pick); return !s || norm(o.text).includes(s); }).map((o) => {
+                  const on = valueId === o.id;
+                  return (
+                    <TouchableOpacity key={o.id} onPress={() => { onPick(o.id); setOpen(null); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{o.text}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const machOptions = useMemo(() => machines.map((m) => ({ id: m.id, text: machineLabel(m) })), [machines]);
+  const empOptions = useMemo(() => employees.map((e) => ({ id: (e as any).id as string, text: empName(e) })), [employees]);
+
+  const generar = async () => {
+    if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un material al traslado.');
+    if (!fromMachId && !fromEmpId) return Alert.alert('Aviso', 'Indica el origen (máquina o empleado).');
+    if (!toMachId && !toEmpId) return Alert.alert('Aviso', 'Indica el destino (máquina o empleado).');
+    for (const c of cart) {
+      if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
+      if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
+    }
+    setBusy(true);
+    // 1) VISTA PREVIA primero. Solo si el usuario imprime/guarda se descuenta y se registra.
+    const items: TrasladoItem[] = cart.map((c) => ({ name: c.name, qty: c.qty, unit: c.unit }));
+    let confirmado = false;
+    try {
+      confirmado = await exportPdf(notaTrasladoHtml({
+        fecha: todayDMY(),
+        fromMaquina: fromMachId ? machName(fromMachId) : null,
+        fromEmpleado: fromEmpId ? empNameById(fromEmpId) : null,
+        toMaquina: toMachId ? machName(toMachId) : null,
+        toEmpleado: toEmpId ? empNameById(toEmpId) : null,
+        motivo: motivo.trim() || null,
+        items,
+      }), `Nota de traslado - ${todayDMY()}`);
+    } catch (e: any) {
+      setBusy(false);
+      return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
+    }
+    if (!confirmado) { setBusy(false); return; }
+    // 2) CONFIRMADO: descuenta stock (salida) y guarda el encabezado del traslado.
+    const detalle = `${fromMachId ? machName(fromMachId) : (fromEmpId ? empNameById(fromEmpId) : '—')} → ${toMachId ? machName(toMachId) : (toEmpId ? empNameById(toEmpId) : '—')}`;
+    const rows = cart.map((c) => ({
+      item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
+      reason: `NOTA DE TRASLADO · ${detalle}${motivo.trim().toUpperCase() ? ` · ${motivo.trim().toUpperCase()}` : ''}`,
+      company_id: c.company_id, created_by: session?.user?.id ?? null,
+    }));
+    const { error: mErr } = await supabase.from('inventory_movements').insert(rows);
+    if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
+    const { error: tErr } = await supabase.from('inventory_transfers').insert({
+      company_id: cart[0]?.company_id ?? null,
+      from_machinery_id: fromMachId || null, from_machinery_label: fromMachId ? machName(fromMachId) : null,
+      from_employee_id: fromEmpId || null, from_employee_name: fromEmpId ? empNameById(fromEmpId) : null,
+      to_machinery_id: toMachId || null, to_machinery_label: toMachId ? machName(toMachId) : null,
+      to_employee_id: toEmpId || null, to_employee_name: toEmpId ? empNameById(toEmpId) : null,
+      motivo: motivo.trim() || null,
+      items: cart.map((c) => ({ item_id: c.id, name: c.name, qty: c.qty, unit: c.unit })),
+      descontado: true, created_by: session?.user?.id ?? null,
+    });
+    if (tErr) { setBusy(false); return Alert.alert('Aviso', tErr.message); }
+    setBusy(false);
+    setCart([]); setMotivo(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId('');
+    refetch();
+    Alert.alert('Listo', 'Traslado registrado. La salida se descontó del inventario.');
+  };
+
+  if (loading) return <Screen><Loading /></Screen>;
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <SectionTitle>Nota de traslado</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+        Traslada materiales de una máquina/empleado (origen) a otra (destino). Al generar, descuenta del inventario y guarda el registro.
+      </Text>
+
+      {cart.length > 0 ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>🔁 Materiales a trasladar ({cart.length})</Text>
+          {cart.map((c) => (
+            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{c.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Stock: {qtyFmt(c.stock)} {c.unit}</Text>
+              </View>
+              <TextInput value={String(c.qty)} onChangeText={(t) => setQty(c.id, t)} keyboardType="numeric" inputMode="decimal" style={{ width: 66, textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: (c.qty > c.stock) ? colors.danger : colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+              <Text style={{ color: colors.muted, fontSize: 12, width: 34 }}>{c.unit}</Text>
+              <TouchableOpacity onPress={() => removeFromCart(c.id)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑</Text></TouchableOpacity>
+            </View>
+          ))}
+
+          {/* ORIGEN */}
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>ORIGEN (de dónde sale)</Text>
+          <Selector id="fromMach" icon="🚜" label="Máquina" valueId={fromMachId} valueText={machName(fromMachId)} onPick={setFromMachId} options={machOptions} />
+          <Selector id="fromEmp" icon="👷" label="Responsable" valueId={fromEmpId} valueText={empNameById(fromEmpId)} onPick={setFromEmpId} options={empOptions} />
+
+          {/* DESTINO */}
+          <Text style={{ color: '#0d6b3f', fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
+          <Selector id="toMach" icon="🚜" label="Máquina" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
+          <Selector id="toEmp" icon="👷" label="Responsable" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
+
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Motivo (opcional)</Text>
+          <TextInput value={motivo} onChangeText={(t) => setMotivo(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. REASIGNACIÓN, PRÉSTAMO DE HERRAMIENTA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🔁 Generar traslado (PDF)'}</Text>
+          </TouchableOpacity>
+        </Card>
+      ) : null}
+
+      <TextInput value={q} onChangeText={setQ} placeholder="Buscar material con stock…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }} />
+
+      {filtered.length === 0 ? (
+        <EmptyState title="Sin stock disponible" subtitle="No hay materiales con existencia para trasladar." />
+      ) : filtered.map((it) => {
+        const added = !!inCart(it.id);
+        return (
+          <Card key={it.id}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Stock: {qtyFmt(it.stock)} {it.unit || ''}</Text>
+              </View>
+              {canWrite ? (
+                <TouchableOpacity onPress={() => addToCart(it)} disabled={added} style={{ backgroundColor: added ? colors.surfaceAlt : colors.primary, borderWidth: added ? 1 : 0, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                  <Text style={{ color: added ? colors.muted : colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>{added ? '✓ Agregado' : '+ Agregar'}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </Card>
+        );
+      })}
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -1048,6 +1251,7 @@ export default function InventarioScreen() {
     { key: 'existencias', label: 'Existencias', icon: '📦' },
     { key: 'salidas', label: 'Salidas', icon: '📤' },
     { key: 'nota', label: 'Nota de entrega', icon: '🧾' },
+    { key: 'traslado', label: 'Nota de traslado', icon: '🔁' },
     { key: 'cotizacion', label: 'Cotización', icon: '📄' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
   ];
@@ -1069,7 +1273,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
       </View>
     </View>
   );

@@ -405,6 +405,33 @@ export interface InventoryMovement {
   created_at: string;
 }
 
+/** Renglón de una nota de traslado (guardado en JSONB). */
+export interface InventoryTransferLine {
+  item_id: string;
+  name: string;
+  qty: number;
+  unit: string;
+}
+
+/** Nota de traslado: materiales que pasan de una máquina/empleado (origen) a otra (destino). */
+export interface InventoryTransfer {
+  id: string;
+  company_id: string | null;
+  from_machinery_id: string | null;
+  from_machinery_label: string | null;
+  from_employee_id: string | null;
+  from_employee_name: string | null;
+  to_machinery_id: string | null;
+  to_machinery_label: string | null;
+  to_employee_id: string | null;
+  to_employee_name: string | null;
+  motivo: string | null;
+  items: InventoryTransferLine[];
+  descontado: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface MachineryLocation {
   id: string;
   machinery_id: string;

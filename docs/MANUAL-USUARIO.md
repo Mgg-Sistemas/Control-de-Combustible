@@ -293,6 +293,14 @@ y Movimientos**.
 referencia, descripción, cantidad y precio). El **I.V.A. se coloca como MONTO** (lo escribes tú,
 no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.
 
+**Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Sirve para
+**trasladar materiales de una máquina/empleado (origen) a otra (destino)**. Eliges los
+materiales con stock, defines el **Origen** (máquina + responsable) y el **Destino**
+(máquina + responsable), y un motivo opcional. Al **generar**, se abre la vista previa del
+PDF (con el bloque Origen → Destino y dos firmas: entrega y recibe); al **confirmar**, se
+**descuenta del inventario** y queda guardado el registro del traslado (casado con la
+máquina y el empleado de cada lado). Si cancelas la vista previa, no se descuenta nada.
+
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
 **rechaza**.
