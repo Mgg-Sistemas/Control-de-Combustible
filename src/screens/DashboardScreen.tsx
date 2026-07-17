@@ -357,13 +357,19 @@ export default function DashboardScreen({ navigation }: any) {
                     <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
                   </View>
                   {g.items.map((it, i) => (
-                    <View key={`${g.company}-${it.code}-${it.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <TouchableOpacity
+                      key={`${g.company}-${it.code}-${it.serial ?? i}`}
+                      activeOpacity={0.6}
+                      onPress={() => { setShowActive(false); navigation?.navigate('Equipos', { q: it.serial || it.code }); }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}
+                    >
                       <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.code}</Text>
                         {it.serial ? <Text style={{ color: colors.muted, fontSize: 11 }}>Serial {it.serial}</Text> : null}
                       </View>
-                    </View>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>ver ›</Text>
+                    </TouchableOpacity>
                   ))}
                 </View>
               ))}

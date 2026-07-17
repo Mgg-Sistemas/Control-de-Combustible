@@ -271,6 +271,15 @@ export default function EquiposScreen({ navigation, route }: any) {
     setDetailStatus(s === 'espera' ? 'espera' : s === 'inactive' ? 'inactive' : 'active');
     navigation.setParams?.({ status: undefined }); // evita reabrir al volver
   }, [route?.params?.status]);
+
+  // Al llegar desde el Dashboard con ?q (serial/código), filtra a ESA máquina.
+  useEffect(() => {
+    const term = route?.params?.q;
+    if (!term) return;
+    setKind('maquinaria');
+    setQuery(String(term));
+    navigation.setParams?.({ q: undefined });
+  }, [route?.params?.q]);
   const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'inactive' ? inactiveMachines : detailStatus === 'espera' ? esperaMachines : [];
   const detailTitle = detailStatus === 'inactive' ? '⛔ Maquinaria inactiva' : detailStatus === 'espera' ? '🕓 Maquinaria en espera' : '✅ Maquinaria activa';
 
