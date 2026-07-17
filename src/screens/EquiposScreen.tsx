@@ -94,7 +94,6 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
-  { key: 'zona', label: 'Zona / a disposición de (Gobernación, FANB, CVM, Zona Este…)', type: 'suggest', table: 'machinery', column: 'zona' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
 ];
