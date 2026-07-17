@@ -448,8 +448,8 @@ export default function ReportsScreen({ route }: any) {
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
-  // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
-  const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
+  // El conteo se muestra siempre por CANTIDAD (sin filtro de horas).
+  const conteoFilter = 'todos' as 'todos' | 'con' | 'sin';
   // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
   // los MISMOS parámetros cuando cambian las jornadas (realtime). Se limpia al cerrar.
   const liveRef = useRef<null | (() => void)>(null);
@@ -1069,6 +1069,26 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos ACTIVOS por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
   };
 
+  // Imprime el LISTADO del detalle (activos / inactivos / stand by / total flota).
+  const downloadDetailPdf = async (kind: 'activo' | 'inactivo' | 'standby' | 'flota') => {
+    if (!conteo) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const titulo = kind === 'activo' ? 'Equipos activos' : kind === 'inactivo' ? 'Equipos inactivos' : kind === 'standby' ? 'Equipos en stand by' : 'Total flota';
+    const items = kind === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estado === kind);
+    const estLbl = (e: MachineDetail['estado']) => e === 'activo' ? 'ACTIVO' : e === 'inactivo' ? 'INACTIVO' : 'STAND BY';
+    const showEstado = kind === 'flota';
+    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td>${showEstado ? `<td>${estLbl(m.estado)}</td>` : ''}</tr>`).join('');
+    const body = `
+      <style>
+        table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
+        table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
+        table.cnt th{background:#1E3A5F;color:#fff}
+      </style>
+      <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th>${showEstado ? '<th>Estado</th>' : ''}</tr></thead>
+        <tbody>${rows}</tbody></table>`;
+    await exportPdf(pdfShell(titulo.toUpperCase(), `${items.length} equipos`, body), `Reportes - ${titulo}`);
+  };
+
   // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
   // (dom→sáb) del mes elegido. Hoja para registrar entrada/salida por día.
   // Trae y agrupa por empresa TODOS los camiones/transporte. Entran: camión, chuto (con
@@ -1604,17 +1624,6 @@ export default function ReportsScreen({ route }: any) {
                 const cnt = (r: ConteoRow) => (conteoFilter === 'con' ? r.conHoras : conteoFilter === 'sin' ? r.sinHoras : r.count);
                 const totalCnt = conteoFilter === 'con' ? conteo.conHoras : conteoFilter === 'sin' ? conteo.sinHoras : conteo.total;
                 const colFor = conteoFilter === 'con' ? colors.success : conteoFilter === 'sin' ? colors.warning : colors.primary;
-                const btn = (key: 'todos' | 'con' | 'sin', label: string, c: string) => {
-                  const on = conteoFilter === key;
-                  return (
-                    <TouchableOpacity
-                      onPress={() => setConteoFilter(key)}
-                      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: on ? c : colors.surface, borderWidth: 1, borderColor: on ? c : colors.border }}
-                    >
-                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
-                    </TouchableOpacity>
-                  );
-                };
                 const tableCard = (title: string, rows: ConteoRow[]) => (
                   <Card>
                     <View style={{ flexDirection: 'row', marginBottom: 4 }}>
@@ -1637,39 +1646,8 @@ export default function ReportsScreen({ route }: any) {
                 );
                 return (
                   <>
-                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-                      {btn('todos', 'Todos', colors.primary)}
-                      {btn('con', `Con horas (${conteo.conHoras})`, colors.success)}
-                      {btn('sin', `Sin horas (${conteo.sinHoras})`, colors.warning)}
-                    </View>
-                    {conteoFilter === 'sin' ? (
-                      // Sin horas: NO se cuenta/agrupa, se muestra el listado de máquinas.
-                      <Card>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 15 }}>Máquinas sin horas</Text>
-                          <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 15 }}>{conteo.sinList.length}</Text>
-                        </View>
-                        {conteo.sinList.length === 0 ? (
-                          <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: 4 }}>Todas las máquinas tienen horas.</Text>
-                        ) : (
-                          conteo.sinList.map((m, i) => (
-                            <View key={`${m.code}-${m.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
-                              <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right' }}>{i + 1}</Text>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
-                                <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.clas}</Text>
-                              </View>
-                            </View>
-                          ))
-                        )}
-                      </Card>
-                    ) : (
-                      <>
-                        {tableCard('Por clasificación', conteo.byClas)}
-                        {tableCard('Por tipo de equipo', conteo.byTipo)}
-                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca la tarjeta "Activos" (arriba) para ver el listado de equipos, o descarga el PDF.</Text>
-                      </>
-                    )}
+                    {tableCard('Por clasificación', conteo.byClas)}
+                    {tableCard('Por tipo de equipo', conteo.byTipo)}
                   </>
                 );
               })()}
@@ -1695,6 +1673,10 @@ export default function ReportsScreen({ route }: any) {
                         <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
                       </TouchableOpacity>
                     </View>
+                    {/* Imprimir / descargar ESTA lista. */}
+                    <TouchableOpacity onPress={() => downloadDetailPdf(conteoDetail)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Imprimir esta lista (PDF)</Text>
+                    </TouchableOpacity>
                     <ScrollView>
                       {items.length === 0 ? (
                         <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.md }}>No hay equipos en este estado.</Text>
