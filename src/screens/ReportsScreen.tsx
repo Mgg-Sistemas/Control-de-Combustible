@@ -442,9 +442,8 @@ export default function ReportsScreen({ route }: any) {
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
-  type RosterGroup = { clas: string; items: { code: string; serial: string | null; tipo: string }[] };
   type MachineDetail = { code: string; serial: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby' };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; roster: RosterGroup[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
@@ -962,22 +961,18 @@ export default function ReportsScreen({ route }: any) {
     });
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
-    const empresaMap = new Map<string, ConteoRow>();
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     list.forEach((m) => {
       const tieneHoras = (hoursByMachine.get(m.id) ?? 0) > 0;
       const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
       const tk = equipCategory(m.code);
-      const ek = companyOf(m);
       const cc = clasMap.get(ck) ?? { name: ck, count: 0, conHoras: 0, sinHoras: 0 }; cc.count += 1; if (tieneHoras) cc.conHoras += 1; else cc.sinHoras += 1; clasMap.set(ck, cc);
       const tt = tipoMap.get(tk) ?? { name: tk, count: 0, conHoras: 0, sinHoras: 0 }; tt.count += 1; if (tieneHoras) tt.conHoras += 1; else tt.sinHoras += 1; tipoMap.set(tk, tt);
-      const ee = empresaMap.get(ek) ?? { name: ek, count: 0, conHoras: 0, sinHoras: 0 }; ee.count += 1; if (tieneHoras) ee.conHoras += 1; else ee.sinHoras += 1; empresaMap.set(ek, ee);
     });
-    // Orden ALFABÉTICO por nombre (es-VE) en las tres tablas del conteo.
+    // Orden ALFABÉTICO por nombre (es-VE) en las tablas del conteo.
     const alfa = (a: ConteoRow, b: ConteoRow) => a.name.localeCompare(b.name, 'es');
     const byClas = [...clasMap.values()].sort(alfa);
     const byTipo = [...tipoMap.values()].sort(alfa);
-    const byEmpresa = [...empresaMap.values()].sort(alfa);
     const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
     const sinHoras = list.length - conHoras;
     // Listado de máquinas SIN horas (para mostrarlo tal cual, sin agrupar).
@@ -985,17 +980,6 @@ export default function ReportsScreen({ route }: any) {
       .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
-    // Listado de TODOS los equipos activos agrupado por CLASIFICACIÓN (sin empresa).
-    const rosterMap = new Map<string, { code: string; serial: string | null; tipo: string }[]>();
-    list.forEach((m) => {
-      const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
-      const arr = rosterMap.get(ck) ?? [];
-      arr.push({ code: m.code ?? '—', serial: m.serial ?? null, tipo: equipCategory(m.code) });
-      rosterMap.set(ck, arr);
-    });
-    const roster: RosterGroup[] = [...rosterMap.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0], 'es'))
-      .map(([clas, items]) => ({ clas, items: items.sort((x, y) => x.code.localeCompare(y.code, 'es')) }));
     // Estado (referencia sobre el catálogo COMPLETO): stand by (en espera) tiene
     // prioridad; luego inactivo; el resto son los activos que forman el conteo.
     const standby = all.filter((m) => m.en_espera === true).length;
@@ -1006,7 +990,7 @@ export default function ReportsScreen({ route }: any) {
     const machinesAll: MachineDetail[] = all
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
-    setConteo({ byClas, byTipo, byEmpresa, roster, machinesAll, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
     setLoading(false);
     setConteoPreview(true);
   };
