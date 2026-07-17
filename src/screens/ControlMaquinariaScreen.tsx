@@ -122,7 +122,9 @@ function fmtDMY(iso: string): string {
 export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
+  // Las ANALISTAS pueden cargar/editar/eliminar jornadas, pero NO modificar precios.
+  const puedeEditarPrecio = role !== 'analista';
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
@@ -970,11 +972,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
 
   const openPrice = (m: Machinery) => {
+    if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo cargar, editar y eliminar jornadas.'); return; }
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
   };
 
   const savePrice = async (m: Machinery, value: string) => {
+    if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios.'); setPriceFor(null); return; }
     const n = Number(value.replace(',', '.'));
     const val = value.trim() === '' ? null : isFinite(n) && n >= 0 ? n : null;
     const { error } = await supabase.from('machinery').update({ price_per_hour: val }).eq('id', m.id);
@@ -1300,9 +1304,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           return (
             <Card key={m.id}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
-                <TouchableOpacity activeOpacity={0.6} onPress={() => openPrice(m)} style={{ flex: 1 }}>
+                <TouchableOpacity activeOpacity={puedeEditarPrecio ? 0.6 : 1} onPress={() => openPrice(m)} style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
-                    {m.code} <Text style={{ color: colors.primary, fontSize: 13 }}>✎</Text>
+                    {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.primary, fontSize: 13 }}> ✎</Text> : null}
                   </Text>
                   <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
                     🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
@@ -1313,7 +1317,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     </Text>
                   ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
-                    💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h · toca para editar` : 'Sin precio · toca el nombre para fijarlo'}
+                    💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
