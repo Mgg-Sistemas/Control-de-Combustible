@@ -74,6 +74,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo'>('todos'); // estado del empleado
   const [cargoFilter, setCargoFilter] = useState(''); // '' = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -86,18 +87,28 @@ export default function EmpleadosScreen({ navigation }: any) {
   const cargoLabel = (e: Employee) => (e.cargo || '').trim().toUpperCase() || 'SIN CARGO';
 
   const q = norm(query.trim());
-  // Empleados que pasan la BÚSQUEDA de texto (base para contar por cargo).
+  // ¿El empleado está activo? (todo lo que no sea "activo" cuenta como inactivo, incl. suspendido).
+  const esActivo = (e: Employee) => (e.status || '').toLowerCase() === 'activo';
+  // Empleados que pasan la BÚSQUEDA de texto + FILTRO de estado (base para contar por cargo).
   const baseFiltered = useMemo(
     () => employees.filter((e) =>
-      !q ||
-      norm(fullName(e)).includes(q) ||
-      norm(e.cedula).includes(q) ||
-      norm(e.ficha_number).includes(q) ||
-      norm(e.cargo).includes(q) ||
-      norm(companyName(e.company_id)).includes(q)
+      (statusFilter === 'todos' || (statusFilter === 'activo' ? esActivo(e) : !esActivo(e))) &&
+      (!q ||
+        norm(fullName(e)).includes(q) ||
+        norm(e.cedula).includes(q) ||
+        norm(e.ficha_number).includes(q) ||
+        norm(e.cargo).includes(q) ||
+        norm(companyName(e.company_id)).includes(q))
     ),
-    [employees, q, companies]
+    [employees, q, statusFilter, companies]
   );
+
+  // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
+  const statusCounts = useMemo(() => {
+    let act = 0;
+    employees.forEach((e) => { if (esActivo(e)) act++; });
+    return { activo: act, inactivo: employees.length - act, todos: employees.length };
+  }, [employees]);
 
   // Conteo por cargo (para los chips-filtro y el reporte): [cargo, cantidad], de mayor a menor.
   const cargoCounts = useMemo(() => {
@@ -230,6 +241,24 @@ export default function EmpleadosScreen({ navigation }: any) {
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
+
+      {/* Filtro por ESTADO (activos / inactivos) */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo]] as const).map(([key, label, n]) => {
+          const on = statusFilter === key;
+          const tint = key === 'activo' ? '#16A34A' : key === 'inactivo' ? '#DC2626' : colors.primary;
+          return (
+            <TouchableOpacity
+              key={key}
+              onPress={() => setStatusFilter(key)}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? tint : colors.border, backgroundColor: on ? tint : colors.surface }}
+            >
+              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12 }}>{label} · {n}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       {/* Orden alfabético por nombre */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
