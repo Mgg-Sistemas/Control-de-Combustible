@@ -1039,25 +1039,8 @@ export default function ReportsScreen({ route }: any) {
         table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
         table.cnt th{background:#1E3A5F;color:#fff}
         table.cnt tfoot td{background:#EEF2F7;font-weight:800}
-        .estado{display:flex;gap:12px;margin-top:10px}
-        .estado .c{flex:1;border:1px solid #E5E7EB;border-radius:10px;padding:12px;text-align:center}
-        .estado .c .v{font-size:24px;font-weight:800}
-        .estado .c .k{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
-        .estado .act{background:#ECFDF5;border-color:#A7F3D0}.estado .act .v{color:#059669}
-        .estado .ina{background:#FEF2F2;border-color:#FECACA}.estado .ina .v{color:#DC2626}
-        .estado .stb{background:#FFFBEB;border-color:#FDE68A}.estado .stb .v{color:#B45309}
-        .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
-      ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}
-      <h2 style="font-size:14px;color:#1E3A5F;margin:14px 0 2px">Estado de la flota</h2>
-      <div class="estado">
-        <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos (conteo)</div></div>
-        <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos (excl.)</div></div>
-        <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by (excl.)</div></div>
-        <div class="c"><div class="v">${conteo.flota}</div><div class="k">Total flota</div></div>
-        <div class="c hrs"><div class="v">${conteo.conHoras}</div><div class="k">Con horas</div></div>
-        <div class="c stb"><div class="v">${conteo.sinHoras}</div><div class="k">Sin horas</div></div>
-      </div>`;
+      ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}`;
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos ACTIVOS por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
   };
 
