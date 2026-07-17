@@ -228,16 +228,22 @@ function buildHtml(pins: MapPin[]): string {
   // Polígonos de zonas (prender/apagar desde FUERA del mapa por postMessage).
   var sectorLayers = {};
   var zonesOn = {};
+  // El nombre de la zona NO se muestra permanente (saturaba el mapa): aparece al
+  // PASAR EL CURSOR (desktop, tooltip que sigue al mouse) y al TOCAR la zona (móvil).
+  function bindZoneName(layer, name){
+    layer.bindTooltip(name, { sticky: true, direction: 'top', className: 'zoneLbl', opacity: 1 });
+    layer.on('click', function(ev){ this.openTooltip(ev.latlng); }); // móvil: al tocar
+  }
   SUBSECTORS.forEach(function(s, i){
     if (s.pts && s.pts.length >= 3){
       var pg = L.polygon(s.pts, { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
-      pg.bindTooltip(s.n, { permanent: true, direction: 'center', className: 'zoneLbl' });
+      bindZoneName(pg, s.n);
       sectorLayers[i] = L.layerGroup([pg]);
       return;
     }
     var D = 0.007;
     var poly = L.polygon([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]], { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
-    poly.bindTooltip(s.n, { permanent: true, direction: 'center', className: 'zoneLbl' });
+    bindZoneName(poly, s.n);
     var mkr = function(pt){ var m = L.circleMarker([pt.lat, pt.lng], { radius:6, color:'#fff', weight:2, fillColor:s.color, fillOpacity:1 }); m.bindPopup('<b>'+s.n+'</b><br/>'+pt.lbl+': <b>'+pt.name+'</b><br/>📍 '+pt.lat.toFixed(6)+', '+pt.lng.toFixed(6)); return m; };
     sectorLayers[i] = L.layerGroup([poly, mkr(s.a), mkr(s.b)]);
   });
