@@ -205,8 +205,9 @@ function equipCategory(code: string): string {
   // ── Camiones: cada tipo con su nombre propio (no un cajón genérico "CAMION"). ──
   if (c.includes('volteo') || c.includes('toronto')) return 'CAMIÓN VOLTEO - TORONTO';
   if (c.includes('pitman')) return 'CAMIÓN BRAZO PITMAN';
-  // La grúa va antes que plataforma: "CAMION GRUA PLATAFORMA" es GRÚA, no plataforma.
-  if (c.includes('grua')) return 'GRÚAS';
+  // Va antes que plataforma: "CAMION GRUA PLATAFORMA" es su propia categoría.
+  if (c.includes('grua') && c.includes('plataforma')) return 'CAMIÓN GRÚA PLATAFORMA';
+  if (c.includes('grua')) return 'GRÚAS TELESCÓPICAS';
   // OJO: usar límite de palabra para "cava" — "RETROEXCAVADORA" contiene "cava".
   if (/\bcava\b/.test(c)) return 'CAMIÓN CAVA SECA';
   if (c.includes('cesta')) return 'CAMIÓN CESTA';
