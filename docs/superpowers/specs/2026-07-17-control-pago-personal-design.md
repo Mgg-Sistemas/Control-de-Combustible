@@ -57,17 +57,30 @@ El rango determina qué jornadas se agregan (por `work_date`).
 - **Sobreescritura**: lo automático se puede editar a mano si hace falta (queda
   marcado como ajustado).
 
-## 6. Validación del supervisor (interruptor)
+## 6. Validación del supervisor (vinculada)
 
-Interruptor **"Solo jornadas validadas por el supervisor"**:
-- **Activado**: al agregar jornadas automáticas de operadores, solo cuentan las
-  jornadas que tienen check-in de supervisor (GPS) asociado. Las no validadas se
-  listan aparte como "pendientes de validación" y no suman.
-- **Desactivado**: cuentan todas las jornadas registradas.
+Regla ya existente en BD: una jornada de `operator_assignments` (`machinery_id` +
+`work_date`) está **validada** si existe una visita en `supervisor_visits` con el
+mismo `machinery_id` y `visit_date = work_date`. Sin visita, el operador no cobra
+esa jornada (ver [[supervision-valida-jornada]]).
 
-Nota: el enganche fino a la tabla de check-ins del supervisor se define en el
-plan de implementación (ver [[supervision-valida-jornada]]); si aún no existe el
-vínculo dato-a-dato, el interruptor arranca desactivado por defecto.
+Este módulo **engancha ese vínculo dato-a-dato**:
+- Al agregar jornadas automáticas de operadores, cada jornada se cruza contra
+  `supervisor_visits` (máquina + fecha) y se marca **validada** / **pendiente**.
+- La visita cuenta como válida si `status = 'trabajando'` (una parada o "no está"
+  no valida horas trabajadas). Este criterio de status queda como parámetro del
+  cálculo por si luego se quiere afinar.
+
+Interruptor **"Solo jornadas validadas por el supervisor"**, **activado por
+defecto**:
+- **Activado**: solo suman las jornadas validadas; las pendientes se listan
+  aparte como "pendientes de validación" y no cuentan al devengado.
+- **Desactivado**: cuentan todas las jornadas registradas (para casos
+  excepcionales, con registro de quién lo desactivó).
+
+Cada `staff_pay_item` guarda el desglose: `jornadas_validadas`,
+`jornadas_pendientes` y qué jornadas quedaron fuera, para trazabilidad en el
+recibo/reporte.
 
 ## 7. Bonos y deducciones
 
@@ -107,7 +120,7 @@ Se prepara el SQL para `supabase/schema.sql` y se sincroniza
 - `period_type` (`dia` | `semana` | `quincena`)
 - `date_from date`, `date_to date`
 - `mode` (`dias` | `horas`)
-- `only_validated boolean default false`
+- `only_validated boolean default true`
 - `status` (`borrador` | `aprobada` | `pagada`)
 - `created_at`
 
@@ -117,6 +130,7 @@ Se prepara el SQL para `supabase/schema.sql` y se sincroniza
 - `employee_id` / `cedula` (identifica la persona; operador o manual)
 - `source` (`auto` | `manual`)
 - `dias numeric`, `horas numeric`
+- `jornadas_validadas int`, `jornadas_pendientes int`
 - `overridden boolean default false`
 - `tarifa_dia numeric`, `tarifa_hora numeric` (snapshot al calcular)
 - `devengado numeric`
