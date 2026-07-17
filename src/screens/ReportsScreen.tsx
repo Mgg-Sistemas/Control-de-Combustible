@@ -225,6 +225,7 @@ function equipCategory(code: string): string {
   if (c.includes('cisterna') && c.includes('agua')) return 'CISTERNA DE AGUA';
   // Tanque/cisterna de combustible (diesel/gasoil) → TANQUE DE COMBUSTIBLE.
   if (c.includes('tanque') || c.includes('combustible') || (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil')))) return 'TANQUE DE COMBUSTIBLE';
+  if (c.includes('compresor')) return 'COMPRESOR CON MARTILLO';
   // "MINI" / "MINI SHOWER" → MINISHOWER (evita que queden como "MINI").
   if (c.includes('mini') || c.includes('shower')) return 'MINISHOWER';
   return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
