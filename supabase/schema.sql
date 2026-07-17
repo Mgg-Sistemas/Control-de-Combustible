@@ -488,7 +488,7 @@ create table if not exists public.price_tariffs (
 );
 alter table public.price_tariffs enable row level security;
 drop policy if exists price_tariffs_read on public.price_tariffs;
-create policy price_tariffs_read on public.price_tariffs for select using (true);
+create policy price_tariffs_read on public.price_tariffs for select to authenticated using (not public.is_anon());
 drop policy if exists price_tariffs_write on public.price_tariffs;
 create policy price_tariffs_write on public.price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
@@ -505,7 +505,7 @@ create table if not exists public.company_price_tariffs (
 );
 alter table public.company_price_tariffs enable row level security;
 drop policy if exists cpt_read on public.company_price_tariffs;
-create policy cpt_read on public.company_price_tariffs for select using (true);
+create policy cpt_read on public.company_price_tariffs for select to authenticated using (not public.is_anon());
 drop policy if exists cpt_write on public.company_price_tariffs;
 create policy cpt_write on public.company_price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
