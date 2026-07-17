@@ -1033,13 +1033,6 @@ export default function ReportsScreen({ route }: any) {
       <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byTipo)}</tbody>
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>`;
-    // Listado completo de equipos ACTIVOS, agrupado por clasificación (sin empresas).
-    const rosterHtml = `
-      <h2 style="font-size:14px;color:#1E3A5F;margin:14px 0 2px">Listado de equipos activos por clasificación (${conteo.activos})</h2>
-      ${conteo.roster.map((g) => `
-        <h3 style="font-size:12.5px;color:#334155;margin:10px 0 2px">${esc(g.clas)} — ${g.items.length}</h3>
-        <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th></tr></thead>
-          <tbody>${g.items.map((it, i) => `<tr><td>${i + 1}</td><td style="font-weight:700">${esc(it.code)}</td><td>${esc(it.serial ?? '—')}</td><td>${esc(it.tipo)}</td></tr>`).join('')}</tbody></table>`).join('')}`;
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -1056,7 +1049,6 @@ export default function ReportsScreen({ route }: any) {
         .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
       ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}
-      ${conteoFilter === 'sin' ? '' : rosterHtml}
       <h2 style="font-size:14px;color:#1E3A5F;margin:14px 0 2px">Estado de la flota</h2>
       <div class="estado">
         <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos (conteo)</div></div>
