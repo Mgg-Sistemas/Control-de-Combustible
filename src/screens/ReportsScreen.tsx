@@ -442,7 +442,10 @@ export default function ReportsScreen({ route }: any) {
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
   type RosterGroup = { clas: string; items: { code: string; serial: string | null; tipo: string }[] };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; roster: RosterGroup[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  type MachineDetail = { code: string; serial: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby' };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; roster: RosterGroup[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
+  const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
   const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
@@ -997,7 +1000,12 @@ export default function ReportsScreen({ route }: any) {
     const standby = all.filter((m) => m.en_espera === true).length;
     const inactivos = all.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
     const activos = list.length;
-    setConteo({ byClas, byTipo, byEmpresa, roster, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
+    const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
+    const machinesAll: MachineDetail[] = all
+      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
+      .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
+    setConteo({ byClas, byTipo, byEmpresa, roster, machinesAll, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1574,18 +1582,19 @@ export default function ReportsScreen({ route }: any) {
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
-              {/* Estado de la flota */}
+              {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                 {[
-                  { k: 'Activos (conteo)', v: conteo.activos, c: colors.success },
-                  { k: 'Inactivos (excl.)', v: conteo.inactivos, c: colors.danger },
-                  { k: 'Stand by (excl.)', v: conteo.standby, c: colors.warning },
-                  { k: 'Total flota', v: conteo.flota, c: colors.text },
+                  { k: 'Activos (conteo)', v: conteo.activos, c: colors.success, d: 'activo' as const },
+                  { k: 'Inactivos (excl.)', v: conteo.inactivos, c: colors.danger, d: 'inactivo' as const },
+                  { k: 'Stand by (excl.)', v: conteo.standby, c: colors.warning, d: 'standby' as const },
+                  { k: 'Total flota', v: conteo.flota, c: colors.text, d: 'flota' as const },
                 ].map((s) => (
-                  <View key={s.k} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <TouchableOpacity key={s.k} activeOpacity={0.7} onPress={() => setConteoDetail(s.d)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: s.c, fontSize: 22, fontWeight: '900' }}>{s.v}</Text>
                     <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>{s.k}</Text>
-                  </View>
+                    <Text style={{ color: colors.primary, fontSize: 9, fontWeight: '700', marginTop: 1 }}>ver detalle ›</Text>
+                  </TouchableOpacity>
                 ))}
               </View>
 
@@ -1684,6 +1693,52 @@ export default function ReportsScreen({ route }: any) {
             </>
           ) : null}
         </Screen>
+
+        {/* Detalle de un estado al tocar una tarjeta KPI. */}
+        <Modal visible={conteoDetail !== null} animationType="slide" transparent onRequestClose={() => setConteoDetail(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%', padding: spacing.lg }}>
+              {(() => {
+                if (!conteo || conteoDetail === null) return null;
+                const titulo = conteoDetail === 'activo' ? 'Equipos activos' : conteoDetail === 'inactivo' ? 'Equipos inactivos' : conteoDetail === 'standby' ? 'Equipos en stand by' : 'Total flota';
+                const items = conteoDetail === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estado === conteoDetail);
+                const badge = (e: MachineDetail['estado']) => e === 'activo' ? { t: 'ACTIVO', c: colors.success } : e === 'inactivo' ? { t: 'INACTIVO', c: colors.danger } : { t: 'STAND BY', c: colors.warning };
+                return (
+                  <>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>{titulo} ({items.length})</Text>
+                      <TouchableOpacity onPress={() => setConteoDetail(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView>
+                      {items.length === 0 ? (
+                        <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.md }}>No hay equipos en este estado.</Text>
+                      ) : items.map((m, i) => {
+                        const b = badge(m.estado);
+                        return (
+                          <View key={`${m.code}-${m.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.border }}>
+                            <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right' }}>{i + 1}</Text>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.tipo}</Text>
+                            </View>
+                            {conteoDetail === 'flota' ? (
+                              <View style={{ backgroundColor: b.c + '22', borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                <Text style={{ color: b.c, fontSize: 9, fontWeight: '900' }}>{b.t}</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                      <View style={{ height: spacing.xl }} />
+                    </ScrollView>
+                  </>
+                );
+              })()}
+            </View>
+          </View>
+        </Modal>
       </Modal>
 
       <Modal visible={preview} animationType="slide" onRequestClose={() => setPreview(false)}>
