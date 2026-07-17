@@ -441,7 +441,8 @@ export default function ReportsScreen({ route }: any) {
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  type RosterGroup = { clas: string; items: { code: string; serial: string | null; tipo: string }[] };
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; roster: RosterGroup[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
   const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
@@ -980,12 +981,23 @@ export default function ReportsScreen({ route }: any) {
       .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
+    // Listado de TODOS los equipos activos agrupado por CLASIFICACIÓN (sin empresa).
+    const rosterMap = new Map<string, { code: string; serial: string | null; tipo: string }[]>();
+    list.forEach((m) => {
+      const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
+      const arr = rosterMap.get(ck) ?? [];
+      arr.push({ code: m.code ?? '—', serial: m.serial ?? null, tipo: equipCategory(m.code) });
+      rosterMap.set(ck, arr);
+    });
+    const roster: RosterGroup[] = [...rosterMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+      .map(([clas, items]) => ({ clas, items: items.sort((x, y) => x.code.localeCompare(y.code, 'es')) }));
     // Estado (referencia sobre el catálogo COMPLETO): stand by (en espera) tiene
     // prioridad; luego inactivo; el resto son los activos que forman el conteo.
     const standby = all.filter((m) => m.en_espera === true).length;
     const inactivos = all.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
     const activos = list.length;
-    setConteo({ byClas, byTipo, byEmpresa, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    setConteo({ byClas, byTipo, byEmpresa, roster, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1004,10 +1016,6 @@ export default function ReportsScreen({ route }: any) {
       <table class="cnt"><thead><tr><th style="width:34px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Clasificación</th></tr></thead>
         <tbody>${conteo.sinList.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.clas)}</td></tr>`).join('')}</tbody></table>`;
     const tablasHtml = `
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por empresa${filtroTxt}</h2>
-      <table class="cnt"><thead><tr><th>Empresa</th><th style="text-align:right">${colHead}</th></tr></thead>
-        <tbody>${rowsFor(conteo.byEmpresa)}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Cantidad de equipos por clasificación${filtroTxt}</h2>
       <table class="cnt"><thead><tr><th>Clasificación</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byClas)}</tbody>
@@ -1016,6 +1024,13 @@ export default function ReportsScreen({ route }: any) {
       <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">${colHead}</th></tr></thead>
         <tbody>${rowsFor(conteo.byTipo)}</tbody>
         <tfoot><tr><td>TOTAL</td><td style="text-align:right">${totalCnt}</td></tr></tfoot></table>`;
+    // Listado completo de equipos ACTIVOS, agrupado por clasificación (sin empresas).
+    const rosterHtml = `
+      <h2 style="font-size:14px;color:#1E3A5F;margin:14px 0 2px">Listado de equipos activos por clasificación (${conteo.activos})</h2>
+      ${conteo.roster.map((g) => `
+        <h3 style="font-size:12.5px;color:#334155;margin:10px 0 2px">${esc(g.clas)} — ${g.items.length}</h3>
+        <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th></tr></thead>
+          <tbody>${g.items.map((it, i) => `<tr><td>${i + 1}</td><td style="font-weight:700">${esc(it.code)}</td><td>${esc(it.serial ?? '—')}</td><td>${esc(it.tipo)}</td></tr>`).join('')}</tbody></table>`).join('')}`;
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
@@ -1032,7 +1047,8 @@ export default function ReportsScreen({ route }: any) {
         .estado .hrs{background:#EFF6FF;border-color:#BFDBFE}.estado .hrs .v{color:#1E3A5F}
       </style>
       ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}
-      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
+      ${conteoFilter === 'sin' ? '' : rosterHtml}
+      <h2 style="font-size:14px;color:#1E3A5F;margin:14px 0 2px">Estado de la flota</h2>
       <div class="estado">
         <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos (conteo)</div></div>
         <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos (excl.)</div></div>
@@ -1635,9 +1651,26 @@ export default function ReportsScreen({ route }: any) {
                       </Card>
                     ) : (
                       <>
-                        {tableCard('Por empresa', conteo.byEmpresa)}
                         {tableCard('Por clasificación', conteo.byClas)}
                         {tableCard('Por tipo de equipo', conteo.byTipo)}
+                        {/* Listado completo de equipos activos por clasificación (sin empresas). */}
+                        <Card>
+                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Listado de equipos activos ({conteo.activos})</Text>
+                          {conteo.roster.map((g) => (
+                            <View key={g.clas} style={{ marginTop: spacing.sm }}>
+                              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{g.clas} — {g.items.length}</Text>
+                              {g.items.map((it, i) => (
+                                <View key={`${g.clas}-${it.code}-${it.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                                  <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.code}</Text>
+                                    <Text style={{ color: colors.muted, fontSize: 11 }}>{it.tipo}{it.serial ? ` · Serial ${it.serial}` : ''}</Text>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          ))}
+                        </Card>
                       </>
                     )}
                   </>
