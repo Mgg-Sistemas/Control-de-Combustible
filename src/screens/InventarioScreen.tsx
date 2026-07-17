@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
@@ -26,6 +26,75 @@ function nextSkuFrom(skus: (string | null | undefined)[]): string {
 }
 const nowISO = () => new Date().toISOString();
 function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+// ── Carga por lote (Excel/CSV) ───────────────────────────────────────────────
+// Columnas de la plantilla (en este orden). Se llena en Excel y se sube como CSV
+// o se copia/pega directo desde Excel (separado por tabulaciones).
+const LOTE_COLS = ['nombre', 'unidad', 'costo_unitario', 'cantidad_inicial', 'categoria', 'stock_minimo'];
+const LOTE_TEMPLATE =
+  LOTE_COLS.join(',') + '\n' +
+  'MARTILLO DE GOMA,UND,12.50,10,herramientas,2\n' +
+  'ACEITE HIDRAULICO 68,LT,6.80,40,repuestos,10\n' +
+  'GUANTES DE NITRILO (50 PARES),UND,50,1,herramientas,1\n';
+
+/** Descarga un archivo de texto (CSV) en web. Excel lo abre directamente. */
+function downloadTextFile(filename: string, content: string) {
+  if (Platform.OS !== 'web') return;
+  const g: any = globalThis as any;
+  const blob = new g.Blob(['﻿' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = g.URL.createObjectURL(blob);
+  const a = g.document.createElement('a');
+  a.href = url; a.download = filename;
+  g.document.body.appendChild(a); a.click(); a.remove();
+  g.URL.revokeObjectURL(url);
+}
+
+/** Abre el selector de archivos (web) y devuelve el TEXTO del CSV elegido. */
+function pickCsvFileWeb(): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (Platform.OS !== 'web') { resolve(null); return; }
+    const g: any = globalThis as any;
+    const input = g.document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,.txt,text/csv';
+    input.onchange = () => {
+      const file = input.files && input.files[0];
+      if (!file) { resolve(null); return; }
+      const fr = new g.FileReader();
+      fr.onload = () => resolve(String(fr.result || ''));
+      fr.onerror = () => resolve(null);
+      fr.readAsText(file);
+    };
+    input.click();
+  });
+}
+
+/** Parsea texto CSV o pegado desde Excel (tab). Respeta comillas y comas dentro. */
+function parseDelimited(text: string): string[][] {
+  const rows: string[][] = [];
+  const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const first = lines.find((l) => l.trim().length) || '';
+  const delim = first.includes('\t') ? '\t' : ',';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const fields: string[] = [];
+    let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQ) {
+        if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false; }
+        else cur += c;
+      } else if (c === '"') inQ = true;
+      else if (c === delim) { fields.push(cur); cur = ''; }
+      else cur += c;
+    }
+    fields.push(cur);
+    rows.push(fields.map((f) => f.trim()));
+  }
+  return rows;
+}
+
+type LoteRow = { rowNo: number; name: string; unit: string; cost: number; qty: number; min: number; category: string; status: 'ok' | 'dup' | 'bad'; problems: string[] };
 
 // Categorías (misma taxonomía que Compras).
 const CATEGORIES: { key: string; label: string; icon: string }[] = [
@@ -100,6 +169,12 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [initStock, setInitStock] = useState('');
   const [initCost, setInitCost] = useState('');
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null); // null = crear; id = editar
+  // Carga por lote (Excel/CSV).
+  const [loteOpen, setLoteOpen] = useState(false);
+  const [loteText, setLoteText] = useState('');
+  const [loteRows, setLoteRows] = useState<LoteRow[] | null>(null);
+  const [loteBusy, setLoteBusy] = useState(false);
 
   const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
   const machineName = (id: string | null) => { if (!id) return 'Sin equipo'; const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : 'Equipo'; };
@@ -109,11 +184,36 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
   const bajoMin = useMemo(() => levels.filter((it) => Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0).length, [levels]);
 
+  // Editar un producto existente (nombre, categoría, unidad, stock mínimo). El
+  // stock y el PMP NO se editan a mano (derivan de los movimientos).
+  const openEdit = (it: InventoryLevel) => {
+    setEditingId(it.id);
+    setName(it.name || '');
+    setCategory(it.category || 'otros');
+    setUnit(it.unit || '');
+    setSku((it as any).sku || '');
+    setMinStock(it.min_stock != null ? String(it.min_stock) : '');
+    setInitStock(''); setInitCost('');
+    setOpen(true);
+  };
+
   const crear = async () => {
     if (!name.trim()) return Alert.alert('Aviso', 'Escribe el nombre del material.');
     const cleanName = name.trim().toUpperCase();
-    // Evita duplicados por nombre (mismo material ya registrado).
-    if (levels.some((it) => norm(it.name) === norm(cleanName))) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
+    // Evita duplicados por nombre (excluyendo el que se está editando).
+    if (levels.some((it) => norm(it.name) === norm(cleanName) && it.id !== editingId)) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
+    // ── EDICIÓN ──
+    if (editingId) {
+      setBusy(true);
+      const { error } = await supabase.from('inventory_items')
+        .update({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock) })
+        .eq('id', editingId);
+      setBusy(false);
+      if (error) return Alert.alert('Aviso', error.message);
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock('');
+      refetch();
+      return;
+    }
     setBusy(true);
     // SKU incremental: se recalcula al vuelo (con los SKU actuales) para no chocar.
     const { data: skuRows } = await supabase.from('inventory_items').select('sku');
@@ -139,9 +239,83 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
   // Abre el modal calculando el próximo SKU incremental para mostrarlo.
   const openCreate = async () => {
+    setEditingId(null);
+    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost('');
     const { data } = await supabase.from('inventory_items').select('sku');
     setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
     setOpen(true);
+  };
+
+  // ── Carga por lote (Excel/CSV) ─────────────────────────────────────────────
+  const descargarPlantilla = () => downloadTextFile('Plantilla inventario.csv', LOTE_TEMPLATE);
+
+  // Analiza el texto (CSV o pegado de Excel) y marca cada fila: ok / repetida / mala.
+  const analizarLote = (text: string) => {
+    const rows = parseDelimited(text);
+    if (rows.length === 0) { setLoteRows([]); return; }
+    // Si la primera fila es el encabezado de la plantilla, se salta.
+    const start = norm(rows[0][0] || '') === 'nombre' ? 1 : 0;
+    const existing = new Set(levels.map((l) => norm(l.name)));
+    const seen = new Set<string>();
+    const out: LoteRow[] = [];
+    for (let i = start; i < rows.length; i++) {
+      const r = rows[i];
+      const name = (r[0] || '').trim().toUpperCase();
+      const unit = (r[1] || '').trim().toUpperCase() || 'UND';
+      const costRaw = (r[2] || '').trim();
+      const qtyRaw = (r[3] || '').trim();
+      const catRaw = (r[4] || '').trim().toLowerCase();
+      const minRaw = (r[5] || '').trim();
+      const problems: string[] = [];
+      if (!name) problems.push('falta el nombre');
+      const cost = costRaw === '' ? 0 : Number(costRaw.replace(',', '.'));
+      if (costRaw !== '' && !isFinite(cost)) problems.push('costo unitario inválido');
+      const qty = qtyRaw === '' ? 0 : Number(qtyRaw.replace(',', '.'));
+      if (qtyRaw !== '' && !isFinite(qty)) problems.push('cantidad inválida');
+      const min = minRaw === '' ? 0 : Number(minRaw.replace(',', '.'));
+      if (minRaw !== '' && !isFinite(min)) problems.push('stock mínimo inválido');
+      const category = CATEGORIES.some((c) => c.key === catRaw) ? catRaw : 'otros';
+      let status: LoteRow['status'] = 'ok';
+      if (problems.length) status = 'bad';
+      else if (seen.has(norm(name))) { status = 'dup'; problems.push('repetido en el archivo'); }
+      else if (existing.has(norm(name))) { status = 'dup'; problems.push('ya existe en el inventario'); }
+      if (name) seen.add(norm(name));
+      out.push({ rowNo: i + 1, name, unit, cost: isFinite(cost) ? cost : 0, qty: isFinite(qty) ? qty : 0, min: isFinite(min) ? min : 0, category, status, problems });
+    }
+    setLoteRows(out);
+  };
+
+  const subirCsv = async () => {
+    const text = await pickCsvFileWeb();
+    if (text == null) return;
+    setLoteText(text);
+    analizarLote(text);
+  };
+
+  // Carga solo las filas OK: crea el producto con SKU incremental + su entrada.
+  const cargarLote = async () => {
+    const ok = (loteRows ?? []).filter((r) => r.status === 'ok');
+    if (ok.length === 0) return Alert.alert('Aviso', 'No hay filas válidas para cargar. Corrige las repetidas o mal cargadas.');
+    setLoteBusy(true);
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
+    let maxN = 0;
+    (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
+    const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
+    const toInsert = ok.map((r, i) => ({ name: r.name, unit: r.unit, sku: pad(maxN + i + 1), category: r.category, min_stock: r.min, machinery_id: null, company_id: null }));
+    const { data: inserted, error } = await supabase.from('inventory_items').insert(toInsert).select('id, sku');
+    if (error) { setLoteBusy(false); return Alert.alert('Aviso', error.message); }
+    const idBySku = new Map((inserted ?? []).map((r: any) => [r.sku, r.id]));
+    const movs = ok
+      .map((r, i) => ({ item_id: idBySku.get(pad(maxN + i + 1)), kind: 'entrada' as const, qty: r.qty, unit_cost: r.cost || 0, reason: 'CARGA POR LOTE', company_id: null, created_by: session?.user?.id ?? null }))
+      .filter((m) => m.item_id && m.qty > 0);
+    if (movs.length) {
+      const { error: mErr } = await supabase.from('inventory_movements').insert(movs);
+      if (mErr) { setLoteBusy(false); return Alert.alert('Aviso', 'Productos creados, pero falló el stock inicial: ' + mErr.message); }
+    }
+    setLoteBusy(false);
+    setLoteOpen(false); setLoteText(''); setLoteRows(null);
+    refetch();
+    Alert.alert('Listo', `Se cargaron ${ok.length} producto(s).`);
   };
 
   if (loading) return <Screen><Loading /></Screen>;
@@ -171,6 +345,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Producto</Text>
           </TouchableOpacity>
         ) : null}
+        {canWrite ? (
+          <TouchableOpacity onPress={() => { setLoteText(''); setLoteRows(null); setLoteOpen(true); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md }}>
+            <Text style={{ color: colors.text, fontWeight: '700' }}>📋 Lote</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {filtered.length === 0 ? (
@@ -193,25 +372,36 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   </View>
                 }
                 detail={
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <View>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>PMP (costo promedio)</Text>
-                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd(it.avg_cost)}</Text>
+                  <View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <View>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>PMP (costo promedio)</Text>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd(it.avg_cost)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'center' }}>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>SKU</Text>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{(it as any).sku || '—'}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>VALOR EN STOCK</Text>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
+                      </View>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={{ color: colors.muted, fontSize: 11 }}>VALOR EN STOCK</Text>
-                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
-                    </View>
+                    {canWrite ? (
+                      <TouchableOpacity onPress={() => openEdit(it)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>✏️ Editar producto</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 }
               />
             );
       })}
 
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
+      <Modal visible={open} animationType="slide" onRequestClose={() => { setOpen(false); setEditingId(null); }}>
         <Screen>
           <ScrollView>
-            <SectionTitle>Nuevo producto</SectionTitle>
+            <SectionTitle>{editingId ? 'Editar producto' : 'Nuevo producto'}</SectionTitle>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nombre</Text>
               <TextInput value={name} onChangeText={(t) => setName(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. BOMBILLO AMARILLO" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
@@ -223,7 +413,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <TextInput value={unit} onChangeText={(t) => setUnit(t.toUpperCase())} autoCapitalize="characters" placeholder="UND, LT, KG…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>SKU (automático)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>SKU {editingId ? '' : '(automático)'}</Text>
                   <View style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, justifyContent: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>{sku || 'INV-…'}</Text>
                   </View>
@@ -235,6 +425,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               </View>
             </Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (Nota de entrega).</Text>
+            {editingId ? (
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>El stock y el PMP no se editan a mano: se ajustan con entradas/salidas (Movimientos).</Text>
+            ) : (
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Existencia inicial (opcional)</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Si ya tienes este material a mano, carga la cantidad y su costo unitario. Se registra como INVENTARIO INICIAL y fija el PMP de arranque.</Text>
@@ -250,10 +443,89 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               </View>
               {parseNum(initStock) > 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Valor inicial: {usd(parseNum(initStock) * parseNum(initCost))}</Text> : null}
             </Card>
+            )}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{busy ? 'Guardando…' : 'Guardar'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setOpen(false); setEditingId(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{busy ? 'Guardando…' : (editingId ? 'Guardar cambios' : 'Guardar')}</Text></TouchableOpacity>
             </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── CARGA POR LOTE (Excel/CSV) ── */}
+      <Modal visible={loteOpen} animationType="slide" onRequestClose={() => setLoteOpen(false)}>
+        <Screen>
+          <ScrollView>
+            <SectionTitle>📋 Cargar productos por lote</SectionTitle>
+            <Card>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Pasos</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
+                1) Descarga la plantilla y ábrela en Excel.{'\n'}
+                2) Llena una fila por producto: nombre, unidad, costo unitario, cantidad inicial, categoría y stock mínimo.{'\n'}
+                3) Súbela como CSV, o copia las filas desde Excel y pégalas abajo.{'\n'}
+                4) El sistema marca las filas repetidas o mal cargadas antes de guardar. El SKU se asigna solo (INV-####).
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Categorías válidas: {CATEGORIES.map((c) => c.key).join(', ')}.</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                <TouchableOpacity onPress={descargarPlantilla} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla</Text>
+                </TouchableOpacity>
+                {Platform.OS === 'web' ? (
+                  <TouchableOpacity onPress={subirCsv} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📁 Subir archivo CSV</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </Card>
+
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>O pega aquí las filas (copiadas desde Excel)</Text>
+              <TextInput
+                value={loteText}
+                onChangeText={setLoteText}
+                placeholder={LOTE_COLS.join('\t')}
+                placeholderTextColor={colors.muted}
+                multiline
+                style={{ minHeight: 120, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, textAlignVertical: 'top' }}
+              />
+              <TouchableOpacity onPress={() => analizarLote(loteText)} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>🔎 Analizar filas</Text>
+              </TouchableOpacity>
+            </Card>
+
+            {loteRows ? (() => {
+              const okN = loteRows.filter((r) => r.status === 'ok').length;
+              const dupN = loteRows.filter((r) => r.status === 'dup').length;
+              const badN = loteRows.filter((r) => r.status === 'bad').length;
+              const bad = loteRows.filter((r) => r.status !== 'ok');
+              return (
+                <Card>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ color: '#16A34A', fontSize: 18, fontWeight: '900' }}>{okN}</Text><Text style={{ color: colors.muted, fontSize: 11 }}>Válidas</Text></View>
+                    <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ color: '#D97706', fontSize: 18, fontWeight: '900' }}>{dupN}</Text><Text style={{ color: colors.muted, fontSize: 11 }}>Repetidas</Text></View>
+                    <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ color: '#DC2626', fontSize: 18, fontWeight: '900' }}>{badN}</Text><Text style={{ color: colors.muted, fontSize: 11 }}>Mal cargadas</Text></View>
+                  </View>
+                  {bad.length ? (
+                    <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12, marginBottom: 4 }}>Filas a revisar (no se cargan):</Text>
+                      {bad.map((r) => (
+                        <Text key={r.rowNo} style={{ color: r.status === 'dup' ? '#D97706' : '#DC2626', fontSize: 12 }}>
+                          • Fila {r.rowNo}{r.name ? ` (${r.name})` : ''}: {r.problems.join(', ')}
+                        </Text>
+                      ))}
+                    </View>
+                  ) : <Text style={{ color: '#16A34A', fontSize: 12, fontWeight: '700' }}>✓ Todas las filas están correctas.</Text>}
+                  <TouchableOpacity onPress={cargarLote} disabled={loteBusy || okN === 0} style={{ marginTop: spacing.sm, backgroundColor: okN ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: loteBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{loteBusy ? 'Cargando…' : `Cargar ${okN} producto(s)`}</Text>
+                  </TouchableOpacity>
+                </Card>
+              );
+            })() : null}
+
+            <TouchableOpacity onPress={() => setLoteOpen(false)} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+            <View style={{ height: spacing.xl }} />
           </ScrollView>
         </Screen>
       </Modal>
