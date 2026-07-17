@@ -51,7 +51,7 @@ function inPeriod(iso: string, period: string): boolean {
 export default function AuthorizationsScreen() {
   const { role, session } = useAuth();
   const { colors } = useTheme();
-  const { data, loading, refetch } = useTable<Authorization>('authorizations', { orderBy: 'created_at' });
+  const { data, loading, refetch } = useTable<Authorization>('authorizations', { orderBy: 'created_at', ascending: false });
   const { data: profiles } = useTable<Profile>('profiles');
   const { data: tanks } = useTable<Tank>('tanks');
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });

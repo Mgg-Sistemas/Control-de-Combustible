@@ -12,7 +12,10 @@ export function useTable<T = any>(
   table: string,
   opts: { select?: string; orderBy?: string; ascending?: boolean; realtimeFrom?: string | string[] } = {}
 ) {
-  const { select = '*', orderBy, ascending = false, realtimeFrom } = opts;
+  // Por defecto ASCENDENTE (A→Z): todo el sistema muestra las listas en orden
+  // alfabético salvo que la pantalla pida explícitamente lo contrario (p. ej. los
+  // logs cronológicos usan `ascending: false` para mostrar lo más reciente primero).
+  const { select = '*', orderBy, ascending = true, realtimeFrom } = opts;
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

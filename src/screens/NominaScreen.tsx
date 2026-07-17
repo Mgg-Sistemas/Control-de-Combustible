@@ -30,7 +30,7 @@ export default function NominaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
-  const { data: periods, loading, refetch } = useTable<PayrollPeriod>('payroll_periods', { orderBy: 'created_at' });
+  const { data: periods, loading, refetch } = useTable<PayrollPeriod>('payroll_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
 
