@@ -418,7 +418,7 @@ export default function ReportsScreen({ route }: any) {
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[] } | null>(null);
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[] } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
@@ -971,20 +971,15 @@ export default function ReportsScreen({ route }: any) {
     const machinesAll: MachineDetail[] = all
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
-    // El conteo por zona trabaja SOLO con las máquinas UBICADAS (con GPS en un sector del
-    // mapa). Las que no tienen ubicación quedan fuera; el total por zonas son las ubicadas.
-    const activeRows: ActiveRow[] = list
-      .map((m) => {
-        const sec = sectorOf(m.latitude, m.longitude);
-        return sec == null ? null : {
-          code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m),
-          tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
-          zona: sectorLabel(sec),
-          dispo: (m.zona && String(m.zona).trim()) || 'Propias',
-          tieneHoras: (hoursByMachine.get(m.id) ?? 0) > 0,
-        } as ActiveRow;
-      })
-      .filter((r): r is ActiveRow => r !== null);
+    // El conteo cuenta TODAS las máquinas activas (el total es como antes). Cada una lleva
+    // su zona geográfica (sector del mapa por GPS) o "Sin zona" si no tiene ubicación.
+    const activeRows: ActiveRow[] = list.map((m) => ({
+      code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m),
+      tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
+      zona: sectorLabel(sectorOf(m.latitude, m.longitude)),
+      dispo: (m.zona && String(m.zona).trim()) || 'Propias',
+      tieneHoras: (hoursByMachine.get(m.id) ?? 0) > 0,
+    }));
     // Puntos del mapa (solo las ubicadas), coloreados por empresa como el mapa general.
     const mapPins: MapPin[] = list
       .filter((m) => m.latitude != null && m.longitude != null && sectorOf(m.latitude, m.longitude) != null)
@@ -994,12 +989,13 @@ export default function ReportsScreen({ route }: any) {
         tipo: equipCategory(m.code), clasificacion: (m.clasificacion && String(m.clasificacion).trim()) || null,
         plate: null, serial: m.serial ?? null, utm: null, route: [],
       }));
-    // Conteo por ZONA para los chips (más máquinas primero). Ya no hay "Sin zona".
+    // Conteo por ZONA para los chips: SOLO las ubicadas (excluye "Sin zona"). Suma = ubicados.
     const zonaCountMap = new Map<string, number>();
-    activeRows.forEach((r) => zonaCountMap.set(r.zona, (zonaCountMap.get(r.zona) ?? 0) + 1));
+    activeRows.forEach((r) => { if (r.zona !== 'Sin zona') zonaCountMap.set(r.zona, (zonaCountMap.get(r.zona) ?? 0) + 1); });
     const zonaCounts = [...zonaCountMap.entries()]
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'));
+    const ubicados = zonaCounts.reduce((s, z) => s + z.count, 0);
     // "A disposición de" (Gobernación/FANB/CVM…): cuenta TODAS las activas transferidas
     // (con o sin GPS), e indica cuántas caen en Este / Oeste (las que sí están ubicadas).
     const dispoMap = new Map<string, { total: number; este: number; oeste: number }>();
@@ -1012,8 +1008,8 @@ export default function ReportsScreen({ route }: any) {
       if (sec != null) { if (sec.startsWith('Oeste')) e.oeste += 1; else e.este += 1; }
     });
     const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
-    // total = SOLO las ubicadas (las que caen en un sector del mapa).
-    setConteo({ byClas, byTipo, machinesAll, total: activeRows.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
+    // total = TODAS las activas (como antes); ubicados = las que están en una zona (90).
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1038,7 +1034,7 @@ export default function ReportsScreen({ route }: any) {
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas por zona (ubicación en el mapa)</h2>
       <table class="cnt"><thead><tr><th>Zona</th><th style="text-align:right">Cantidad</th></tr></thead>
         <tbody>${conteo.zonaCounts.map((z) => `<tr><td>${esc(z.name)}</td><td style="text-align:right;font-weight:700">${z.count}</td></tr>`).join('')}</tbody>
-        <tfoot><tr><td>TOTAL</td><td style="text-align:right">${conteo.total}</td></tr></tfoot></table>` : '';
+        <tfoot><tr><td>TOTAL UBICADOS</td><td style="text-align:right">${conteo.ubicados}</td></tr></tfoot></table>` : '';
     // A disposición de (entes: Gobernación/FANB/CVM…) — TODAS las transferidas; indica el
     // sector (Este/Oeste) de las que están ubicadas. No depende del filtro de zona.
     const dispoRows = conteo.dispoDetail.map((d) => {
@@ -1052,13 +1048,13 @@ export default function ReportsScreen({ route }: any) {
     let tipoZonaHtml = '';
     if (conteoZona === '__all__') {
       const m = new Map<string, { total: number; sec: Map<string, number> }>();
-      conteo.activeRows.forEach((r) => { if (!m.has(r.tipo)) m.set(r.tipo, { total: 0, sec: new Map() }); const e = m.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
+      conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') return; if (!m.has(r.tipo)) m.set(r.tipo, { total: 0, sec: new Map() }); const e = m.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
       const tzRows = [...m.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es')).map(([tipo, e]) => {
-        const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : b[1] - a[1])).map(([s, n]) => `${n} en ${esc(s)}`).join(' · ');
+        const parts = [...e.sec.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} en ${esc(s)}`).join(' · ');
         return `<tr><td><b>${esc(tipo)}</b> (${e.total})</td><td>${parts}</td></tr>`;
       }).join('');
       tipoZonaHtml = `
-        <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Por tipo y zona</h2>
+        <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Por tipo y zona (solo ubicados)</h2>
         <table class="cnt"><thead><tr><th>Tipo (total)</th><th>Distribución por zona</th></tr></thead><tbody>${tzRows}</tbody></table>`;
     }
     const tablasHtml = `${zonaSummary}
@@ -1666,7 +1662,7 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
                       {conteoZona !== '__all__'
                         ? `Mostrando solo ${conteoZona}.`
-                        : `Solo equipos UBICADOS en el mapa (${conteo.total}). Los que no tienen ubicación GPS no se cuentan aquí.`}
+                        : `Total ${conteo.total} equipos activos · ${conteo.ubicados} ubicados en el mapa (repartidos en las zonas de arriba).`}
                     </Text>
                   </Card>
                 );
@@ -1695,13 +1691,15 @@ export default function ReportsScreen({ route }: any) {
               {conteoZona === '__all__' ? (() => {
                 const m = new Map<string, { total: number; sec: Map<string, number> }>();
                 conteo.activeRows.forEach((r) => {
+                  if (r.zona === 'Sin zona') return; // solo ubicadas
                   if (!m.has(r.tipo)) m.set(r.tipo, { total: 0, sec: new Map() });
                   const e = m.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1);
                 });
                 const rows = [...m.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
+                if (!rows.length) return null;
                 return (
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(solo ubicados)</Text></Text>
                     {rows.map(([tipo, e]) => {
                       const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : b[1] - a[1])).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
@@ -1821,7 +1819,7 @@ export default function ReportsScreen({ route }: any) {
               SUBSECTORS.forEach((s) => { zoneColor[sectorLabel(s.n)] = s.color; });
               // Desglose por tipo y zona (mismo que el reporte).
               const tz = new Map<string, { total: number; sec: Map<string, number> }>();
-              conteo.activeRows.forEach((r) => { if (!tz.has(r.tipo)) tz.set(r.tipo, { total: 0, sec: new Map() }); const e = tz.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
+              conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') return; if (!tz.has(r.tipo)) tz.set(r.tipo, { total: 0, sec: new Map() }); const e = tz.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
               const tzRows = [...tz.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
               return (
                 <>
@@ -1832,7 +1830,7 @@ export default function ReportsScreen({ route }: any) {
 
                   {/* Leyenda: zonas con su color y conteo. */}
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas (total {conteo.total})</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicados} ubicados)</Text>
                     {conteo.zonaCounts.map((z) => (
                       <View key={z.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: zoneColor[z.name] ?? colors.muted, marginRight: spacing.sm }} />
