@@ -205,11 +205,14 @@ function equipCategory(code: string): string {
   // ── Camiones: cada tipo con su nombre propio (no un cajón genérico "CAMION"). ──
   if (c.includes('volteo') || c.includes('toronto')) return 'CAMIÓN VOLTEO - TORONTO';
   if (c.includes('pitman')) return 'CAMIÓN BRAZO PITMAN';
-  if (c.includes('cava')) return 'CAMIÓN CAVA SECA';
+  // La grúa va antes que plataforma: "CAMION GRUA PLATAFORMA" es GRÚA, no plataforma.
+  if (c.includes('grua')) return 'GRÚAS';
+  // OJO: usar límite de palabra para "cava" — "RETROEXCAVADORA" contiene "cava".
+  if (/\bcava\b/.test(c)) return 'CAMIÓN CAVA SECA';
   if (c.includes('cesta')) return 'CAMIÓN CESTA';
   if (c.includes('soldadura')) return 'CAMIÓN DE SOLDADURA';
   if (c.includes('refrigerad')) return 'CAMIÓN REFRIGERADO';
-  if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA'; // incluye "CAMION GRUA PLATAFORMA"
+  if (c.includes('plataforma')) return 'CAMIÓN PLATAFORMA';
   if (c.includes('pick') || c.includes('camioneta')) return 'CAMIONETA PICK-UP';
   if (c.includes('camion') && c.includes('servicio')) return 'CAMIÓN DE SERVICIO';
   // ── Otros tipos de maquinaria. ──
@@ -219,7 +222,8 @@ function equipCategory(code: string): string {
   if (c.includes('batea')) return 'CHUTO CON BATEA';
   if (c.includes('volqueta')) return 'CHUTO CON VOLQUETA';
   if (c.includes('cisterna') && c.includes('agua')) return 'CISTERNA DE AGUA';
-  if (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil'))) return 'CISTERNA DE DIESEL';
+  // Tanque/cisterna de combustible (diesel/gasoil) → TANQUE DE COMBUSTIBLE.
+  if (c.includes('tanque') || c.includes('combustible') || (c.includes('cisterna') && (c.includes('diesel') || c.includes('gasoil')))) return 'TANQUE DE COMBUSTIBLE';
   // "MINI" / "MINI SHOWER" → MINISHOWER (evita que queden como "MINI").
   if (c.includes('mini') || c.includes('shower')) return 'MINISHOWER';
   return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
