@@ -360,7 +360,7 @@ export default function DashboardScreen({ navigation }: any) {
                     <TouchableOpacity
                       key={`${g.company}-${it.code}-${it.serial ?? i}`}
                       activeOpacity={0.6}
-                      onPress={() => { setShowActive(false); navigation?.navigate('Equipos', { q: it.serial || it.code }); }}
+                      onPress={() => { setShowActive(false); navigation?.navigate('ControlMaquinaria', { q: it.serial || it.code }); }}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}
                     >
                       <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>

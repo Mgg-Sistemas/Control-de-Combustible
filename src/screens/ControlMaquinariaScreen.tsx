@@ -119,7 +119,7 @@ function fmtDMY(iso: string): string {
   return y && m && d ? `${d}/${m}/${y}` : (iso || '');
 }
 
-export default function ControlMaquinariaScreen({ navigation }: any) {
+export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const { session } = useAuth();
@@ -130,6 +130,13 @@ export default function ControlMaquinariaScreen({ navigation }: any) {
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  // Al llegar desde el Dashboard con ?q (serial/código), filtra a ESA máquina.
+  useEffect(() => {
+    const term = route?.params?.q;
+    if (!term) return;
+    setQuery(String(term));
+    navigation?.setParams?.({ q: undefined });
+  }, [route?.params?.q]);
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // parada en edición (máquina|fecha)
   const [overtimeInput, setOvertimeInput] = useState<Record<string, string>>({}); // extras en edición (máquina|fecha)
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
