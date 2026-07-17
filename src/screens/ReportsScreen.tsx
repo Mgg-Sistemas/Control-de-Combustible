@@ -1570,6 +1570,10 @@ export default function ReportsScreen({ route }: any) {
           <SectionTitle>📊 Conteo de equipos</SectionTitle>
           {conteo ? (
             <>
+              {/* Botón de descarga ARRIBA (a la mano, sin bajar hasta el final). */}
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+              </TouchableOpacity>
               {/* Estado de la flota */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                 {[
@@ -1676,10 +1680,6 @@ export default function ReportsScreen({ route }: any) {
                   </>
                 );
               })()}
-
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadConteoPdf}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
-              </TouchableOpacity>
               <View style={{ height: spacing.xl }} />
             </>
           ) : null}
