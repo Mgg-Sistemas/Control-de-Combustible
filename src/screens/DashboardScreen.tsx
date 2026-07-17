@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useTable } from '../hooks/useTable';
@@ -88,6 +88,9 @@ export default function DashboardScreen({ navigation }: any) {
   const { data: tanks, loading } = useTable<TankLevel>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
+  // Detalle de las máquinas activas (con ronda) agrupadas por empresa.
+  const [activeByCompany, setActiveByCompany] = useState<{ company: string; items: { code: string; serial: string | null }[] }[]>([]);
+  const [showActive, setShowActive] = useState(false);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
   const [states, setStates] = useState<{ op: number; esp: number; no: number } | null>(null);
@@ -107,6 +110,23 @@ export default function DashboardScreen({ navigation }: any) {
     ]);
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
+    // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
+    const ids = Array.from(uniq).filter(Boolean);
+    if (ids.length) {
+      const { data: actMd } = await supabase
+        .from('machinery')
+        .select('code, serial, company:company_id(name)')
+        .in('id', ids as any)
+        .order('code');
+      const map = new Map<string, { company: string; items: { code: string; serial: string | null }[] }>();
+      (actMd ?? []).forEach((m: any) => {
+        const cn = (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
+        const g = map.get(cn) ?? { company: cn, items: [] as { code: string; serial: string | null }[] };
+        g.items.push({ code: m.code ?? '—', serial: m.serial ?? null });
+        map.set(cn, g);
+      });
+      setActiveByCompany([...map.values()].sort((a, b) => a.company.localeCompare(b.company, 'es')));
+    } else setActiveByCompany([]);
     setActiveLocations(locCount ?? 0);
     // Estado de la flota completa. La maquinaria INACTIVA se define por
     // operational=false (mismo criterio que el catálogo), para que los números
@@ -245,7 +265,7 @@ export default function DashboardScreen({ navigation }: any) {
           label="Máquinas activas (rondas)"
           value={activeMachines === null ? '…' : activeMachines}
           color={activeMachines ? colors.success : colors.text}
-          onPress={() => navigation?.navigate('ControlMaquinaria')}
+          onPress={() => setShowActive(true)}
         />
         <StatCard
           label="Ubicaciones activas"
@@ -316,6 +336,42 @@ export default function DashboardScreen({ navigation }: any) {
           );
         })
       )}
+
+      {/* Detalle de máquinas activas (con ronda) desplegadas por empresa. */}
+      <Modal visible={showActive} animationType="slide" transparent onRequestClose={() => setShowActive(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%', padding: spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 17 }}>Máquinas activas por empresa ({activeMachines ?? 0})</Text>
+              <TouchableOpacity onPress={() => setShowActive(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              {activeByCompany.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.md }}>No hay máquinas con ronda activa ahora mismo.</Text>
+              ) : activeByCompany.map((g) => (
+                <View key={g.company} style={{ marginBottom: spacing.md }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14 }}>🏢 {g.company}</Text>
+                    <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                  </View>
+                  {g.items.map((it, i) => (
+                    <View key={`${g.company}-${it.code}-${it.serial ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.code}</Text>
+                        {it.serial ? <Text style={{ color: colors.muted, fontSize: 11 }}>Serial {it.serial}</Text> : null}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              <View style={{ height: spacing.xl }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
