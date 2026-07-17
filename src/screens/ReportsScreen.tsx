@@ -436,7 +436,7 @@ export default function ReportsScreen({ route }: any) {
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; total: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; byEmpresa: ConteoRow[]; total: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[] } | null>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
   // Filtro del conteo: todos / solo con horas / solo sin horas (botones).
   const [conteoFilter, setConteoFilter] = useState<'todos' | 'con' | 'sin'>('todos');
@@ -936,7 +936,11 @@ export default function ReportsScreen({ route }: any) {
   const generateConteo = async () => {
     setLoading(true);
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, company:company_id(name)');
-    const list = (mach ?? []) as any[];
+    const all = (mach ?? []) as any[];
+    // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
+    // (active/operational = false) y los que están en espera (stand by).
+    const isActivo = (m: any) => m.en_espera !== true && m.active !== false && m.operational !== false;
+    const list = all.filter(isActivo);
     // Horas trabajadas por máquina (todas las jornadas registradas). Dedupe por máquina+día.
     const rnds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
     const byMD = new Map<string, any>();
@@ -969,11 +973,12 @@ export default function ReportsScreen({ route }: any) {
       .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
-    // Estado: stand by (en espera) tiene prioridad; luego inactivo (active/operational false); el resto, activo.
-    const standby = list.filter((m) => m.en_espera === true).length;
-    const inactivos = list.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
-    const activos = list.length - standby - inactivos;
-    setConteo({ byClas, byTipo, byEmpresa, total: list.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
+    // Estado (referencia sobre el catálogo COMPLETO): stand by (en espera) tiene
+    // prioridad; luego inactivo; el resto son los activos que forman el conteo.
+    const standby = all.filter((m) => m.en_espera === true).length;
+    const inactivos = all.filter((m) => m.en_espera !== true && (m.active === false || m.operational === false)).length;
+    const activos = list.length;
+    setConteo({ byClas, byTipo, byEmpresa, total: list.length, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1022,14 +1027,14 @@ export default function ReportsScreen({ route }: any) {
       ${conteoFilter === 'sin' ? sinListHtml : tablasHtml}
       <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Estado de la flota</h2>
       <div class="estado">
-        <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos</div></div>
-        <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos</div></div>
-        <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by</div></div>
-        <div class="c"><div class="v">${conteo.total}</div><div class="k">Total equipos</div></div>
+        <div class="c act"><div class="v">${conteo.activos}</div><div class="k">Activos (conteo)</div></div>
+        <div class="c ina"><div class="v">${conteo.inactivos}</div><div class="k">Inactivos (excl.)</div></div>
+        <div class="c stb"><div class="v">${conteo.standby}</div><div class="k">Stand by (excl.)</div></div>
+        <div class="c"><div class="v">${conteo.flota}</div><div class="k">Total flota</div></div>
         <div class="c hrs"><div class="v">${conteo.conHoras}</div><div class="k">Con horas</div></div>
         <div class="c stb"><div class="v">${conteo.sinHoras}</div><div class="k">Sin horas</div></div>
       </div>`;
-    await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
+    await exportPdf(pdfShell('CONTEO DE EQUIPOS', 'Cantidad de equipos ACTIVOS por clasificación y por tipo', body), 'Reportes - Conteo de equipos');
   };
 
   // Reporte "Control camiones Entradas/Salidas": camiones por empresa, por semana
@@ -1545,10 +1550,10 @@ export default function ReportsScreen({ route }: any) {
               {/* Estado de la flota */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
                 {[
-                  { k: 'Activos', v: conteo.activos, c: colors.success },
-                  { k: 'Inactivos', v: conteo.inactivos, c: colors.danger },
-                  { k: 'Stand by', v: conteo.standby, c: colors.warning },
-                  { k: 'Total', v: conteo.total, c: colors.text },
+                  { k: 'Activos (conteo)', v: conteo.activos, c: colors.success },
+                  { k: 'Inactivos (excl.)', v: conteo.inactivos, c: colors.danger },
+                  { k: 'Stand by (excl.)', v: conteo.standby, c: colors.warning },
+                  { k: 'Total flota', v: conteo.flota, c: colors.text },
                 ].map((s) => (
                   <View key={s.k} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                     <Text style={{ color: s.c, fontSize: 22, fontWeight: '900' }}>{s.v}</Text>
