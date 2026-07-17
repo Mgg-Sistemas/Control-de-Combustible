@@ -229,7 +229,7 @@ const SECTIONS: Sec[] = [
     title: 'Inventario (materiales, nota de entrega y cotización)',
     blocks: [
       { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
-      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salidas, Nota de entrega, Cotización y Movimientos.' },
+      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salidas, Nota de entrega, Nota de traslado, Cotización y Movimientos.' },
       { t: 'p', text: 'Nota de salida / entrega — es el documento que se hace cuando salen materiales:' },
       { t: 'steps', items: [
         'Ve a la pestaña "Nota de entrega".',
@@ -239,6 +239,15 @@ const SECTIONS: Sec[] = [
         'Toca 🖨️ Imprimir para guardar/imprimir. RECIÉN AHÍ se descuenta del inventario.',
       ] },
       { t: 'note', text: 'IMPORTANTE: la salida se descuenta del inventario SOLO cuando confirmas (Imprimir/Guardar). Si le das Cancelar en la vista previa, NO se descuenta nada y NO se pierde lo que ya habías elegido: los productos, cantidades, máquina y empleados quedan tal cual para seguir editándolos o corregirlos.' },
+      { t: 'p', text: 'Nota de traslado (entre máquinas) — traslada materiales de una máquina/empleado a otra:' },
+      { t: 'steps', items: [
+        'Ve a la pestaña "🔁 Nota de traslado".',
+        'Agrega los materiales con stock e indica la cantidad de cada uno.',
+        'Define el ORIGEN (🚜 máquina + 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina + 👷 responsable a dónde VA). Escribe el motivo si quiere.',
+        'Toca "🔁 Generar traslado (PDF)": se abre la vista previa con el bloque Origen → Destino y dos firmas (entrega y recibe).',
+        'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
+      ] },
+      { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
       { t: 'p', text: 'Cotización: en la pestaña "Cotización" armas un presupuesto para un cliente (código, referencia, descripción, cantidad y precio). El I.V.A. se coloca como MONTO (lo escribes tú, no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.' },
       { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
     ],

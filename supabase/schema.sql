@@ -1036,6 +1036,36 @@ drop trigger if exists trg_inv_recalc_avg on public.inventory_movements;
 create trigger trg_inv_recalc_avg after insert on public.inventory_movements
   for each row execute function public.inv_recalc_avg();
 
+-- ============================================================================
+-- NOTA DE TRASLADO DE INVENTARIO: traslada materiales de UNA máquina/empleado
+-- (origen) a OTRA máquina/empleado (destino). Al confirmar, descuenta del stock
+-- (registra 'salida' en inventory_movements) y guarda este encabezado con los
+-- renglones (items) en JSONB, casado con la máquina y el empleado de cada lado.
+-- ============================================================================
+create table if not exists public.inventory_transfers (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid references public.companies(id) on delete set null,
+  from_machinery_id uuid references public.machinery(id) on delete set null,
+  from_machinery_label text,
+  from_employee_id uuid references public.employees(id) on delete set null,
+  from_employee_name text,
+  to_machinery_id uuid references public.machinery(id) on delete set null,
+  to_machinery_label text,
+  to_employee_id uuid references public.employees(id) on delete set null,
+  to_employee_name text,
+  motivo text,
+  items jsonb not null default '[]'::jsonb,   -- [{item_id, name, qty, unit}]
+  descontado boolean not null default true,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_invtr_from_mach on public.inventory_transfers(from_machinery_id);
+create index if not exists idx_invtr_to_mach on public.inventory_transfers(to_machinery_id);
+create index if not exists idx_invtr_created on public.inventory_transfers(created_at);
+alter table public.inventory_transfers enable row level security;
+drop policy if exists invtr_all on public.inventory_transfers;
+create policy invtr_all on public.inventory_transfers for all to authenticated using (true) with check (true);
+
 -- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
 -- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos
 -- QUIRÚRGICOS a la sesión anónima para lo que hace el operador desde el QR.
