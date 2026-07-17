@@ -42,9 +42,10 @@ export function companyLegend(pins: MapPin[]): { rows: { company: string; color:
 /** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
 export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
 
-function buildHtml(pins: MapPin[]): string {
+function buildHtml(pins: MapPin[], streets = false): string {
   const data = JSON.stringify(pins);
   const zonesData = JSON.stringify(SUBSECTORS);
+  const firstLayer = streets ? 'calles' : 'sat';
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -63,7 +64,7 @@ function buildHtml(pins: MapPin[]): string {
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
   ]);
   var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
-  sat.addTo(map);
+  (${JSON.stringify(firstLayer)} === 'calles' ? calles : sat).addTo(map);
   L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true, position: 'topleft' }).addTo(map);
 
   if (L.Control && L.Control.Geocoder) {
@@ -268,12 +269,13 @@ function buildHtml(pins: MapPin[]): string {
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height }: {
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets }: {
   pins: MapPin[];
   onDelete?: (id: string, name?: string) => void;
   selectedCompany?: string | null;
   zones?: Set<number>;
   height?: number;
+  streets?: boolean; // arrancar en vista de CALLES (por defecto: satélite)
 }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
@@ -291,7 +293,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height }:
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
       ref: iframeRef,
-      srcDoc: buildHtml(pins),
+      srcDoc: buildHtml(pins, streets),
       onLoad,
       // Permite mostrar la ubicación del usuario y el modo pantalla completa.
       allow: 'geolocation; fullscreen',
