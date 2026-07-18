@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { Machinery, MaintenanceMaterial, OperatorAssignment } from '../types/database';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
+import { startJornada } from '../lib/jornada';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { captureLocation, warmLocation, getCurrentCoords } from '../lib/location';
 import { formatUTM } from '../lib/utm';
@@ -386,81 +387,25 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     if (!machine) return;
     const first = opFirst.trim(), last = opLast.trim(), ci = opCedula.trim();
     if (!first || !last || !ci) { setNotice('❌ Completa nombre, apellido y cédula.'); return; }
-    // Blindaje: la cédula debe ser de un empleado en NÓMINA con cargo permitido.
-    const { data: empRows } = await supabase.from('employees').select('cargo').eq('cedula', ci).limit(1);
-    const empCargo = (empRows && (empRows[0] as any)?.cargo) ?? null;
-    if (!empCargo) { setNotice('❌ Esa cédula no está en nómina. Solo personal de nómina puede iniciar jornada.'); return; }
-    if (!isOperatorCargo(empCargo)) { setNotice(`❌ Cargo "${empCargo}" no autorizado. Solo OPERADORES, CHOFERES, SERVICIOS GENERALES u OBREROS pueden iniciar jornada.`); return; }
     const hi = Number((hIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJornadaBusy(true); setNotice(null);
-    const now = new Date();
-    const { iso, hour } = caracasParts(now);
-    const sh = shiftOf(hour);
-
-    // Regla: un operador (cédula) no puede tener OTRA máquina el mismo día.
-    const { data: dup } = await supabase
-      .from('operator_assignments')
-      .select('id, machinery_id')
-      .eq('cedula', ci)
-      .eq('work_date', iso)
-      .maybeSingle();
-    if (dup && (dup as any).machinery_id !== machine.id) {
-      setJornadaBusy(false);
-      setNotice('❌ Esa cédula ya tiene otra máquina asignada hoy. Un operador solo puede tener 1 máquina por día.');
-      return;
-    }
-
-    // Regla: MÁXIMO 2 operadores por TURNO (día/noche) → hasta 4 al día.
-    const { data: opsTurno } = await supabase
-      .from('operator_assignments')
-      .select('cedula')
-      .eq('machinery_id', machine.id)
-      .eq('work_date', iso)
-      .eq('shift', sh.key);
-    const soloDigitos = (s: string) => (s || '').replace(/\D/g, '');
-    const cedulasTurno = new Set((opsTurno ?? []).map((o: any) => soloDigitos(o.cedula)));
-    if (!cedulasTurno.has(soloDigitos(ci)) && cedulasTurno.size >= 2) {
-      setJornadaBusy(false);
-      setNotice(`❌ El turno de ${sh.key === 'day' ? 'DÍA' : 'NOCHE'} de esta máquina ya tiene 2 operadores (máximo por turno).`);
-      return;
-    }
-
     // Ubicación en TIEMPO REAL del operador al iniciar (para la traza).
     const startCoords = userLoc ?? (await getCurrentCoords().then((r) => (r.ok && r.lat != null ? { lat: r.lat, lng: r.lng as number } : null)).catch(() => null));
-
-    const full = `${first} ${last}`;
-    // 1) Asignación del operador (upsert por cédula+día → si reabre la misma máquina, actualiza).
-    const asgPayload: any = {
-      first_name: first, last_name: last, cedula: ci, machinery_id: machine.id,
-      company_name: machine.companyName ?? null, work_date: iso, shift: sh.key,
-      started_at: now.toISOString(), ended_at: null, worked_hours: null,
-      horometro_inicial: hi, horometro_final: null, horometro_photo: horPhoto, created_by: authorId,
-      start_lat: startCoords?.lat ?? null, start_lng: startCoords?.lng ?? null,
-    };
-    const { data: asgRow, error: eAsg } = await supabase
-      .from('operator_assignments')
-      .upsert(asgPayload, { onConflict: 'cedula,work_date' })
-      .select()
-      .single();
-    // 2) Máquina "En obra" + 3) ronda con operador + horómetro inicial.
-    const roundPatch: any = sh.key === 'day'
-      ? { day_operator: full, day_operator_ci: ci, horometro_inicial: hi, horometro_photo: horPhoto }
-      : { night_operator: full, night_operator_ci: ci, horometro_inicial: hi, horometro_photo: horPhoto };
-    const [{ error: e2 }, r3] = await Promise.all([
-      supabase.from('machinery').update({ entry_at: now.toISOString(), entry_date: iso, exit_at: null, exit_date: null }).eq('id', machine.id),
-      upsertMachineRound(machine.id, iso, roundPatch, uid),
-    ]);
-    // Los operadores NO tienen usuario: solo quedan registrados en el módulo
-    // OPERADORES (tabla operator_assignments), no en la lista de Usuarios.
+    // Reglas de negocio (nómina, 1 máquina/día, 2 operadores/turno) → lib compartida.
+    const res = await startJornada({
+      machineId: machine.id, companyName: machine.companyName ?? null,
+      first, last, cedula: ci, horometroInicial: hi, horometroPhoto: horPhoto,
+      createdBy: authorId, recordedBy: uid, startCoords,
+    });
     setJornadaBusy(false);
-    if (eAsg || e2 || r3.error) { setNotice('❌ ' + (eAsg?.message || e2?.message || r3.error)); return; }
+    if (!res.ok) { setNotice('❌ ' + res.error); return; }
     setJornadaActive(true);
-    setJornadaStartAt(now.toISOString());
-    setJornadaStartDate(iso);
-    setAsg((asgRow as OperatorAssignment) ?? null);
+    setJornadaStartAt(res.startedAt);
+    setJornadaStartDate(res.workDate);
+    setAsg(res.assignment);
     setView('home');
-    setNotice(`✅ Jornada iniciada · ${full} · ${caracasClock(now)} (Caracas) · ${sh.label} · Horómetro inicial ${hi}.`);
+    setNotice(`✅ Jornada iniciada · ${first} ${last} · ${caracasClock(new Date(res.startedAt))} (Caracas) · ${res.shift.label} · Horómetro inicial ${hi}.`);
   };
 
   // ── FIN DE JORNADA: horómetro final → horas = HF − HI, se registra en la ronda

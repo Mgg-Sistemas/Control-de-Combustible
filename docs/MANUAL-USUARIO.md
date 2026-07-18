@@ -229,6 +229,15 @@ trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y su panta
 4. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
 5. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
 
+**👷 Iniciar la jornada del operador (si no tiene teléfono):** dentro del mismo check-in de la
+máquina, el supervisor puede arrancar la jornada del operador con **su** teléfono:
+1. Toca **"📷 Escanear carnet del operador"** y lee el **QR del carnet** del operador.
+2. El sistema valida que sea **operador/chofer/servicios generales/obrero** de la nómina y que tenga cédula.
+3. El supervisor **coteja la cédula** (debe coincidir con el carnet) e ingresa el **horómetro inicial**.
+4. Toca **"🟢 Iniciar jornada del operador"**. Queda registrada la jornada en esa máquina (con las
+   mismas reglas: 1 máquina por operador al día y máximo 2 operadores por turno) y la marca de
+   quién la registró (el supervisor). La ubicación del supervisor queda como punto de inicio.
+
 > Antes el supervisor **solo** podía marcar escaneando el QR físico de cada máquina; ahora su
 > pantalla **🪖 Revisar** lista todas las máquinas y puede marcar cualquiera directo. El check-in
 > aparece de inmediato en el módulo **Supervisión** (Traza por supervisor) y **valida la jornada**.
