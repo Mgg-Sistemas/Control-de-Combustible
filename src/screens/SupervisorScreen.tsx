@@ -7,6 +7,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { Machinery, SupervisorVisit, VisitStatus } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
+import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
@@ -74,6 +75,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [opEmp, setOpEmp] = useState<{ id: string; first: string; last: string; name: string; cargo: string | null; cedula: string } | null>(null);
   const [opConfirmCedula, setOpConfirmCedula] = useState('');
   const [opHoro, setOpHoro] = useState('');
+  const [opHoroPhoto, setOpHoroPhoto] = useState<string | null>(null);
+  const [opHoroUploading, setOpHoroUploading] = useState(false);
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
@@ -119,6 +122,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setOpEmp(null);
     setOpConfirmCedula('');
     setOpHoro('');
+    setOpHoroPhoto(null);
     // Captura el GPS del supervisor al abrir (para medir la distancia a la máquina).
     setGpsBusy(true);
     getCurrentCoords().then((r) => {
@@ -208,12 +212,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     const res = await startJornada({
       machineId: ci.id, companyName: ci.companyName ?? null,
       first: opEmp.first, last: opEmp.last, cedula: opEmp.cedula, horometroInicial: hi,
+      horometroPhoto: opHoroPhoto,
       createdBy: uid || null, recordedBy: uid || null, startCoords: gps,
     });
     setOpBusy(false);
     if (!res.ok) { setNotice('❌ ' + res.error); return; }
     setNotice(`✅ Jornada iniciada para ${opEmp.name} en ${ci.code} · ${res.shift.label} · Horómetro ${hi}. (Registrada por el supervisor.)`);
-    setOpEmp(null); setOpConfirmCedula(''); setOpHoro('');
+    setOpEmp(null); setOpConfirmCedula(''); setOpHoro(''); setOpHoroPhoto(null);
+  };
+
+  // Foto del horómetro (cámara → sube y guarda la URL) para el inicio de jornada.
+  const tomarFotoHoroSup = async () => {
+    if (!ci) return;
+    setOpHoroUploading(true);
+    const r = await captureAndUploadPhoto(ci.id, 'horometro');
+    setOpHoroUploading(false);
+    if (!r.ok) { if (r.error) setNotice('⚠️ ' + r.error); return; }
+    setOpHoroPhoto(r.url ?? null);
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
@@ -388,6 +403,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                     <TextInput value={opConfirmCedula} onChangeText={(t) => setOpConfirmCedula(t.replace(/\D/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula del operador" placeholderTextColor={colors.muted} style={input} />
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Horómetro inicial</Text>
                     <TextInput value={opHoro} onChangeText={(t) => setOpHoro(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                    <TouchableOpacity onPress={tomarFotoHoroSup} disabled={opHoroUploading} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: opHoroPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ color: opHoroPhoto ? colors.success : colors.text, fontWeight: '700' }}>{opHoroUploading ? 'Subiendo…' : opHoroPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={confirmOperatorJornada} disabled={opBusy} style={{ marginTop: spacing.md, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: opBusy ? 0.6 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '800' }}>{opBusy ? 'Guardando…' : '🟢 Iniciar jornada del operador'}</Text>
                     </TouchableOpacity>
