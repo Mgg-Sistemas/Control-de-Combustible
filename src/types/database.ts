@@ -65,6 +65,7 @@ export interface Machinery {
   active: boolean;
   operational: boolean;
   en_espera: boolean; // 3er estado: "En espera por recepción" (aún no recibida en control)
+  qr_blocked?: boolean; // QR bloqueado: al escanear solo se muestra el logo (sin datos ni acciones)
   latitude: number | null;
   longitude: number | null;
   location_at: string | null;

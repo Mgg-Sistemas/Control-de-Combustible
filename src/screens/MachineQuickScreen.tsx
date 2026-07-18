@@ -199,7 +199,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
@@ -504,9 +504,9 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><Loading /></Screen>;
-  // Máquina ELIMINADA (no existe) o INACTIVA (dada de baja, active=false) →
-  // QR DESACTIVADO: solo el logo de la empresa (sin datos ni acciones).
-  if (!machine || (machine as any).active === false) return <QrInactive />;
+  // Máquina ELIMINADA (no existe), INACTIVA (dada de baja, active=false) o con el
+  // QR BLOQUEADO manualmente → QR DESACTIVADO: solo el logo (sin datos ni acciones).
+  if (!machine || (machine as any).active === false || (machine as any).qr_blocked === true) return <QrInactive />;
   // QR VENCIDO: el QR fue sellado con un serial que ya NO coincide con el actual
   // (se cambió el serial de la máquina). Los QR sin sellar (qrSerial null) siguen
   // funcionando por compatibilidad; solo se vence el sello que dejó de coincidir.

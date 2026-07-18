@@ -141,6 +141,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // QR de la máquina
   const [qrFor, setQrFor] = useState<Machinery | null>(null);
   const [qrStr, setQrStr] = useState<string>('');
+  const [qrBlockBusy, setQrBlockBusy] = useState(false);
   // Guardia / militar encargado actual por máquina (historial acumulable).
   const { session, role } = useAuth();
   // SOLO los SUPERVISORES pueden iniciar jornada desde el catálogo (sin escanear el QR).
@@ -425,6 +426,23 @@ export default function EquiposScreen({ navigation, route }: any) {
     setQrStr('');
     try { setQrStr(await qrSvg(machineQrUrl(m.id, m.serial), 260)); } catch {}
   };
+  // Bloquear / desbloquear el QR de la máquina: si está bloqueado, al escanearlo solo
+  // se muestra el logo (sin datos ni acciones). Es un bloqueo manual, independiente
+  // del sello por serial.
+  const toggleQrBlock = async () => {
+    if (!qrFor || qrBlockBusy) return;
+    const next = !((qrFor as any).qr_blocked === true);
+    setQrBlockBusy(true);
+    const { error } = await supabase.from('machinery').update({ qr_blocked: next }).eq('id', qrFor.id);
+    setQrBlockBusy(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setQrFor({ ...(qrFor as any), qr_blocked: next });
+    machinery.refetch();
+    Alert.alert('QR ' + (next ? 'bloqueado' : 'desbloqueado'), next
+      ? 'Al escanear este QR ahora solo se muestra el logo. Nadie podrá registrar con él.'
+      : 'El QR vuelve a funcionar normalmente.');
+  };
+
   const printQr = async () => {
     if (!qrFor || !qrStr) return;
     const url = machineQrUrl(qrFor.id, qrFor.serial);
@@ -1108,9 +1126,21 @@ export default function EquiposScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, marginVertical: spacing.lg }}>Generando…</Text>
             )}
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
-              Al escanearlo se abre el sistema con las acciones de esta máquina (combustible, mapa y avería).
+              {(qrFor as any)?.qr_blocked === true
+                ? '🚫 QR BLOQUEADO: al escanearlo solo se muestra el logo. Nadie puede registrar con él.'
+                : 'Al escanearlo se abre el sistema con las acciones de esta máquina (combustible, mapa y avería).'}
             </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, alignSelf: 'stretch' }}>
+            {/* Bloquear / desbloquear el QR de esta máquina (mostrar solo el logo). */}
+            <TouchableOpacity
+              onPress={toggleQrBlock}
+              disabled={qrBlockBusy}
+              style={{ alignSelf: 'stretch', marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: (qrFor as any)?.qr_blocked === true ? '#1E9E4A' : '#D22B2B', opacity: qrBlockBusy ? 0.7 : 1 }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800' }}>
+                {qrBlockBusy ? 'Guardando…' : (qrFor as any)?.qr_blocked === true ? '✅ Desbloquear QR' : '🚫 Bloquear QR (mostrar solo el logo)'}
+              </Text>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignSelf: 'stretch' }}>
               <TouchableOpacity onPress={() => setQrFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>

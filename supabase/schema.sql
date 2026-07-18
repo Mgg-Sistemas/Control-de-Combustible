@@ -537,6 +537,9 @@ alter table public.machinery add column if not exists company_id  uuid reference
 alter table public.machinery add column if not exists operational boolean not null default true;
 -- 3er estado de la máquina: "En espera por recepción" (aún no recibida en el control activo).
 alter table public.machinery add column if not exists en_espera   boolean not null default false;
+-- QR BLOQUEADO: al escanear el QR de esta máquina solo se muestra el logo (sin datos ni
+-- acciones). Bloqueo manual e independiente del sello por serial (ver machineQrUrl).
+alter table public.machinery add column if not exists qr_blocked  boolean not null default false;
 alter table public.machinery add column if not exists latitude    numeric(9,6);
 alter table public.machinery add column if not exists longitude   numeric(9,6);
 alter table public.machinery add column if not exists location_at timestamptz;
