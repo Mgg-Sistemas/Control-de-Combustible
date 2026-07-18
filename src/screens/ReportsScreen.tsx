@@ -19,7 +19,7 @@ import { canonTipo } from './EquiposScreen';
 import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
-import { sectorOf, sectorLabel, SUBSECTORS } from '../lib/mapZones';
+import { sectorOf, SUBSECTORS } from '../lib/mapZones';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -980,9 +980,9 @@ export default function ReportsScreen({ route }: any) {
     list.filter((m) => sectorOf(m.latitude, m.longitude) == null)
       .sort((a, b) => String(a.code ?? '').localeCompare(String(b.code ?? ''), 'es'))
       .forEach((m, i) => macroById.set(m.id, i % 2 === 0 ? 'Este' : 'Oeste'));
-    // Zona del reporte: ubicada → sub-sector real ("Este · X"); sin GPS → "Este" o "Oeste"
-    // (sin nombre de sub-sector). Así TODAS quedan ubicadas en el reporte.
-    const zonaR = (m: any): string => { const sec = sectorOf(m.latitude, m.longitude); return sec != null ? sectorLabel(sec) : macroById.get(m.id)!; };
+    // Zona del reporte: SIEMPRE "Este" u "Oeste" (sin sub-sectores). Las ubicadas por GPS
+    // toman su lado real; las sin GPS, el reparto 50/50. Así TODAS quedan ubicadas.
+    const zonaR = (m: any): string => macroById.get(m.id)!;
     // El conteo cuenta TODAS las máquinas activas (el total es como antes). Cada una lleva
     // su zona del reporte (Este/Oeste), sin ninguna "Sin zona".
     const activeRows: ActiveRow[] = list.map((m) => ({
@@ -1864,28 +1864,34 @@ export default function ReportsScreen({ route }: any) {
             </TouchableOpacity>
             <SectionTitle>Mapa por sectores</SectionTitle>
             {conteo ? (() => {
-              // Color de cada zona (para que la leyenda coincida con el mapa).
-              const zoneColor: Record<string, string> = {};
-              SUBSECTORS.forEach((s) => { zoneColor[sectorLabel(s.n)] = s.color; });
-              // Desglose por tipo y zona en el MAPA: SOLO los ubicados por GPS (sub-sectores con "·").
+              // El mapa muestra SOLO los ubicados por GPS. Sus leyendas se agrupan en Este / Oeste.
+              const zoneColor: Record<string, string> = { Este: '#1E88E5', Oeste: '#E5731E' };
+              const macroOfPin = (p: MapPin): 'Este' | 'Oeste' | null => { const sec = sectorOf(p.lat, p.lng); return sec == null ? null : sec.startsWith('Oeste') ? 'Oeste' : 'Este'; };
+              const macroCounts = new Map<string, number>();
               const tz = new Map<string, { total: number; sec: Map<string, number> }>();
-              conteo.activeRows.forEach((r) => { if (!r.zona.includes('·')) return; if (!tz.has(r.tipo)) tz.set(r.tipo, { total: 0, sec: new Map() }); const e = tz.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
+              conteo.mapPins.forEach((p) => {
+                const mm = macroOfPin(p); if (!mm) return;
+                macroCounts.set(mm, (macroCounts.get(mm) ?? 0) + 1);
+                if (!tz.has(p.tipo)) tz.set(p.tipo, { total: 0, sec: new Map() });
+                const e = tz.get(p.tipo)!; e.total += 1; e.sec.set(mm, (e.sec.get(mm) ?? 0) + 1);
+              });
+              const zonaRows = [...macroCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
               const tzRows = [...tz.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
               return (
                 <>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                    {conteo.mapPins.length} equipos ubicados · zonas y puntos sobre el mapa de calles.
+                    {conteo.mapPins.length} equipos ubicados por GPS · zonas y puntos sobre el mapa de calles.
                   </Text>
                   <VenezuelaMap pins={conteo.mapPins} zones={new Set(SUBSECTORS.map((_, i) => i))} streets height={360} />
 
-                  {/* Leyenda: zonas con su color y conteo. */}
+                  {/* Leyenda: Este / Oeste con su color y conteo (solo GPS). */}
                   <Card>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicadosGps} ubicados por GPS)</Text>
-                    {conteo.zonaCounts.filter((z) => z.name.includes('·')).map((z) => (
-                      <View key={z.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
-                        <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: zoneColor[z.name] ?? colors.muted, marginRight: spacing.sm }} />
-                        <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{z.name}</Text>
-                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{z.count}</Text>
+                    {zonaRows.map(([name, count]) => (
+                      <View key={name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: zoneColor[name] ?? colors.muted, marginRight: spacing.sm }} />
+                        <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{name}</Text>
+                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{count}</Text>
                       </View>
                     ))}
                   </Card>
