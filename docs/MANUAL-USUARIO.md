@@ -161,6 +161,9 @@ trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal*
   próximo período).
 - Cada período elige **"Pago por"**: **Por hora**, **Por día** o **Por semana**. El
   **devengado = precio del modo × cantidad** (horas, días o semanas trabajadas).
+- **Regla del "Por día": SOLO los operadores cobran por día.** Un período con "Pago por = Por
+  día" precarga (y en "Personal faltante" agrega) **únicamente** empleados con cargo
+  **operador**. Al resto del personal se le paga en períodos **Por hora** o **Por semana**.
 - El **Período** (rango de fechas) puede ser **Día**, **Semana** (dom→sáb) o **Quincena**
   (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se editan a mano.
 - **Total a pagar** = devengado + **bonos** − **deducciones**.
