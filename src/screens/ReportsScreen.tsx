@@ -418,7 +418,7 @@ export default function ReportsScreen({ route }: any) {
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[] } | null>(null);
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[] } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
@@ -971,12 +971,24 @@ export default function ReportsScreen({ route }: any) {
     const machinesAll: MachineDetail[] = all
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
       .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
+    // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
+    // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
+    // reporte: NO toca el mapa ni el GPS (que quedan intactos). Reparto estable: los sin
+    // ubicación se ordenan por código y se alternan Este, Oeste, Este, Oeste…
+    const macroById = new Map<string, 'Este' | 'Oeste'>();
+    list.forEach((m) => { const sec = sectorOf(m.latitude, m.longitude); if (sec != null) macroById.set(m.id, sec.startsWith('Oeste') ? 'Oeste' : 'Este'); });
+    list.filter((m) => sectorOf(m.latitude, m.longitude) == null)
+      .sort((a, b) => String(a.code ?? '').localeCompare(String(b.code ?? ''), 'es'))
+      .forEach((m, i) => macroById.set(m.id, i % 2 === 0 ? 'Este' : 'Oeste'));
+    // Zona del reporte: ubicada → sub-sector real ("Este · X"); sin GPS → "Este" o "Oeste"
+    // (sin nombre de sub-sector). Así TODAS quedan ubicadas en el reporte.
+    const zonaR = (m: any): string => { const sec = sectorOf(m.latitude, m.longitude); return sec != null ? sectorLabel(sec) : macroById.get(m.id)!; };
     // El conteo cuenta TODAS las máquinas activas (el total es como antes). Cada una lleva
-    // su zona geográfica (sector del mapa por GPS) o "Sin zona" si no tiene ubicación.
+    // su zona del reporte (Este/Oeste), sin ninguna "Sin zona".
     const activeRows: ActiveRow[] = list.map((m) => ({
       code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m),
       tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
-      zona: sectorLabel(sectorOf(m.latitude, m.longitude)),
+      zona: zonaR(m),
       dispo: (m.zona && String(m.zona).trim()) || 'Propias',
       tieneHoras: (hoursByMachine.get(m.id) ?? 0) > 0,
     }));
@@ -989,27 +1001,28 @@ export default function ReportsScreen({ route }: any) {
         tipo: equipCategory(m.code), clasificacion: (m.clasificacion && String(m.clasificacion).trim()) || null,
         plate: null, serial: m.serial ?? null, utm: null, route: [],
       }));
-    // Conteo por ZONA para los chips: SOLO las ubicadas (excluye "Sin zona"). Suma = ubicados.
+    // Conteo por ZONA para los chips: TODAS quedan ubicadas (ninguna "Sin zona"). Suma = total.
     const zonaCountMap = new Map<string, number>();
     activeRows.forEach((r) => { if (r.zona !== 'Sin zona') zonaCountMap.set(r.zona, (zonaCountMap.get(r.zona) ?? 0) + 1); });
     const zonaCounts = [...zonaCountMap.entries()]
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'));
     const ubicados = zonaCounts.reduce((s, z) => s + z.count, 0);
+    // Ubicados REALMENTE en el mapa (por GPS) — para el modal del mapa (los puntos son solo estos).
+    const ubicadosGps = mapPins.length;
     // "A disposición de" (Gobernación/FANB/CVM…): cuenta TODAS las activas transferidas
-    // (con o sin GPS), e indica cuántas caen en Este / Oeste (las que sí están ubicadas).
+    // e indica cuántas caen en Este / Oeste (con el mismo reparto del reporte: GPS o 50/50).
     const dispoMap = new Map<string, { total: number; este: number; oeste: number }>();
     list.forEach((m) => {
       const d = (m.zona && String(m.zona).trim()) || 'Propias';
       if (d === 'Propias') return;
       if (!dispoMap.has(d)) dispoMap.set(d, { total: 0, este: 0, oeste: 0 });
       const e = dispoMap.get(d)!; e.total += 1;
-      const sec = sectorOf(m.latitude, m.longitude);
-      if (sec != null) { if (sec.startsWith('Oeste')) e.oeste += 1; else e.este += 1; }
+      if (macroById.get(m.id) === 'Oeste') e.oeste += 1; else e.este += 1;
     });
     const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
-    // total = TODAS las activas (como antes); ubicados = las que están en una zona (90).
-    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
+    // total = TODAS las activas; ubicados = todas (las sin GPS repartidas 50/50); ubicadosGps = solo GPS.
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1054,7 +1067,7 @@ export default function ReportsScreen({ route }: any) {
         return `<tr><td><b>${esc(tipo)}</b> (${e.total})</td><td>${parts}</td></tr>`;
       }).join('');
       tipoZonaHtml = `
-        <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Por tipo y zona (solo ubicados)</h2>
+        <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Por tipo y zona (Este / Oeste)</h2>
         <table class="cnt"><thead><tr><th>Tipo (total)</th><th>Distribución por zona</th></tr></thead><tbody>${tzRows}</tbody></table>`;
     }
     // Máquinas SIN ubicación por tipo (ej. 3 jumbos, 5 tractores…).
@@ -1678,7 +1691,7 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
                       {conteoZona !== '__all__'
                         ? `Mostrando solo ${conteoZona}.`
-                        : `Total ${conteo.total} equipos activos · ${conteo.ubicados} ubicados en el mapa (repartidos en las zonas de arriba).`}
+                        : `Total ${conteo.total} equipos activos · TODOS ubicados (${conteo.ubicadosGps} por GPS; el resto repartido 50/50 en Este/Oeste, sin tocar el mapa).`}
                     </Text>
                   </Card>
                 );
@@ -1715,7 +1728,7 @@ export default function ReportsScreen({ route }: any) {
                 if (!rows.length) return null;
                 return (
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(solo ubicados)</Text></Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(Este / Oeste)</Text></Text>
                     {rows.map(([tipo, e]) => {
                       const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : b[1] - a[1])).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
@@ -1854,9 +1867,9 @@ export default function ReportsScreen({ route }: any) {
               // Color de cada zona (para que la leyenda coincida con el mapa).
               const zoneColor: Record<string, string> = {};
               SUBSECTORS.forEach((s) => { zoneColor[sectorLabel(s.n)] = s.color; });
-              // Desglose por tipo y zona (mismo que el reporte).
+              // Desglose por tipo y zona en el MAPA: SOLO los ubicados por GPS (sub-sectores con "·").
               const tz = new Map<string, { total: number; sec: Map<string, number> }>();
-              conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') return; if (!tz.has(r.tipo)) tz.set(r.tipo, { total: 0, sec: new Map() }); const e = tz.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
+              conteo.activeRows.forEach((r) => { if (!r.zona.includes('·')) return; if (!tz.has(r.tipo)) tz.set(r.tipo, { total: 0, sec: new Map() }); const e = tz.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
               const tzRows = [...tz.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
               return (
                 <>
@@ -1867,8 +1880,8 @@ export default function ReportsScreen({ route }: any) {
 
                   {/* Leyenda: zonas con su color y conteo. */}
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicados} ubicados)</Text>
-                    {conteo.zonaCounts.map((z) => (
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicadosGps} ubicados por GPS)</Text>
+                    {conteo.zonaCounts.filter((z) => z.name.includes('·')).map((z) => (
                       <View key={z.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: zoneColor[z.name] ?? colors.muted, marginRight: spacing.sm }} />
                         <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{z.name}</Text>
