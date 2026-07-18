@@ -1149,10 +1149,17 @@ create table if not exists public.employees (
   bank_account text,                       -- número de cuenta
   bank_holder text,                        -- nombre y apellido del titular de la cuenta
   bank_cedula text,                        -- cédula del titular de la cuenta
+  talla_camisa text,                       -- talla de camisa (uniforme)
+  talla_pantalon text,                     -- talla de pantalón (uniforme)
+  talla_zapatos text,                      -- talla de zapatos (uniforme)
   notes text,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
+-- Tallas de uniforme (para tablas ya creadas): Distribución de uniformes en Nómina.
+alter table public.employees add column if not exists talla_camisa text;
+alter table public.employees add column if not exists talla_pantalon text;
+alter table public.employees add column if not exists talla_zapatos text;
 -- Cédula y número de ficha únicos (cuando no están vacíos).
 create unique index if not exists uq_employees_cedula on public.employees (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
 create unique index if not exists uq_employees_ficha  on public.employees (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';

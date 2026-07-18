@@ -153,6 +153,9 @@ export interface Employee {
   bank_account: string | null;   // número de cuenta
   bank_holder: string | null;    // nombre y apellido del titular
   bank_cedula: string | null;    // cédula del titular
+  talla_camisa: string | null;   // talla de camisa (uniforme)
+  talla_pantalon: string | null; // talla de pantalón (uniforme)
+  talla_zapatos: string | null;  // talla de zapatos (uniforme)
   notes: string | null;
   created_by: string | null;
   created_at: string;

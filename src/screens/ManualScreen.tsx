@@ -143,6 +143,20 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '👕',
+    title: 'Distribución de uniformes (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Sirve para llevar las tallas de uniforme de cada empleado e imprimir el listado para la entrega. Está dentro de Nómina: abre 👕 Distribución de uniformes.' },
+      { t: 'steps', items: [
+        'Verás el listado de empleados agrupado por empresa (con "Activos" o "Todos", y un buscador por nombre, cédula o cargo).',
+        'Toca un empleado: se abre para cargar su 👕 talla de camisa, 👖 talla de pantalón y 👟 talla de zapatos. Guarda.',
+        'Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).',
+        'Toca "⬇️ Imprimir listado": genera un PDF con todos los empleados mostrados, sus tallas y una columna de FIRMA (Recibido / Entregado) para firmar al recibir el uniforme.',
+      ] },
+      { t: 'note', text: 'El PDF respeta el filtro y la búsqueda: imprime exactamente los empleados que estás viendo. La columna de firma va en blanco para que cada persona firme el recibido/entregado.' },
+    ],
+  },
+  {
     icon: '💵',
     title: 'Control de pago a personal (dentro de Nómina)',
     blocks: [
