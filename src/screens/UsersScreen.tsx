@@ -91,7 +91,15 @@ export default function UsersScreen() {
     });
     setDeletingId(null);
     if (error || (data as any)?.error) {
-      setDelError(`${u.full_name ?? 'Usuario'}: ${(data as any)?.error ?? error?.message ?? 'No se pudo eliminar.'}`);
+      // Cuando la función responde con un código de error, supabase-js pone el
+      // mensaje genérico en error.message y el detalle real en error.context
+      // (la respuesta HTTP). Lo leemos para mostrar el motivo verdadero.
+      let motivo = (data as any)?.error ?? error?.message ?? 'No se pudo eliminar.';
+      try {
+        const body = await (error as any)?.context?.json?.();
+        if (body?.error) motivo = body.error;
+      } catch { /* si no se puede leer el cuerpo, queda el mensaje genérico */ }
+      setDelError(`${u.full_name ?? 'Usuario'}: ${motivo}`);
       return;
     }
     refetch();

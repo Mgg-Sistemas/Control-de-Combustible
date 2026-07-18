@@ -1607,5 +1607,49 @@ begin
 end $$;
 
 -- ============================================================================
+-- Poder ELIMINAR usuarios sin bloqueos por claves foráneas.
+-- Varias tablas referenciaban public.profiles(id) con NO ACTION, lo que impedía
+-- borrar a un usuario que tuviera cualquier registro relacionado (el borrado
+-- fallaba con "Edge Function returned a non-2xx status code"). Se ajustan:
+--  · supervisor_visits.supervisor_id → ON DELETE CASCADE (sus visitas se van con él).
+--  · columnas de auditoría (created_by / requested_by / approved_by) → SET NULL
+--    (se conserva el registro de negocio, solo se pierde quién lo creó).
+-- Bloque idempotente: recrea cada FK con la regla correcta.
+-- ============================================================================
+do $$
+begin
+  alter table public.supervisor_visits drop constraint if exists supervisor_visits_supervisor_id_fkey;
+  alter table public.supervisor_visits add constraint supervisor_visits_supervisor_id_fkey
+    foreign key (supervisor_id) references public.profiles(id) on delete cascade;
+
+  alter table public.authorizations drop constraint if exists authorizations_approved_by_fkey;
+  alter table public.authorizations add constraint authorizations_approved_by_fkey
+    foreign key (approved_by) references public.profiles(id) on delete set null;
+  alter table public.authorizations drop constraint if exists authorizations_requested_by_fkey;
+  alter table public.authorizations add constraint authorizations_requested_by_fkey
+    foreign key (requested_by) references public.profiles(id) on delete set null;
+
+  alter table public.dispatches drop constraint if exists dispatches_created_by_fkey;
+  alter table public.dispatches add constraint dispatches_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.food_company_meals drop constraint if exists food_company_meals_created_by_fkey;
+  alter table public.food_company_meals add constraint food_company_meals_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.food_distributions drop constraint if exists food_distributions_created_by_fkey;
+  alter table public.food_distributions add constraint food_distributions_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.fuel_intakes drop constraint if exists fuel_intakes_created_by_fkey;
+  alter table public.fuel_intakes add constraint fuel_intakes_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+
+  alter table public.transfers drop constraint if exists transfers_created_by_fkey;
+  alter table public.transfers add constraint transfers_created_by_fkey
+    foreign key (created_by) references public.profiles(id) on delete set null;
+end $$;
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
