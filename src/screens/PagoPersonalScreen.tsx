@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { onlyDecimal } from '../lib/text';
+import { onlyDecimal, norm } from '../lib/text';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
@@ -53,6 +53,10 @@ const UNIT: Record<string, string> = { hora: 'h', dia: 'd', semana: 'sem' };
 const METODOS = ['efectivo', 'pago móvil', 'transferencia', 'otro'];
 
 type Mode = StaffPayPeriod['mode'];
+// Regla: SOLO los operadores cobran por día. Un período "Por día" precarga/agrega
+// únicamente empleados con cargo operador (los demás se pagan por hora/semana).
+const esOperador = (cargo?: string | null) => norm(cargo ?? '').includes('operador');
+const soloOperadoresSi = (mode: Mode) => mode === 'dia';
 const qtyOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.horas : mode === 'semana' ? it.semanas : it.dias) || 0;
 const priceOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.precio_hora : mode === 'semana' ? it.precio_semana : it.precio_dia) || 0;
 const devengadoOf = (it: StaffPayItem, mode: Mode) => round2(qtyOf(it, mode) * priceOf(it, mode));
@@ -184,7 +188,9 @@ export default function PagoPersonalScreen() {
 
     const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('company_id', cCompany).eq('status', 'activo');
     const byCed = await buildAuto(cFrom, cTo);
-    const rows = (emps ?? []).map((e: any) => rowFor(e, per.id, byCed.get(e.cedula), cValid, cMode));
+    // "Por día" → SOLO operadores. En hora/semana entran todos los activos.
+    const empList = (emps ?? []).filter((e: any) => !soloOperadoresSi(cMode) || esOperador(e.cargo));
+    const rows = empList.map((e: any) => rowFor(e, per.id, byCed.get(e.cedula), cValid, cMode));
     if (rows.length) await supabase.from('staff_pay_items').insert(rows);
     const total = round2(rows.reduce((s, r) => s + r.total, 0));
     await supabase.from('staff_pay_periods').update({ total_amount: total }).eq('id', per.id);
@@ -228,13 +234,16 @@ export default function PagoPersonalScreen() {
     const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('company_id', sel.company_id).eq('status', 'activo');
     const byCed = await buildAuto(sel.date_from, sel.date_to);
     const have = new Set(items.map((i) => i.employee_id));
-    const rows = (emps ?? []).filter((e: any) => !have.has(e.id)).map((e: any) => rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode));
+    // "Por día" → SOLO operadores nuevos. En hora/semana entran todos los activos.
+    const rows = (emps ?? [])
+      .filter((e: any) => !have.has(e.id) && (!soloOperadoresSi(sel.mode) || esOperador(e.cargo)))
+      .map((e: any) => rowFor(e, sel.id, byCed.get(e.cedula), sel.only_validated, sel.mode));
     if (rows.length) await supabase.from('staff_pay_items').insert(rows);
     await loadDetail(sel);
     const { data: fresh } = await supabase.from('staff_pay_items').select('*').eq('period_id', sel.id);
     await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
     setBusy(false);
-    if (!rows.length) Alert.alert('Aviso', 'No hay empleados activos nuevos para agregar.');
+    if (!rows.length) Alert.alert('Aviso', soloOperadoresSi(sel.mode) ? 'No hay operadores activos nuevos para agregar (los períodos "Por día" solo incluyen operadores).' : 'No hay empleados activos nuevos para agregar.');
   };
 
   // ── Editor de renglón ───────────────────────────────────────────────────────
@@ -463,7 +472,7 @@ export default function PagoPersonalScreen() {
         </TouchableOpacity>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano.
+        Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano. Los períodos "Por día" incluyen SOLO a los operadores.
       </Text>
 
       {loading && periods.length === 0 ? (
@@ -533,6 +542,11 @@ export default function PagoPersonalScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+              {cMode === 'dia' ? (
+                <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4, fontWeight: '700' }}>
+                  ⚠️ "Por día" precarga SOLO a los operadores. Al resto se le paga por hora o semana.
+                </Text>
+              ) : null}
 
               <TouchableOpacity onPress={() => setCValid((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md }}>
                 <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: cValid ? colors.primary : colors.border, backgroundColor: cValid ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
