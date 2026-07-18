@@ -263,6 +263,7 @@ function useQrParam(name: string): [string | null, () => void] {
 export default function RootNavigator() {
   const { session, configured, locked, role, signOut } = useAuth();
   const [qrMachineId, clearQr] = useQrParam('maquina');
+  const [qrMachineSerial] = useQrParam('s'); // serial sellado del QR (para vencer QR viejos)
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
   const [qrAliadoId, clearQrAliado] = useQrParam('aliado');
   const [qrComidaId, clearQrComida] = useQrParam('comida');
@@ -352,7 +353,7 @@ export default function RootNavigator() {
         // OPERADOR SIN usuario: vista de operador ANÓNIMA de esa máquina. Se identifica
         // DENTRO de la pantalla con su carnet + cédula (deben coincidir) antes de ver los
         // botones (combustible, avería, ubicar, jornada). El supervisor puede iniciar sesión.
-        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
+        <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
       ) : qrMachineId && roleLoading ? (
         // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
@@ -364,11 +365,11 @@ export default function RootNavigator() {
         supCheckin ? (
           <SupervisorScreen initialMachineId={qrMachineId} onConsumed={() => setSupCheckin(false)} />
         ) : (
-          <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} onSupervisorCheckin={() => setSupCheckin(true)} />
+          <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} onSupervisorCheckin={() => setSupCheckin(true)} />
         )
       ) : qrMachineId ? (
         // Otro rol con sesión (admin/operador): vista de operador de esa máquina.
-        <MachineQuickScreen machineId={qrMachineId} onExit={exitQr} />
+        <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} />
       ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (

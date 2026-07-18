@@ -423,11 +423,11 @@ export default function EquiposScreen({ navigation, route }: any) {
   const openQr = async (m: Machinery) => {
     setQrFor(m);
     setQrStr('');
-    try { setQrStr(await qrSvg(machineQrUrl(m.id), 260)); } catch {}
+    try { setQrStr(await qrSvg(machineQrUrl(m.id, m.serial), 260)); } catch {}
   };
   const printQr = async () => {
     if (!qrFor || !qrStr) return;
-    const url = machineQrUrl(qrFor.id);
+    const url = machineQrUrl(qrFor.id, qrFor.serial);
     const html = `<!doctype html><html><head><meta charset="utf-8"><title></title>
       <style>@page{margin:2cm}*{box-sizing:border-box}body{font-family:Tahoma,Geneva,Verdana,sans-serif;text-align:center;color:#111}
       .name{font-size:28px;font-weight:800;margin:6px 0 2px;color:#16324F}

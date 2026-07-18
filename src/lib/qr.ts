@@ -15,9 +15,13 @@ export function appOrigin(): string {
   return QR_ORIGIN;
 }
 
-/** URL que codifica el QR de una máquina: abre el sistema en la vista rápida. */
-export function machineQrUrl(machineryId: string): string {
-  return `${QR_ORIGIN}/?maquina=${encodeURIComponent(machineryId)}`;
+/** URL que codifica el QR de una máquina: abre el sistema en la vista rápida.
+ *  Se SELLA con el serial (`&s=…`): si luego se cambia el serial de la máquina,
+ *  cualquier QR impreso con el serial anterior deja de funcionar (queda vencido).
+ *  Los QR viejos sin sellar (sin `s`) siguen funcionando por compatibilidad. */
+export function machineQrUrl(machineryId: string, serial?: string | null): string {
+  const s = (serial ?? '').trim();
+  return `${QR_ORIGIN}/?maquina=${encodeURIComponent(machineryId)}${s ? `&s=${encodeURIComponent(s)}` : ''}`;
 }
 
 /** URL que codifica el QR de un empleado: abre su ficha (datos del trabajador). */

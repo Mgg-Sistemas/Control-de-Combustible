@@ -99,6 +99,7 @@ const SECTIONS: Sec[] = [
         '🕓 En espera — llegó pero todavía no se ha recibido en el control.',
       ] },
       { t: 'p', text: 'En cada máquina también puedes: 📍 guardar su ubicación, 📷 subirle una foto y 🔳 generar su código QR.' },
+      { t: 'note', text: 'QR sellado con el serial: el QR queda amarrado al serial de la máquina. Si cambias el serial, el QR impreso con el serial anterior DEJA DE FUNCIONAR (al escanearlo solo sale el logo). Reimprime el QR para activarlo con el nuevo serial. Los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.' },
       { t: 'p', text: '🪖 Supervisor: cada máquina tiene un botón para asignar quién la custodia (Supervisor Empresa o Militar). Al escribir el nombre aparece una lista con los ya usados para elegirlo rápido. Cambiar de supervisor deja el anterior en el historial.' },
       { t: 'note', text: 'Editar o borrar supervisores: en ese mismo botón toca "⚙️ Editar / borrar supervisores". Ahí puedes ✎ renombrar un supervisor (se corrige en TODOS sus registros) o 🗑 borrarlo por completo (las máquinas que custodiaba quedan sin supervisor).' },
       { t: 'note', text: 'Desde el Inicio (dashboard), en "Estado de las máquinas" puedes tocar Operativas, En espera o No operativa: te lleva a Equipos y te muestra esa lista de máquinas.' },
