@@ -1160,6 +1160,10 @@ create table if not exists public.employees (
 alter table public.employees add column if not exists talla_camisa text;
 alter table public.employees add column if not exists talla_pantalon text;
 alter table public.employees add column if not exists talla_zapatos text;
+-- Pago a personal: precios por trabajador (por hora / día / semana).
+alter table public.employees add column if not exists precio_hora numeric;
+alter table public.employees add column if not exists precio_dia numeric;
+alter table public.employees add column if not exists precio_semana numeric;
 -- Cédula y número de ficha únicos (cuando no están vacíos).
 create unique index if not exists uq_employees_cedula on public.employees (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
 create unique index if not exists uq_employees_ficha  on public.employees (lower(btrim(ficha_number))) where ficha_number is not null and btrim(ficha_number) <> '';
@@ -1457,22 +1461,14 @@ grant execute on function public.login_status_for_cedula(text), public.register_
 
 -- ============================================================================
 -- CONTROL DE PAGO A PERSONAL (dentro de Nómina)
--- Calcula el pago derivando tarifas del SUELDO BASE (tarifa_dia = base/dias_mes,
--- tarifa_hora = base/horas_mes) según días u horas trabajados. Los operadores se
--- cargan AUTOMÁTICO desde operator_assignments (por cédula, dentro del rango) y el
--- resto del personal a mano. Con only_validated, una jornada solo suma si tiene
--- visita del supervisor (supervisor_visits, misma máquina y fecha, status
--- 'trabajando'). Bonos, deducciones y abonos con saldo (staff_pay_payments).
+-- Paga por PRECIO por hora / día / semana, definido POR TRABAJADOR (employees:
+-- precio_hora/precio_dia/precio_semana). El período elige el modo (hora/dia/semana)
+-- y el devengado = precio_del_modo × cantidad (horas / días / semanas trabajadas).
+-- Los operadores se cargan AUTOMÁTICO desde operator_assignments (por cédula, dentro
+-- del rango) y el resto del personal a mano. Con only_validated, una jornada solo
+-- suma si tiene visita del supervisor (supervisor_visits, misma máquina y fecha,
+-- status 'trabajando'). Bonos, deducciones y abonos con saldo (staff_pay_payments).
 -- ============================================================================
-create table if not exists public.staff_pay_config (
-  id int primary key default 1,
-  dias_mes int not null default 30,
-  horas_mes int not null default 240,
-  updated_at timestamptz not null default now(),
-  constraint staff_pay_config_singleton check (id = 1)
-);
-insert into public.staff_pay_config (id) values (1) on conflict (id) do nothing;
-
 create table if not exists public.staff_pay_periods (
   id uuid primary key default gen_random_uuid(),
   company_id uuid references public.companies(id) on delete set null,
@@ -1480,7 +1476,7 @@ create table if not exists public.staff_pay_periods (
   period_type text not null default 'semana' check (period_type in ('dia','semana','quincena')),
   date_from date not null,
   date_to date not null,
-  mode text not null default 'dias' check (mode in ('dias','horas')),
+  mode text not null default 'dia' check (mode in ('hora','dia','semana')),
   only_validated boolean not null default true,
   status text not null default 'borrador' check (status in ('borrador','aprobada','pagada')),
   total_amount numeric(14,2) not null default 0,
@@ -1498,11 +1494,12 @@ create table if not exists public.staff_pay_items (
   person_name text not null,
   cargo text,
   source text not null default 'manual' check (source in ('auto','manual')),
-  base_salary numeric(14,2) not null default 0,
-  tarifa_dia numeric(14,4) not null default 0,
-  tarifa_hora numeric(14,4) not null default 0,
+  precio_hora numeric(14,2) not null default 0,
+  precio_dia numeric(14,2) not null default 0,
+  precio_semana numeric(14,2) not null default 0,
   dias numeric(8,2) not null default 0,
   horas numeric(10,2) not null default 0,
+  semanas numeric(8,2) not null default 0,
   jornadas_validadas int not null default 0,
   jornadas_pendientes int not null default 0,
   overridden boolean not null default false,
@@ -1513,6 +1510,11 @@ create table if not exists public.staff_pay_items (
   nota text,
   created_at timestamptz not null default now()
 );
+-- Migración de columnas para tablas ya creadas.
+alter table public.staff_pay_items add column if not exists precio_hora numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists precio_dia numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists precio_semana numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists semanas numeric(8,2) not null default 0;
 create index if not exists idx_spi_period on public.staff_pay_items(period_id);
 create index if not exists idx_spi_cedula on public.staff_pay_items(cedula);
 

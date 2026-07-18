@@ -151,24 +151,24 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
   el precio del tabulador.
 
 ### 4.6b. Control de pago a personal (dentro de Nómina)
-Calcula y paga al **personal** por las **jornadas trabajadas**, tomando como base el
-**sueldo base** de cada trabajador. Está dentro de **Nómina** → **💵 Control de pago a
-personal**.
+Calcula y paga al **personal** por **PRECIO por hora, día o semana**, definido **por
+trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
 
 **Cómo se calcula:**
-- Del **sueldo base mensual** salen las tarifas: **tarifa/día = base ÷ 30** y
-  **tarifa/hora = base ÷ 240**. Esos divisores (30 y 240) se cambian en **⚙️ Divisores de
-  tarifa** (solo admin/supervisor).
-- Cada período elige un **Modo**: pagar por **Días** o por **Horas** trabajados.
-- El **Período** puede ser **Día**, **Semana** (dom→sáb) o **Quincena** (1–15 / 16–fin de
-  mes). Las fechas se ajustan solas y también se editan a mano.
-- **Devengado** = días × tarifa/día (o horas × tarifa/hora). **Total a pagar** =
-  devengado + **bonos** − **deducciones**.
+- Cada trabajador tiene su **Precio por hora**, **Precio por día** y **Precio por semana**
+  (los cargas/editas en el renglón de la persona y quedan guardados en su **ficha** para el
+  próximo período).
+- Cada período elige **"Pago por"**: **Por hora**, **Por día** o **Por semana**. El
+  **devengado = precio del modo × cantidad** (horas, días o semanas trabajadas).
+- El **Período** (rango de fechas) puede ser **Día**, **Semana** (dom→sáb) o **Quincena**
+  (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se editan a mano.
+- **Total a pagar** = devengado + **bonos** − **deducciones**.
 
-**De dónde salen los días/horas:**
+**De dónde salen las cantidades (horas / días / semanas):**
 - **Operadores:** se cargan **solos** desde sus jornadas (las del escaneo de QR), cruzando
-  por **cédula** dentro del rango del período.
-- **Resto del personal:** se ajusta **a mano**. Si editas lo automático, queda como
+  por **cédula** dentro del rango del período. Las **semanas** = cuántas semanas distintas
+  trabajaron.
+- **Resto del personal:** se ajusta **a mano**. Si editas la cantidad automática, queda como
   **ajuste manual**.
 - Con **"Solo jornadas validadas por el supervisor"** (activado por defecto), una jornada
   solo cuenta si el supervisor **visitó esa máquina ese día** y la marcó **🟢 Trabajando**.
@@ -181,8 +181,8 @@ personal**.
   (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
 
-> Las **analistas** pueden cargar jornadas, bonos y deducciones, pero **no** pueden cambiar
-> el **sueldo base** ni los **divisores** de tarifa.
+> Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
+> los **precios** (hora/día/semana) del trabajador.
 
 ### 4.6c. Distribución de uniformes (dentro de Nómina)
 Lleva las **tallas de uniforme** de cada empleado e imprime el listado para la entrega. Está
