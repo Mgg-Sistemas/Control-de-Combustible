@@ -346,8 +346,8 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
 promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
-incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salidas, Nota de entrega, Cotización
-y Movimientos**.
+incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salidas, Nota de entrega, Nota de
+traslado, Gastos, Cotización y Movimientos**.
 
 **Nota de salida / entrega** — el documento que se hace cuando salen materiales:
 1. Ve a la pestaña **"Nota de entrega"**.
@@ -362,6 +362,15 @@ y Movimientos**.
 > (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
 > se pierde** lo que ya elegiste: productos, cantidades, máquina y empleados quedan tal cual para
 > seguir editándolos.
+
+**Gastos** — cada material que **sale del almacén es un gasto**. En la pestaña **"💸 Gastos"**
+ves el **TOTAL GASTADO**. Cuenta todo lo que sale del almacén: **salidas y consumos** manuales,
+**notas de entrega** y **traslados**; cada gasto se valoriza al **PMP** que tenía el material al
+salir. Elige el **período** (Hoy, Esta semana, Este mes o Todo) y el total se recalcula solo. Ves
+el desglose **por categoría** (toca una para filtrar solo esos gastos; tócala de nuevo para
+quitarlo) y con **"📄 Reporte de gastos (PDF)"** obtienes el resumen por categoría más el detalle
+de cada salida (fecha, producto, cantidad, costo y gasto) con el total. Las **entradas (compras)**
+y los **ajustes NO** cuentan como gasto: el gasto es el material que efectivamente sale.
 
 **Cotización:** en la pestaña **"Cotización"** armas un presupuesto para un cliente (código,
 referencia, descripción, cantidad y precio). El **I.V.A. se coloca como MONTO** (lo escribes tú,

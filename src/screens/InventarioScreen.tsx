@@ -1339,6 +1339,199 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   );
 }
 
+// ── Gastos (material que sale del almacén) ───────────────────────────────────
+// Cada salida/consumo del inventario = un gasto, valorizado al PMP guardado en el
+// movimiento (qty × unit_cost). Incluye salidas manuales, consumos, notas de
+// entrega y traslados (todo lo que descuenta del almacén). No cuenta entradas ni
+// ajustes.
+const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const PERIODOS: { key: string; label: string }[] = [
+  { key: 'hoy', label: 'Hoy' },
+  { key: 'semana', label: 'Esta semana' },
+  { key: 'mes', label: 'Este mes' },
+  { key: 'todo', label: 'Todo' },
+];
+/** Fecha desde (inclusive) para cada período; null = sin límite (todo). */
+function periodoDesde(key: string): Date | null {
+  const now = new Date();
+  if (key === 'hoy') return startOfDay(now);
+  if (key === 'semana') { const d = startOfDay(now); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return d; } // lunes
+  if (key === 'mes') return new Date(now.getFullYear(), now.getMonth(), 1);
+  return null;
+}
+
+function GastosTab() {
+  const { colors } = useTheme();
+  const { data: movs, loading } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
+  const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
+
+  const [periodo, setPeriodo] = useState('mes');
+  const [q, setQ] = useState('');
+  const [cat, setCat] = useState('');
+
+  const itemOf = (id: string) => items.find((i) => i.id === id);
+  const valorDe = (m: InventoryMovement) => (Number(m.qty) || 0) * (Number(m.unit_cost) || 0);
+
+  // Gastos = salidas + consumos (todo lo que sale del almacén), en el período.
+  const gastos = useMemo(() => {
+    const desde = periodoDesde(periodo);
+    const nq = norm(q);
+    return movs
+      .filter((m) => m.kind === 'salida' || m.kind === 'consumo')
+      .filter((m) => !desde || new Date(m.created_at) >= desde)
+      .filter((m) => {
+        const it = itemOf(m.item_id);
+        if (cat && (it?.category || 'otros') !== cat) return false;
+        if (!nq) return true;
+        return norm(it?.name || '').includes(nq) || norm(m.reason || '').includes(nq);
+      });
+  }, [movs, items, periodo, q, cat]);
+
+  const total = useMemo(() => gastos.reduce((s, m) => s + valorDe(m), 0), [gastos]);
+  // Resumen por categoría (solo dentro del período; ignora el filtro de categoría/búsqueda).
+  const porCategoria = useMemo(() => {
+    const desde = periodoDesde(periodo);
+    const map = new Map<string, { total: number; count: number }>();
+    movs
+      .filter((m) => m.kind === 'salida' || m.kind === 'consumo')
+      .filter((m) => !desde || new Date(m.created_at) >= desde)
+      .forEach((m) => {
+        const key = itemOf(m.item_id)?.category || 'otros';
+        const g = map.get(key) ?? { total: 0, count: 0 };
+        g.total += valorDe(m); g.count += 1; map.set(key, g);
+      });
+    return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.total - a.total);
+  }, [movs, items, periodo]);
+
+  const periodoLabel = PERIODOS.find((p) => p.key === periodo)?.label ?? 'Todo';
+
+  const reporte = async () => {
+    if (gastos.length === 0) return Alert.alert('Aviso', 'No hay gastos en el período seleccionado.');
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const rows = gastos.map((m, i) => {
+      const it = itemOf(m.item_id);
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(fmtDate(m.created_at))}</td>
+        <td>${esc(it?.name || 'Producto')}</td>
+        <td>${esc(catInfo(it?.category || null).label)}</td>
+        <td class="c">${m.kind === 'consumo' ? 'Consumo' : 'Salida'}</td>
+        <td class="c">${qtyFmt(m.qty)} ${esc(it?.unit || '')}</td>
+        <td class="r">${usd(m.unit_cost || 0)}</td>
+        <td class="r b">${usd(valorDe(m))}</td>
+      </tr>`;
+    }).join('');
+    const resumen = porCategoria.map((c) => `<tr>
+        <td>${esc(catInfo(c.key).label)}</td>
+        <td class="c">${c.count}</td>
+        <td class="r b">${usd(c.total)}</td>
+      </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Reporte de gastos de inventario',
+      subtitle: `${periodoLabel} · ${gastos.length} salida(s) · Total ${usd(total)} · ${dmy}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800}
+        tr:nth-child(even) td{background:#f4f7fb}
+        h3{margin:16px 0 0;font-size:13px;color:#16324F}
+        .tot{margin-top:10px;font-size:14px;font-weight:800;text-align:right}`,
+      body: `
+        <h3>Resumen por categoría</h3>
+        <table><thead><tr><th>Categoría</th><th class="c">Salidas</th><th class="r">Total gastado</th></tr></thead>
+          <tbody>${resumen}</tbody></table>
+        <h3>Detalle de salidas</h3>
+        <table>
+          <thead><tr><th style="width:26px" class="c">#</th><th>Fecha</th><th>Producto</th><th>Categoría</th>
+            <th class="c">Tipo</th><th class="c">Cantidad</th><th class="r">Costo unit.</th><th class="r">Gasto</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="tot">TOTAL GASTADO: ${usd(total)}</div>`,
+    });
+    await exportPdf(html, `Gastos de inventario ${periodoLabel} - ${dmy}`);
+  };
+
+  if (loading) return <Screen><Loading /></Screen>;
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <SectionTitle>Gastos de inventario</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Cada material que sale del almacén (salida, consumo, nota de entrega o traslado) es un gasto, valorizado al PMP.</Text>
+
+      {/* Período */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {PERIODOS.map((p) => {
+          const on = periodo === p.key;
+          return (
+            <TouchableOpacity key={p.key} onPress={() => setPeriodo(p.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{p.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Total gastado */}
+      <View style={{ borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>TOTAL GASTADO · {periodoLabel.toUpperCase()}</Text>
+        <Text style={{ color: '#DC2626', fontSize: 26, fontWeight: '900' }}>{usd(total)}</Text>
+        <Text style={{ color: colors.muted, fontSize: 12 }}>{gastos.length} salida(s) de material</Text>
+      </View>
+
+      <TouchableOpacity onPress={reporte} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de gastos (PDF)</Text>
+      </TouchableOpacity>
+
+      {/* Resumen por categoría */}
+      {porCategoria.length ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>Por categoría</Text>
+          {porCategoria.map((c) => {
+            const on = cat === c.key;
+            return (
+              <TouchableOpacity key={c.key} onPress={() => setCat(on ? '' : c.key)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <Text style={{ color: on ? colors.primary : colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{catInfo(c.key).icon} {catInfo(c.key).label}{on ? ' ✓' : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.sm }}>{c.count}</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{usd(c.total)}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          {cat ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Filtrando por {catInfo(cat).label}. Toca de nuevo para quitar el filtro.</Text> : null}
+        </Card>
+      ) : null}
+
+      <TextInput value={q} onChangeText={setQ} placeholder="Buscar por producto o motivo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
+
+      {gastos.length === 0 ? (
+        <EmptyState title="Sin gastos" subtitle="No hay salidas de material en el período seleccionado." />
+      ) : gastos.map((m) => {
+        const it = itemOf(m.item_id);
+        return (
+          <ExpandableCard
+            key={m.id}
+            summary={
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{it?.name || 'Producto'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{m.kind === 'consumo' ? '🔥 Consumo' : '📤 Salida'} · {qtyFmt(m.qty)} {it?.unit || ''} · {fmtDate(m.created_at)}</Text>
+                </View>
+                <Text style={{ color: '#DC2626', fontSize: 15, fontWeight: '900' }}>{usd(valorDe(m))}</Text>
+              </View>
+            }
+            detail={
+              <>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Categoría: {catInfo(it?.category || null).label}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Costo unitario (PMP): {usd(m.unit_cost || 0)}</Text>
+                {m.reason ? <Text style={{ color: colors.text, fontSize: 13 }}>{m.reason}</Text> : null}
+              </>
+            }
+          />
+        );
+      })}
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -1349,6 +1542,7 @@ export default function InventarioScreen() {
     { key: 'salidas', label: 'Salidas', icon: '📤' },
     { key: 'nota', label: 'Nota de entrega', icon: '🧾' },
     { key: 'traslado', label: 'Nota de traslado', icon: '🔁' },
+    { key: 'gastos', label: 'Gastos', icon: '💸' },
     { key: 'cotizacion', label: 'Cotización', icon: '📄' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
   ];
@@ -1370,7 +1564,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
       </View>
     </View>
   );
