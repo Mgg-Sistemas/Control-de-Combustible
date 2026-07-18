@@ -264,6 +264,12 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
       { t: 'p', text: 'Cotización: en la pestaña "Cotización" armas un presupuesto para un cliente (código, referencia, descripción, cantidad y precio). El I.V.A. se coloca como MONTO (lo escribes tú, no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.' },
       { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
+      { t: 'p', text: 'Reporte de productos y estado — en la pestaña Existencias:' },
+      { t: 'steps', items: [
+        'Cada producto tiene un ESTADO físico (Nuevo / Bueno / Regular / Dañado) que eliges al crear o editar. También muestra su DISPONIBILIDAD automática: Disponible, Bajo mínimo o Agotado (según la cantidad vs el stock mínimo).',
+        'Toca "📄 Reporte de productos (cantidad y estado)": genera un PDF con TODOS los productos, su cantidad, disponibilidad y estado.',
+        'Al editar un producto (✏️ Editar producto) puedes cambiar la CANTIDAD (existencia): el sistema registra la diferencia como un AJUSTE DE INVENTARIO en Movimientos.',
+      ] },
     ],
   },
   {

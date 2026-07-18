@@ -380,6 +380,7 @@ export interface InventoryItem {
   company_id: string | null;
   machinery_id: string | null; // equipo/máquina al que pertenece el material
   active: boolean;
+  estado: string | null;  // estado físico del material (Nuevo/Bueno/Regular/Dañado)
   created_at: string;
 }
 

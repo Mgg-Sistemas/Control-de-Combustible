@@ -9,7 +9,7 @@ import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee } from '../types/database';
-import { exportPdf } from '../lib/pdf';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
@@ -28,6 +28,11 @@ function nextSkuFrom(skus: (string | null | undefined)[]): string {
 }
 const nowISO = () => new Date().toISOString();
 function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+// Estado FÍSICO del material (manual) y DISPONIBILIDAD (automática por cantidad).
+const ESTADOS = ['Nuevo', 'Bueno', 'Regular', 'Dañado'];
+const dispoOf = (stock: number, min: number) => (stock <= 0 ? 'Agotado' : min > 0 && stock <= min ? 'Bajo mínimo' : 'Disponible');
+const dispoColor = (d: string) => (d === 'Agotado' ? '#DC2626' : d === 'Bajo mínimo' ? '#F59E0B' : '#16A34A');
 
 // ── Carga por lote (Excel/CSV) ───────────────────────────────────────────────
 // Columnas de la plantilla (en este orden). Se llena en Excel y se sube como CSV
@@ -174,6 +179,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [machineQuery, setMachineQuery] = useState('');
   const [initStock, setInitStock] = useState('');
   const [initCost, setInitCost] = useState('');
+  const [estado, setEstado] = useState('');       // estado físico (Nuevo/Bueno/Regular/Dañado)
+  const [editQty, setEditQty] = useState('');      // cantidad al editar (se ajusta con un movimiento)
+  const [editStock0, setEditStock0] = useState(0); // stock actual al abrir edición (para el delta)
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null); // null = crear; id = editar
   // Carga por lote (Excel/CSV).
@@ -200,6 +208,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setSku((it as any).sku || '');
     setMinStock(it.min_stock != null ? String(it.min_stock) : '');
     setInitStock('');
+    setEstado(it.estado || '');
+    setEditStock0(Number(it.stock) || 0);
+    setEditQty(String(Number(it.stock) || 0)); // cantidad actual (editable)
     // Costo unitario (PMP) prellenado, editable.
     setInitCost(it.avg_cost != null ? String(it.avg_cost) : '');
     setOpen(true);
@@ -213,13 +224,23 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
-      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock) };
+      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null };
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
       if (initCost.trim() !== '') patch.avg_cost = parseNum(initCost);
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
+      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+      // Cantidad: si cambió, se ajusta con un movimiento de AJUSTE (delta = nueva − actual).
+      const nuevaQty = parseNum(editQty);
+      const delta = Math.round((nuevaQty - editStock0) * 100) / 100;
+      if (delta !== 0) {
+        const { error: mErr } = await supabase.from('inventory_movements').insert({
+          item_id: editingId, kind: 'ajuste', qty: delta, unit_cost: null,
+          reason: 'AJUSTE DE INVENTARIO', company_id: null, created_by: session?.user?.id ?? null,
+        });
+        if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
+      }
       setBusy(false);
-      if (error) return Alert.alert('Aviso', error.message);
-      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost('');
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setEditQty('');
       refetch();
       return;
     }
@@ -229,7 +250,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), machinery_id: null, company_id: null })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, machinery_id: null, company_id: null })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -249,10 +270,44 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   // Abre el modal calculando el próximo SKU incremental para mostrarlo.
   const openCreate = async () => {
     setEditingId(null);
-    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost('');
+    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setEstado(''); setEditQty('');
     const { data } = await supabase.from('inventory_items').select('sku');
     setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
     setOpen(true);
+  };
+
+  // ── Reporte de TODOS los productos (cantidad, disponibilidad y estado) ──────
+  const reporteProductos = async () => {
+    if (levels.length === 0) return Alert.alert('Aviso', 'No hay productos para el reporte.');
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const sorted = [...levels].sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'es'));
+    const rows = sorted.map((it, i) => {
+      const disp = dispoOf(Number(it.stock), Number(it.min_stock));
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(it.name)}</td>
+        <td>${esc(catInfo(it.category).label)}</td>
+        <td class="c b">${qtyFmt(it.stock)} ${esc(it.unit || '')}</td>
+        <td class="c" style="color:${dispoColor(disp)};font-weight:800">${disp}</td>
+        <td class="c">${esc(it.estado || '—')}</td>
+      </tr>`;
+    }).join('');
+    const agotados = sorted.filter((it) => Number(it.stock) <= 0).length;
+    const html = pdfDocument({
+      title: 'Reporte de inventario',
+      subtitle: `Todos los productos (${levels.length}) · ${bajoMin} bajo mínimo · ${agotados} agotado(s) · ${dmy}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}`,
+      body: `
+        <table>
+          <thead><tr><th style="width:30px" class="c">#</th><th>Producto</th><th>Categoría</th>
+            <th class="c">Cantidad</th><th class="c">Disponibilidad</th><th class="c">Estado</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`,
+    });
+    await exportPdf(html, `Reporte de inventario - ${dmy}`);
   };
 
   // ── Carga por lote (Excel/CSV) ─────────────────────────────────────────────
@@ -369,10 +424,13 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         ) : null}
       </View>
 
+      <TouchableOpacity onPress={reporteProductos} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de productos (cantidad y estado)</Text>
+      </TouchableOpacity>
+
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
       ) : filtered.map((it) => {
-            const low = Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0;
             return (
               <ExpandableCard
                 key={it.id}
@@ -384,7 +442,10 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
-                      {low ? <Text style={{ color: '#DC2626', fontSize: 11, fontWeight: '700' }}>⚠ Bajo mínimo</Text> : null}
+                      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 1 }}>
+                        {it.estado ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{it.estado}</Text> : null}
+                        <Text style={{ color: dispoColor(dispoOf(Number(it.stock), Number(it.min_stock))), fontSize: 11, fontWeight: '800' }}>{dispoOf(Number(it.stock), Number(it.min_stock))}</Text>
+                      </View>
                     </View>
                   </View>
                 }
@@ -440,13 +501,36 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <TextInput value={minStock} onChangeText={(t) => setMinStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
               </View>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Estado del producto</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {ESTADOS.map((e) => {
+                  const on = estado === e;
+                  return (
+                    <TouchableOpacity key={e} onPress={() => setEstado(on ? '' : e)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{e}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (Nota de entrega).</Text>
             {editingId ? (
               <Card>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario (PMP)</Text>
-                <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Puedes corregir el costo unitario del producto aquí. El stock se ajusta con entradas/salidas (Movimientos).</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad (existencia)</Text>
+                    <TextInput value={editQty} onChangeText={(t) => setEditQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario (PMP)</Text>
+                    <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  </View>
+                </View>
+                {parseNum(editQty) !== editStock0 ? (
+                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.xs }}>Se ajustará de {qtyFmt(editStock0)} a {qtyFmt(parseNum(editQty))} (queda registrado como AJUSTE DE INVENTARIO).</Text>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Cambia la cantidad para corregir la existencia; se registra como un ajuste en Movimientos.</Text>
+                )}
               </Card>
             ) : (
             <Card>
