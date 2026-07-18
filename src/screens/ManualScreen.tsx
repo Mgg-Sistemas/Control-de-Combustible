@@ -145,6 +145,20 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🧑‍💼',
+    title: 'Empleados — filtrar por cargo y reporte',
+    blocks: [
+      { t: 'p', text: 'En Empleados puedes filtrar la lista por tipo de cargo y sacar un reporte de lo que elijas.' },
+      { t: 'steps', items: [
+        'En el recuadro 🏷️ Cargo, toca para desplegar los cargos (cada uno con su cantidad).',
+        'Marca uno o varios cargos (ej. OPERADOR, OBRERO…). Se pueden combinar; "Todos" limpia la selección.',
+        'La lista de abajo muestra solo esos cargos (se combina también con el Estado y la búsqueda).',
+        'Toca "📊 Reporte": genera un PDF con el LISTADO de las personas seleccionadas (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un RESUMEN por cargo con el total.',
+      ] },
+      { t: 'note', text: 'El reporte respeta todo lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.' },
+    ],
+  },
+  {
     icon: '👕',
     title: 'Distribución de uniformes (dentro de Nómina)',
     blocks: [
