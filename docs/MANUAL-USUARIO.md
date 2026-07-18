@@ -249,7 +249,9 @@ Con las flechas ◀ ▶ cambias de día.
 1. En **Distribución de comida** (jefe), toca **"🖼️ QR por empresa (imágenes)"** y descarga el QR
    de cada empresa como **imagen individual** (logo + QR + nombre). Las **empresas desactivadas
    no aparecen**.
-2. La cocina **escanea el QR** de la empresa → se abre su pantalla de comidas del día.
+2. La cocina **escanea el QR** de la empresa (con la **cámara del teléfono** O desde el botón
+   **"Escanear carnet"** dentro de su propia pantalla de Cocina) → se abre la pantalla de comidas
+   del día de esa empresa.
 3. Se **verifica** con su carnet/cédula (solo **cargo de cocina/alimentación**).
 4. Toca uno de los **3 botones grandes**: **Desayuno, Almuerzo o Cena** (cada uno **1 sola vez
    por día** por empresa).

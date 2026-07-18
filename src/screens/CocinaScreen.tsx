@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
@@ -8,7 +8,7 @@ import { FoodDistribution, MealType } from '../types/database';
 import { saveFoodDistribution, listForEmployeeDay, deleteFoodDistribution } from '../lib/foodDistributions';
 import { MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import QrScanner from '../components/QrScanner';
-import { parseEmployeeId } from './ScanQrScreen';
+import { parseEmployeeId, parseComidaId } from './ScanQrScreen';
 import { norm } from '../lib/text';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -22,6 +22,18 @@ const isCookCargo = (cargo?: string | null): boolean => {
   const n = norm(cargo ?? '');
   return !!n && COOK_KEYS.some((k) => n.includes(k));
 };
+
+/** Abre la DISTRIBUCIÓN DE COMIDA de una empresa (QR de empresa ?comida=<id>).
+ *  En web navega al deep-link, que enruta a la pantalla de la empresa. */
+function openCompanyFood(companyId: string): boolean {
+  if (Platform.OS !== 'web') return false;
+  try {
+    const w: any = globalThis;
+    w.history.replaceState({}, '', `${w.location.pathname}?comida=${companyId}`);
+    w.location.reload();
+    return true;
+  } catch { return false; }
+}
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -341,6 +353,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
             </>
           )}
 
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>💡 También puedes escanear el QR de una EMPRESA para registrar sus comidas.</Text>
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>¿No lee el carnet? Busca por cédula:</Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4 }}>
             <TextInput value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula" placeholderTextColor={colors.muted} style={[input, { flex: 1 }]} />
@@ -428,10 +441,17 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
             onClose={() => setScanOpen(false)}
             onDetected={(text) => {
               const id = parseEmployeeId(text);
-              if (!id) { setScanOpen(false); setNotice('❌ Ese QR no es un carnet de persona.'); return; }
-              if (scanMode === 'cook') verifyCook(id);
-              else if (scanMode === 'quick') { scanChoose ? openPerson(id) : quickDeliver(id); }
-              else openPerson(id);
+              if (id) {
+                if (scanMode === 'cook') verifyCook(id);
+                else if (scanMode === 'quick') { scanChoose ? openPerson(id) : quickDeliver(id); }
+                else openPerson(id);
+                return;
+              }
+              // ¿Es un QR de EMPRESA (distribución de comida)? Abre esa empresa.
+              const companyId = parseComidaId(text);
+              if (companyId) { setScanOpen(false); if (!openCompanyFood(companyId)) setNotice('❌ No se pudo abrir la empresa desde este dispositivo.'); return; }
+              setScanOpen(false);
+              setNotice('❌ Ese QR no es un carnet de persona ni de empresa.');
             }}
           />
         </View>
