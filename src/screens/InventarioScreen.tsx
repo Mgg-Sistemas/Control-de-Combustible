@@ -33,13 +33,8 @@ function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) =
 // Columnas de la plantilla (en este orden). Se llena en Excel y se sube como CSV
 // o se copia/pega directo desde Excel (separado por tabulaciones).
 const LOTE_COLS = ['nombre', 'unidad', 'costo_unitario', 'cantidad_inicial', 'categoria', 'stock_minimo'];
-// Filas de la plantilla en Excel: encabezado + ejemplos (números como número).
-const LOTE_ROWS: (string | number)[][] = [
-  LOTE_COLS,
-  ['MARTILLO DE GOMA', 'UND', 12.5, 10, 'herramientas', 2],
-  ['ACEITE HIDRAULICO 68', 'LT', 6.8, 40, 'repuestos', 10],
-  ['GUANTES DE NITRILO (50 PARES)', 'UND', 50, 1, 'herramientas', 1],
-];
+// Plantilla en Excel: SOLO el encabezado (sin filas de ejemplo, vacía para llenar).
+const LOTE_ROWS: (string | number)[][] = [LOTE_COLS];
 
 /** Descarga bytes como archivo en web. */
 function downloadBytes(filename: string, data: Uint8Array | string, mime: string) {
