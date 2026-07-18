@@ -121,7 +121,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   //    identifica ANTES de ver los botones, escaneando su carnet y confirmando su
   //    cédula (deben coincidir). Los que entran con usuario real no pasan por aquí.
   const [identified, setIdentified] = useState(false);
-  const [gateEmp, setGateEmp] = useState<{ id: string; first: string; last: string; name: string; cargo: string | null; cedula: string } | null>(null);
+  const [gateEmp, setGateEmp] = useState<{ id: string; first: string; last: string; name: string; cargo: string | null; cedula: string; companyId: string | null; companyName: string | null } | null>(null);
   const [gateCedula, setGateCedula] = useState('');
   const [gateScanOpen, setGateScanOpen] = useState(false);
 
@@ -200,7 +200,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
@@ -358,13 +358,20 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setGateScanOpen(false);
     const id = parseEmployeeId(text);
     if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
-    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula, company_id, company:company_id(name)').eq('id', id).maybeSingle();
     const emp = data as any;
     if (!emp) { setGateEmp(null); setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
     const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
     if (!isOperatorCargo(emp.cargo)) { setGateEmp(null); setNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede usar la máquina.`); return; }
     if (!(emp.cedula || '').trim()) { setGateEmp(null); setNotice(`❌ ${nombre} no tiene CÉDULA en nómina. Pídele al administrador que la agregue.`); return; }
-    setGateEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim() });
+    // Bloqueo de EMPRESA: el operador solo puede usar equipos de su propia empresa.
+    const macCompany = (machine as any)?.company_id ?? null;
+    if (macCompany && emp.company_id && emp.company_id !== macCompany) {
+      setGateEmp(null);
+      setNotice(`⛔ ${nombre} es de ${emp.company?.name ?? 'otra empresa'}. Este equipo es de ${machine?.companyName ?? 'otra empresa'}. Solo puede usar equipos de su empresa.`);
+      return;
+    }
+    setGateEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim(), companyId: emp.company_id ?? null, companyName: emp.company?.name ?? null });
     setNotice(`📇 Carnet de ${nombre} leído. Confirma su cédula para entrar.`);
   };
   // 2) Confirma la cédula: debe COINCIDIR con la del carnet escaneado.

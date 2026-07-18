@@ -64,10 +64,20 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
   if (!first || !last || !ci) return { ok: false, error: 'Completa nombre, apellido y cédula.' };
 
   // Blindaje: la cédula debe ser de un empleado en NÓMINA con cargo permitido.
-  const { data: empRows } = await supabase.from('employees').select('cargo').eq('cedula', ci).limit(1);
-  const empCargo = (empRows && (empRows[0] as any)?.cargo) ?? null;
+  const { data: empRows } = await supabase.from('employees').select('cargo, company_id').eq('cedula', ci).limit(1);
+  const emp = (empRows && (empRows[0] as any)) ?? null;
+  const empCargo = emp?.cargo ?? null;
   if (!empCargo) return { ok: false, error: 'Esa cédula no está en nómina. Solo personal de nómina puede iniciar jornada.' };
   if (!isOperatorCargo(empCargo)) return { ok: false, error: `Cargo "${empCargo}" no autorizado. Solo OPERADORES, CHOFERES, SERVICIOS GENERALES u OBREROS pueden iniciar jornada.` };
+
+  // Blindaje de EMPRESA: el operador solo puede trabajar equipos de SU empresa.
+  // (Si la máquina o el empleado no tienen empresa asignada, no se bloquea.)
+  const { data: macRow } = await supabase.from('machinery').select('company_id, company:company_id(name)').eq('id', inp.machineId).maybeSingle();
+  const macCompany = (macRow as any)?.company_id ?? null;
+  if (macCompany && emp?.company_id && emp.company_id !== macCompany) {
+    const macName = (macRow as any)?.company?.name ?? 'otra empresa';
+    return { ok: false, error: `Este equipo es de ${macName}. El operador solo puede trabajar equipos de su propia empresa.` };
+  }
 
   const hi = Number(inp.horometroInicial);
   if (!isFinite(hi) || hi < 0) return { ok: false, error: 'Ingresa el horómetro inicial.' };
