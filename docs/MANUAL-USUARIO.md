@@ -238,13 +238,19 @@ Sirve para saber si los supervisores **sí están yendo a las máquinas** a revi
 trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-**Cómo marca el supervisor una máquina (dos formas, las dos valen):**
+**Cómo marca el supervisor una máquina (tres formas, las tres valen):**
 1. Entra con su cédula y contraseña (rol Supervisor). Cae en la pestaña **🪖 Revisar**.
 2. **Desde la lista:** busca la máquina y **tócala** (o toca **"📷 Escanear QR"** si la tiene
    pegada). **Ya no hace falta el QR físico** para marcarla.
-3. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
-4. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
-5. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
+3. **Escaneando el QR con la CÁMARA del teléfono** (aunque no esté dentro del sistema): al abrir,
+   toca el botón azul **"🪖 SOY SUPERVISOR — ENTRAR"**, inicia sesión con su usuario y va
+   **directo** al check-in de esa máquina (no pasa por la identificación de operador).
+4. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
+5. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
+6. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
+
+> El supervisor puede marcar **cualquier** máquina (no tiene la restricción por empresa del
+> operador). El operador, en cambio, solo puede usar equipos de **su** empresa.
 
 **👷 Iniciar la jornada del operador (si no tiene teléfono):** dentro del mismo check-in de la
 máquina, el supervisor puede arrancar la jornada del operador con **su** teléfono:

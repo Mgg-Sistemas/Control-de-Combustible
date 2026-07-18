@@ -210,6 +210,7 @@ const SECTIONS: Sec[] = [
       { t: 'steps', items: [
         'Entra con su cédula y contraseña (rol Supervisor). Cae en la pestaña 🪖 Revisar.',
         'DESDE LA LISTA: busca la máquina y tócala (o toca "📷 Escanear QR" si la tiene pegada). No hace falta el QR físico para marcarla.',
+        'ESCANEANDO CON LA CÁMARA del teléfono (aunque no esté dentro del sistema): al abrir, toca "🪖 SOY SUPERVISOR — ENTRAR", inicia sesión y va DIRECTO al check-in de esa máquina (no pasa por la identificación de operador).',
         'El sistema toma su ubicación GPS y calcula qué tan cerca está de la máquina.',
         'Elige el estado: 🟢 Trabajando, 🟡 Parada o 🔴 No está, y escribe una nota si quiere.',
         'Toca "✅ Marcar como revisada". Queda la hora, el estado y la distancia.',

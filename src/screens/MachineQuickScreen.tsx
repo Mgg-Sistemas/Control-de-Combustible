@@ -515,8 +515,17 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
           escanea su carnet y confirma su cédula ANTES de ver los botones. */}
       {view === 'home' && needsIdent ? (
         <View style={{ marginTop: spacing.md }}>
+          {/* Acceso directo para SUPERVISOR (arriba y bien visible): entra con su
+              usuario y va directo a marcar la máquina Operativa / Parada / No está. */}
+          {onSupervisorLogin ? (
+            <TouchableOpacity onPress={onSupervisorLogin} style={{ marginBottom: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E3A5F' }}>
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>🪖 SOY SUPERVISOR — ENTRAR</Text>
+              <Text style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2, textAlign: 'center' }}>Inicia sesión con tu usuario para marcar esta máquina (Operativa / No). No necesitas ser operador.</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <Card>
-            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>👷 Identifícate para usar esta máquina</Text>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>👷 ¿Eres el operador? Identifícate</Text>
             <Text style={{ color: colors.muted, fontSize: 13, marginTop: 4 }}>
               Escanea tu carnet y confirma tu cédula. Solo OPERADOR, CHOFER, SERVICIOS GENERALES u OBRERO de la nómina.
             </Text>
@@ -547,14 +556,6 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
               <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>✅ ENTRAR</Text>
             </TouchableOpacity>
           </Card>
-
-          {/* Supervisor: entrar con su nombre (login) en vez de la vista anónima. */}
-          {onSupervisorLogin ? (
-            <TouchableOpacity onPress={onSupervisorLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🪖 ¿Eres supervisor? Inicia sesión con tu nombre</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Para que quede registrada tu ronda con tu nombre.</Text>
-            </TouchableOpacity>
-          ) : null}
         </View>
       ) : null}
 

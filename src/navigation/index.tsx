@@ -268,9 +268,6 @@ export default function RootNavigator() {
   const [qrAliadoId, clearQrAliado] = useQrParam('aliado');
   const [qrComidaId, clearQrComida] = useQrParam('comida');
   const [wantLogin, clearWantLogin] = useQrParam('login');
-  // Supervisor con sesión que, desde el QR de máquina, cambia de la vista de operador
-  // al check-in de supervisión (GPS) de esa máquina.
-  const [supCheckin, setSupCheckin] = React.useState(false);
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
   const isAnon = !!(session as any)?.user?.is_anonymous;
@@ -360,13 +357,12 @@ export default function RootNavigator() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : qrMachineId && loggedInSup ? (
-        // Supervisor con sesión: VISTA DE OPERADOR (combustible, ubicación, avería,
-        // jornada) y desde ahí el botón de check-in de supervisión (GPS).
-        supCheckin ? (
-          <SupervisorScreen initialMachineId={qrMachineId} onConsumed={() => setSupCheckin(false)} />
-        ) : (
-          <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} onSupervisorCheckin={() => setSupCheckin(true)} />
-        )
+        // Supervisor con sesión que escanea una máquina: va DIRECTO a su check-in de
+        // supervisión (marcar Operativa / Parada / No está + GPS, y si hace falta,
+        // iniciar la jornada de un operador escaneando su carnet). El supervisor
+        // SUPERVISA, no opera: no pasa por la vista de operador. Puede escanear
+        // CUALQUIER máquina (no tiene la restricción por empresa del operador).
+        <SupervisorScreen initialMachineId={qrMachineId} />
       ) : qrMachineId ? (
         // Otro rol con sesión (admin/operador): vista de operador de esa máquina.
         <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} />
