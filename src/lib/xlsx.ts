@@ -102,3 +102,98 @@ export function buildXlsx(rows: Cell[][], sheetName = 'Hoja1', headerRows = 1): 
     { name: 'xl/worksheets/sheet1.xml', data: enc(sheetXml(rows, headerRows)) },
   ]);
 }
+
+// ── LECTURA de .xlsx (unzip + primera hoja → filas de texto) ──────────────────
+
+const u16 = (b: Uint8Array, o: number) => b[o] | (b[o + 1] << 8);
+const u32 = (b: Uint8Array, o: number) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+
+/** Descomprime DEFLATE crudo (entradas de ZIP) con el navegador. */
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  const g: any = globalThis as any;
+  if (typeof g.DecompressionStream !== 'function') {
+    throw new Error('Este navegador no puede leer Excel comprimido. Actualiza el navegador o pega las filas.');
+  }
+  const ds = new g.DecompressionStream('deflate-raw');
+  const stream = new g.Blob([data]).stream().pipeThrough(ds);
+  const buf = await new g.Response(stream).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+/** Descomprime un ZIP en un mapa nombre→bytes (soporta STORE y DEFLATE). */
+async function unzip(bytes: Uint8Array): Promise<Record<string, Uint8Array>> {
+  const dec = new TextDecoder();
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) { if (u32(bytes, i) === 0x06054b50) { eocd = i; break; } }
+  if (eocd < 0) throw new Error('El archivo no es un Excel válido (.xlsx).');
+  const count = u16(bytes, eocd + 10);
+  let p = u32(bytes, eocd + 16);
+  const out: Record<string, Uint8Array> = {};
+  for (let n = 0; n < count && p + 46 <= bytes.length; n++) {
+    if (u32(bytes, p) !== 0x02014b50) break;
+    const method = u16(bytes, p + 10);
+    const compSize = u32(bytes, p + 20);
+    const nameLen = u16(bytes, p + 28);
+    const extraLen = u16(bytes, p + 30);
+    const commentLen = u16(bytes, p + 32);
+    const localOff = u32(bytes, p + 42);
+    const name = dec.decode(bytes.slice(p + 46, p + 46 + nameLen));
+    const lNameLen = u16(bytes, localOff + 26);
+    const lExtraLen = u16(bytes, localOff + 28);
+    const dataStart = localOff + 30 + lNameLen + lExtraLen;
+    const comp = bytes.slice(dataStart, dataStart + compSize);
+    out[name] = method === 0 ? comp : await inflateRaw(comp);
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return out;
+}
+
+const unesc = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const colIdx = (ref: string): number => {
+  const m = ref.match(/^([A-Z]+)/); if (!m) return 0;
+  let n = 0; for (const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1;
+};
+
+/** Lee un .xlsx y devuelve la PRIMERA hoja como filas de texto (string[][]). */
+export async function readXlsx(bytes: Uint8Array): Promise<string[][]> {
+  const files = await unzip(bytes);
+  const dec = new TextDecoder();
+  const get = (n: string) => (files[n] ? dec.decode(files[n]) : '');
+  // Cadenas compartidas (Excel guarda el texto aquí).
+  const shared: string[] = [];
+  const ss = get('xl/sharedStrings.xml');
+  if (ss) {
+    const siList = ss.match(/<si\b[\s\S]*?<\/si>/g) || [];
+    for (const si of siList) {
+      const parts = [...si.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unesc(m[1]));
+      shared.push(parts.join(''));
+    }
+  }
+  // Primera hoja (por defecto sheet1.xml; si no, la primera worksheet que exista).
+  let sheet = get('xl/worksheets/sheet1.xml');
+  if (!sheet) { const k = Object.keys(files).find((n) => /^xl\/worksheets\/.*\.xml$/.test(n)); if (k) sheet = dec.decode(files[k]); }
+  if (!sheet) throw new Error('El Excel no tiene ninguna hoja.');
+  const rows: string[][] = [];
+  const rowMatches = sheet.match(/<row\b[\s\S]*?<\/row>/g) || [];
+  for (const rowXml of rowMatches) {
+    const cells: string[] = [];
+    const cellMatches = [...rowXml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)];
+    for (const cm of cellMatches) {
+      const attrs = cm[1] || ''; const inner = cm[2] || '';
+      const ref = (attrs.match(/r="([A-Z]+\d+)"/) || [])[1] || '';
+      const type = (attrs.match(/t="([^"]+)"/) || [])[1] || '';
+      let val = '';
+      if (type === 'inlineStr') {
+        val = [...inner.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unesc(m[1])).join('');
+      } else {
+        const v = (inner.match(/<v>([\s\S]*?)<\/v>/) || [])[1] ?? '';
+        val = type === 's' ? (shared[parseInt(v, 10)] ?? '') : unesc(v);
+      }
+      const idx = ref ? colIdx(ref) : cells.length;
+      cells[idx] = val;
+    }
+    for (let i = 0; i < cells.length; i++) if (cells[i] == null) cells[i] = '';
+    rows.push(cells);
+  }
+  return rows;
+}
