@@ -1871,9 +1871,10 @@ export default function ReportsScreen({ route }: any) {
               const tz = new Map<string, { total: number; sec: Map<string, number> }>();
               conteo.mapPins.forEach((p) => {
                 const mm = macroOfPin(p); if (!mm) return;
+                const tk = p.tipo || 'Sin tipo';
                 macroCounts.set(mm, (macroCounts.get(mm) ?? 0) + 1);
-                if (!tz.has(p.tipo)) tz.set(p.tipo, { total: 0, sec: new Map() });
-                const e = tz.get(p.tipo)!; e.total += 1; e.sec.set(mm, (e.sec.get(mm) ?? 0) + 1);
+                if (!tz.has(tk)) tz.set(tk, { total: 0, sec: new Map() });
+                const e = tz.get(tk)!; e.total += 1; e.sec.set(mm, (e.sec.get(mm) ?? 0) + 1);
               });
               const zonaRows = [...macroCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
               const tzRows = [...tz.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
