@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
-import { UserRole } from '../types/database';
+import { UserRole, AppRole } from '../types/database';
 import { PermLevel, defaultLevel } from '../lib/permissions';
 import {
   isBiometricSupported,
@@ -16,6 +16,8 @@ type AuthState = {
   configured: boolean;
   /** Rol del usuario autenticado (admin/supervisor/operador/conductor). */
   role: UserRole | null;
+  /** Rol DINÁMICO asignado (define qué módulos ve). null = usa el rol base + permisos. */
+  appRole: AppRole | null;
   /** IDs de usuarios conectados ahora mismo (Realtime Presence). */
   onlineIds: string[];
   /** Nivel de permiso del usuario para un módulo (admin = full). */
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [locked, setLocked] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [appRole, setAppRole] = useState<AppRole | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<Record<string, PermLevel>>({});
 
@@ -70,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!session?.user) {
       setRole(null);
+      setAppRole(null);
       setOnlineIds([]);
       setPermissions({});
       return;
@@ -79,11 +83,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase
       .from('profiles')
-      .select('role')
+      .select('role, app_role:app_role_id(id, name, modules, created_at)')
       .eq('id', uid)
       .single()
       .then(({ data }) => {
-        if (active) setRole((data?.role as UserRole) ?? null);
+        if (!active) return;
+        setRole((data?.role as UserRole) ?? null);
+        setAppRole(((data as any)?.app_role as AppRole) ?? null);
       });
 
     // Permisos por módulo del usuario.
@@ -227,8 +233,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return ok;
   };
 
-  const moduleLevel = (moduleKey: string): PermLevel =>
-    role === 'admin' ? 'full' : permissions[moduleKey] ?? defaultLevel(moduleKey);
+  const moduleLevel = (moduleKey: string): PermLevel => {
+    if (role === 'admin') return 'full';
+    // Rol DINÁMICO: el usuario ve SOLO los módulos definidos en su rol (lo demás 'none').
+    if (appRole) return (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
+    return permissions[moduleKey] ?? defaultLevel(moduleKey);
+  };
   const canSee = (moduleKey: string) => moduleLevel(moduleKey) !== 'none';
 
   return (
@@ -238,6 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         configured: isSupabaseConfigured,
         role,
+        appRole,
         onlineIds,
         locked,
         moduleLevel,

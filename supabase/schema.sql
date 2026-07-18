@@ -800,6 +800,43 @@ create policy mr_maint_update on public.maintenance_requests for update to authe
 create index if not exists idx_maint_machine on public.maintenance_requests(machinery_id);
 create index if not exists idx_maint_status on public.maintenance_requests(status);
 
+-- REPARACIONES de maquinaria: el coordinador de mantenimiento envía la máquina a
+-- reparación (salida, tiempo estimado, qué se cambió) y registra su retorno operativo.
+-- Al enviar se marca la máquina 'No operativa'; al volver, 'Operativa' (lo hace la app).
+create table if not exists public.machinery_repairs (
+  id uuid primary key default gen_random_uuid(),
+  machinery_id uuid not null references public.machinery(id) on delete cascade,
+  tipo text not null default 'correctivo',       -- 'preventivo' | 'correctivo'
+  out_at date not null default current_date,      -- fecha de salida a reparación
+  estimated_days numeric(6,1),                    -- por cuánto tiempo (días)
+  estimated_note text,                            -- detalle del tiempo (texto libre)
+  work_done text,                                 -- qué se le cambió / trabajo realizado
+  back_at date,                                   -- cuándo volvió operativa (null = en reparación)
+  status text not null default 'en_reparacion',   -- 'en_reparacion' | 'operativa'
+  created_by uuid references public.profiles(id) on delete set null,
+  closed_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+alter table public.machinery_repairs enable row level security;
+create policy mrep_read on public.machinery_repairs for select to authenticated using (true);
+create policy mrep_insert on public.machinery_repairs for insert to authenticated with check (not public.is_anon());
+create policy mrep_update on public.machinery_repairs for update to authenticated using (not public.is_anon()) with check (not public.is_anon());
+create index if not exists idx_mrep_machine on public.machinery_repairs(machinery_id);
+create index if not exists idx_mrep_status on public.machinery_repairs(status);
+
+-- ROLES DINÁMICOS: roles creados desde Usuarios. Cada rol define qué módulos ve
+-- (mapa module_key → nivel). Un usuario con app_role_id ve SOLO esos módulos.
+create table if not exists public.app_roles (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  modules jsonb not null default '{}'::jsonb,      -- { "mantenimiento": "full", ... }
+  created_at timestamptz not null default now()
+);
+alter table public.app_roles enable row level security;
+create policy app_roles_read on public.app_roles for select to authenticated using (true);
+create policy app_roles_write on public.app_roles for all to authenticated using (public.current_role() = 'admin') with check (public.current_role() = 'admin');
+alter table public.profiles add column if not exists app_role_id uuid references public.app_roles(id) on delete set null;
+
 -- ============================================================================
 -- NÓMINA por empresa: monto que se descuenta de la cuenta general de la empresa
 -- en Control de Pagos (total neto = facturado − abonos − nómina).

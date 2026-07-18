@@ -86,7 +86,8 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
 - 📷 **Foto** — súbele una foto.
-- 🔳 **QR** — genera su código para identificarla rápido. El QR queda **sellado con el serial** de la máquina: si más adelante **cambias el serial**, el QR impreso con el serial anterior **deja de funcionar** (al escanearlo solo sale el logo). Reimprime el QR para volver a activarlo con el nuevo serial. *Nota:* los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.
+- 🔳 **QR** — genera su código para identificarla rápido. La hoja del QR muestra el **nombre** de la
+  máquina y su **serial** (o placa) — **no** la empresa. El QR queda **sellado con el serial** de la máquina: si más adelante **cambias el serial**, el QR impreso con el serial anterior **deja de funcionar** (al escanearlo solo sale el logo). Reimprime el QR para volver a activarlo con el nuevo serial. *Nota:* los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.
   - **🚫 Bloquear QR:** dentro del 🔳 QR hay un botón para **bloquear** ese QR. Al bloquearlo, quien lo escanee **solo verá el logo** (no puede registrar nada). Sirve para **matar un QR viejo o robado** sin tocar el serial. Con **✅ Desbloquear QR** vuelve a funcionar.
   - **🏢 Restricción por empresa:** un **operador solo puede usar equipos de SU empresa**. Si un operador escanea el QR de una máquina de **otra empresa** e intenta identificarse, el sistema lo **bloquea** con un aviso ("Este equipo es de X, solo puedes usar equipos de tu empresa") y **no** lo deja iniciar jornada ni registrar nada. **El supervisor NO tiene esta restricción:** puede escanear **cualquier** máquina y marcarla **Operativa/No** (check-in de supervisión).
 - 🪖 **Supervisor** — asigna quién la custodia (Empresa o Militar). Al escribir el nombre sale la lista de los ya usados para elegirlo rápido; cambiar de supervisor deja el anterior en el historial.
@@ -226,8 +227,22 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 
 > El reporte respeta TODO lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.
 
-### 4.7. Mantenimiento (arreglos de las máquinas)
-Cuando una máquina necesita reparación, se registra aquí para llevar el control.
+### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
+Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
+- **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
+  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende.
+- **🔧 En reparación:** máquinas que salieron a reparación.
+- **✓ Historial:** reparaciones ya cerradas.
+
+**Enviar una máquina a reparación:** toca **"🔧 Enviar una máquina a reparación"** (o el botón en la
+tarjeta de la máquina). Indica: **tipo** (correctivo/preventivo), **fecha de salida**, **por cuánto
+tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Al enviarla, la máquina queda
+**No operativa** en todo el sistema.
+
+**Registrar el retorno:** cuando vuelve, toca **"✓ Registrar retorno operativo"**, pon **qué se le
+cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automáticamente.
+
+> Los **coordinadores de mantenimiento** (preventivo y correctivo) ven **solo** este módulo.
 
 ### 4.8. Operadores
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
@@ -385,6 +400,21 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
+
+**🏷️ Roles del sistema (roles dinámicos):** en Usuarios, toca **"🏷️ Roles del sistema →
+Administrar"**. Ahí puedes:
+- **Crear un rol** (ej. *Coordinador de Operadores*): le pones un **nombre** y eliges **qué módulos
+  ve** (sin acceso / L / E / F por módulo).
+- Ver los roles en una **lista buscable** y **quitarlos** (🗑️).
+
+**Asignar un rol a un usuario:** en la tarjeta del usuario, en **"Rol especial (coordinador)"**,
+toca **Asignar** y elige el rol de la **lista buscable** (o **Quitar** para dejarlo sin rol
+especial). Un usuario con rol especial ve **SOLO** los módulos de ese rol (no ve el resto).
+
+> Vienen listos 3 roles: **Coordinador de Mantenimiento Preventivo**, **Coordinador de
+> Mantenimiento Correctivo** (ambos ven *Mantenimiento de Maquinaria*) y **Coordinador de
+> Operadores** (ve *Supervisión* + *Operadores*: si los supervisores hacen sus check-ins y si los
+> operadores están trabajando).
 
 ---
 

@@ -99,6 +99,7 @@ const SECTIONS: Sec[] = [
         '🕓 En espera — llegó pero todavía no se ha recibido en el control.',
       ] },
       { t: 'p', text: 'En cada máquina también puedes: 📍 guardar su ubicación, 📷 subirle una foto y 🔳 generar su código QR.' },
+      { t: 'note', text: 'La hoja del QR muestra el NOMBRE de la máquina y su SERIAL (o placa) — no la empresa.' },
       { t: 'note', text: 'QR sellado con el serial: el QR queda amarrado al serial de la máquina. Si cambias el serial, el QR impreso con el serial anterior DEJA DE FUNCIONAR (al escanearlo solo sale el logo). Reimprime el QR para activarlo con el nuevo serial. Los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.' },
       { t: 'note', text: 'Bloquear QR: dentro del 🔳 QR de cada máquina hay un botón "🚫 Bloquear QR". Al bloquearlo, cualquiera que escanee ese QR solo verá el logo (no puede registrar nada). Sirve para matar un QR viejo o robado sin tocar el serial. Con "✅ Desbloquear QR" vuelve a funcionar.' },
       { t: 'note', text: 'Restricción por empresa: un operador SOLO puede usar equipos de SU empresa. Si un operador escanea el QR de una máquina de otra empresa e intenta identificarse, el sistema lo bloquea con un aviso ("Este equipo es de X, solo puedes usar equipos de tu empresa") y no lo deja iniciar jornada ni registrar nada. El supervisor NO tiene esta restricción: puede escanear cualquier máquina y marcarla Operativa/No (check-in de supervisión).' },
@@ -294,13 +295,25 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🛠️',
+    title: 'Mantenimiento de Maquinaria y roles de coordinador',
+    blocks: [
+      { t: 'p', text: 'Módulo para los coordinadores de mantenimiento. Tiene tres pestañas: ⏳ Averías (lo que reportan los operadores por QR, por empresa → máquina, con su detalle), 🔧 En reparación y ✓ Historial.' },
+      { t: 'steps', items: [
+        'Enviar a reparación: toca "🔧 Enviar una máquina a reparación" (o el botón en la tarjeta). Indica tipo (correctivo/preventivo), fecha de salida, por cuánto tiempo (días) y qué se le va a cambiar. La máquina queda NO OPERATIVA en todo el sistema.',
+        'Registrar retorno: cuando vuelve, toca "✓ Registrar retorno operativo", pon qué se le cambió y la fecha. La máquina vuelve a OPERATIVA automáticamente.',
+      ] },
+      { t: 'note', text: 'ROLES DINÁMICOS (Usuarios → 🏷️ Roles del sistema): el administrador crea roles con un nombre y elige qué módulos ve cada uno; se ven en una lista buscable y se pueden quitar. En la tarjeta de cada usuario, "Rol especial" lo asigna (lista buscable) o lo quita. Un usuario con rol especial ve SOLO los módulos de su rol.' },
+      { t: 'note', text: 'Vienen listos: Coordinador de Mantenimiento Preventivo y Correctivo (ven Mantenimiento de Maquinaria), y Coordinador de Operadores (ve Supervisión + Operadores: si los supervisores hacen sus check-ins y si los operadores trabajan).' },
+    ],
+  },
+  {
     icon: '🔄',
-    title: 'Traslados, Autorizaciones, Mantenimiento, Mapa',
+    title: 'Traslados, Autorizaciones, Mapa',
     blocks: [
       { t: 'bullets', items: [
         'Traslados: mover combustible de un tanque a otro (se descuenta de uno y se suma al otro).',
         'Autorizaciones: cuando algo necesita permiso, se pide aquí y la persona autorizada lo aprueba o rechaza.',
-        'Mantenimiento: se registran las máquinas que necesitan reparación.',
         'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
         'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por TIPO de equipo (igual que el Conteo: payloaders, jumbos, tractores, cisternas…), cada uno con su cantidad. Usa "Mostrar todas" / "Ocultar todas" o toca un tipo para ver sus máquinas y elegir una por una.',
         'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
