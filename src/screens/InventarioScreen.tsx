@@ -12,6 +12,7 @@ import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, E
 import { exportPdf } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
+import { buildXlsx } from '../lib/xlsx';
 import { cotizacionHtml, CotizItem } from '../lib/cotizacion';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -32,17 +33,20 @@ function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) =
 // Columnas de la plantilla (en este orden). Se llena en Excel y se sube como CSV
 // o se copia/pega directo desde Excel (separado por tabulaciones).
 const LOTE_COLS = ['nombre', 'unidad', 'costo_unitario', 'cantidad_inicial', 'categoria', 'stock_minimo'];
-const LOTE_TEMPLATE =
-  LOTE_COLS.join(',') + '\n' +
-  'MARTILLO DE GOMA,UND,12.50,10,herramientas,2\n' +
-  'ACEITE HIDRAULICO 68,LT,6.80,40,repuestos,10\n' +
-  'GUANTES DE NITRILO (50 PARES),UND,50,1,herramientas,1\n';
+// Filas de la plantilla en Excel: encabezado + ejemplos (números como número).
+const LOTE_ROWS: (string | number)[][] = [
+  LOTE_COLS,
+  ['MARTILLO DE GOMA', 'UND', 12.5, 10, 'herramientas', 2],
+  ['ACEITE HIDRAULICO 68', 'LT', 6.8, 40, 'repuestos', 10],
+  ['GUANTES DE NITRILO (50 PARES)', 'UND', 50, 1, 'herramientas', 1],
+];
 
-/** Descarga un archivo de texto (CSV) en web. Excel lo abre directamente. */
-function downloadTextFile(filename: string, content: string) {
+/** Descarga bytes como archivo en web. */
+function downloadBytes(filename: string, data: Uint8Array | string, mime: string) {
   if (Platform.OS !== 'web') return;
   const g: any = globalThis as any;
-  const blob = new g.Blob(['﻿' + content], { type: 'text/csv;charset=utf-8;' });
+  const parts = typeof data === 'string' ? ['﻿' + data] : [data];
+  const blob = new g.Blob(parts, { type: mime });
   const url = g.URL.createObjectURL(blob);
   const a = g.document.createElement('a');
   a.href = url; a.download = filename;
@@ -251,7 +255,11 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   };
 
   // ── Carga por lote (Excel/CSV) ─────────────────────────────────────────────
-  const descargarPlantilla = () => downloadTextFile('Plantilla inventario.csv', LOTE_TEMPLATE);
+  const descargarPlantilla = () => downloadBytes(
+    'Plantilla inventario.xlsx',
+    buildXlsx(LOTE_ROWS, 'Plantilla'),
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
 
   // Analiza el texto (CSV o pegado de Excel) y marca cada fila: ok / repetida / mala.
   const analizarLote = (text: string) => {
@@ -468,15 +476,15 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
             <Card>
               <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Pasos</Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
-                1) Descarga la plantilla y ábrela en Excel.{'\n'}
+                1) Descarga la plantilla en Excel (.xlsx) y ábrela.{'\n'}
                 2) Llena una fila por producto: nombre, unidad, costo unitario, cantidad inicial, categoría y stock mínimo.{'\n'}
-                3) Súbela como CSV, o copia las filas desde Excel y pégalas abajo.{'\n'}
+                3) Copia las filas desde Excel y pégalas abajo; o guárdala como CSV y súbela.{'\n'}
                 4) El sistema marca las filas repetidas o mal cargadas antes de guardar. El SKU se asigna solo (INV-####).
               </Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Categorías válidas: {CATEGORIES.map((c) => c.key).join(', ')}.</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                 <TouchableOpacity onPress={descargarPlantilla} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla (Excel)</Text>
                 </TouchableOpacity>
                 {Platform.OS === 'web' ? (
                   <TouchableOpacity onPress={subirCsv} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
