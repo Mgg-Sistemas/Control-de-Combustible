@@ -196,6 +196,9 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 3. Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).
 4. Toca **"⬇️ Imprimir listado"**: genera un **PDF** con los empleados mostrados, sus tallas y
    una columna de **FIRMA (Recibido / Entregado)** para firmar al recibir el uniforme.
+5. **Al final** (en pantalla y en el PDF) sale un **📊 Resumen por tallas**: cuántas **camisas**
+   hay de cada talla (M, S, L…), y lo mismo para **pantalones** y **botas de seguridad**, con el
+   total de personas con talla cargada. Sirve para saber cuántas piezas de cada talla pedir.
 
 > El PDF respeta el filtro y la búsqueda: imprime exactamente los empleados que estás viendo.
 > La columna de firma va en blanco para que cada persona firme el recibido/entregado.

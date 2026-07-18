@@ -14,6 +14,28 @@ const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.t
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
+// ── Conteo por talla (para el resumen "tantas camisas M, tantas S…") ──────────
+const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL'];
+const normSize = (v: string | null | undefined) => String(v ?? '').trim().toUpperCase();
+/** Clave de orden: primero tallas de letra (XS→4XL), luego numéricas ascendentes, luego el resto. */
+const sizeKey = (s: string): number => {
+  const i = SIZE_ORDER.indexOf(s);
+  if (i >= 0) return i;
+  const n = Number(s.replace(',', '.'));
+  if (isFinite(n)) return 100 + n;
+  return 1000;
+};
+type SizeCount = { size: string; count: number };
+/** Cuenta cuántas personas tienen cada talla de una prenda (ignora vacías). */
+const tallyBy = (list: Employee[], get: (e: Employee) => string | null | undefined): { rows: SizeCount[]; total: number } => {
+  const m = new Map<string, number>();
+  list.forEach((e) => { const s = normSize(get(e)); if (s) m.set(s, (m.get(s) ?? 0) + 1); });
+  const rows = Array.from(m.entries())
+    .map(([size, count]) => ({ size, count }))
+    .sort((a, b) => sizeKey(a.size) - sizeKey(b.size) || a.size.localeCompare(b.size, 'es'));
+  return { rows, total: rows.reduce((s, r) => s + r.count, 0) };
+};
+
 export default function UniformesScreen() {
   const { colors } = useTheme();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
@@ -69,6 +91,13 @@ export default function UniformesScreen() {
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
   }, [filtered, companies]);
 
+  // Resumen de totales por talla del listado filtrado (camisas / pantalones / botas).
+  const resumen = useMemo(() => ({
+    camisa: tallyBy(filtered, (e) => e.talla_camisa),
+    pantalon: tallyBy(filtered, (e) => e.talla_pantalon),
+    zapatos: tallyBy(filtered, (e) => e.talla_zapatos),
+  }), [filtered]);
+
   const sizeChip = (label: string, value: string | null) => (
     <View style={{ backgroundColor: value ? colors.surfaceAlt : 'transparent', borderWidth: 1, borderColor: value ? colors.border : 'transparent', borderRadius: radius.pill, paddingHorizontal: value ? spacing.sm : 0, paddingVertical: value ? 2 : 0 }}>
       <Text style={{ color: value ? colors.text : colors.muted, fontSize: 11, fontWeight: '700' }}>{label}: {value || '—'}</Text>
@@ -90,6 +119,25 @@ export default function UniformesScreen() {
         <td class="c b">${esc(e.talla_zapatos ?? '—')}</td>
         <td class="firma"></td>
       </tr>`).join('');
+    // Resumen por tallas: "tantas camisas M, tantas S…", igual para pantalón y botas.
+    const resumenCard = (titulo: string, t: { rows: SizeCount[]; total: number }) => {
+      const items = t.rows.length
+        ? t.rows.map((r) => `<span class="pill"><b>${esc(r.size)}</b> ${r.count}</span>`).join('')
+        : '<span class="none">Sin tallas cargadas</span>';
+      const sinTalla = filtered.length - t.total;
+      return `<div class="rbox">
+        <div class="rh">${titulo}</div>
+        <div class="pills">${items}</div>
+        <div class="rt">Con talla: <b>${t.total}</b>${sinTalla > 0 ? ` · Sin talla: ${sinTalla}` : ''}</div>
+      </div>`;
+    };
+    const resumenHtml = `
+      <h3 class="rtitle">Resumen por tallas (${filtered.length} persona(s))</h3>
+      <div class="rgrid">
+        ${resumenCard('👕 Camisas', resumen.camisa)}
+        ${resumenCard('👖 Pantalones', resumen.pantalon)}
+        ${resumenCard('👟 Botas de seguridad', resumen.zapatos)}
+      </div>`;
     const html = pdfDocument({
       title: 'Distribución de uniformes',
       subtitle: `Listado de empleados con tallas · ${filtered.length} persona(s) · ${todayDMY()}`,
@@ -100,7 +148,16 @@ export default function UniformesScreen() {
         td.c{text-align:center} td.b{font-weight:800}
         td.firma{min-width:150px;height:34px}
         tr:nth-child(even) td{background:#f4f7fb}
-        .foot{margin-top:16px;color:#555;font-size:9pt}`,
+        .foot{margin-top:16px;color:#555;font-size:9pt}
+        .rtitle{margin:22px 0 8px;color:#16324F;font-size:13pt;border-top:2px solid #16324F;padding-top:12px}
+        .rgrid{display:flex;gap:12px;flex-wrap:wrap}
+        .rbox{flex:1;min-width:200px;border:1px solid #c9d2dc;border-radius:8px;padding:10px 12px}
+        .rh{font-weight:800;color:#16324F;margin-bottom:8px;font-size:11pt}
+        .pills{display:flex;gap:6px;flex-wrap:wrap}
+        .pill{background:#eef3fa;border:1px solid #c9d2dc;border-radius:12px;padding:3px 9px;font-size:10pt}
+        .pill b{color:#16324F}
+        .none{color:#888;font-size:9.5pt}
+        .rt{margin-top:8px;color:#555;font-size:9pt}`,
       body: `
         <table>
           <thead><tr>
@@ -110,7 +167,8 @@ export default function UniformesScreen() {
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <div class="foot">Cada firma confirma la ENTREGA y el RECIBO del uniforme por parte del empleado.</div>`,
+        <div class="foot">Cada firma confirma la ENTREGA y el RECIBO del uniforme por parte del empleado.</div>
+        ${resumenHtml}`,
     });
     await exportPdf(html, `Distribucion de uniformes - ${todayDMY()}`);
   };
@@ -170,6 +228,38 @@ export default function UniformesScreen() {
           </View>
         ))
       )}
+
+      {/* Resumen por tallas (al final): cuántas camisas M, cuántas S, etc. */}
+      {filtered.length > 0 ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: spacing.xs }}>📊 Resumen por tallas <Text style={{ color: colors.muted, fontSize: 12 }}>({filtered.length} persona(s))</Text></Text>
+          {([
+            { label: '👕 Camisas', t: resumen.camisa },
+            { label: '👖 Pantalones', t: resumen.pantalon },
+            { label: '👟 Botas de seguridad', t: resumen.zapatos },
+          ] as const).map((g) => {
+            const sinTalla = filtered.length - g.t.total;
+            return (
+              <View key={g.label} style={{ marginTop: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
+                {g.t.rows.length ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                    {g.t.rows.map((r) => (
+                      <View key={r.size} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{r.size}: <Text style={{ color: colors.primary }}>{r.count}</Text></Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Sin tallas cargadas.</Text>
+                )}
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Con talla: {g.t.total}{sinTalla > 0 ? ` · Sin talla: ${sinTalla}` : ''}</Text>
+              </View>
+            );
+          })}
+        </Card>
+      ) : null}
+
       <View style={{ height: spacing.lg }} />
 
       {/* Modal: editar tallas */}
