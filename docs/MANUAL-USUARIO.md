@@ -199,6 +199,15 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 > El PDF respeta el filtro y la búsqueda: imprime exactamente los empleados que estás viendo.
 > La columna de firma va en blanco para que cada persona firme el recibido/entregado.
 
+**Reporte de productos y estado (pestaña Existencias):**
+- Cada producto tiene un **ESTADO físico** (**Nuevo / Bueno / Regular / Dañado**) que eliges
+  al crear o editar. Además muestra su **DISPONIBILIDAD** automática: **Disponible**, **Bajo
+  mínimo** o **Agotado** (según la cantidad vs el stock mínimo).
+- Toca **"📄 Reporte de productos (cantidad y estado)"**: genera un **PDF** con TODOS los
+  productos, su **cantidad**, **disponibilidad** y **estado**.
+- Al **✏️ Editar producto** puedes cambiar la **CANTIDAD** (existencia): el sistema registra
+  la diferencia como un **AJUSTE DE INVENTARIO** en Movimientos.
+
 ### 4.7. Mantenimiento (arreglos de las máquinas)
 Cuando una máquina necesita reparación, se registra aquí para llevar el control.
 
