@@ -14,7 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
-import { Profile, UserRole } from '../types/database';
+import { Profile, UserRole, AppRole } from '../types/database';
 import { MODULES, LEVELS, PermLevel, defaultLevel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -28,11 +28,22 @@ export default function UsersScreen() {
   const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: users, loading, refetch } = useTable<Profile>('profiles', { orderBy: 'full_name', ascending: true });
+  const { data: appRoles, refetch: refetchRoles } = useTable<AppRole>('app_roles', { orderBy: 'name', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
   const [query, setQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [delError, setDelError] = useState<string | null>(null);
+  const [rolesOpen, setRolesOpen] = useState(false);      // gestor de roles
+  const [pickRoleFor, setPickRoleFor] = useState<Profile | null>(null); // asignar rol a un usuario
+  const roleName = (id?: string | null) => appRoles.find((r) => r.id === id)?.name ?? null;
+
+  const assignAppRole = async (u: Profile, roleId: string | null) => {
+    const { error } = await supabase.from('profiles').update({ app_role_id: roleId }).eq('id', u.id);
+    if (error) { Alert.alert('Aviso', `No se pudo asignar el rol: ${error.message}`); return; }
+    setPickRoleFor(null);
+    refetch();
+  };
 
   if (role !== 'admin') {
     return (
@@ -102,6 +113,19 @@ export default function UsersScreen() {
         </Text>
       </Card>
 
+      {/* Gestión de ROLES dinámicos (coordinadores…): crear, buscar, quitar. */}
+      <TouchableOpacity onPress={() => setRolesOpen(true)}>
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏷️ Roles del sistema</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{appRoles.length} rol(es). Crea roles (coordinadores…), elige qué módulos ve cada uno y quítalos.</Text>
+            </View>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>Administrar ›</Text>
+          </View>
+        </Card>
+      </TouchableOpacity>
+
       <TextInput
         value={query}
         onChangeText={setQuery}
@@ -166,6 +190,26 @@ export default function UsersScreen() {
                 </Text>
               ) : null}
 
+              {/* Rol ESPECIAL (dinámico): si se asigna, el usuario ve SOLO los módulos de ese rol. */}
+              {u.role !== 'admin' ? (
+                <View style={{ marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={[typography.muted, { marginBottom: 2 }]}>Rol especial (coordinador) — ve SOLO sus módulos</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Text style={{ color: roleName(u.app_role_id) ? colors.primary : colors.muted, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>
+                      {roleName(u.app_role_id) ?? 'Ninguno (usa su rol base y permisos)'}
+                    </Text>
+                    <TouchableOpacity onPress={() => setPickRoleFor(u)} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>{roleName(u.app_role_id) ? 'Cambiar' : 'Asignar'}</Text>
+                    </TouchableOpacity>
+                    {u.app_role_id ? (
+                      <TouchableOpacity onPress={() => assignAppRole(u, null)} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
+
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                 <TouchableOpacity
                   onPress={() => setEditing(u)}
@@ -208,7 +252,153 @@ export default function UsersScreen() {
         onClose={() => setEditing(null)}
         onSaved={refetch}
       />
+      <RolePickerModal
+        user={pickRoleFor}
+        roles={appRoles}
+        onPick={(roleId) => pickRoleFor && assignAppRole(pickRoleFor, roleId)}
+        onClose={() => setPickRoleFor(null)}
+      />
+      <RolesManagerModal visible={rolesOpen} roles={appRoles} onClose={() => setRolesOpen(false)} onChanged={refetchRoles} />
     </Screen>
+  );
+}
+
+/** Elige (o quita) el ROL ESPECIAL de un usuario. Lista buscable de roles. */
+function RolePickerModal({ user, roles, onPick, onClose }: { user: Profile | null; roles: AppRole[]; onPick: (roleId: string | null) => void; onClose: () => void }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [q, setQ] = useState('');
+  const nq = norm(q.trim());
+  const list = !nq ? roles : roles.filter((r) => norm(r.name).includes(nq));
+  return (
+    <Modal visible={!!user} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={[styles.sheet, { maxHeight: '80%' }]}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>Rol especial de {user?.full_name ?? 'usuario'}</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Si asignas un rol, el usuario verá SOLO los módulos de ese rol.</Text>
+          <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar rol…" placeholderTextColor={colors.muted} style={styles.input} />
+          <ScrollView style={{ marginTop: spacing.sm }}>
+            <TouchableOpacity onPress={() => onPick(null)} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Ninguno (usar rol base y permisos)</Text>
+            </TouchableOpacity>
+            {list.map((r) => (
+              <TouchableOpacity key={r.id} onPress={() => onPick(r.id)} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: user?.app_role_id === r.id ? colors.primary : colors.border, marginBottom: spacing.xs, backgroundColor: user?.app_role_id === r.id ? colors.primary : colors.surface }}>
+                <Text style={{ color: user?.app_role_id === r.id ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
+                <Text style={{ color: user?.app_role_id === r.id ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{Object.keys(r.modules ?? {}).length} módulo(s)</Text>
+              </TouchableOpacity>
+            ))}
+            {list.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin roles. Créalos en “🏷️ Roles del sistema”.</Text> : null}
+          </ScrollView>
+          <TouchableOpacity onPress={onClose} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** Crea, lista (buscable) y elimina ROLES dinámicos, cada uno con sus módulos. */
+function RolesManagerModal({ visible, roles, onClose, onChanged }: { visible: boolean; roles: AppRole[]; onClose: () => void; onChanged: () => void }) {
+  const { colors } = useTheme();
+  const confirm = useConfirm();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [q, setQ] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [mods, setMods] = useState<Record<string, PermLevel>>({});
+  const [busy, setBusy] = useState(false);
+
+  const nq = norm(q.trim());
+  const list = !nq ? roles : roles.filter((r) => norm(r.name).includes(nq));
+
+  const resetCreate = () => { setCreating(false); setName(''); setMods({}); };
+
+  const crearRol = async () => {
+    if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del rol.'); return; }
+    const modules = Object.fromEntries(Object.entries(mods).filter(([, lv]) => lv && lv !== 'none'));
+    if (Object.keys(modules).length === 0) { Alert.alert('Aviso', 'Elige al menos un módulo para el rol.'); return; }
+    setBusy(true);
+    const { error } = await supabase.from('app_roles').insert({ name: name.trim(), modules });
+    setBusy(false);
+    if (error) { Alert.alert('Aviso', /duplicate|unique/i.test(error.message) ? 'Ya existe un rol con ese nombre.' : error.message); return; }
+    resetCreate();
+    onChanged();
+  };
+
+  const borrarRol = async (r: AppRole) => {
+    const ok = await confirm({ title: 'Eliminar rol', message: `¿Eliminar el rol "${r.name}"? Los usuarios que lo tengan quedarán sin rol especial.`, confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true });
+    if (!ok) return;
+    const { error } = await supabase.from('app_roles').delete().eq('id', r.id);
+    if (error) { Alert.alert('Aviso', error.message); return; }
+    onChanged();
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={[styles.sheet, { maxHeight: '92%' }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🏷️ Roles del sistema</Text>
+            <TouchableOpacity onPress={() => (creating ? resetCreate() : setCreating(true))} style={{ backgroundColor: creating ? colors.surfaceAlt : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: creating ? colors.text : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{creating ? 'Cancelar' : '+ Crear rol'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {creating ? (
+            <ScrollView style={{ maxHeight: '78%' }} contentContainerStyle={{ gap: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Nombre del rol</Text>
+              <TextInput value={name} onChangeText={setName} placeholder="Ej. Coordinador de Operadores" placeholderTextColor={colors.muted} style={styles.input} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué módulos ve? (— sin acceso · L · E · F)</Text>
+              {MODULES.map((mod) => {
+                const cur = mods[mod.key] ?? 'none';
+                return (
+                  <View key={mod.key} style={{ marginTop: 2 }}>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{mod.label}</Text>
+                    <View style={{ flexDirection: 'row', gap: 4, marginTop: 3 }}>
+                      {LEVELS.map((lv) => {
+                        const active = cur === lv.value;
+                        return (
+                          <TouchableOpacity key={lv.value} onPress={() => setMods((p) => ({ ...p, [mod.key]: lv.value }))} style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface, alignItems: 'center' }}>
+                            <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+              <TouchableOpacity onPress={crearRol} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Creando…' : 'Crear rol'}</Text>
+              </TouchableOpacity>
+              <View style={{ height: spacing.lg }} />
+            </ScrollView>
+          ) : (
+            <>
+              <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar rol…" placeholderTextColor={colors.muted} style={styles.input} />
+              <ScrollView style={{ marginTop: spacing.sm, maxHeight: '74%' }}>
+                {list.map((r) => (
+                  <View key={r.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{r.name}</Text>
+                      <TouchableOpacity onPress={() => borrarRol(r)} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Quitar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>{Object.keys(r.modules ?? {}).map((k) => MODULES.find((m) => m.key === k)?.label ?? k).join(', ') || 'Sin módulos'}</Text>
+                  </View>
+                ))}
+                {list.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin roles todavía. Toca “+ Crear rol”.</Text> : null}
+              </ScrollView>
+            </>
+          )}
+
+          <TouchableOpacity onPress={onClose} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 

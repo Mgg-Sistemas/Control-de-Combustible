@@ -18,6 +18,7 @@ import ControlMaquinariaScreen from '../screens/ControlMaquinariaScreen';
 import ControlPagosScreen from '../screens/ControlPagosScreen';
 import MargenGananciaScreen from '../screens/MargenGananciaScreen';
 import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScreen';
+import RoleHomeScreen from '../screens/RoleHomeScreen';
 import OperadoresScreen from '../screens/OperadoresScreen';
 import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
@@ -166,6 +167,28 @@ function MoreStack() {
   );
 }
 
+/** Panel de un COORDINADOR (rol dinámico): solo su panel y los módulos de su rol.
+ *  No ve tabs ni el resto del sistema. La flecha de volver regresa a su panel. */
+function CoordinadorStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="RoleHome" component={RoleHomeScreen} options={{ title: 'Mi panel', headerLeft: () => <HeaderLogoutButton /> }} />
+      <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento de Maquinaria' }} />
+      <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
+      <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Supervisión' }} />
+      <Stack.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo' }} />
+      <Stack.Screen name="Map" component={MapScreen} options={{ title: 'Mapa' }} />
+      <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
+      <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
+      <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
+      <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
+      <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -261,7 +284,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, signOut } = useAuth();
+  const { session, configured, locked, role, appRole, signOut } = useAuth();
   const [qrMachineId, clearQr] = useQrParam('maquina');
   const [qrMachineSerial] = useQrParam('s'); // serial sellado del QR (para vencer QR viejos)
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
@@ -370,6 +393,9 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
+      ) : appRole && role !== 'admin' ? (
+        // Usuario con ROL DINÁMICO (coordinador): ve SOLO su panel y los módulos de su rol.
+        <CoordinadorStack />
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />

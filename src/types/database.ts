@@ -16,6 +16,7 @@ export interface Profile {
   failed_attempts?: number; // intentos de login fallidos (se bloquea al 3ro)
   locked?: boolean; // bloqueado por intentos fallidos (el admin desbloquea)
   locked_at?: string | null;
+  app_role_id?: string | null; // rol dinámico asignado (define qué módulos ve)
   created_at: string;
 }
 
@@ -676,6 +677,32 @@ export interface MaintenanceRequest {
   created_at: string;
   resolved_by: string | null;
   resolved_at: string | null;
+}
+
+export type RepairTipo = 'preventivo' | 'correctivo';
+export type RepairStatus = 'en_reparacion' | 'operativa';
+
+export interface MachineryRepair {
+  id: string;
+  machinery_id: string;
+  tipo: RepairTipo | string;
+  out_at: string;                 // fecha de salida a reparación (ISO date)
+  estimated_days: number | null;  // por cuánto tiempo (días)
+  estimated_note: string | null;  // detalle del tiempo
+  work_done: string | null;       // qué se le cambió
+  back_at: string | null;         // cuándo volvió operativa (null = en reparación)
+  status: RepairStatus | string;
+  created_by: string | null;
+  closed_by: string | null;
+  created_at: string;
+}
+
+// Rol dinámico creado desde Usuarios: define qué módulos ve (clave → nivel).
+export interface AppRole {
+  id: string;
+  name: string;
+  modules: Record<string, string>; // { module_key: 'lectura'|'escritura'|'full' }
+  created_at: string;
 }
 
 export interface Transfer {

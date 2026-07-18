@@ -17,7 +17,7 @@ import { ChangePasswordButton } from '../components/ChangePasswordButton';
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
   { label: 'Margen de ganancia', route: 'MargenGanancia', desc: 'Costo inicial, valor útil y % de ganancia por máquina y empresa', icon: '🚜', module: 'margen_ganancia' },
-  { label: 'Mantenimiento maquinaria', route: 'MantenimientoMaquinaria', desc: 'Máquinas que requieren mantenimiento (avisadas por QR) y marcar como realizado', icon: '🛠️', module: 'mantenimiento' },
+  { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', desc: 'Averías por máquina, enviar a reparación (salida, tiempo, cambios) y retorno operativo', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Supervisión', route: 'Supervision', desc: 'Rondas de supervisores: quién marcó cada máquina (GPS + estado) y jornadas sin validar', icon: '🪖', module: 'supervision' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
