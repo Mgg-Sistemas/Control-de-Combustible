@@ -9,7 +9,8 @@ import { Machinery, SupervisorVisit, VisitStatus } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
-import { parseMachineId } from './ScanQrScreen';
+import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
+import { startJornada, isOperatorCargo } from '../lib/jornada';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -66,6 +67,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
 
+  // ── Registrar operador SIN teléfono: el supervisor escanea el carnet del
+  //    operador y coteja su cédula; si coincide, inicia la jornada del operador
+  //    en esta máquina (mismo flujo que si el operador escaneara con su teléfono).
+  const [opScanOpen, setOpScanOpen] = useState(false);
+  const [opEmp, setOpEmp] = useState<{ id: string; first: string; last: string; name: string; cargo: string | null; cedula: string } | null>(null);
+  const [opConfirmCedula, setOpConfirmCedula] = useState('');
+  const [opHoro, setOpHoro] = useState('');
+  const [opBusy, setOpBusy] = useState(false);
+
   useEffect(() => { warmLocation(); }, []);
 
   const load = async () => {
@@ -104,6 +114,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setGps(null);
     setGpsErr(null);
     setScanOpen(false);
+    // Limpia el registro de operador para esta máquina.
+    setOpScanOpen(false);
+    setOpEmp(null);
+    setOpConfirmCedula('');
+    setOpHoro('');
     // Captura el GPS del supervisor al abrir (para medir la distancia a la máquina).
     setGpsBusy(true);
     getCurrentCoords().then((r) => {
@@ -161,6 +176,44 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     const dtxt = data.distance_m != null ? ` · a ~${data.distance_m} m${data.near ? ' (en sitio ✓)' : ' (lejos ⚠️)'}` : '';
     setNotice(`✅ ${ci.code} revisada · ${statusLabel(ciStatus)}${dtxt}.`);
     setCi(null);
+  };
+
+  // Escanea el carnet del operador (QR ?empleado=<id>): valida que exista, que su
+  // cargo pueda operar y que tenga cédula en nómina. Luego se coteja la cédula.
+  const onOperatorCarnet = async (text: string) => {
+    setOpScanOpen(false);
+    const id = parseEmployeeId(text);
+    if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
+    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
+    const emp = data as any;
+    if (!emp) { setOpEmp(null); setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
+    const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+    if (!isOperatorCargo(emp.cargo)) { setOpEmp(null); setNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede iniciar jornada.`); return; }
+    if (!(emp.cedula || '').trim()) { setOpEmp(null); setNotice(`❌ ${nombre} no tiene CÉDULA en nómina. Pídele al administrador que la agregue.`); return; }
+    setOpEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim() });
+    setOpConfirmCedula('');
+    setNotice(`📇 Carnet de ${nombre} leído. Coteja su cédula e ingresa el horómetro para iniciar la jornada.`);
+  };
+
+  // Coteja la cédula (debe coincidir con el carnet) e inicia la jornada del operador
+  // en la máquina del check-in, con la ubicación del supervisor como punto de inicio.
+  const confirmOperatorJornada = async () => {
+    if (!ci || !opEmp || opBusy) return;
+    const digits = (s: string) => (s || '').replace(/\D/g, '');
+    if (digits(opConfirmCedula).length < 6) { setNotice('❌ Escribe la cédula del operador para cotejar.'); return; }
+    if (digits(opConfirmCedula) !== digits(opEmp.cedula)) { setNotice('❌ La cédula no coincide con el carnet escaneado.'); return; }
+    const hi = Number((opHoro || '').replace(',', '.'));
+    if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial de la máquina.'); return; }
+    setOpBusy(true); setNotice(null);
+    const res = await startJornada({
+      machineId: ci.id, companyName: ci.companyName ?? null,
+      first: opEmp.first, last: opEmp.last, cedula: opEmp.cedula, horometroInicial: hi,
+      createdBy: uid || null, recordedBy: uid || null, startCoords: gps,
+    });
+    setOpBusy(false);
+    if (!res.ok) { setNotice('❌ ' + res.error); return; }
+    setNotice(`✅ Jornada iniciada para ${opEmp.name} en ${ci.code} · ${res.shift.label} · Horómetro ${hi}. (Registrada por el supervisor.)`);
+    setOpEmp(null); setOpConfirmCedula(''); setOpHoro('');
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
@@ -313,6 +366,35 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nota (opcional)</Text>
               <TextInput value={ciNote} onChangeText={setCiNote} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
 
+              {/* ── Registrar operador SIN teléfono: escanear su carnet + cotejar cédula
+                     → inicia su jornada en esta máquina. Es opcional (independiente
+                     de marcar la máquina como revisada). ───────────────────────── */}
+              <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>👷 Iniciar jornada del operador</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                  Si el operador no tiene teléfono: escanea su carnet y coteja su cédula para arrancar su jornada en esta máquina.
+                </Text>
+                <TouchableOpacity onPress={() => { setNotice(null); setOpScanOpen(true); }} style={{ marginTop: spacing.sm, backgroundColor: '#0EA5E9', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>📷 {opEmp ? 'Volver a escanear carnet' : 'Escanear carnet del operador'}</Text>
+                </TouchableOpacity>
+
+                {opEmp ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.success }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📇 {opEmp.name}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{opEmp.cargo || 'Sin cargo'}</Text>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Coteja la cédula del operador</Text>
+                    <TextInput value={opConfirmCedula} onChangeText={(t) => setOpConfirmCedula(t.replace(/\D/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula del operador" placeholderTextColor={colors.muted} style={input} />
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Horómetro inicial</Text>
+                    <TextInput value={opHoro} onChangeText={(t) => setOpHoro(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                    <TouchableOpacity onPress={confirmOperatorJornada} disabled={opBusy} style={{ marginTop: spacing.md, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: opBusy ? 0.6 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>{opBusy ? 'Guardando…' : '🟢 Iniciar jornada del operador'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+
               <TouchableOpacity onPress={confirmCheckin} disabled={ciSaving} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '✅ Marcar como revisada'}</Text>
               </TouchableOpacity>
@@ -321,6 +403,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
               </TouchableOpacity>
             </ScrollView>
           </View>
+        </View>
+      </Modal>
+
+      {/* Escáner del carnet del operador (QR ?empleado=<id>) → coteja e inicia jornada. */}
+      <Modal visible={opScanOpen} animationType="slide" onRequestClose={() => setOpScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setOpScanOpen(false)} onDetected={onOperatorCarnet} />
         </View>
       </Modal>
     </Screen>
