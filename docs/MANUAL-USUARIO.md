@@ -212,6 +212,16 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 - Al **✏️ Editar producto** puedes cambiar la **CANTIDAD** (existencia): el sistema registra
   la diferencia como un **AJUSTE DE INVENTARIO** en Movimientos.
 
+### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
+En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
+1. En el recuadro **🏷️ Cargo**, toca para desplegar los cargos (con su cantidad).
+2. **Marca uno o varios** cargos (ej. **OPERADOR**, **OBRERO**…). Se pueden combinar; **"Todos"** limpia la selección.
+3. La lista de abajo muestra solo esos cargos (también se combina con **Estado** y la **búsqueda**).
+4. Toca **"📊 Reporte"**: genera un **PDF** con el **listado de las personas seleccionadas**
+   (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un **resumen por cargo** con el total.
+
+> El reporte respeta TODO lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.
+
 ### 4.7. Mantenimiento (arreglos de las máquinas)
 Cuando una máquina necesita reparación, se registra aquí para llevar el control.
 
