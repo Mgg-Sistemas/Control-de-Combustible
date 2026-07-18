@@ -156,6 +156,9 @@ export interface Employee {
   talla_camisa: string | null;   // talla de camisa (uniforme)
   talla_pantalon: string | null; // talla de pantalón (uniforme)
   talla_zapatos: string | null;  // talla de zapatos (uniforme)
+  precio_hora: number | null;    // pago a personal: precio por hora
+  precio_dia: number | null;     // pago a personal: precio por día
+  precio_semana: number | null;  // pago a personal: precio por semana
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -251,23 +254,15 @@ export interface StaffPayLine {
   amount: number;
 }
 
-/** Divisores globales para derivar tarifas del sueldo base. */
-export interface StaffPayConfig {
-  id: number;
-  dias_mes: number;   // tarifa_dia = base / dias_mes
-  horas_mes: number;  // tarifa_hora = base / horas_mes
-  updated_at: string;
-}
-
 /** Período de pago a personal (borrador → aprobada → pagada). */
 export interface StaffPayPeriod {
   id: string;
   company_id: string | null;
   name: string;
-  period_type: 'dia' | 'semana' | 'quincena';
+  period_type: 'dia' | 'semana' | 'quincena'; // rango de fechas del período
   date_from: string;
   date_to: string;
-  mode: 'dias' | 'horas';
+  mode: 'hora' | 'dia' | 'semana';            // base del pago: por hora / día / semana
   only_validated: boolean; // solo cuentan jornadas validadas por el supervisor
   status: 'borrador' | 'aprobada' | 'pagada';
   total_amount: number;
@@ -275,7 +270,7 @@ export interface StaffPayPeriod {
   created_at: string;
 }
 
-/** Línea por persona. total = devengado + Σbonos − Σdeducciones. */
+/** Línea por persona. devengado = precio_del_modo × cantidad. total = devengado + Σbonos − Σdeducciones. */
 export interface StaffPayItem {
   id: string;
   period_id: string;
@@ -284,14 +279,15 @@ export interface StaffPayItem {
   person_name: string;
   cargo: string | null;
   source: 'auto' | 'manual';   // auto = jornadas de operador; manual = a mano
-  base_salary: number;
-  tarifa_dia: number;
-  tarifa_hora: number;
-  dias: number;
+  precio_hora: number;         // precios snapshot del trabajador
+  precio_dia: number;
+  precio_semana: number;
+  dias: number;                // cantidades del período
   horas: number;
+  semanas: number;
   jornadas_validadas: number;
   jornadas_pendientes: number;
-  overridden: boolean;         // días/horas ajustados a mano
+  overridden: boolean;         // cantidades ajustadas a mano
   devengado: number;
   bonos: StaffPayLine[];
   deducciones: StaffPayLine[];

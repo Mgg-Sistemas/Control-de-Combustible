@@ -284,7 +284,7 @@ export default function NominaScreen({ navigation }: any) {
         <Text style={{ fontSize: 20 }}>💵</Text>
         <View style={{ flex: 1 }}>
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Control de pago a personal</Text>
-          <Text style={{ color: colors.muted, fontSize: 11 }}>Pago por días u horas trabajados, derivado del sueldo base, con bonos, deducciones y abonos</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Pago por precio hora, día o semana (por trabajador), con bonos, deducciones y abonos</Text>
         </View>
         <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>

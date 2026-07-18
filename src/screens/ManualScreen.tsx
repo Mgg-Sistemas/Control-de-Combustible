@@ -160,18 +160,18 @@ const SECTIONS: Sec[] = [
     icon: '💵',
     title: 'Control de pago a personal (dentro de Nómina)',
     blocks: [
-      { t: 'p', text: 'Sirve para calcular y pagar al personal por las jornadas trabajadas, tomando como base el sueldo base de cada trabajador. Está dentro de Nómina: abre 💵 Control de pago a personal.' },
+      { t: 'p', text: 'Sirve para calcular y pagar al personal por PRECIO por hora, día o semana, definido POR TRABAJADOR. Está dentro de Nómina: abre 💵 Control de pago a personal.' },
       { t: 'p', text: 'Cómo se calcula:' },
       { t: 'bullets', items: [
-        'Del sueldo base mensual salen las tarifas: tarifa por día = base ÷ 30 y tarifa por hora = base ÷ 240. Esos divisores (30 y 240) se pueden cambiar en ⚙️ Divisores de tarifa (solo admin/supervisor).',
-        'Cada período elige un Modo: pagar por Días trabajados o por Horas trabajadas.',
-        'El Período puede ser Día, Semana (dom→sáb) o Quincena (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se pueden editar a mano.',
-        'Devengado = días × tarifa/día (o horas × tarifa/hora). Total a pagar = devengado + bonos − deducciones.',
+        'Cada trabajador tiene su Precio por hora, Precio por día y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',
+        'Cada período elige "Pago por": Por hora, Por día o Por semana. El devengado = precio del modo × cantidad (horas, días o semanas trabajadas).',
+        'El Período (rango de fechas) puede ser Día, Semana (dom→sáb) o Quincena (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se editan a mano.',
+        'Total a pagar = devengado + bonos − deducciones.',
       ] },
-      { t: 'p', text: 'De dónde salen los días/horas:' },
+      { t: 'p', text: 'De dónde salen las cantidades (horas / días / semanas):' },
       { t: 'bullets', items: [
-        'Operadores: se cargan SOLOS desde sus jornadas (las que registran al escanear el QR), cruzando por cédula dentro del rango del período.',
-        'Resto del personal: se ajusta a mano (días u horas). También puedes editar lo automático; si lo cambias, queda marcado como ajuste manual.',
+        'Operadores: se cargan SOLOS desde sus jornadas (las que registran al escanear el QR), cruzando por cédula dentro del rango del período. Las semanas = cuántas semanas distintas trabajaron.',
+        'Resto del personal: se ajusta a mano. También puedes editar lo automático; si cambias la cantidad, queda marcado como ajuste manual.',
         'Con "Solo jornadas validadas por el supervisor" activado (por defecto), una jornada solo cuenta si el supervisor visitó esa máquina ese día y la marcó 🟢 Trabajando. Las que no tienen visita quedan pendientes y NO suman (avisa con ⚠️).',
       ] },
       { t: 'bullets', items: [
@@ -179,7 +179,7 @@ const SECTIONS: Sec[] = [
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
         'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF.',
       ] },
-      { t: 'note', text: 'Las analistas pueden cargar jornadas, bonos y deducciones, pero NO pueden cambiar el sueldo base ni los divisores de tarifa.' },
+      { t: 'note', text: 'Las analistas pueden cargar cantidades, bonos y deducciones, pero NO pueden cambiar los precios (hora/día/semana) del trabajador.' },
     ],
   },
   {
