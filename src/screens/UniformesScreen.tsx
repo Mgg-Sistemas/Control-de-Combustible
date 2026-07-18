@@ -1,0 +1,209 @@
+import React, { useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { ConfigBanner } from '../components/ConfigBanner';
+import { supabase } from '../lib/supabase';
+import { exportPdf, pdfDocument } from '../lib/pdf';
+import { norm } from '../lib/text';
+import { Company, Employee } from '../types/database';
+import { useTable } from '../hooks/useTable';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
+
+const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
+const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+
+export default function UniformesScreen() {
+  const { colors } = useTheme();
+  const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Sin empresa' : 'Sin empresa');
+
+  const [q, setQ] = useState('');
+  const [onlyActive, setOnlyActive] = useState(true);
+
+  // Editor de tallas de una persona.
+  const [sel, setSel] = useState<Employee | null>(null);
+  const [camisa, setCamisa] = useState('');
+  const [pantalon, setPantalon] = useState('');
+  const [zapatos, setZapatos] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+
+  const openEmp = (e: Employee) => {
+    setSel(e);
+    setCamisa(e.talla_camisa ?? '');
+    setPantalon(e.talla_pantalon ?? '');
+    setZapatos(e.talla_zapatos ?? '');
+  };
+  const guardar = async () => {
+    if (!sel) return;
+    setSaving(true);
+    const patch = { talla_camisa: camisa.trim() || null, talla_pantalon: pantalon.trim() || null, talla_zapatos: zapatos.trim() || null };
+    const { error } = await supabase.from('employees').update(patch).eq('id', sel.id);
+    setSaving(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setSel(null);
+    refetch();
+  };
+
+  const nq = norm(q);
+  const filtered = useMemo(() => {
+    let list = employees.slice();
+    if (onlyActive) list = list.filter((e) => e.status === 'activo');
+    if (nq) list = list.filter((e) => norm(`${fullName(e)} ${e.cedula ?? ''} ${e.cargo ?? ''}`).includes(nq));
+    return list.sort((a, b) => companyName(a.company_id).localeCompare(companyName(b.company_id), 'es') || fullName(a).localeCompare(fullName(b), 'es'));
+  }, [employees, onlyActive, nq, companies]);
+
+  // Agrupa por empresa (para la vista en pantalla).
+  const byCompany = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; items: Employee[] }>();
+    filtered.forEach((e) => {
+      const k = e.company_id ?? '__none__';
+      const g = m.get(k) ?? { key: k, name: companyName(e.company_id), items: [] };
+      g.items.push(e);
+      m.set(k, g);
+    });
+    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  }, [filtered, companies]);
+
+  const sizeChip = (label: string, value: string | null) => (
+    <View style={{ backgroundColor: value ? colors.surfaceAlt : 'transparent', borderWidth: 1, borderColor: value ? colors.border : 'transparent', borderRadius: radius.pill, paddingHorizontal: value ? spacing.sm : 0, paddingVertical: value ? 2 : 0 }}>
+      <Text style={{ color: value ? colors.text : colors.muted, fontSize: 11, fontWeight: '700' }}>{label}: {value || '—'}</Text>
+    </View>
+  );
+
+  // ── Imprimir el listado con tallas y firma (Recibido / Entregado) ────────────
+  const imprimir = async () => {
+    if (filtered.length === 0) return Alert.alert('Aviso', 'No hay empleados para imprimir.');
+    const rows = filtered.map((e, i) =>
+      `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(fullName(e))}</td>
+        <td>${esc(companyName(e.company_id))}</td>
+        <td>${esc(e.cargo ?? '—')}</td>
+        <td>${esc(e.cedula ?? '—')}</td>
+        <td class="c b">${esc(e.talla_camisa ?? '—')}</td>
+        <td class="c b">${esc(e.talla_pantalon ?? '—')}</td>
+        <td class="c b">${esc(e.talla_zapatos ?? '—')}</td>
+        <td class="firma"></td>
+      </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Distribución de uniformes',
+      subtitle: `Listado de empleados con tallas · ${filtered.length} persona(s) · ${todayDMY()}`,
+      extraCss: `
+        table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5pt}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left}
+        th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.b{font-weight:800}
+        td.firma{min-width:150px;height:34px}
+        tr:nth-child(even) td{background:#f4f7fb}
+        .foot{margin-top:16px;color:#555;font-size:9pt}`,
+      body: `
+        <table>
+          <thead><tr>
+            <th style="width:30px" class="c">#</th><th>Empleado</th><th>Empresa</th><th>Cargo</th><th>Cédula</th>
+            <th class="c">Camisa</th><th class="c">Pantalón</th><th class="c">Zapatos</th>
+            <th style="min-width:150px">Firma (Recibido / Entregado)</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="foot">Cada firma confirma la ENTREGA y el RECIBO del uniforme por parte del empleado.</div>`,
+    });
+    await exportPdf(html, `Distribucion de uniformes - ${todayDMY()}`);
+  };
+
+  return (
+    <Screen>
+      <ConfigBanner />
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <SectionTitle>Distribución de uniformes</SectionTitle>
+        <TouchableOpacity onPress={imprimir} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Imprimir listado</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+        Toca un empleado para cargar su talla de camisa, pantalón y zapatos. El listado se imprime con las tallas y una firma de Recibido / Entregado.
+      </Text>
+
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {[{ k: true, label: 'Activos' }, { k: false, label: 'Todos' }].map((o) => {
+          const on = onlyActive === o.k;
+          return (
+            <TouchableOpacity key={o.label} onPress={() => setOnlyActive(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, cédula o cargo…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+
+      {loading && employees.length === 0 ? (
+        <Loading />
+      ) : filtered.length === 0 ? (
+        <EmptyState title="Sin empleados" subtitle={q ? 'Prueba con otra búsqueda.' : 'No hay empleados para mostrar.'} />
+      ) : (
+        byCompany.map((g) => (
+          <View key={g.key} style={{ marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name} <Text style={{ color: colors.muted, fontSize: 12 }}>({g.items.length})</Text></Text>
+            {g.items.map((e) => (
+              <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => openEmp(e)}>
+                <Card>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fullName(e)}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{[e.cargo, e.cedula ? `C.I ${e.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
+                    </View>
+                    <Text style={{ color: colors.primary, fontWeight: '800' }}>✎</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs }}>
+                    {sizeChip('👕 Camisa', e.talla_camisa)}
+                    {sizeChip('👖 Pantalón', e.talla_pantalon)}
+                    {sizeChip('👟 Zapatos', e.talla_zapatos)}
+                  </View>
+                </Card>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))
+      )}
+      <View style={{ height: spacing.lg }} />
+
+      {/* Modal: editar tallas */}
+      <Modal visible={!!sel} transparent animationType="slide" onRequestClose={() => setSel(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
+            {sel ? (
+              <ScrollView>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>{fullName(sel)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{[companyName(sel.company_id), sel.cargo, sel.cedula ? `C.I ${sel.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
+
+                <Text style={{ color: colors.muted, fontSize: 12 }}>👕 Talla de camisa</Text>
+                <TextInput value={camisa} onChangeText={(t) => setCamisa(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. M, L, XL, 38…" placeholderTextColor={colors.muted} style={input} />
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👖 Talla de pantalón</Text>
+                <TextInput value={pantalon} onChangeText={(t) => setPantalon(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. 32, 34, M…" placeholderTextColor={colors.muted} style={input} />
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👟 Talla de zapatos</Text>
+                <TextInput value={zapatos} onChangeText={(t) => setZapatos(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. 40, 42…" placeholderTextColor={colors.muted} style={input} />
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setSel(null)}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ height: spacing.md }} />
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+    </Screen>
+  );
+}

@@ -38,6 +38,7 @@ import AliadoCardScreen from '../screens/AliadoCardScreen';
 import AliadoInfoScreen from '../screens/AliadoInfoScreen';
 import NominaScreen from '../screens/NominaScreen';
 import PagoPersonalScreen from '../screens/PagoPersonalScreen';
+import UniformesScreen from '../screens/UniformesScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import {
@@ -151,6 +152,7 @@ function MoreStack() {
       <Stack.Screen name="AliadoCard" component={AliadoCardScreen} options={{ title: 'Ficha de aliado' }} />
       <Stack.Screen name="Nomina" component={NominaScreen} options={{ title: 'Nómina' }} />
       <Stack.Screen name="PagoPersonal" component={PagoPersonalScreen} options={{ title: 'Pago a personal' }} />
+      <Stack.Screen name="Uniformes" component={UniformesScreen} options={{ title: 'Distribución de uniformes' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />

@@ -184,6 +184,21 @@ personal**.
 > Las **analistas** pueden cargar jornadas, bonos y deducciones, pero **no** pueden cambiar
 > el **sueldo base** ni los **divisores** de tarifa.
 
+### 4.6c. Distribución de uniformes (dentro de Nómina)
+Lleva las **tallas de uniforme** de cada empleado e imprime el listado para la entrega. Está
+dentro de **Nómina** → **👕 Distribución de uniformes**.
+
+1. Verás el **listado de empleados** agrupado por empresa (con **Activos / Todos** y un
+   **buscador** por nombre, cédula o cargo).
+2. **Toca un empleado**: se abre para cargar su **👕 talla de camisa**, **👖 talla de
+   pantalón** y **👟 talla de zapatos**. Guarda.
+3. Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).
+4. Toca **"⬇️ Imprimir listado"**: genera un **PDF** con los empleados mostrados, sus tallas y
+   una columna de **FIRMA (Recibido / Entregado)** para firmar al recibir el uniforme.
+
+> El PDF respeta el filtro y la búsqueda: imprime exactamente los empleados que estás viendo.
+> La columna de firma va en blanco para que cada persona firme el recibido/entregado.
+
 ### 4.7. Mantenimiento (arreglos de las máquinas)
 Cuando una máquina necesita reparación, se registra aquí para llevar el control.
 

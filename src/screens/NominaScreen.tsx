@@ -289,6 +289,19 @@ export default function NominaScreen({ navigation }: any) {
         <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
+      {/* Distribución de uniformes (tallas por empleado + listado imprimible con firma). */}
+      <TouchableOpacity
+        onPress={() => navigation?.navigate('Uniformes')}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      >
+        <Text style={{ fontSize: 20 }}>👕</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Distribución de uniformes</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Tallas (camisa, pantalón, zapatos) por empleado y listado imprimible con firma</Text>
+        </View>
+        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+      </TouchableOpacity>
+
       {loading && periods.length === 0 ? (
         <Loading />
       ) : periods.length === 0 ? (
