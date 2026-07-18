@@ -265,7 +265,7 @@ const SECTIONS: Sec[] = [
     title: 'Inventario (materiales, nota de entrega y cotización)',
     blocks: [
       { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
-      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salidas, Nota de entrega, Nota de traslado, Cotización y Movimientos.' },
+      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salidas, Nota de entrega, Nota de traslado, Gastos, Cotización y Movimientos.' },
       { t: 'p', text: 'Nota de salida / entrega — es el documento que se hace cuando salen materiales:' },
       { t: 'steps', items: [
         'Ve a la pestaña "Nota de entrega".',
@@ -284,6 +284,14 @@ const SECTIONS: Sec[] = [
         'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
       ] },
       { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
+      { t: 'p', text: 'Gastos — cada material que SALE del almacén es un gasto. En la pestaña "💸 Gastos" ves el TOTAL GASTADO:' },
+      { t: 'steps', items: [
+        'Cuenta todo lo que sale del almacén: salidas y consumos manuales, notas de entrega y traslados. Cada gasto se valoriza al PMP (costo promedio) que tenía el material al momento de salir.',
+        'Elige el período: Hoy, Esta semana, Este mes o Todo. El total se recalcula solo.',
+        'Ves el desglose "Por categoría" (repuestos, herramientas, etc.). Toca una categoría para filtrar solo esos gastos; tócala de nuevo para quitar el filtro.',
+        'Toca "📄 Reporte de gastos (PDF)": genera un PDF con el resumen por categoría y el detalle de cada salida (fecha, producto, cantidad, costo y gasto) con el total gastado.',
+      ] },
+      { t: 'note', text: 'Las entradas (compras) y los ajustes NO cuentan como gasto: el gasto es el material que efectivamente sale del almacén.' },
       { t: 'p', text: 'Cotización: en la pestaña "Cotización" armas un presupuesto para un cliente (código, referencia, descripción, cantidad y precio). El I.V.A. se coloca como MONTO (lo escribes tú, no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.' },
       { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
       { t: 'p', text: 'Reporte de productos y estado — en la pestaña Existencias:' },
