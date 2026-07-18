@@ -16,6 +16,19 @@ export function parseMachineId(text: string): string | null {
   return null;
 }
 
+/** Extrae el SERIAL sellado del QR de una máquina (URL con &s=…). null si no lo trae. */
+export function parseMachineSerial(text: string): string | null {
+  if (!text) return null;
+  try {
+    const u = new URL(text);
+    const s = u.searchParams.get('s');
+    if (s) return s;
+  } catch {}
+  const m = text.match(/[?&]s=([^&\s]+)/i);
+  if (m) { try { return decodeURIComponent(m[1]); } catch { return m[1]; } }
+  return null;
+}
+
 /** Extrae el id de empleado del texto del QR del carnet (URL con ?empleado=…). */
 export function parseEmployeeId(text: string): string | null {
   if (!text) return null;
@@ -47,7 +60,7 @@ export function parseComidaId(text: string): string | null {
 export default function ScanQrScreen({ navigation }: any) {
   const onDetected = (text: string) => {
     const id = parseMachineId(text);
-    if (id) navigation.replace('MachineQuick', { machineId: id });
+    if (id) navigation.replace('MachineQuick', { machineId: id, qrSerial: parseMachineSerial(text) });
     else navigation.goBack();
   };
   return <QrScanner onDetected={onDetected} onClose={() => navigation.goBack()} />;

@@ -86,7 +86,7 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
 - 📷 **Foto** — súbele una foto.
-- 🔳 **QR** — genera su código para identificarla rápido.
+- 🔳 **QR** — genera su código para identificarla rápido. El QR queda **sellado con el serial** de la máquina: si más adelante **cambias el serial**, el QR impreso con el serial anterior **deja de funcionar** (al escanearlo solo sale el logo). Reimprime el QR para volver a activarlo con el nuevo serial. *Nota:* los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.
 - 🪖 **Supervisor** — asigna quién la custodia (Empresa o Militar). Al escribir el nombre sale la lista de los ya usados para elegirlo rápido; cambiar de supervisor deja el anterior en el historial.
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).

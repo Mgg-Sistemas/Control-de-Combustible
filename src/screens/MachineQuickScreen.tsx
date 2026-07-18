@@ -74,7 +74,7 @@ const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
  *  🔴 Combustible (ingreso de litros)  🟢 Mapa (marca coordenadas)  🔵 Avería
  *  (mantenimiento: caucho/aceite/filtro/repuesto con la cantidad a cambiar).
  */
-export default function MachineQuickScreen(props: { machineId?: string; onExit?: () => void; onSupervisorLogin?: () => void; onSupervisorCheckin?: () => void; route?: any; navigation?: any }) {
+export default function MachineQuickScreen(props: { machineId?: string; qrSerial?: string | null; onExit?: () => void; onSupervisorLogin?: () => void; onSupervisorCheckin?: () => void; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -84,6 +84,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   const authorId = isAnon ? null : (uid || null);
   // Acepta la máquina por prop (deep-link) o por parámetro de navegación (escáner).
   const machineId: string = props.machineId ?? props.route?.params?.machineId ?? '';
+  // Serial SELLADO en el QR (si lo trae). Si al escanear no coincide con el serial
+  // actual de la máquina, el QR quedó VENCIDO (se cambió el serial) → se desactiva.
+  const qrSerial: string | null = props.qrSerial ?? props.route?.params?.qrSerial ?? null;
+  const normSerial = (s?: string | null) => (s ?? '').trim().toLowerCase();
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
   const onSupervisorLogin = props.onSupervisorLogin;
   const onSupervisorCheckin = props.onSupervisorCheckin;
@@ -195,7 +199,7 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
       const [{ data: m }, { data: prof }, { data: tk }] = await Promise.all([
-        supabase.from('machinery').select('id, code, tipo, referencia, active, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+        supabase.from('machinery').select('id, code, serial, tipo, referencia, active, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
         uid ? supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle() : Promise.resolve({ data: null } as any),
         supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
       ]);
@@ -503,6 +507,10 @@ export default function MachineQuickScreen(props: { machineId?: string; onExit?:
   // Máquina ELIMINADA (no existe) o INACTIVA (dada de baja, active=false) →
   // QR DESACTIVADO: solo el logo de la empresa (sin datos ni acciones).
   if (!machine || (machine as any).active === false) return <QrInactive />;
+  // QR VENCIDO: el QR fue sellado con un serial que ya NO coincide con el actual
+  // (se cambió el serial de la máquina). Los QR sin sellar (qrSerial null) siguen
+  // funcionando por compatibilidad; solo se vence el sello que dejó de coincidir.
+  if (qrSerial && normSerial(qrSerial) !== normSerial((machine as any).serial)) return <QrInactive />;
 
   const big = (bg: string, icon: string, label: string, onPress: () => void) => (
     <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={{ backgroundColor: bg, borderRadius: radius.lg, paddingVertical: spacing.xl, alignItems: 'center', marginBottom: spacing.md }}>
