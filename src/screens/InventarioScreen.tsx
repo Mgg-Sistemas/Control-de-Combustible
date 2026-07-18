@@ -12,7 +12,7 @@ import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, E
 import { exportPdf } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
-import { buildXlsx } from '../lib/xlsx';
+import { buildXlsx, readXlsx } from '../lib/xlsx';
 import { cotizacionHtml, CotizItem } from '../lib/cotizacion';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -54,21 +54,27 @@ function downloadBytes(filename: string, data: Uint8Array | string, mime: string
   g.URL.revokeObjectURL(url);
 }
 
-/** Abre el selector de archivos (web) y devuelve el TEXTO del CSV elegido. */
-function pickCsvFileWeb(): Promise<string | null> {
-  return new Promise((resolve) => {
+/** Abre el selector de archivos (web) y devuelve las FILAS del Excel (.xlsx) o CSV
+ *  elegido, ya como texto separado por tabulaciones (listo para analizar). */
+function pickBatchFileWeb(): Promise<string | null> {
+  return new Promise((resolve, reject) => {
     if (Platform.OS !== 'web') { resolve(null); return; }
     const g: any = globalThis as any;
     const input = g.document.createElement('input');
     input.type = 'file';
-    input.accept = '.csv,.txt,text/csv';
-    input.onchange = () => {
+    input.accept = '.xlsx,.csv,.txt';
+    input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) { resolve(null); return; }
-      const fr = new g.FileReader();
-      fr.onload = () => resolve(String(fr.result || ''));
-      fr.onerror = () => resolve(null);
-      fr.readAsText(file);
+      try {
+        if (/\.xlsx$/i.test(file.name)) {
+          const buf = await file.arrayBuffer();
+          const rows = await readXlsx(new Uint8Array(buf));
+          resolve(rows.map((r) => r.join('\t')).join('\n'));
+        } else {
+          resolve(await file.text());
+        }
+      } catch (e) { reject(e); }
     };
     input.click();
   });
@@ -297,11 +303,15 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setLoteRows(out);
   };
 
-  const subirCsv = async () => {
-    const text = await pickCsvFileWeb();
-    if (text == null) return;
-    setLoteText(text);
-    analizarLote(text);
+  const subirArchivo = async () => {
+    try {
+      const text = await pickBatchFileWeb();
+      if (text == null) return;
+      setLoteText(text);
+      analizarLote(text);
+    } catch (e: any) {
+      Alert.alert('Aviso', e?.message ?? 'No se pudo leer el archivo.');
+    }
   };
 
   // Carga solo las filas OK: crea el producto con SKU incremental + su entrada.
@@ -478,7 +488,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>
                 1) Descarga la plantilla en Excel (.xlsx) y ábrela.{'\n'}
                 2) Llena una fila por producto: nombre, unidad, costo unitario, cantidad inicial, categoría y stock mínimo.{'\n'}
-                3) Copia las filas desde Excel y pégalas abajo; o guárdala como CSV y súbela.{'\n'}
+                3) Guárdala y súbela con "📁 Subir Excel"; o copia las filas desde Excel y pégalas abajo.{'\n'}
                 4) El sistema marca las filas repetidas o mal cargadas antes de guardar. El SKU se asigna solo (INV-####).
               </Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Categorías válidas: {CATEGORIES.map((c) => c.key).join(', ')}.</Text>
@@ -487,8 +497,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla (Excel)</Text>
                 </TouchableOpacity>
                 {Platform.OS === 'web' ? (
-                  <TouchableOpacity onPress={subirCsv} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📁 Subir archivo CSV</Text>
+                  <TouchableOpacity onPress={subirArchivo} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📁 Subir Excel</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
