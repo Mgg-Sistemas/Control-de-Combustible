@@ -231,6 +231,27 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 - Al **✏️ Editar producto** puedes cambiar la **CANTIDAD** (existencia): el sistema registra
   la diferencia como un **AJUSTE DE INVENTARIO** en Movimientos.
 
+### 4.6cc. Control de asistencia (dentro de Nómina)
+Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; guarda la
+**fecha y la hora** automáticamente. Está dentro de **Nómina** → **🕒 Control de asistencia**
+(también aparece en el menú **Más** o en el panel del rol, según tus permisos).
+
+1. Toca **"📷 Escanear carnet"** y apunta al **QR del carnet** del trabajador (si no escanea,
+   búscalo por **nombre o cédula**).
+2. Aparece la persona (**foto, nombre, cargo**) y sus **marcas de hoy**.
+3. Toca el **botón grande**: si aún no ha entrado dice **"➡️ Marcar ENTRADA"**; si ya entró dice
+   **"⬅️ Marcar SALIDA"**. La hora y la fecha se ponen solas.
+4. Se permiten **varias marcas al día** (por ejemplo, sale a almorzar y vuelve): alterna
+   entrada/salida y **suma las horas presentes** de todos los pares.
+5. Abajo ves **"Marcas de hoy"** con todo lo registrado en el día.
+
+**Reporte:** toca **📊 Reporte**, elige el **rango de fechas** y genera el **PDF**. Sale por
+**persona y por día**: entradas/salidas, cuántos pares y el **total de horas presentes**. Si
+alguien marcó entrada pero no salida, ese día sale como **"jornada abierta"**.
+
+> Solo los usuarios con el módulo **Control de asistencia** ven y usan esta pantalla (por
+> ejemplo, quienes tengan el rol **ALMACENISTA**). Los demás no la ven.
+
 ### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
 En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
 1. En el recuadro **🏷️ Cargo**, toca para desplegar los cargos (con su cantidad).

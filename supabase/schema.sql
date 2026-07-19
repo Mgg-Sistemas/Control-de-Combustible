@@ -1651,5 +1651,28 @@ begin
 end $$;
 
 -- ============================================================================
+-- CONTROL DE ASISTENCIA (módulo Nómina): marcas de ENTRADA/SALIDA por carnet.
+-- Un registro por marca (bitácora). El día (work_date) y la hora se calculan en
+-- zona Caracas desde la app. Se permiten VARIOS pares por día (almuerzo, etc.).
+-- Solo usuarios con el módulo 'asistencia' (p. ej. rol ALMACENISTA) pueden marcar.
+-- ============================================================================
+create table if not exists public.attendance (
+  id           uuid primary key default gen_random_uuid(),
+  employee_id  uuid not null references public.employees(id) on delete cascade,
+  ts           timestamptz not null default now(),   -- momento exacto de la marca
+  work_date    date not null,                         -- fecha (Caracas) para agrupar por día
+  kind         text not null check (kind in ('entrada','salida')),
+  recorded_by  uuid references public.profiles(id) on delete set null, -- quién marcó
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_attendance_date on public.attendance(work_date, employee_id);
+create index if not exists idx_attendance_emp  on public.attendance(employee_id, ts);
+alter table public.attendance enable row level security;
+drop policy if exists attendance_select on public.attendance;
+create policy attendance_select on public.attendance for select to authenticated using (true);
+drop policy if exists attendance_write on public.attendance;
+create policy attendance_write on public.attendance for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

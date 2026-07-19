@@ -17,6 +17,7 @@ const MODULE_NAV: Record<string, { label: string; route: string; icon: string; d
   inventario: { label: 'Inventario', route: 'Inventario', icon: '📦', desc: 'Existencias y almacén' },
   comida: { label: 'Distribución de comida', route: 'Comida', icon: '🍽️', desc: 'Comidas por día y persona' },
   control_maquinaria: { label: 'Control de maquinaria', route: 'ControlMaquinaria', icon: '🛠️', desc: 'Horas trabajadas por máquina' },
+  asistencia: { label: 'Control de asistencia', route: 'Asistencia', icon: '🕒', desc: 'Marcar entrada/salida escaneando el carnet' },
 };
 
 /**
