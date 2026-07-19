@@ -220,9 +220,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const ws = weekStartISO(date);
     const days = Array.from({ length: dayCount }, (_, i) => shiftDay(ws, i));
     try {
-      const [{ data: m }, { data: r }, { data: c }, { data: fl }] = await Promise.all([
+      // machine_rounds SE PAGINA: una semana ocupada puede pasar de 1000 rondas
+      // (PostgREST corta ahí). Sin paginar, faltaban máquinas/horas en pantalla.
+      const [{ data: m }, r, { data: c }, { data: fl }] = await Promise.all([
         supabase.from('machinery').select('*').order('code', { ascending: true }),
-        supabase.from('machine_rounds').select('*').in('round_date', days),
+        selectAllRows('machine_rounds', '*', (q) => q.in('round_date', days)),
         supabase.from('companies').select('id, name'),
         supabase.from('fletes').select('*').in('flete_date', days),
       ]);
@@ -427,10 +429,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const cerrarControl = async () => {
     setClosing(true);
     // Trae todos los turnos sin cerrar (de cualquier fecha) con sus operadores por turno.
-    const { data: openRounds } = await supabase
-      .from('machine_rounds')
-      .select('round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(name))')
-      .eq('closed', false);
+    // PAGINADO: con >1000 turnos abiertos, una consulta simple cortaba en 1000 y el
+    // cierre guardaba el histórico INCOMPLETO (y luego marcaba TODO como cerrado).
+    const openRounds = await selectAllRows(
+      'machine_rounds',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(name))',
+      (q) => q.eq('closed', false)
+    );
     const rows = (openRounds ?? []).filter(
       (r: any) => (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) > 0 || (Number(r.hours_stopped) || 0) > 0 || (Number(r.overtime_hours) || 0) > 0
     );
