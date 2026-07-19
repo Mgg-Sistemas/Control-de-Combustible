@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { EyeIcon } from '../components/EyeIcon';
 import { COMPANY_NAME } from '../lib/company';
 import { spacing, radius, AppColors, AppTypography } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -23,6 +24,7 @@ export default function LoginScreen() {
   const { signInWithCedula } = useAuth();
   const [cedula, setCedula] = useState('');
   const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -76,15 +78,25 @@ export default function LoginScreen() {
           inputMode="numeric"
           autoCapitalize="none"
         />
-        <TextInput
-          style={styles.input}
-          placeholder="Contraseña"
-          placeholderTextColor={colors.muted}
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          autoCapitalize="none"
-        />
+        <View style={{ position: 'relative', justifyContent: 'center' }}>
+          <TextInput
+            style={[styles.input, { paddingRight: 48 }]}
+            placeholder="Contraseña"
+            placeholderTextColor={colors.muted}
+            secureTextEntry={!showPass}
+            value={password}
+            onChangeText={setPassword}
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            onPress={() => setShowPass((v) => !v)}
+            accessibilityLabel={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            style={{ position: 'absolute', right: 14, height: '100%', justifyContent: 'center', paddingBottom: spacing.md }}
+          >
+            <EyeIcon size={22} color={colors.muted} open={showPass} />
+          </TouchableOpacity>
+        </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
