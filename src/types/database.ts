@@ -166,6 +166,18 @@ export interface Employee {
   created_at: string;
 }
 
+/** Marca de asistencia (entrada/salida) de un empleado, hecha al escanear el carnet.
+ *  Una fila por marca; se permiten varios pares entrada/salida por día. */
+export interface Attendance {
+  id: string;
+  employee_id: string;
+  ts: string;              // momento exacto (ISO) de la marca
+  work_date: string;       // fecha (AAAA-MM-DD, zona Caracas) para agrupar por día
+  kind: 'entrada' | 'salida';
+  recorded_by: string | null;
+  created_at: string;
+}
+
 /** Aliado: contacto/colaborador externo con ficha y carnet propios. */
 export interface Aliado {
   id: string;

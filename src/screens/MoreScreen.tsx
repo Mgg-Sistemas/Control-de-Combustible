@@ -23,6 +23,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
   { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal por empresa y período, con recibos y reportes', icon: '🧾', module: 'nomina' },
+  { label: 'Control de asistencia', route: 'Asistencia', desc: 'Marcar entrada/salida del personal escaneando el carnet (hora y fecha), con reporte', icon: '🕒', module: 'asistencia' },
   { label: 'Aliados', route: 'Aliados', desc: 'Colaboradores externos con ficha y carnet propios (QR con sus datos)', icon: '🤝', module: 'aliados' },
   { label: 'Compras', route: 'Compras', desc: 'Solicitudes de pedido, órdenes de compra con aprobación y proveedores', icon: '🛒', module: 'compras' },
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },

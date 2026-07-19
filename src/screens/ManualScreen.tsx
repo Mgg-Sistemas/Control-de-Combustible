@@ -217,6 +217,22 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🕒',
+    title: 'Control de asistencia (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Sirve para registrar la ENTRADA y la SALIDA del personal escaneando su carnet. Guarda la fecha y la hora automáticamente. Está dentro de Nómina: abre 🕒 Control de asistencia (o desde el menú Más / el panel del rol, según tus permisos).' },
+      { t: 'steps', items: [
+        'Toca "📷 Escanear carnet" y apunta al QR del carnet del trabajador (si el carnet no escanea, búscalo por nombre o cédula).',
+        'Aparece la persona (foto, nombre, cargo) y sus marcas de hoy.',
+        'Toca el botón grande: si aún no ha entrado hoy dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
+        'Se permiten VARIAS marcas al día (por ejemplo, sale a almorzar y vuelve): el sistema alterna entrada/salida y suma las horas presentes de todos los pares.',
+        'Abajo ves "Marcas de hoy" con todo lo registrado en el día.',
+      ] },
+      { t: 'p', text: 'Reporte: toca 📊 Reporte, elige el rango de fechas y genera el PDF. Sale por persona y por día: las entradas/salidas, cuántos pares y el total de horas presentes. Si alguien marcó entrada pero no salida, ese día sale como "jornada abierta".' },
+      { t: 'note', text: 'Solo los usuarios con el módulo "Control de asistencia" ven y usan esta pantalla (por ejemplo, quienes tengan el rol ALMACENISTA). Los demás no la ven.' },
+    ],
+  },
+  {
     icon: '🪖',
     title: 'Supervisión (rondas de supervisores)',
     blocks: [

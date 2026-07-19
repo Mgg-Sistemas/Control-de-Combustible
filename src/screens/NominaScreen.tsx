@@ -30,7 +30,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 
 export default function NominaScreen({ navigation }: any) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, canSee } = useAuth();
   const confirm = useConfirm();
   const { data: periods, loading, refetch } = useTable<PayrollPeriod>('payroll_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -292,6 +292,21 @@ export default function NominaScreen({ navigation }: any) {
         </View>
         <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
+
+      {/* Control de asistencia por carnet (entrada/salida) — solo quien tenga el módulo. */}
+      {canSee('asistencia') ? (
+        <TouchableOpacity
+          onPress={() => navigation?.navigate('Asistencia')}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+        >
+          <Text style={{ fontSize: 20 }}>🕒</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Control de asistencia</Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>Marcar entrada/salida escaneando el carnet (hora y fecha) + reporte</Text>
+          </View>
+          <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Control de pago a personal (jornadas + sueldo base + bonos/deducciones + abonos). */}
       <TouchableOpacity
