@@ -30,7 +30,8 @@ const SECTIONS: Sec[] = [
     blocks: [
       { t: 'steps', items: [
         'Abre la aplicación (o la página web).',
-        'Escribe tu correo y tu contraseña.',
+        'Escribe tu cédula y tu contraseña.',
+        'Si quieres revisar que la clave esté bien escrita, toca el ícono de ojo 👁️ dentro del campo de contraseña para mostrarla u ocultarla.',
         'Toca el botón Entrar.',
         'Si el teléfono te lo pide, la próxima vez puedes entrar con tu huella o tu cara.',
       ] },
@@ -158,6 +159,18 @@ const SECTIONS: Sec[] = [
         'Toca "📊 Reporte": genera un PDF con el LISTADO de las personas seleccionadas (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un RESUMEN por cargo con el total.',
       ] },
       { t: 'note', text: 'El reporte respeta todo lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.' },
+    ],
+  },
+  {
+    icon: '🗂️',
+    title: 'Organigrama (dentro de Nómina)',
+    blocks: [
+      { t: 'p', text: 'Muestra la estructura de la empresa POR CARGOS (no por nombres). Está dentro de Nómina: abre 🗂️ Organigrama.' },
+      { t: 'steps', items: [
+        'Toca "👁️ Vista previa" para ver el organigrama con el logo de la empresa; desde ahí lo guardas o imprimes como PDF.',
+        'Toca "🖼️ Descargar imagen (PNG)" para bajarlo como imagen.',
+        'Se SINCRONIZA con la nómina: si en Empleados hay cargos que todavía no están ubicados en el organigrama, aparecen en una caja "🆕 Otros cargos (por ubicar)" para que no se pierdan. Dile al administrador del sistema bajo qué jefatura va cada uno y se agregan a la estructura.',
+      ] },
     ],
   },
   {

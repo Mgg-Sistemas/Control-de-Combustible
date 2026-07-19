@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
-import { exportPdf, pdfDocument } from '../lib/pdf';
+import { exportPdf, exportCardImage, pdfDocument } from '../lib/pdf';
+import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, cargosPorUbicar } from '../lib/organigrama';
+import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal } from '../lib/text';
@@ -56,6 +58,21 @@ export default function NominaScreen({ navigation }: any) {
   const [eNote, setENote] = useState('');
 
   const readOnly = sel?.status !== 'borrador';
+
+  // ── Organigrama (por cargos) — se sincroniza con los cargos de la nómina ──────
+  const [orgOpen, setOrgOpen] = useState(false);
+  const [cargos, setCargos] = useState<string[]>([]);
+  useEffect(() => {
+    supabase.from('employees').select('cargo').then(({ data }) => {
+      setCargos(Array.from(new Set(((data ?? []) as any[]).map((r) => String(r.cargo ?? '').trim()).filter(Boolean))));
+    });
+  }, []);
+  const otros = useMemo(() => cargosPorUbicar(cargos), [cargos]);
+  const verOrganigrama = () => { exportPdf(organigramaHtml(otros), 'Organigrama SOS La Guaira'); };
+  const descargarOrgPng = async () => {
+    if (Platform.OS !== 'web') return verOrganigrama(); // en móvil se comparte el PDF
+    await exportCardImage({ styles: ORG_STYLES, card: organigramaCard(otros), mmW: ORG_SHEET_MM.w, mmH: ORG_SHEET_MM.h, dpi: 150, fileName: 'Organigrama SOS La Guaira', htmlForFallback: organigramaHtml(otros) });
+  };
 
   const loadItems = async (pid: string) => {
     setItemsLoading(true);
@@ -302,6 +319,19 @@ export default function NominaScreen({ navigation }: any) {
         <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
+      {/* Organigrama por cargos (vista previa + descarga PDF/PNG, sincronizado con la nómina). */}
+      <TouchableOpacity
+        onPress={() => setOrgOpen(true)}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      >
+        <Text style={{ fontSize: 20 }}>🗂️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Organigrama</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Estructura por cargos (vista previa y descarga PDF/imagen){otros.length ? ` · ${otros.length} cargo(s) por ubicar` : ''}</Text>
+        </View>
+        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+      </TouchableOpacity>
+
       {loading && periods.length === 0 ? (
         <Loading />
       ) : periods.length === 0 ? (
@@ -361,6 +391,37 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{creating ? 'Creando…' : 'Crear y precargar empleados'}</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: Organigrama (vista previa + descarga) */}
+      <Modal visible={orgOpen} transparent animationType="slide" onRequestClose={() => setOrgOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🗂️ Organigrama</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Estructura de la empresa por cargos. Se sincroniza con la nómina: los cargos que existan en Empleados y aún no tengan lugar aparecen como “Otros cargos (por ubicar)”.</Text>
+
+            {otros.length ? (
+              <View style={{ marginTop: spacing.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>🆕 {otros.length} cargo(s) por ubicar</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{otros.join(' · ')}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Dime bajo qué jefatura va cada uno y lo agrego a la estructura.</Text>
+              </View>
+            ) : (
+              <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.md, fontWeight: '700' }}>✓ Todos los cargos de la nómina están ubicados en el organigrama.</Text>
+            )}
+
+            <TouchableOpacity onPress={verOrganigrama} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+              <EyeIcon size={20} color={colors.primaryContrast} open />
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Vista previa {Platform.OS === 'web' ? '(y guardar PDF)' : '(PDF)'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={descargarOrgPng} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>🖼️ Descargar imagen (PNG)</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setOrgOpen(false)} style={{ marginTop: spacing.sm, paddingVertical: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

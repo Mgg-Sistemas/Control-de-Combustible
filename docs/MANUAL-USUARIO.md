@@ -21,7 +21,8 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 ## 2. Cómo entrar (iniciar sesión)
 
 1. Abre la aplicación (o la página web).
-2. Escribe tu **correo** y tu **contraseña**.
+2. Escribe tu **cédula** y tu **contraseña**. Para revisar que la clave esté bien escrita,
+   toca el **ícono de ojo 👁️** dentro del campo de contraseña para **mostrarla u ocultarla**.
 3. Toca el botón **Entrar**.
 4. Si el teléfono te lo pide, puedes entrar con tu **huella** o tu **cara** la próxima vez.
 
@@ -189,6 +190,13 @@ trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal*
 
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
+
+### 4.6bb. Organigrama (dentro de Nómina)
+Muestra la **estructura de la empresa por cargos** (no por nombres). Está dentro de **Nómina**
+→ **🗂️ Organigrama**. Toca **"👁️ Vista previa"** para verlo con el logo de la empresa y
+guardarlo/imprimirlo como **PDF**, o **"🖼️ Descargar imagen (PNG)"** para bajarlo como imagen.
+Se **sincroniza con la nómina**: si en Empleados hay cargos que aún no están ubicados en el
+organigrama, aparecen en una caja **"🆕 Otros cargos (por ubicar)"** para que no se pierdan.
 
 ### 4.6c. Distribución de uniformes (dentro de Nómina)
 Lleva las **tallas de uniforme** de cada empleado e imprime el listado para la entrega. Está
