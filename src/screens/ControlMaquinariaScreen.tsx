@@ -123,8 +123,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const { session, role } = useAuth();
-  // Las ANALISTAS pueden cargar/editar/eliminar jornadas, pero NO modificar precios.
-  const puedeEditarPrecio = role !== 'analista';
+  // Las ANALISTAS solo pueden INGRESAR horas nuevas (campo vacío), NO modificar las
+  // ya cargadas, y tampoco cambiar precios. `esAnalista` bloquea la edición de un
+  // valor que ya existe (día/noche/parada/extra); si está en 0/vacío, sí lo pueden cargar.
+  const esAnalista = role === 'analista';
+  const puedeEditarPrecio = !esAnalista;
+  // ¿un analista tiene bloqueado ESTE valor por estar ya cargado (>0)?
+  const bloqueadoAnalista = (valorActual: number) => esAnalista && Number(valorActual) > 0;
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
@@ -383,6 +388,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const setShift = async (m: Machinery, dISO: string, which: 'day' | 'night', hoursVal: number) => {
     const ik = `${m.id}|${dISO}`;
     const ex = rounds[rkey(m.id, dISO)];
+    // Analista: solo puede INGRESAR el turno si aún no tiene horas; no modificarlas.
+    const curTurno = which === 'day' ? Number(ex?.day_hours ?? 0) : Number(ex?.night_hours ?? 0);
+    if (bloqueadoAnalista(curTurno)) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas nuevas, pero no modificar las que ya están cargadas. Pide a un administrador que corrija.'); return; }
     const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
     // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
     // (si tocó el turno sin salir del campo), para no perder esas horas.
@@ -395,9 +403,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
 
   const setHours = async (m: Machinery, dISO: string, val: string) => {
+    const ex = rounds[rkey(m.id, dISO)];
+    if (bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas de parada nuevas, pero no modificar las ya cargadas.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { hours_stopped: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
   const setOvertime = async (m: Machinery, dISO: string, val: string) => {
+    const ex = rounds[rkey(m.id, dISO)];
+    if (bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas extra nuevas, pero no modificar las ya cargadas.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { overtime_hours: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
 
@@ -977,7 +989,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
 
   const openPrice = (m: Machinery) => {
-    if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo cargar, editar y eliminar jornadas.'); return; }
+    if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo puedes INGRESAR horas nuevas (no modificar las ya cargadas).'); return; }
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
   };
@@ -1437,6 +1449,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
+                        const lockTurno = bloqueadoAnalista(cur); // analista: ya cargado → no se modifica
                         const opName = which === 'day' ? b?.day_operator : b?.night_operator;
                         const opCi = which === 'day' ? b?.day_operator_ci : b?.night_operator_ci;
                         return (
@@ -1450,12 +1463,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                                   <TouchableOpacity
                                     key={opt.hours}
                                     onPress={() => setShift(m, dISO, which, opt.hours)}
-                                    style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}
+                                    disabled={lockTurno && !active}
+                                    style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: active ? activeBg : colors.border, backgroundColor: active ? activeBg : colors.surfaceAlt, alignItems: 'center', justifyContent: 'center', opacity: lockTurno && !active ? 0.4 : 1 }}
                                   >
                                     <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>{opt.label}</Text>
                                   </TouchableOpacity>
                                 );
                               })}
+                              {lockTurno ? <Text style={{ fontSize: 11 }}>🔒</Text> : null}
                             </View>
                             {cur > 0 ? (
                               <TouchableOpacity onPress={() => openOperator(m, dISO, which)} style={{ marginTop: 2, marginLeft: 24 }}>
@@ -1469,25 +1484,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       })}
                       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {bloqueadoAnalista(stopped) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
+                            editable={!bloqueadoAnalista(stopped)}
                             onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12 }}
+                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(stopped) ? 0.5 : 1 }}
                           />
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {bloqueadoAnalista(ot) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
+                            editable={!bloqueadoAnalista(ot)}
                             onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12 }}
+                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>

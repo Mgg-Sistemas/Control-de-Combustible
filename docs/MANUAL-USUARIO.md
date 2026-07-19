@@ -114,6 +114,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 4. Si te lo pide, escribe el **operador** de ese turno.
 5. Todo **se guarda solo**.
 
+> **Rol ANALISTA:** solo puede **INGRESAR horas nuevas** (día/noche, parada y extra), **no
+> modificar** las ya cargadas. Cuando un valor ya está cargado aparece un **🔒** y no se puede
+> cambiar; si hay que corregirlo, lo hace un **administrador**. Tampoco cambia precios.
+
 **Sección "En espera" (recibir máquinas):**
 - Arriba aparece **🕓 En espera** con las máquinas que **aún no se han recibido**.
 - Para recibir una: elige su **fecha de entrada** y toca **📥 Recibir**.
