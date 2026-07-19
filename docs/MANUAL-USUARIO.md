@@ -294,6 +294,12 @@ cambias de día. En **"Traza por supervisor"** puedes **tocar cualquier máquina
 te lleva a su **ficha en el Catálogo** (con todos sus datos y acciones); el **›** al final de
 cada renglón indica que es clickeable.
 
+Cada supervisor trae un **resumen de cercanía** para saber qué tan confiables fueron sus rondas:
+**✓ en sitio** (estuvo cerca, dentro de ~300 m), **⚠️ lejos** (marcó sin estar al lado) y
+**• sin GPS** (no se pudo verificar). El botón **"📄 Reporte de supervisión (PDF)"** genera el
+informe del día con ese resumen por supervisor, el detalle de cada visita (hora, máquina,
+empresa, estado y ubicación) y las jornadas sin validar.
+
 ### 4.8c. Distribución de comida
 Lleva el control de **cuántas comidas** se le reparten a cada persona. Quien reparte es un
 usuario con **rol Cocina** (entra con su nombre y contraseña).
