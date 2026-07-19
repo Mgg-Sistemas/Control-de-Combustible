@@ -118,7 +118,8 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
   const [catDim, setCatDim] = useState<GroupDim>('clasificacion'); // agrupar el catálogo por Clasificación (por defecto; Modelo genera demasiados chips)
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada (catálogo)
+  const [detailExpanded, setDetailExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada (detalle activa/inactiva/espera)
 
   // Traza de combustible por máquina
   const [fuelFor, setFuelFor] = useState<Machinery | null>(null);
@@ -222,13 +223,16 @@ export default function EquiposScreen({ navigation, route }: any) {
   const q = norm(query.trim());
   const matchQ = (hay: any[]) => !q || hay.filter(Boolean).some((v: any) => norm(v).includes(q));
   // Catálogo unificado: maquinaria (agrupada por empresa) + vehículos.
+  // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
+  // aparecen en la sección "⛔ Maquinaria inactiva". Al reactivarlas (Operativa)
+  // vuelven al catálogo automáticamente. Sus horas pasadas no se tocan.
   const machineryList = machinery.data.filter(
-    (m) => matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id)])
+    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id)])
   );
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
     const c = new Map<string, number>();
-    machinery.data.filter(matchCompany).forEach((m) => {
+    machinery.data.filter((m) => m.operational !== false && matchCompany(m)).forEach((m) => {
       const t = canonDim(m, catDim) || '__none__';
       c.set(t, (c.get(t) ?? 0) + 1);
     });
@@ -646,9 +650,10 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   // Agrupar la maquinaria por empresa (para el catálogo en acordeón).
   // Catálogo agrupado por EMPRESA (acordeón).
-  const machineryByCompany = useMemo(() => {
+  // Agrupa una lista de máquinas por EMPRESA (para acordeones por empresa).
+  const groupByCompany = (list: Machinery[]) => {
     const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
-    machineryList.forEach((it) => {
+    list.forEach((it) => {
       const k = it.company_id ?? '__none__';
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
       const g = m.get(k) ?? { key: k, name, items: [] };
@@ -656,7 +661,8 @@ export default function EquiposScreen({ navigation, route }: any) {
       m.set(k, g);
     });
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [machineryList, companyName]);
+  };
+  const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
   // Grupos para el REPORTE (por EMPRESA) según el alcance elegido.
   const groupsForScope = (scope: string) => {
@@ -1433,10 +1439,22 @@ export default function EquiposScreen({ navigation, route }: any) {
             <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'espera' ? 'No hay maquinaria en espera.' : 'No hay maquinaria inactiva.'} />
           ) : (
             <ScrollView>
-              {detailList
-                .slice()
-                .sort((a, b) => a.code.localeCompare(b.code))
-                .map((m) => (
+              {groupByCompany(detailList).map((g) => {
+                const open = detailExpanded[g.key] ?? true;
+                return (
+                <View key={g.key} style={{ marginBottom: spacing.xs }}>
+                  <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+                      <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                    </View>
+                    <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                      <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                    </View>
+                  </TouchableOpacity>
+                  {open ? (
+                    <View style={{ marginTop: spacing.sm }}>
+                      {g.items.slice().sort((a, b) => a.code.localeCompare(b.code)).map((m) => (
                   <Card key={m.id}>
                     <TouchableOpacity
                       activeOpacity={0.7}
@@ -1475,7 +1493,12 @@ export default function EquiposScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                     )}
                   </Card>
-                ))}
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+                );
+              })}
             </ScrollView>
           )}
           <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setDetailStatus(null)}>
