@@ -997,7 +997,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
   // El control SOLO muestra equipos ACTIVOS: si una máquina se desactiva (active=false)
   // desaparece del control; al reactivarla, vuelve a aparecer automáticamente.
-  const esActiva = (m: Machinery) => (m as any).active !== false;
+  // "Activa" para el control semanal: no dada de baja (active) y OPERATIVA
+  // (operational). Una máquina marcada INACTIVA (No operativa) no aparece en la
+  // semana; sus horas ya trabajadas quedan guardadas (no se borran) y siguen en
+  // los reportes. Al volverla Operativa reaparece.
+  const esActiva = (m: Machinery) => (m as any).active !== false && m.operational !== false;
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
   const shown = machines.filter((m) => esActiva(m) && !m.en_espera && matchCompany(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
@@ -1014,14 +1018,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   })();
 
-  // Opciones de empresa (con conteo) para el filtro desplegable.
+  // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta solo las
+  // máquinas ACTIVAS (operativas), igual que la lista semanal.
+  const activasControl = machines.filter(esActiva);
   const companyOptions = [
-    { label: 'Todas las empresas', value: '__all__', count: machines.length },
+    { label: 'Todas las empresas', value: '__all__', count: activasControl.length },
     ...Object.entries(companies)
-      .map(([id, name]) => ({ label: name, value: id, count: machines.filter((m) => m.company_id === id).length }))
+      .map(([id, name]) => ({ label: name, value: id, count: activasControl.filter((m) => m.company_id === id).length }))
       .filter((o) => o.count > 0)
       .sort((a, b) => a.label.localeCompare(b.label)),
-    { label: 'Sin empresa', value: '__none__', count: machines.filter((m) => !m.company_id).length },
+    { label: 'Sin empresa', value: '__none__', count: activasControl.filter((m) => !m.company_id).length },
   ];
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
   // Empresa seleccionada para sincronizar el reporte (null = todas).

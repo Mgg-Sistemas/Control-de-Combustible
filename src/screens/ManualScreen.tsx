@@ -107,6 +107,7 @@ const SECTIONS: Sec[] = [
       { t: 'p', text: '🪖 Supervisor: cada máquina tiene un botón para asignar quién la custodia (Supervisor Empresa o Militar). Al escribir el nombre aparece una lista con los ya usados para elegirlo rápido. Cambiar de supervisor deja el anterior en el historial.' },
       { t: 'note', text: 'Editar o borrar supervisores: en ese mismo botón toca "⚙️ Editar / borrar supervisores". Ahí puedes ✎ renombrar un supervisor (se corrige en TODOS sus registros) o 🗑 borrarlo por completo (las máquinas que custodiaba quedan sin supervisor).' },
       { t: 'note', text: 'Desde el Inicio (dashboard), en "Estado de las máquinas" puedes tocar Operativas, En espera o No operativa: te lleva a Equipos y te muestra esa lista de máquinas.' },
+      { t: 'note', text: 'Máquinas INACTIVAS (No operativa): al marcar una máquina como No operativa (⛔), SALE del catálogo y de la lista semanal de Control de maquinaria; solo aparece en la tarjeta "🔴 Maquinaria inactiva". Sus horas ya trabajadas NO se borran (siguen en los reportes). Al volverla ✅ Operativa, regresa al catálogo y al control. Los detalles de "inactiva" y "en espera" salen agrupados por empresa, desplegables y colapsables, igual que el catálogo.' },
     ],
   },
   {

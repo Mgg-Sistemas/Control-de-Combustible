@@ -84,6 +84,12 @@ Cada máquina puede estar en **uno de tres estados**:
 
 Para cambiar el estado, abre la máquina y toca el botón del estado que quieras.
 
+> **Máquinas inactivas (No operativa):** al marcar una máquina como **No operativa (⛔)**, sale
+> del **catálogo** y de la **lista semanal de Control de maquinaria**; solo aparece en la tarjeta
+> **"🔴 Maquinaria inactiva"**. Sus **horas ya trabajadas no se borran** (siguen en los reportes).
+> Al volverla **✅ Operativa**, regresa al catálogo y al control. Los detalles de **inactiva** y
+> **en espera** salen **agrupados por empresa** (desplegables y colapsables), igual que el catálogo.
+
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
 - 📷 **Foto** — súbele una foto.
