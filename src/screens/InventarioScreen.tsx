@@ -4,7 +4,6 @@ import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Accord
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
@@ -513,7 +512,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                 })}
               </View>
             </Card>
-            <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (Nota de entrega).</Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (pestaña Salida).</Text>
             {editingId ? (
               <Card>
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -697,110 +696,7 @@ function MovimientosTab() {
   );
 }
 
-// ── Salidas de material ──────────────────────────────────────────────────────
-function SalidasTab({ canWrite }: { canWrite: boolean }) {
-  const { colors } = useTheme();
-  const { session } = useAuth();
-  const confirm = useConfirm();
-  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
-
-  const [q, setQ] = useState('');
-  const [sel, setSel] = useState<InventoryLevel | null>(null);
-  const [kind, setKind] = useState<'salida' | 'consumo'>('consumo');
-  const [qty, setQty] = useState('');
-  const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const nq = norm(q);
-  const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
-
-  const registrar = async () => {
-    if (!sel) return;
-    const n = parseNum(qty);
-    if (n <= 0) return Alert.alert('Aviso', 'Indica la cantidad a sacar.');
-    if (n > Number(sel.stock)) return Alert.alert('Aviso', `No hay suficiente stock. Disponible: ${qtyFmt(sel.stock)} ${sel.unit || ''}.`);
-    const ok = await confirm({ title: kind === 'consumo' ? 'Registrar consumo' : 'Registrar salida', message: `${kind === 'consumo' ? 'Consumir' : 'Sacar'} ${qtyFmt(n)} ${sel.unit || ''} de ${sel.name}?`, confirmText: 'Confirmar' });
-    if (!ok) return;
-    setBusy(true);
-    const { error } = await supabase.from('inventory_movements').insert({
-      item_id: sel.id, kind, qty: n, unit_cost: Number(sel.avg_cost) || null,
-      reason: reason.trim().toUpperCase() || null, company_id: sel.company_id ?? null, created_by: session?.user?.id ?? null,
-    });
-    setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
-    setSel(null); setQty(''); setReason(''); setKind('consumo');
-    refetch();
-  };
-
-  if (loading) return <Screen><Loading /></Screen>;
-
-  return (
-    <Screen>
-      <ConfigBanner />
-      <SectionTitle>Salidas de material</SectionTitle>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige un producto para registrar una salida o consumo. Se valoriza al PMP actual.</Text>
-      <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto con stock…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
-
-      {filtered.length === 0 ? (
-        <EmptyState title="Sin stock disponible" subtitle="No hay productos con existencia para dar salida." />
-      ) : filtered.map((it) => (
-        <Card key={it.id}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text }}>{it.name}</Text>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Stock: {qtyFmt(it.stock)} {it.unit || ''} · PMP {usd(it.avg_cost)}</Text>
-            </View>
-            {canWrite ? (
-              <TouchableOpacity onPress={() => { setSel(it); setKind('consumo'); setQty(''); setReason(''); }} style={{ backgroundColor: '#EA580C', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Dar salida</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        </Card>
-      ))}
-
-      <Modal visible={!!sel} animationType="slide" onRequestClose={() => setSel(null)}>
-        <Screen>
-          <ScrollView>
-            <SectionTitle>Salida de material</SectionTitle>
-            {sel ? (
-              <>
-                <Card>
-                  <Text style={{ fontWeight: '800', fontSize: 16, color: colors.text }}>{sel.name}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 13, marginTop: 2 }}>Disponible: {qtyFmt(sel.stock)} {sel.unit || ''} · PMP {usd(sel.avg_cost)}</Text>
-                </Card>
-                <Card>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Tipo</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-                    {([['consumo', '🔥 Consumo'], ['salida', '📤 Salida']] as const).map(([k, lbl]) => {
-                      const on = kind === k;
-                      return (
-                        <TouchableOpacity key={k} onPress={() => setKind(k)} style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad ({sel.unit || 'und'})</Text>
-                  <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Motivo / destino (opcional)</Text>
-                  <TextInput value={reason} onChangeText={(t) => setReason(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. MÁQUINA 010, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Valor de la salida: {usd(parseNum(qty) * (Number(sel.avg_cost) || 0))}</Text>
-                </Card>
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                  <TouchableOpacity onPress={() => setSel(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={registrar} disabled={busy} style={{ flex: 1, backgroundColor: '#EA580C', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: '#fff', fontWeight: '700' }}>{busy ? 'Guardando…' : 'Registrar'}</Text></TouchableOpacity>
-                </View>
-              </>
-            ) : null}
-          </ScrollView>
-        </Screen>
-      </Modal>
-    </Screen>
-  );
-}
-
-// ── Nota de salida / entrega ─────────────────────────────────────────────────
+// ── Nota de SALIDA ───────────────────────────────────────────────────────────
 function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
@@ -861,7 +757,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         maquina: machineryId ? machineName(machineryId) : null,
         empleados: empSel.map((e) => e.name),
         items,
-      }), `Nota de entrega - ${todayDMY()}`);
+      }), `Nota de salida - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
       return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
@@ -876,7 +772,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: `NOTA DE ENTREGA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
+        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
         company_id: c.company_id, created_by: session?.user?.id ?? null,
       }));
       const { error } = await supabase.from('inventory_movements').insert(rows);
@@ -893,7 +789,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   return (
     <Screen>
       <ConfigBanner />
-      <SectionTitle>Nota de salida / entrega</SectionTitle>
+      <SectionTitle>Nota de salida</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
         Agrega los productos que salen, indica la cantidad y genera el documento con logo, fecha y línea de firma autorizado.
       </Text>
@@ -943,7 +839,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 
           {/* Empleados: lista desplegable/colapsable de TODA la nómina, filtrable, multi. */}
           <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Entregado a: <Text style={{ color: empSel.length ? colors.primary : colors.muted }}>{empSel.length ? `${empSel.length} empleado(s)` : 'elegir…'}</Text></Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Recibe: <Text style={{ color: empSel.length ? colors.primary : colors.muted }}>{empSel.length ? `${empSel.length} empleado(s)` : 'elegir…'}</Text></Text>
             <Text style={{ color: colors.primary, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
           </TouchableOpacity>
           {empSel.length ? (
@@ -978,7 +874,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo (opcional)</Text>
           <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
           <TouchableOpacity onPress={generar} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota (PDF)'}</Text>
+            <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar nota de salida (PDF)'}</Text>
           </TouchableOpacity>
         </Card>
       ) : null}
@@ -1457,7 +1353,7 @@ function GastosTab() {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Gastos de inventario</SectionTitle>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Cada material que sale del almacén (salida, consumo, nota de entrega o traslado) es un gasto, valorizado al PMP.</Text>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Cada material que sale del almacén (nota de salida o traslado) es un gasto, valorizado al PMP.</Text>
 
       {/* Período */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -1539,8 +1435,7 @@ export default function InventarioScreen() {
   const canWrite = levelMeets(moduleLevel('inventario'), 'escritura');
   const TABS = [
     { key: 'existencias', label: 'Existencias', icon: '📦' },
-    { key: 'salidas', label: 'Salidas', icon: '📤' },
-    { key: 'nota', label: 'Nota de entrega', icon: '🧾' },
+    { key: 'nota', label: 'Salida', icon: '📤' },
     { key: 'traslado', label: 'Nota de traslado', icon: '🔁' },
     { key: 'gastos', label: 'Gastos', icon: '💸' },
     { key: 'cotizacion', label: 'Cotización', icon: '📄' },
@@ -1564,7 +1459,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'salidas' ? <SalidasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
       </View>
     </View>
   );

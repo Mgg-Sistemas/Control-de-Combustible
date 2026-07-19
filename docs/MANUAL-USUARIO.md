@@ -368,15 +368,15 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
 promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
-incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salidas, Nota de entrega, Nota de
+incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salida, Nota de
 traslado, Gastos, Cotización y Movimientos**.
 
-**Nota de salida / entrega** — el documento que se hace cuando salen materiales:
-1. Ve a la pestaña **"Nota de entrega"**.
+**Salida** — el documento (nota de salida) que se hace cuando salen materiales:
+1. Ve a la pestaña **"📤 Salida"**.
 2. Busca cada producto y agrégalo; indica la **cantidad** de cada uno.
-3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** a quienes se
-   entrega (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
-4. Toca **"🧾 Generar nota (PDF)"**: se abre la **vista previa** con logo, fecha, productos y la
+3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** que reciben
+   (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
+4. Toca **"🧾 Generar nota de salida (PDF)"**: se abre la **vista previa** con logo, fecha, productos y la
    línea de firma autorizado.
 5. Toca **🖨️ Imprimir** para guardar/imprimir. **Recién ahí se descuenta del inventario.**
 
