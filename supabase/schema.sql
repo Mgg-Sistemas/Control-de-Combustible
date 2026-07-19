@@ -1674,5 +1674,30 @@ drop policy if exists attendance_write on public.attendance;
 create policy attendance_write on public.attendance for all to authenticated using (true) with check (true);
 
 -- ============================================================================
+-- DISTRIBUCIÓN DE UNIFORMES: ENTREGAS (cuántas camisas/pantalones/zapatos se le
+-- han entregado a cada trabajador, con fecha y hora). Una fila por entrega; se
+-- acumulan varias por persona. Las TALLAS siguen en la ficha del empleado.
+-- ============================================================================
+create table if not exists public.uniform_deliveries (
+  id           uuid primary key default gen_random_uuid(),
+  employee_id  uuid not null references public.employees(id) on delete cascade,
+  camisas      integer not null default 0 check (camisas >= 0),
+  pantalones   integer not null default 0 check (pantalones >= 0),
+  zapatos      integer not null default 0 check (zapatos >= 0),
+  delivered_at timestamptz not null default now(),   -- momento exacto de la entrega
+  work_date    date not null,                         -- fecha (Caracas) para agrupar
+  note         text,
+  recorded_by  uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_unifdel_emp  on public.uniform_deliveries(employee_id, delivered_at);
+create index if not exists idx_unifdel_date on public.uniform_deliveries(work_date);
+alter table public.uniform_deliveries enable row level security;
+drop policy if exists unifdel_select on public.uniform_deliveries;
+create policy unifdel_select on public.uniform_deliveries for select to authenticated using (true);
+drop policy if exists unifdel_write on public.uniform_deliveries;
+create policy unifdel_write on public.uniform_deliveries for all to authenticated using (true) with check (true);
+
+-- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================

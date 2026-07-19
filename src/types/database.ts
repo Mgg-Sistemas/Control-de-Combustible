@@ -178,6 +178,21 @@ export interface Attendance {
   created_at: string;
 }
 
+/** Entrega de uniforme: cuántas camisas/pantalones/zapatos se le entregaron a un
+ *  empleado, con la fecha y hora. Se acumulan varias entregas por persona. */
+export interface UniformDelivery {
+  id: string;
+  employee_id: string;
+  camisas: number;
+  pantalones: number;
+  zapatos: number;
+  delivered_at: string;   // momento exacto (ISO) de la entrega
+  work_date: string;      // fecha (AAAA-MM-DD, zona Caracas)
+  note: string | null;
+  recorded_by: string | null;
+  created_at: string;
+}
+
 /** Aliado: contacto/colaborador externo con ficha y carnet propios. */
 export interface Aliado {
   id: string;

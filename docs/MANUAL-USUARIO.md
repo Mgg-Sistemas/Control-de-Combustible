@@ -217,14 +217,22 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 2. **Toca un empleado**: se abre para cargar su **👕 talla de camisa**, **👖 talla de
    pantalón** y **👟 talla de zapatos**. Guarda.
 3. Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).
-4. Toca **"⬇️ Imprimir listado"**: genera un **PDF** con los empleados mostrados, sus tallas y
+4. En ese mismo empleado, sección **📦 Registrar entrega**: escribe cuántas **👕 camisas**,
+   **👖 pantalones** y **👟 zapatos** le entregas ahora y toca **"📦 Registrar entrega"**. La
+   **fecha y la hora** se guardan solas. Puedes registrar **varias entregas**: se acumulan y ves
+   el **total entregado** y el **historial** (con fecha y hora de cada una). Cada tarjeta muestra
+   un badge **📦 Entregado** con el total de prendas recibidas.
+5. Toca **"⬇️ Listado (tallas)"**: genera un **PDF** con los empleados mostrados, sus tallas y
    una columna de **FIRMA (Recibido / Entregado)** para firmar al recibir el uniforme.
-5. **Al final** (en pantalla y en el PDF) sale un **📊 Resumen por tallas**: cuántas **camisas**
-   hay de cada talla (M, S, L…), y lo mismo para **pantalones** y **botas de seguridad**, con el
-   total de personas con talla cargada. Sirve para saber cuántas piezas de cada talla pedir.
+6. Toca **"📦 Reporte de entregas"**: genera un **PDF** por persona con **cada entrega** (su
+   **fecha y hora**) y el **total** de camisas, pantalones y zapatos entregados.
+7. **Al final** del listado de tallas (en pantalla y en el PDF) sale un **📊 Resumen por tallas**:
+   cuántas **camisas** hay de cada talla (M, S, L…), y lo mismo para **pantalones** y **botas de
+   seguridad**, con el total de personas con talla cargada. Sirve para saber cuántas piezas pedir.
 
-> El PDF respeta el filtro y la búsqueda: imprime exactamente los empleados que estás viendo.
-> La columna de firma va en blanco para que cada persona firme el recibido/entregado.
+> Los PDF respetan el filtro y la búsqueda: incluyen exactamente los empleados que estás viendo.
+> **Talla** = el número/letra de cada prenda; **Entrega** = cuántas piezas se le han dado (con su
+> fecha y hora).
 
 **Reporte de productos y estado (pestaña Existencias):**
 - Cada producto tiene un **ESTADO físico** (**Nuevo / Bueno / Regular / Dañado**) que eliges

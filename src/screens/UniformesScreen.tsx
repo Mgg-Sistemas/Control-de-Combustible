@@ -1,11 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { supabase } from '../lib/supabase';
+import { supabase, selectAllRows } from '../lib/supabase';
+import { caracasParts } from '../lib/jornada';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
-import { Company, Employee } from '../types/database';
+import { Company, Employee, UniformDelivery } from '../types/database';
+import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -13,6 +15,12 @@ import { useTheme } from '../theme/ThemeContext';
 const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+// Fecha y hora (Caracas) de un instante ISO, para las entregas de uniforme.
+const fmtFechaHora = (ts: string) => new Date(ts).toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+type DelTotals = { camisas: number; pantalones: number; zapatos: number };
+const sumDeliveries = (list: Pick<UniformDelivery, 'camisas' | 'pantalones' | 'zapatos'>[]): DelTotals =>
+  list.reduce((a, d) => ({ camisas: a.camisas + (Number(d.camisas) || 0), pantalones: a.pantalones + (Number(d.pantalones) || 0), zapatos: a.zapatos + (Number(d.zapatos) || 0) }), { camisas: 0, pantalones: 0, zapatos: 0 });
+const hasDel = (t: DelTotals) => t.camisas > 0 || t.pantalones > 0 || t.zapatos > 0;
 
 // ── Conteo por talla (para el resumen "tantas camisas M, tantas S…") ──────────
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL'];
@@ -38,6 +46,7 @@ const tallyBy = (list: Employee[], get: (e: Employee) => string | null | undefin
 
 export default function UniformesScreen() {
   const { colors } = useTheme();
+  const { session } = useAuth();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Sin empresa' : 'Sin empresa');
@@ -52,6 +61,31 @@ export default function UniformesScreen() {
   const [zapatos, setZapatos] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // ── Entregas de uniforme (cantidades entregadas, con fecha/hora) ─────────────
+  const [deliveries, setDeliveries] = useState<UniformDelivery[]>([]);
+  const [dCam, setDCam] = useState('');   // entrega en curso: camisas
+  const [dPan, setDPan] = useState('');   // pantalones
+  const [dZap, setDZap] = useState('');   // zapatos
+  const [busyDel, setBusyDel] = useState(false);
+
+  const loadDeliveries = async () => {
+    const rows = await selectAllRows('uniform_deliveries', 'id, employee_id, camisas, pantalones, zapatos, delivered_at, work_date, note, recorded_by, created_at');
+    setDeliveries((rows ?? []) as UniformDelivery[]);
+  };
+  useEffect(() => { loadDeliveries(); }, []);
+
+  // Totales entregados por empleado (para el badge de cada tarjeta).
+  const totalsByEmp = useMemo(() => {
+    const m = new Map<string, DelTotals>();
+    deliveries.forEach((d) => {
+      const a = m.get(d.employee_id) ?? { camisas: 0, pantalones: 0, zapatos: 0 };
+      a.camisas += Number(d.camisas) || 0; a.pantalones += Number(d.pantalones) || 0; a.zapatos += Number(d.zapatos) || 0;
+      m.set(d.employee_id, a);
+    });
+    return m;
+  }, [deliveries]);
+  const empDeliveries = (id: string) => deliveries.filter((d) => d.employee_id === id).sort((a, b) => b.delivered_at.localeCompare(a.delivered_at));
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const openEmp = (e: Employee) => {
@@ -59,6 +93,26 @@ export default function UniformesScreen() {
     setCamisa(e.talla_camisa ?? '');
     setPantalon(e.talla_pantalon ?? '');
     setZapatos(e.talla_zapatos ?? '');
+    setDCam(''); setDPan(''); setDZap('');
+  };
+
+  // Registra una ENTREGA (cantidades) al empleado abierto, con fecha y hora automáticas.
+  const registrarEntrega = async () => {
+    if (!sel) return;
+    const c = Math.max(0, Math.floor(Number(dCam) || 0));
+    const p = Math.max(0, Math.floor(Number(dPan) || 0));
+    const z = Math.max(0, Math.floor(Number(dZap) || 0));
+    if (c + p + z <= 0) { Alert.alert('Aviso', 'Escribe al menos una cantidad (camisas, pantalones o zapatos).'); return; }
+    setBusyDel(true);
+    const now = new Date();
+    const { error } = await supabase.from('uniform_deliveries').insert({
+      employee_id: sel.id, camisas: c, pantalones: p, zapatos: z,
+      delivered_at: now.toISOString(), work_date: caracasParts(now).iso, recorded_by: session?.user?.id ?? null,
+    });
+    setBusyDel(false);
+    if (error) { Alert.alert('Aviso', error.message); return; }
+    setDCam(''); setDPan(''); setDZap('');
+    await loadDeliveries();
   };
   const guardar = async () => {
     if (!sel) return;
@@ -173,17 +227,52 @@ export default function UniformesScreen() {
     await exportPdf(html, `Distribucion de uniformes - ${todayDMY()}`);
   };
 
+  // ── Reporte de ENTREGAS: por persona, cada entrega con su fecha y hora + totales ──
+  const reporteEntregas = async () => {
+    const shownIds = new Set(filtered.map((e) => e.id));
+    const groups = filtered
+      .map((e) => ({ e, dels: empDeliveries(e.id) }))
+      .filter((g) => shownIds.has(g.e.id) && g.dels.length > 0);
+    if (groups.length === 0) { Alert.alert('Aviso', 'No hay entregas registradas para los empleados mostrados.'); return; }
+    const grand = sumDeliveries(groups.flatMap((g) => g.dels));
+    const bodies = groups.map(({ e, dels }) => {
+      const t = sumDeliveries(dels);
+      const trs = dels.slice().sort((a, b) => a.delivered_at.localeCompare(b.delivered_at)).map((d) =>
+        `<tr><td>${esc(fmtFechaHora(d.delivered_at))}</td><td class="c b">${d.camisas}</td><td class="c b">${d.pantalones}</td><td class="c b">${d.zapatos}</td></tr>`).join('');
+      return `<h3 class="emp">${esc(fullName(e))} <span class="sub">· ${esc(companyName(e.company_id))}${e.cargo ? ` · ${esc(e.cargo)}` : ''}${e.cedula ? ` · C.I ${esc(e.cedula)}` : ''}</span></h3>
+        <table><thead><tr><th>Fecha y hora de entrega</th><th class="c">👕 Camisas</th><th class="c">👖 Pantalones</th><th class="c">👟 Zapatos</th></tr></thead>
+        <tbody>${trs}</tbody>
+        <tfoot><tr><td style="text-align:right">Total entregado</td><td class="c">${t.camisas}</td><td class="c">${t.pantalones}</td><td class="c">${t.zapatos}</td></tr></tfoot></table>`;
+    }).join('');
+    const html = pdfDocument({
+      title: 'Entregas de uniforme',
+      subtitle: `${groups.length} persona(s) · Totales: 👕 ${grand.camisas} · 👖 ${grand.pantalones} · 👟 ${grand.zapatos} · ${todayDMY()}`,
+      extraCss: `h3.emp{margin:16px 0 4px;font-size:12.5pt;color:#16324F} h3.emp .sub{font-weight:400;color:#555;font-size:10pt}
+        table{width:100%;border-collapse:collapse;font-size:10.5pt;margin-bottom:6px}
+        th,td{border:1px solid #c9d2dc;padding:5px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.b{font-weight:800}
+        tfoot td{background:#eef3fa;font-weight:800}`,
+      body: bodies,
+    });
+    await exportPdf(html, `Entregas de uniforme - ${todayDMY()}`);
+  };
+
   return (
     <Screen>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Distribución de uniformes</SectionTitle>
-        <TouchableOpacity onPress={imprimir} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Imprimir listado</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <TouchableOpacity onPress={reporteEntregas} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📦 Reporte de entregas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={imprimir} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Listado (tallas)</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Toca un empleado para cargar su talla de camisa, pantalón y zapatos. El listado se imprime con las tallas y una firma de Recibido / Entregado.
+        Toca un empleado para cargar sus tallas y para 📦 registrar cuántas camisas, pantalones y zapatos se le entregan (con fecha y hora). "📦 Reporte de entregas" saca el PDF de lo entregado; "Listado (tallas)" imprime el listado con firma.
       </Text>
 
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -222,6 +311,12 @@ export default function UniformesScreen() {
                     {sizeChip('👖 Pantalón', e.talla_pantalon)}
                     {sizeChip('👟 Zapatos', e.talla_zapatos)}
                   </View>
+                  {(() => { const t = totalsByEmp.get(e.id); return t && hasDel(t) ? (
+                    <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ color: colors.success, fontSize: 11, fontWeight: '800' }}>📦 Entregado:</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>👕 {t.camisas} · 👖 {t.pantalones} · 👟 {t.zapatos}</Text>
+                    </View>
+                  ) : null; })()}
                 </Card>
               </TouchableOpacity>
             ))}
@@ -279,6 +374,40 @@ export default function UniformesScreen() {
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👟 Talla de zapatos</Text>
                 <TextInput value={zapatos} onChangeText={(t) => setZapatos(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. 40, 42…" placeholderTextColor={colors.muted} style={input} />
+
+                {/* ── Entregas: cuántas prendas se le han entregado (con fecha y hora) ── */}
+                <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📦 Registrar entrega</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Escribe cuántas prendas le entregas ahora. La fecha y la hora se guardan solas.</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    {([['👕', dCam, setDCam], ['👖', dPan, setDPan], ['👟', dZap, setDZap]] as const).map(([icon, val, set], i) => (
+                      <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ fontSize: 16 }}>{icon}</Text>
+                        <TextInput value={val} onChangeText={(t) => set(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, width: '100%', textAlign: 'center', marginTop: 2 }} />
+                      </View>
+                    ))}
+                  </View>
+                  <TouchableOpacity onPress={registrarEntrega} disabled={busyDel} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busyDel ? 0.7 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{busyDel ? 'Guardando…' : '📦 Registrar entrega'}</Text>
+                  </TouchableOpacity>
+
+                  {(() => {
+                    const dels = empDeliveries(sel.id); const tot = sumDeliveries(dels);
+                    return (
+                      <View style={{ marginTop: spacing.sm }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>Total entregado: 👕 {tot.camisas} · 👖 {tot.pantalones} · 👟 {tot.zapatos}</Text>
+                        {dels.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Aún no hay entregas registradas.</Text>
+                        ) : dels.map((d) => (
+                          <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>🕒 {fmtFechaHora(d.delivered_at)}</Text>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>👕 {d.camisas} · 👖 {d.pantalones} · 👟 {d.zapatos}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
+                </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                   <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setSel(null)}>
