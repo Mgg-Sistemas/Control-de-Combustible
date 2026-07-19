@@ -997,11 +997,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
   // El control SOLO muestra equipos ACTIVOS: si una máquina se desactiva (active=false)
   // desaparece del control; al reactivarla, vuelve a aparecer automáticamente.
-  // "Activa" para el control semanal: no dada de baja (active) y OPERATIVA
-  // (operational). Una máquina marcada INACTIVA (No operativa) no aparece en la
-  // semana; sus horas ya trabajadas quedan guardadas (no se borran) y siguen en
-  // los reportes. Al volverla Operativa reaparece.
-  const esActiva = (m: Machinery) => (m as any).active !== false && m.operational !== false;
+  // "Activa" para el control semanal: OPERATIVA (operational). Una máquina marcada
+  // INACTIVA (No operativa) no aparece en la semana; sus horas ya trabajadas quedan
+  // guardadas (no se borran) y siguen en los reportes/cierre (que leen machine_rounds
+  // directo, sin filtrar por estado). Al volverla Operativa reaparece.
+  // NOTA: la bandera legada `active` ya no se usa para maquinaria (no hay botón que la
+  // apague; el estado se maneja con Operativa/Inactiva y En espera). No se filtra por
+  // ella para que Control y Equipos muestren siempre lo mismo.
+  const esActiva = (m: Machinery) => m.operational !== false;
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
   const shown = machines.filter((m) => esActiva(m) && !m.en_espera && matchCompany(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
