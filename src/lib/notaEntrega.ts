@@ -62,14 +62,14 @@ export function notaEntregaHtml(d: NotaData): string {
       </div>
     </div>
 
-    <h1>NOTA DE SALIDA / ENTREGA</h1>
+    <h1>NOTA DE SALIDA</h1>
 
     <div class="meta">
       <div><b>Fecha:</b> ${esc(d.fecha)}${d.numero ? ` &nbsp;·&nbsp; <b>N°:</b> ${esc(d.numero)}` : ''}</div>
       <div>${d.empresa ? `<b>Empresa:</b> ${esc(d.empresa)}` : ''}</div>
     </div>
     ${d.maquina ? `<div class="meta"><div><b>Máquina / equipo:</b> ${esc(d.maquina)}</div></div>` : ''}
-    ${d.empleados && d.empleados.length ? `<div class="meta"><div><b>Entregado a:</b> ${esc(d.empleados.join(' · '))}</div></div>` : ''}
+    ${d.empleados && d.empleados.length ? `<div class="meta"><div><b>Recibe:</b> ${esc(d.empleados.join(' · '))}</div></div>` : ''}
     ${d.destino ? `<div class="meta"><div><b>Destino / motivo:</b> ${esc(d.destino)}</div></div>` : ''}
 
     <table>
@@ -81,6 +81,6 @@ export function notaEntregaHtml(d: NotaData): string {
       <div class="line">Firma autorizado</div>
     </div>
 
-    <div class="foot">${esc(COMPANY_NAME)} · Nota de salida / entrega de inventario</div>
+    <div class="foot">${esc(COMPANY_NAME)} · Nota de salida de inventario</div>
   </body></html>`;
 }

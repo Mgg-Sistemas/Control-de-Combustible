@@ -281,13 +281,13 @@ const SECTIONS: Sec[] = [
     title: 'Inventario (materiales, nota de entrega y cotización)',
     blocks: [
       { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
-      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salidas, Nota de entrega, Nota de traslado, Gastos, Cotización y Movimientos.' },
-      { t: 'p', text: 'Nota de salida / entrega — es el documento que se hace cuando salen materiales:' },
+      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salida, Nota de traslado, Gastos, Cotización y Movimientos.' },
+      { t: 'p', text: 'Salida — es el documento (nota de salida) que se hace cuando salen materiales:' },
       { t: 'steps', items: [
-        'Ve a la pestaña "Nota de entrega".',
+        'Ve a la pestaña "📤 Salida".',
         'Busca cada producto y agrégalo; indica la cantidad de cada uno.',
-        'Elige la 🚜 máquina (lista desplegable y filtrable) y los 👷 empleados a quienes se entrega (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
-        'Toca "🧾 Generar nota (PDF)": se abre la VISTA PREVIA con logo, fecha, productos y la línea de firma autorizado.',
+        'Elige la 🚜 máquina (lista desplegable y filtrable) y los 👷 empleados que reciben (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
+        'Toca "🧾 Generar nota de salida (PDF)": se abre la VISTA PREVIA con logo, fecha, productos y la línea de firma autorizado.',
         'Toca 🖨️ Imprimir para guardar/imprimir. RECIÉN AHÍ se descuenta del inventario.',
       ] },
       { t: 'note', text: 'IMPORTANTE: la salida se descuenta del inventario SOLO cuando confirmas (Imprimir/Guardar). Si le das Cancelar en la vista previa, NO se descuenta nada y NO se pierde lo que ya habías elegido: los productos, cantidades, máquina y empleados quedan tal cual para seguir editándolos o corregirlos.' },
