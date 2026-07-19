@@ -290,7 +290,9 @@ máquina, el supervisor puede arrancar la jornada del operador con **su** teléf
 **Módulo "Supervisión" (para el jefe, en Más):** muestra por día quién marcó cada máquina, a
 qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de **"⛔ Jornadas sin
 validar"** (máquinas que trabajaron pero que ningún supervisor marcó). Con las flechas ◀ ▶
-cambias de día.
+cambias de día. En **"Traza por supervisor"** puedes **tocar cualquier máquina** de la lista y
+te lleva a su **ficha en el Catálogo** (con todos sus datos y acciones); el **›** al final de
+cada renglón indica que es clickeable.
 
 ### 4.8c. Distribución de comida
 Lleva el control de **cuántas comidas** se le reparten a cada persona. Quien reparte es un

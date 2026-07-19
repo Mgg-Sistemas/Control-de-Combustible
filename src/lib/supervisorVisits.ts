@@ -66,13 +66,13 @@ export async function saveVisit(input: SaveVisitInput): Promise<{ data: Supervis
   return { data: (data as SupervisorVisit) ?? null, error: error?.message, distance_m, near };
 }
 
-export type VisitRow = SupervisorVisit & { machineCode?: string; companyName?: string };
+export type VisitRow = SupervisorVisit & { machineCode?: string; machineSerial?: string | null; companyName?: string };
 
-/** Todas las visitas de un día (o rango), con el código y empresa de la máquina. */
+/** Todas las visitas de un día (o rango), con el código, serial y empresa de la máquina. */
 export async function listVisits(fromDate: string, toDate?: string): Promise<VisitRow[]> {
   let q = supabase
     .from('supervisor_visits')
-    .select('*, machine:machinery_id(code, company:company_id(name))')
+    .select('*, machine:machinery_id(code, serial, company:company_id(name))')
     .gte('visit_date', fromDate)
     .order('visited_at', { ascending: false });
   if (toDate) q = q.lte('visit_date', toDate);
@@ -81,6 +81,7 @@ export async function listVisits(fromDate: string, toDate?: string): Promise<Vis
   return ((data ?? []) as any[]).map((v) => ({
     ...v,
     machineCode: v.machine?.code ?? '—',
+    machineSerial: v.machine?.serial ?? null,
     companyName: v.machine?.company?.name ?? 'Sin empresa',
   }));
 }

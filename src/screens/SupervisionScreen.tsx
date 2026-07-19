@@ -43,8 +43,13 @@ const openUrl = (url: string) => { try { (globalThis as any).open?.(url, '_blank
  * trabajaron ese día pero que ningún supervisor marcó (regla: el operador no
  * cobra). Así el jefe evalúa la cobertura de cada supervisor.
  */
-export default function SupervisionScreen() {
+export default function SupervisionScreen({ navigation }: any) {
   const { colors } = useTheme();
+  // Abre el Catálogo filtrado a ESA máquina (por serial único; si no hay, por código).
+  const openMachine = (v: VisitRow) => {
+    const term = v.machineSerial || v.machineCode;
+    if (term) navigation?.navigate?.('Equipos', { q: String(term) });
+  };
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
@@ -215,6 +220,9 @@ export default function SupervisionScreen() {
 
       {/* ── TRAZA POR SUPERVISOR ── */}
       <SectionTitle>Traza por supervisor</SectionTitle>
+      {bySupervisor.length > 0 ? (
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Toca una máquina para ver su ficha en el Catálogo.</Text>
+      ) : null}
       {bySupervisor.length === 0 ? (
         <EmptyState title="Sin visitas este día" subtitle="Ningún supervisor marcó máquinas en la fecha elegida." />
       ) : (
@@ -227,7 +235,7 @@ export default function SupervisionScreen() {
             {list.map((v) => {
               const sm = STATUS_META[v.status];
               return (
-                <View key={v.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <TouchableOpacity key={v.id} onPress={() => openMachine(v)} activeOpacity={0.6} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{v.machineCode} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {v.companyName}</Text></Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>
@@ -237,7 +245,8 @@ export default function SupervisionScreen() {
                     {v.note ? <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>“{v.note}”</Text> : null}
                   </View>
                   <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: v.near === false ? colors.warning : sm.color }} />
-                </View>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 16 }}>›</Text>
+                </TouchableOpacity>
               );
             })}
           </Card>

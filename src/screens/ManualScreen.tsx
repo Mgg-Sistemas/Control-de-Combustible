@@ -224,6 +224,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Seguridad: el inicio de sesión es por CÉDULA + CONTRASEÑA. Solo pueden entrar personas registradas por el administrador y que tengan su CÉDULA asignada; si alguien no tiene cédula, el sistema le dice "Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar". Al escanear un QR, la vista queda AISLADA (operador o control de cocina) y NO se puede entrar al resto del sistema; su única salida es "Salir" (cierra sesión).' },
       { t: 'note', text: 'REGLA IMPORTANTE: si el supervisor NO marca una máquina que trabajó ese día, esa jornada queda "sin validar" y el operador no cobra.' },
       { t: 'p', text: 'Módulo "Supervisión" (para el jefe, en Más): muestra por día quién marcó cada máquina, a qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de "⛔ Jornadas sin validar" (máquinas que trabajaron pero que ningún supervisor marcó). Usa las flechas ◀ ▶ para cambiar de día.' },
+      { t: 'note', text: 'En "Traza por supervisor" puedes TOCAR cualquier máquina de la lista y te lleva a su ficha en el Catálogo (con todos sus datos y acciones). El › al final de cada renglón indica que es clickeable.' },
     ],
   },
   {
