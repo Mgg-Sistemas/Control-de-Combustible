@@ -1044,6 +1044,8 @@ export default function EquiposScreen({ navigation, route }: any) {
 
       {firstLoad ? (
         <Loading />
+      ) : companyFilter === '__all__' && typeFilter === '__all__' && !q ? (
+        <EmptyState title="Elige una empresa o clasificación" subtitle="Selecciona una empresa en la lista desplegable 🏢 (o toca una clasificación / busca por código, placa o serial) para ver los equipos." />
       ) : totalResults === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : (
