@@ -346,6 +346,7 @@ const SECTIONS: Sec[] = [
         'Con 🧾 PDF imprimes el requerimiento para pasárselo al jefe.',
       ] },
       { t: 'note', text: 'Solo los ADMINISTRADORES aprueban, rechazan y reciben requerimientos. Cualquiera con acceso a Inventario puede crearlos.' },
+      { t: 'p', text: 'Tipo de producto y filtro: al crear/editar un producto puedes ponerle un TIPO (bombona, silla, mecate…). Escríbelo o tócalo de las sugerencias. Arriba de la lista aparece "Filtrar por tipo" con un chip por cada tipo (y su cantidad): toca uno para ver solo esos productos. El tipo también sale en el reporte de productos.' },
       { t: 'p', text: 'Eliminar un producto: entra a ✏️ Editar producto y abajo toca "🗑 Eliminar producto". Pide confirmación y borra el producto y TODO su historial de movimientos (no se puede deshacer).' },
       { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
       { t: 'p', text: 'Reporte de productos y estado — en la pestaña Existencias:' },
