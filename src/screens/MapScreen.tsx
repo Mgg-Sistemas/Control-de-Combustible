@@ -8,6 +8,7 @@ import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { equipCategory } from '../lib/equipos';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -28,7 +29,7 @@ function iconFor(cat: string): string {
   return '🔧';
 }
 
-type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string };
+type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string; recorded_by: string | null };
 type RoutePoint = { id: string; latitude: number | null; longitude: number | null; note: string | null; recorded_at: string };
 
 function fmt(ts: string): string {
@@ -42,8 +43,12 @@ function fmt(ts: string): string {
 export default function MapScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
   const [pins, setPins] = useState<MapPin[] | null>(null);
   const [trace, setTrace] = useState<TraceRow[]>([]);
+  const [recorderNames, setRecorderNames] = useState<Record<string, string>>({}); // uid → nombre (monitoreo)
+  const [monitorOpen, setMonitorOpen] = useState(false);
   // Enfoque: ver SOLO una máquina en el mapa (o todas si es null).
   const [focus, setFocus] = useState<{ id: string; code: string } | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
@@ -101,9 +106,9 @@ export default function MapScreen({ navigation, route }: any) {
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
       .from('machinery_locations')
-      .select('id, machinery_id, note, latitude, longitude, recorded_at, machinery:machinery_id(code, plate, serial, company:company_id(name))')
+      .select('id, machinery_id, note, latitude, longitude, recorded_at, recorded_by, machinery:machinery_id(code, plate, serial, company:company_id(name))')
       .order('recorded_at', { ascending: false })
-      .limit(40);
+      .limit(80);
     setTrace(
       (tr ?? []).map((r: any) => ({
         id: r.id,
@@ -116,9 +121,18 @@ export default function MapScreen({ navigation, route }: any) {
         latitude: r.latitude,
         longitude: r.longitude,
         recorded_at: r.recorded_at,
+        recorded_by: r.recorded_by ?? null,
       }))
     );
   }, []);
+
+  // Nombres de quienes colocan ubicaciones (para el monitoreo del admin).
+  useEffect(() => {
+    supabase.from('profiles').select('id, full_name').then(({ data }) => {
+      const m: Record<string, string> = {}; (data ?? []).forEach((p: any) => { if (p.full_name) m[p.id] = p.full_name; }); setRecorderNames(m);
+    });
+  }, []);
+  const recorderName = React.useCallback((uid: string | null) => (uid ? (recorderNames[uid] ?? 'Operador (QR)') : '—'), [recorderNames]);
 
   useEffect(() => {
     load();
@@ -395,6 +409,37 @@ export default function MapScreen({ navigation, route }: any) {
         </>
       )}
 
+      {/* MONITOREO (solo admin): quién colocó cada ubicación, con fecha y hora.
+          Colapsable como el panel de Sectores. */}
+      {isAdmin ? (
+        <Card>
+          <TouchableOpacity onPress={() => setMonitorOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>🕵️ Monitoreo · quién ubica</Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{monitorOpen ? 'Ocultar ▲' : `Ver ▼  (${trace.length})`}</Text>
+          </TouchableOpacity>
+          {monitorOpen ? (
+            <View style={{ marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>
+                Registro de quién colocó (o eliminó) cada ubicación, con su fecha y hora. Toca una fila para verla en el mapa.
+              </Text>
+              {trace.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Aún no hay ubicaciones registradas.</Text>
+              ) : trace.map((t) => (
+                <TouchableOpacity key={t.id} onPress={() => focusMachine(t)} activeOpacity={0.7} style={{ paddingVertical: 7, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>📍 {t.code}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
+                  </View>
+                  <Text style={{ color: t.note ? colors.danger : colors.primary, fontSize: 12, fontWeight: '700' }}>
+                    {t.note ? `🗑️ ${recorderName(t.recorded_by)} · ${t.note}` : `👤 ${recorderName(t.recorded_by)}`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
       <SectionTitle>Trazabilidad de ubicaciones</SectionTitle>
       {trace.length === 0 ? (
         <EmptyState title="Sin trazabilidad" subtitle="Aquí verás los registros de ubicación y las eliminaciones manuales." />
@@ -422,6 +467,7 @@ export default function MapScreen({ navigation, route }: any) {
                     {t.latitude}, {t.longitude}
                   </Text>
                 )}
+                {isAdmin ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 2 }}>👤 {recorderName(t.recorded_by)}</Text> : null}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>{focused ? '✓ Viendo solo esta en el mapa' : 'Toca: ver solo esta en el mapa'}</Text>
                   <TouchableOpacity onPress={() => openRoute(t)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

@@ -380,6 +380,7 @@ const SECTIONS: Sec[] = [
         'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
         'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por TIPO de equipo (igual que el Conteo: payloaders, jumbos, tractores, cisternas…), cada uno con su cantidad. Usa "Mostrar todas" / "Ocultar todas" o toca un tipo para ver sus máquinas y elegir una por una.',
         'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
+        'Mapa · Monitoreo (solo administradores): el panel "🕵️ Monitoreo · quién ubica" (colapsable, igual que Sectores) muestra QUIÉN colocó cada ubicación, con su fecha y hora. Toca una fila para ver esa máquina en el mapa. Sirve para vigilar quién está haciendo las ubicaciones.',
       ] },
     ],
   },
