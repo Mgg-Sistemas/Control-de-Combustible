@@ -259,9 +259,15 @@ Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; g
    marca una salida sin querer.
 6. Se permiten **varias marcas al día** (sale a almorzar y vuelve): alterna entrada/salida y
    **suma las horas presentes** de todos los pares.
-7. Abajo ves **"Marcas de hoy"** con todo lo registrado en el día (hora y turno).
+7. Abajo tienes un **calendario del mes** con toda la asistencia (no solo la de hoy):
+   - Usa **◀ ▶** para cambiar de mes. Los días con marcas se **resaltan** y muestran un
+     **globo con el número de personas** que marcaron ese día.
+   - Toca un **día** y se abre en **☀️ Día** y **🌙 Noche** (con cuántas personas hay en cada uno).
+   - Toca un **turno** y ves el **detalle por persona**: entrada → salida y **horas** de cada par.
+   - Cada día tiene su **📊 Reporte del día** (PDF), además del reporte por rango.
 
-**Reporte:** toca **📊 Reporte**, elige el **rango de fechas** y genera el **PDF**. Sale por
+**Reporte:** toca **📊 Reporte**, elige el **rango de fechas** y genera el **PDF** (o usa el
+**📊 Reporte del día** dentro del calendario). Sale por
 **persona**: cada jornada con su **fecha**, **☀️/🌙 turno**, **entrada**, **salida** y **horas**,
 con **subtotales de día y de noche**. Una entrada sin salida sale como **"abierta"**; las jornadas
 de noche que cruzan la medianoche se emparejan bien.
