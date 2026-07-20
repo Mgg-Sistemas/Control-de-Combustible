@@ -253,16 +253,21 @@ Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; g
 2. Aparece la persona (**foto, nombre, cargo**) y sus **marcas de hoy**.
 3. Toca el **botón grande**: si aún no ha entrado dice **"➡️ Marcar ENTRADA"**; si ya entró dice
    **"⬅️ Marcar SALIDA"**. La hora y la fecha se ponen solas.
-4. Se permiten **varias marcas al día** (por ejemplo, sale a almorzar y vuelve): alterna
-   entrada/salida y **suma las horas presentes** de todos los pares.
-5. Abajo ves **"Marcas de hoy"** con todo lo registrado en el día.
+4. Cada marca queda etiquetada como **☀️ Día** (6:00–17:59) o **🌙 Noche** (resto), según la hora.
+5. Al registrar una **SALIDA** el sistema **pide confirmación** ("¿Seguro que quieres registrar
+   la salida?") y recuerda a qué hora fue la última entrada. Así un doble escaneo por error no
+   marca una salida sin querer.
+6. Se permiten **varias marcas al día** (sale a almorzar y vuelve): alterna entrada/salida y
+   **suma las horas presentes** de todos los pares.
+7. Abajo ves **"Marcas de hoy"** con todo lo registrado en el día (hora y turno).
 
 **Reporte:** toca **📊 Reporte**, elige el **rango de fechas** y genera el **PDF**. Sale por
-**persona y por día**: entradas/salidas, cuántos pares y el **total de horas presentes**. Si
-alguien marcó entrada pero no salida, ese día sale como **"jornada abierta"**.
+**persona**: cada jornada con su **fecha**, **☀️/🌙 turno**, **entrada**, **salida** y **horas**,
+con **subtotales de día y de noche**. Una entrada sin salida sale como **"abierta"**; las jornadas
+de noche que cruzan la medianoche se emparejan bien.
 
-> Solo los usuarios con el módulo **Control de asistencia** ven y usan esta pantalla (por
-> ejemplo, quienes tengan el rol **ALMACENISTA**). Los demás no la ven.
+> Solo los usuarios **autorizados** ven y usan esta pantalla (módulo **Control de asistencia**):
+> actualmente **AGATHA, DORIANNE, MOISES, DIANA y GÉNESIS** (y administradores). Los demás no la ven.
 
 ### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
 En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
