@@ -514,6 +514,7 @@ export interface MachineryLocation {
   longitude: number | null;
   note: string | null;
   recorded_at: string;
+  recorded_by: string | null;   // quién colocó la ubicación (para el monitoreo)
 }
 
 export interface MachineRound {

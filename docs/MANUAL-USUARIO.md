@@ -502,6 +502,10 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   Conteo: payloaders, jumbos, tractores, cisternas…), cada uno con su **cantidad**.
   Usa **"Mostrar todas" / "Ocultar todas"**, o toca un tipo para ver sus máquinas y
   elegir una por una.
+- **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,
+  igual que Sectores) muestra **quién colocó** cada ubicación, con su **fecha y hora**. Toca una
+  fila para ver esa máquina en el mapa. Sirve para **vigilar quién está haciendo las ubicaciones**.
+  *Nota:* solo registra el nombre a partir de ahora; las ubicaciones anteriores salen sin autor.
 
 ### 4.12. Reportes
 Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fechas** y la

@@ -558,6 +558,21 @@ alter table public.machinery_locations alter column latitude drop not null;
 alter table public.machinery_locations alter column longitude drop not null;
 alter table public.machinery_locations add column if not exists note text;
 
+-- MONITOREO: quién colocó la ubicación. Un trigger rellena recorded_by con el
+-- usuario que hace la inserción (auth.uid()), sirva vía RPC (SECURITY DEFINER),
+-- inserción directa o el flujo anónimo del QR. Así el admin ve quién ubica.
+alter table public.machinery_locations add column if not exists recorded_by uuid references auth.users(id);
+create index if not exists idx_ml_recorded_by on public.machinery_locations(recorded_by);
+create or replace function public.ml_set_recorded_by() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if NEW.recorded_by is null then NEW.recorded_by := auth.uid(); end if;
+  return NEW;
+end $$;
+drop trigger if exists trg_ml_recorded_by on public.machinery_locations;
+create trigger trg_ml_recorded_by before insert on public.machinery_locations
+  for each row execute function public.ml_set_recorded_by();
+
 alter table public.companies           enable row level security;
 alter table public.machinery_locations enable row level security;
 drop policy if exists companies_select on public.companies;
