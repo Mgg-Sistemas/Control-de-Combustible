@@ -35,6 +35,7 @@ const SECTIONS: Sec[] = [
         'Toca el botón Entrar.',
         'Si el teléfono te lo pide, la próxima vez puedes entrar con tu huella o tu cara.',
       ] },
+      { t: 'note', text: 'Iniciar sesión con huella (TODOS los usuarios): actívalo con el interruptor "🔐 Iniciar sesión con huella". El administrador lo tiene en "Más" → Seguridad; los demás roles lo ven en su propio panel, en la sección Seguridad. Una vez activo, la app te pide tu huella o tu cara al abrirla.' },
       { t: 'note', text: '¿Olvidaste la contraseña? Toca "¿Olvidaste tu contraseña?" y sigue lo que llega a tu correo.' },
       { t: 'note', text: 'Cambiar tu contraseña (todos los usuarios): ya dentro del sistema puedes cambiar tu clave cuando quieras. Administrador: en "Más" → sección Seguridad → "🔑 Cambiar mi contraseña". Operador, Supervisor y Cocina: el botón "🔑 Contraseña" arriba, junto a "Salir". Escribe la nueva clave (mínimo 6 caracteres), repítela y guarda. La próxima vez entras con la nueva.' },
     ],
@@ -303,10 +304,11 @@ const SECTIONS: Sec[] = [
   },
   {
     icon: '📦',
-    title: 'Inventario (materiales, nota de entrega y cotización)',
+    title: 'Inventario (materiales, requerimiento y traslados)',
     blocks: [
       { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
-      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salida, Nota de traslado, Gastos, Cotización y Movimientos.' },
+      { t: 'p', text: 'Tiene varias pestañas: Existencias, Salida, Nota de traslado, Gastos, Requerimiento y Movimientos.' },
+      { t: 'p', text: 'Precios en $ y en Bs (tasa BCV): en Existencias, arriba, se muestra la tasa del BCV del día (Bs por US$). El sistema la baja automáticamente cada día; con 🔄 Actualizar la refrescas y los administradores pueden fijarla a mano (por si el servicio falla). Cada producto muestra su PMP y su valor en stock en $ y en Bs. Al cargar un costo puedes escribirlo en $ o en Bs (botón $↔Bs): el precio se guarda en US$ y se muestra el equivalente.' },
       { t: 'p', text: 'Salida — es el documento (nota de salida) que se hace cuando salen materiales:' },
       { t: 'steps', items: [
         'Ve a la pestaña "📤 Salida".',
@@ -320,10 +322,11 @@ const SECTIONS: Sec[] = [
       { t: 'steps', items: [
         'Ve a la pestaña "🔁 Nota de traslado".',
         'Agrega los materiales con stock e indica la cantidad de cada uno.',
-        'Define el ORIGEN (🚜 máquina + 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina + 👷 responsable a dónde VA). Escribe el motivo si quiere.',
+        'Define el ORIGEN (🚜 máquina + 👷 responsable de dónde SALE) y el DESTINO (🚜 máquina + 👷 responsable a dónde VA). Indica el 📍 lugar/obra a donde va y el ESTADO del material (usado / lleno / dañado). Escribe el motivo si quiere.',
         'Toca "🔁 Generar traslado (PDF)": se abre la vista previa con el bloque Origen → Destino y dos firmas (entrega y recibe).',
         'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
       ] },
+      { t: 'p', text: 'Retornar al inventario: en la pestaña 🔁 Nota de traslado, toca "📋 Realizados" para ver los traslados hechos. En cada uno tocas "↩️ Retornar al inventario": indicas el estado con que vuelve (usado/dañado/lleno) y cuánto queda disponible, y esa cantidad REINGRESA al almacén (queda como entrada, sin cambiar el costo promedio).' },
       { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
       { t: 'p', text: 'Gastos — cada material que SALE del almacén es un gasto. En la pestaña "💸 Gastos" ves el TOTAL GASTADO:' },
       { t: 'steps', items: [
@@ -333,7 +336,16 @@ const SECTIONS: Sec[] = [
         'Toca "📄 Reporte de gastos (PDF)": genera un PDF con el resumen por categoría y el detalle de cada salida (fecha, producto, cantidad, costo y gasto) con el total gastado.',
       ] },
       { t: 'note', text: 'Las entradas (compras) y los ajustes NO cuentan como gasto: el gasto es el material que efectivamente sale del almacén.' },
-      { t: 'p', text: 'Cotización: en la pestaña "Cotización" armas un presupuesto para un cliente (código, referencia, descripción, cantidad y precio). El I.V.A. se coloca como MONTO (lo escribes tú, no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.' },
+      { t: 'p', text: 'Requerimiento (pedir compras al jefe): en la pestaña "📝 Requerimiento" armas una lista de productos que hacen falta — del inventario o NUEVOS — con cantidad y precio estimado (en $ o Bs):' },
+      { t: 'steps', items: [
+        'Toca ➕ Nuevo, agrega productos (📦 Del inventario o ＋ Producto nuevo) con su cantidad y precio estimado. Con el botón $/Bs eliges la moneda del precio.',
+        'Toca "📤 Enviar al jefe": queda guardado como Pendiente.',
+        'El jefe (administrador) lo ✅ Aprueba o ❌ Rechaza.',
+        'Si se compra, el administrador toca "📥 Recibir en inventario", confirma la cantidad y el PRECIO REAL de cada producto, y el sistema crea la ENTRADA (los productos nuevos se crean solos). El requerimiento queda como Recibido.',
+        'Con 🧾 PDF imprimes el requerimiento para pasárselo al jefe.',
+      ] },
+      { t: 'note', text: 'Solo los ADMINISTRADORES aprueban, rechazan y reciben requerimientos. Cualquiera con acceso a Inventario puede crearlos.' },
+      { t: 'p', text: 'Eliminar un producto: entra a ✏️ Editar producto y abajo toca "🗑 Eliminar producto". Pide confirmación y borra el producto y TODO su historial de movimientos (no se puede deshacer).' },
       { t: 'note', text: 'El SKU de cada material es automático e incremental (INV-0001, INV-0002…).' },
       { t: 'p', text: 'Reporte de productos y estado — en la pestaña Existencias:' },
       { t: 'steps', items: [

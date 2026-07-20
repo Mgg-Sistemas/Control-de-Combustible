@@ -26,6 +26,11 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 3. Toca el botón **Entrar**.
 4. Si el teléfono te lo pide, puedes entrar con tu **huella** o tu **cara** la próxima vez.
 
+> **Iniciar sesión con huella (TODOS los usuarios):** actívalo con el interruptor
+> **"🔐 Iniciar sesión con huella"**. El administrador lo tiene en **Más → Seguridad**; los
+> demás roles lo ven en **su propio panel**, en la sección **Seguridad**. Una vez activo, la
+> app te pide tu huella o tu cara al abrirla.
+
 > ¿Olvidaste la contraseña? Toca **"¿Olvidaste tu contraseña?"** y sigue las
 > instrucciones que llegan a tu correo.
 
@@ -408,12 +413,23 @@ pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los ata
   cada comida, la hora y quién lo registró.
 - Botón **"📄 Descargar reporte PDF"** para imprimir/llevar el control por empresa del rango.
 
-### 4.8d. Inventario (materiales, nota de entrega y cotización)
+### 4.8d. Inventario (materiales, requerimiento y traslados)
 Control de **materiales y herramientas**. El inventario es **GENERAL** (no se separa por empresa
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
 promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
 incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salida, Nota de
-traslado, Gastos, Cotización y Movimientos**.
+traslado, Gastos, Requerimiento y Movimientos**.
+
+**💵 Precios en $ y en Bs (tasa BCV):** en **Existencias**, arriba, se muestra la **tasa del BCV
+del día** (Bs por US$). El sistema la **baja automáticamente** cada día; con **🔄 Actualizar** la
+refrescas y los **administradores** pueden **fijarla a mano** (por si el servicio falla). Cada
+producto muestra su **PMP y su valor en stock en $ y en Bs** al cambio del día. Al cargar un
+**costo**, puedes escribirlo en **$ o en Bs** (con el botón **$↔Bs**): el sistema guarda el precio
+en **US$** y te muestra el equivalente en la otra moneda.
+
+**🗑 Eliminar un producto:** entra a **✏️ Editar producto** y abajo toca **"🗑 Eliminar
+producto"**. Pide confirmación y borra el producto **y todo su historial** de movimientos
+(no se puede deshacer).
 
 **Salida** — el documento (nota de salida) que se hace cuando salen materiales:
 1. Ve a la pestaña **"📤 Salida"**.
@@ -438,17 +454,25 @@ quitarlo) y con **"📄 Reporte de gastos (PDF)"** obtienes el resumen por categ
 de cada salida (fecha, producto, cantidad, costo y gasto) con el total. Las **entradas (compras)**
 y los **ajustes NO** cuentan como gasto: el gasto es el material que efectivamente sale.
 
-**Cotización:** en la pestaña **"Cotización"** armas un presupuesto para un cliente (código,
-referencia, descripción, cantidad y precio). El **I.V.A. se coloca como MONTO** (lo escribes tú,
-no un porcentaje). Genera un PDF con la base imponible, el IVA y el total.
+**📝 Requerimiento (pedir compras al jefe):** en la pestaña **"📝 Requerimiento"** armas una lista
+de productos que hacen falta —**del inventario** (los traes) o **NUEVOS** (los escribes)— con
+cantidad y **precio estimado** (en **$ o Bs**). Al **📤 Enviar al jefe** queda guardado como
+**Pendiente**. El **jefe (administrador)** lo **✅ Aprueba** o lo **❌ Rechaza**. Si se compra, el
+administrador toca **"📥 Recibir en inventario"**, confirma la **cantidad y el precio real** de cada
+producto, y el sistema **crea la entrada** en el almacén (los productos nuevos **se crean solos**);
+el requerimiento queda como **Recibido**. Con **🧾 PDF** puedes imprimir el requerimiento para
+pasárselo al jefe. Así todo queda trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 
-**Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Sirve para
-**trasladar materiales de una máquina/empleado (origen) a otra (destino)**. Eliges los
-materiales con stock, defines el **Origen** (máquina + responsable) y el **Destino**
-(máquina + responsable), y un motivo opcional. Al **generar**, se abre la vista previa del
-PDF (con el bloque Origen → Destino y dos firmas: entrega y recibe); al **confirmar**, se
-**descuenta del inventario** y queda guardado el registro del traslado (casado con la
-máquina y el empleado de cada lado). Si cancelas la vista previa, no se descuenta nada.
+**🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
+**🔁 Trasladar** y **📋 Realizados**.
+- **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el
+  **Destino** (máquina + responsable), el **📍 lugar/obra** a donde va, el **estado del material**
+  (**usado / lleno / dañado**) y un motivo opcional. Al **generar**, se abre la vista previa del PDF;
+  al **confirmar**, se **descuenta del inventario** y queda guardado el traslado. Si cancelas, no se
+  descuenta nada.
+- **Realizados:** ves la lista de traslados. En cada uno tocas **"↩️ Retornar al inventario"**:
+  indicas el **estado** con que vuelve (usado/dañado/lleno) y **cuánto queda disponible**, y eso
+  **reingresa la cantidad al almacén** (queda como entrada, sin cambiar el costo promedio).
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
