@@ -410,6 +410,7 @@ export interface InventoryItem {
   machinery_id: string | null; // equipo/máquina al que pertenece el material
   active: boolean;
   estado: string | null;  // estado físico del material (Nuevo/Bueno/Regular/Dañado)
+  tipo: string | null;    // tipo de producto (bombona, silla, mecate…) para filtrar
   created_at: string;
 }
 

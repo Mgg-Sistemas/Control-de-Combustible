@@ -176,6 +176,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
   const [q, setQ] = useState('');
+  const [tipoFilter, setTipoFilter] = useState('__all__'); // filtro por tipo de producto
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('repuestos');
@@ -187,6 +188,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [initStock, setInitStock] = useState('');
   const [initCost, setInitCost] = useState('');
   const [estado, setEstado] = useState('');       // estado físico (Nuevo/Bueno/Regular/Dañado)
+  const [tipo, setTipo] = useState('');            // tipo de producto (bombona, silla, mecate…)
   const [editQty, setEditQty] = useState('');      // cantidad al editar (se ajusta con un movimiento)
   const [editStock0, setEditStock0] = useState(0); // stock actual al abrir edición (para el delta)
   const [busy, setBusy] = useState(false);
@@ -201,7 +203,17 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const machineName = (id: string | null) => { if (!id) return 'Sin equipo'; const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : 'Equipo'; };
   const machineCompany = (id: string | null) => (id ? machines.find((x) => x.id === id)?.company_id ?? null : null);
   const nq = norm(q);
-  const filtered = useMemo(() => levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq)), [levels, nq]);
+  // Tipos de producto presentes (bombona, silla, mecate…), con su conteo, para el filtro.
+  const tipoOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    levels.forEach((it) => { const t = (it.tipo || '').trim(); if (t) m.set(t, (m.get(t) ?? 0) + 1); });
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'));
+  }, [levels]);
+  const filtered = useMemo(() => levels.filter((it) => {
+    if (tipoFilter === '__none__') { if ((it.tipo || '').trim()) return false; }
+    else if (tipoFilter !== '__all__' && norm(it.tipo || '') !== norm(tipoFilter)) return false;
+    return !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq) || norm(it.tipo || '').includes(nq);
+  }), [levels, nq, tipoFilter]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
   const bajoMin = useMemo(() => levels.filter((it) => Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0).length, [levels]);
 
@@ -221,6 +233,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // Costo unitario (PMP) prellenado, editable (en US$, la moneda base).
     setInitCost(it.avg_cost != null ? String(it.avg_cost) : '');
     setInitCostCur('USD');
+    setTipo((it as any).tipo || '');
     setOpen(true);
   };
 
@@ -252,7 +265,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
-      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null };
+      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null };
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
       if (initCost.trim() !== '') patch.avg_cost = costUsd;
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
@@ -268,7 +281,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
       }
       setBusy(false);
-      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setEditQty('');
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setEditQty('');
       refetch();
       return;
     }
@@ -278,7 +291,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, machinery_id: null, company_id: null })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, machinery_id: null, company_id: null })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -291,14 +304,14 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
     }
     setBusy(false);
-    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost('');
+    setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost(''); setTipo('');
     refetch();
   };
 
   // Abre el modal calculando el próximo SKU incremental para mostrarlo.
   const openCreate = async () => {
     setEditingId(null);
-    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setEditQty('');
+    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setTipo(''); setEditQty('');
     const { data } = await supabase.from('inventory_items').select('sku');
     setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
     setOpen(true);
@@ -315,6 +328,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       return `<tr>
         <td class="c">${i + 1}</td>
         <td>${esc(it.name)}</td>
+        <td>${esc(it.tipo || '—')}</td>
         <td>${esc(catInfo(it.category).label)}</td>
         <td class="c b">${qtyFmt(it.stock)} ${esc(it.unit || '')}</td>
         <td class="c" style="color:${dispoColor(disp)};font-weight:800">${disp}</td>
@@ -330,7 +344,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         td.c{text-align:center} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}`,
       body: `
         <table>
-          <thead><tr><th style="width:30px" class="c">#</th><th>Producto</th><th>Categoría</th>
+          <thead><tr><th style="width:30px" class="c">#</th><th>Producto</th><th>Tipo</th><th>Categoría</th>
             <th class="c">Cantidad</th><th class="c">Disponibilidad</th><th class="c">Estado</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>`,
@@ -480,6 +494,24 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de productos (cantidad y estado)</Text>
       </TouchableOpacity>
 
+      {/* Filtro por TIPO de producto (bombona, silla, mecate…) */}
+      {tipoOptions.length ? (
+        <View style={{ marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tipo</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+            {([['__all__', 'Todos', levels.length], ...tipoOptions.map(([t, n]) => [t, t, n] as [string, string, number])] as [string, string, number][]).map(([val, label, n]) => {
+              const on = tipoFilter === val;
+              return (
+                <TouchableOpacity key={val} onPress={() => setTipoFilter(val)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>({n})</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {filtered.length === 0 ? (
         <EmptyState title="Sin productos" subtitle="Agrega productos o recíbelos desde una orden de compra." />
       ) : filtered.map((it) => {
@@ -490,7 +522,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{it.name}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>{catInfo(it.category).icon} {catInfo(it.category).label}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{catInfo(it.category).icon} {catInfo(it.category).label}{it.tipo ? ` · 🏷️ ${it.tipo}` : ''}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
@@ -566,6 +598,19 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   );
                 })}
               </View>
+
+              {/* Tipo de producto (libre, con sugerencias): bombona, silla, mecate… */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Tipo de producto (para filtrar)</Text>
+              <TextInput value={tipo} onChangeText={(t) => setTipo(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. BOMBONA, SILLA, MECATE…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+              {tipoOptions.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                  {tipoOptions.map(([t]) => (
+                    <TouchableOpacity key={t} onPress={() => setTipo(norm(tipo) === norm(t) ? '' : t)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: norm(tipo) === norm(t) ? colors.primary : colors.border, backgroundColor: norm(tipo) === norm(t) ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: norm(tipo) === norm(t) ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
             </Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (pestaña Salida).</Text>
             {editingId ? (

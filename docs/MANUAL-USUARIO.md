@@ -430,6 +430,11 @@ producto muestra su **PMP y su valor en stock en $ y en Bs** al cambio del día.
 **costo**, puedes escribirlo en **$ o en Bs** (con el botón **$↔Bs**): el sistema guarda el precio
 en **US$** y te muestra el equivalente en la otra moneda.
 
+**🏷️ Tipo de producto y filtro:** al crear/editar un producto puedes ponerle un **TIPO**
+(bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. Arriba de la lista aparece
+**"Filtrar por tipo"** con un chip por cada tipo (y su cantidad): toca uno para ver **solo esos
+productos**. El tipo también sale en el **reporte de productos**.
+
 **🗑 Eliminar un producto:** entra a **✏️ Editar producto** y abajo toca **"🗑 Eliminar
 producto"**. Pide confirmación y borra el producto **y todo su historial** de movimientos
 (no se puede deshacer).
