@@ -65,6 +65,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ciStatus, setCiStatus] = useState<VisitStatus>('trabajando');
   const [ciNote, setCiNote] = useState('');
   const [ciSaving, setCiSaving] = useState(false);
+  const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
@@ -150,6 +151,25 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       if (r.ok && r.lat != null && r.lng != null) setGps({ lat: r.lat, lng: r.lng });
       else setGpsErr(r.error ?? 'Sin ubicación.');
     });
+  };
+
+  // Guarda TU posición actual como la UBICACIÓN de la máquina (queda en el mapa y
+  // en el monitoreo con tu nombre). Estás en la máquina, así que sirve para ubicarla.
+  const guardarUbicacionMaquina = async () => {
+    if (!ci) return;
+    setSavingMachLoc(true);
+    let lat = gps?.lat ?? null, lng = gps?.lng ?? null;
+    if (lat == null || lng == null) {
+      const r = await getCurrentCoords();
+      if (!r.ok || r.lat == null || r.lng == null) { setSavingMachLoc(false); setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
+      lat = r.lat; lng = r.lng; setGps({ lat, lng });
+    }
+    const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
+    setSavingMachLoc(false);
+    if (error) { setNotice('❌ ' + error.message); return; }
+    setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number } as Mach : c));
+    setNotice('✅ Ubicación de la máquina guardada.');
+    load();
   };
 
   // Distancia del supervisor a la máquina (si ambos tienen coordenadas).
@@ -367,6 +387,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                 )}
                 <TouchableOpacity onPress={recapture} disabled={gpsBusy} style={{ marginTop: 6 }}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
+                </TouchableOpacity>
+                {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa). */}
+                <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
+                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación de la máquina' : '📍 Guardar ubicación de la máquina')}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
