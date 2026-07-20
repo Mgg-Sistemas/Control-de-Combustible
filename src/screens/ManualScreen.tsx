@@ -229,12 +229,14 @@ const SECTIONS: Sec[] = [
       { t: 'steps', items: [
         'Toca "📷 Escanear carnet" y apunta al QR del carnet del trabajador (si el carnet no escanea, búscalo por nombre o cédula).',
         'Aparece la persona (foto, nombre, cargo) y sus marcas de hoy.',
-        'Toca el botón grande: si aún no ha entrado hoy dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
+        'Toca el botón grande: si aún no ha entrado dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
+        'Cada marca queda etiquetada como ☀️ Día (6:00 a 17:59) o 🌙 Noche (resto), según la hora.',
+        'Al registrar una SALIDA, el sistema PIDE CONFIRMACIÓN ("¿Seguro que quieres registrar la salida?") y te recuerda a qué hora fue su última entrada. Así, si alguien escanea dos veces seguidas por error, no se marca una salida sin querer.',
         'Se permiten VARIAS marcas al día (por ejemplo, sale a almorzar y vuelve): el sistema alterna entrada/salida y suma las horas presentes de todos los pares.',
-        'Abajo ves "Marcas de hoy" con todo lo registrado en el día.',
+        'Abajo ves "Marcas de hoy" con todo lo registrado en el día (hora y turno).',
       ] },
-      { t: 'p', text: 'Reporte: toca 📊 Reporte, elige el rango de fechas y genera el PDF. Sale por persona y por día: las entradas/salidas, cuántos pares y el total de horas presentes. Si alguien marcó entrada pero no salida, ese día sale como "jornada abierta".' },
-      { t: 'note', text: 'Solo los usuarios con el módulo "Control de asistencia" ven y usan esta pantalla (por ejemplo, quienes tengan el rol ALMACENISTA). Los demás no la ven.' },
+      { t: 'p', text: 'Reporte: toca 📊 Reporte, elige el rango de fechas y genera el PDF. Sale por persona: cada jornada con su fecha, ☀️/🌙 turno, hora de entrada y salida y las horas; con subtotales de día y de noche. Una entrada sin salida sale como "abierta". Las jornadas de noche que cruzan la medianoche se emparejan bien.' },
+      { t: 'note', text: 'Solo los usuarios AUTORIZADOS ven y usan esta pantalla (con el módulo "Control de asistencia"): actualmente AGATHA, DORIANNE, MOISES, DIANA y GÉNESIS (y administradores). Los demás no la ven.' },
     ],
   },
   {

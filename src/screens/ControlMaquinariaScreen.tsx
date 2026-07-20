@@ -1298,6 +1298,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
       {loading && machines.length === 0 ? (
         <Loading />
+      ) : companyFilter === '__all__' && !q ? (
+        // Catálogo oculto hasta elegir una empresa en el filtro (o buscar). Evita el listón
+        // enorme de todas las empresas: primero eliges la empresa y ahí ves sus equipos.
+        <EmptyState title="Elige una empresa" subtitle="Toca el filtro 🏢 y selecciona una empresa para ver sus equipos (o busca por código/serial)." />
       ) : shown.length === 0 ? (
         <EmptyState title={query || companyFilter !== '__all__' ? 'Sin resultados' : 'Sin maquinaria'} subtitle={query || companyFilter !== '__all__' ? 'Prueba con otra búsqueda o empresa.' : 'Agrega máquinas en Equipos.'} />
       ) : (

@@ -41,6 +41,13 @@ export function nextKind(lastKindToday: 'entrada' | 'salida' | null): 'entrada' 
   return lastKindToday === 'entrada' ? 'salida' : 'entrada';
 }
 
+/** Turno de una marca según la hora (Caracas): DÍA 6:00–17:59, NOCHE el resto. */
+export function shiftOfTs(ts: string): 'dia' | 'noche' {
+  const h = caracasParts(new Date(ts)).hour;
+  return h >= 6 && h < 18 ? 'dia' : 'noche';
+}
+export const SHIFT_LABEL: Record<'dia' | 'noche', string> = { dia: '☀️ Día', noche: '🌙 Noche' };
+
 export type Pair = { in: string; out: string | null; minutes: number };
 
 /** Empareja marcas ORDENADAS por hora en pares entrada→salida.

@@ -7,10 +7,11 @@ import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { caracasParts } from '../lib/jornada';
-import { markAttendance, pairMarks, fmtDuration, fmtHora, nextKind } from '../lib/attendance';
+import { markAttendance, pairMarks, fmtDuration, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ConfirmProvider';
 import { Employee, Attendance } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -24,6 +25,7 @@ const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&l
 export default function AsistenciaScreen() {
   const { colors } = useTheme();
   const { session } = useAuth();
+  const confirm = useConfirm();
   const uid = session?.user?.id ?? null;
   const todayISO = caracasParts(new Date()).iso;
 
@@ -110,6 +112,19 @@ export default function AsistenciaScreen() {
 
   const marcar = async () => {
     if (!emp) return;
+    // Si la próxima marca es SALIDA, confirmar (evita registrar salida por un doble escaneo).
+    if (willMark === 'salida') {
+      const lastIn = [...today].reverse().find((m) => m.kind === 'entrada');
+      const ok = await confirm({
+        title: '¿Registrar SALIDA?',
+        message: `¿Seguro que quieres registrar la SALIDA de ${fullName(emp)}?` +
+          (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
+        confirmText: 'Sí, registrar salida',
+        cancelText: 'Cancelar',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     const r = await markAttendance(emp.id, uid);
     setBusy(false);
@@ -128,46 +143,45 @@ export default function AsistenciaScreen() {
         `employee_id, ts, work_date, kind, emp:employee_id(${EMP_COLS})`,
         (qb) => qb.gte('work_date', from).lte('work_date', to)
       );
-      // Agrupa por empleado → por día.
-      type Day = { date: string; marks: { kind: 'entrada' | 'salida'; ts: string }[] };
-      const byEmp = new Map<string, { emp: Emp | null; days: Map<string, Day> }>();
+      // Agrupa por empleado; empareja entrada→salida sobre TODO su historial (así una
+      // jornada de noche que cruza la medianoche se empareja bien). Cada par se ubica en
+      // la fecha de su ENTRADA y su turno (☀️ Día / 🌙 Noche) según la hora de entrada.
+      const byEmp = new Map<string, { emp: Emp | null; marks: { kind: 'entrada' | 'salida'; ts: string }[] }>();
       (rows ?? []).forEach((r: any) => {
-        const g = byEmp.get(r.employee_id) ?? { emp: (r.emp as Emp) ?? null, days: new Map<string, Day>() };
-        const d: Day = g.days.get(r.work_date) ?? { date: r.work_date, marks: [] };
-        d.marks.push({ kind: r.kind, ts: r.ts });
-        g.days.set(r.work_date, d);
+        const g = byEmp.get(r.employee_id) ?? { emp: (r.emp as Emp) ?? null, marks: [] };
+        g.marks.push({ kind: r.kind, ts: r.ts });
         byEmp.set(r.employee_id, g);
       });
       if (byEmp.size === 0) { setRBusy(false); Alert.alert('Aviso', 'No hay marcas de asistencia en ese rango.'); return; }
 
       const groups = Array.from(byEmp.values()).sort((a, b) => norm(fullName(a.emp)).localeCompare(norm(fullName(b.emp))));
-      let grandMin = 0;
+      let grandMin = 0, grandDia = 0, grandNoche = 0;
       const bodies = groups.map((g) => {
-        const days = Array.from(g.days.values()).sort((a, b) => a.date.localeCompare(b.date));
-        let empMin = 0;
-        const trs = days.map((day) => {
-          const { pairs, totalMinutes, open } = pairMarks(day.marks);
-          empMin += totalMinutes;
-          const ins = pairs.map((p) => fmtHora(p.in)).join(' · ') || '—';
-          const outs = pairs.map((p) => (p.out ? fmtHora(p.out) : '—')).join(' · ');
-          return `<tr><td>${esc(fmtDMY(day.date))}</td><td>${esc(ins)}</td><td>${esc(outs || '—')}</td>` +
-            `<td style="text-align:center">${pairs.length}</td>` +
-            `<td style="text-align:right;font-weight:700">${esc(fmtDuration(totalMinutes))}${open ? ' <span style="color:#B45309">(abierta)</span>' : ''}</td></tr>`;
+        const { pairs } = pairMarks(g.marks);
+        let empDia = 0, empNoche = 0;
+        const trs = pairs.slice().sort((a, b) => a.in.localeCompare(b.in)).map((p) => {
+          const date = caracasParts(new Date(p.in)).iso;
+          const sh = shiftOfTs(p.in);
+          if (sh === 'dia') empDia += p.minutes; else empNoche += p.minutes;
+          return `<tr><td>${esc(fmtDMY(date))}</td><td>${SHIFT_LABEL[sh]}</td><td class="c">${esc(fmtHora(p.in))}</td>` +
+            `<td class="c">${p.out ? esc(fmtHora(p.out)) : '—'}</td>` +
+            `<td style="text-align:right;font-weight:700">${esc(fmtDuration(p.minutes))}${p.out ? '' : ' <span style="color:#B45309">(abierta)</span>'}</td></tr>`;
         }).join('');
-        grandMin += empMin;
+        const empMin = empDia + empNoche;
+        grandMin += empMin; grandDia += empDia; grandNoche += empNoche;
         return `<h3 class="emp">${esc(fullName(g.emp) || '—')} <span class="sub">· ${esc(g.emp?.cargo ?? '—')} · ${esc(companyName(g.emp?.company_id))}${g.emp?.cedula ? ` · C.I. ${esc(g.emp.cedula)}` : ''}</span></h3>
-          <table><thead><tr><th>Fecha</th><th>Entrada(s)</th><th>Salida(s)</th><th style="text-align:center">Pares</th><th style="text-align:right">Horas presentes</th></tr></thead>
-          <tbody>${trs}</tbody>
-          <tfoot><tr><td colspan="4" style="text-align:right">Total ${esc(fullName(g.emp))}</td><td style="text-align:right">${esc(fmtDuration(empMin))}</td></tr></tfoot></table>`;
+          <table><thead><tr><th>Fecha</th><th>Turno</th><th class="c">Entrada</th><th class="c">Salida</th><th style="text-align:right">Horas</th></tr></thead>
+          <tbody>${trs || '<tr><td colspan="5" class="c">Sin jornadas completas</td></tr>'}</tbody>
+          <tfoot><tr><td colspan="4" style="text-align:right">Total ${esc(fullName(g.emp))} (☀️ ${esc(fmtDuration(empDia))} · 🌙 ${esc(fmtDuration(empNoche))})</td><td style="text-align:right">${esc(fmtDuration(empMin))}</td></tr></tfoot></table>`;
       }).join('');
 
       const html = pdfDocument({
         title: 'Control de asistencia',
-        subtitle: `${fmtDMY(from)} → ${fmtDMY(to)} · ${groups.length} persona(s) · Total: ${fmtDuration(grandMin)}`,
+        subtitle: `${fmtDMY(from)} → ${fmtDMY(to)} · ${groups.length} persona(s) · Total: ${fmtDuration(grandMin)} (☀️ ${fmtDuration(grandDia)} · 🌙 ${fmtDuration(grandNoche)})`,
         extraCss: `h3.emp{margin:16px 0 4px;font-size:13px;color:#1E3A5F} h3.emp .sub{font-weight:400;color:#555;font-size:11px}
           table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
           th,td{border:1px solid #ccc;padding:4px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
-          tfoot td{background:#EEF2F7;font-weight:800}`,
+          td.c{text-align:center} tfoot td{background:#EEF2F7;font-weight:800}`,
         body: bodies,
       });
       setRBusy(false); setRepOpen(false);
@@ -236,7 +250,7 @@ export default function AsistenciaScreen() {
             </Text>
             {today.map((m) => (
               <Text key={m.id} style={{ color: m.kind === 'entrada' ? colors.success : colors.danger, fontSize: 13, fontWeight: '700', marginTop: 2 }}>
-                {m.kind === 'entrada' ? '➡️ Entrada' : '⬅️ Salida'} · {fmtHora(m.ts)}
+                {m.kind === 'entrada' ? '➡️ Entrada' : '⬅️ Salida'} · {fmtHora(m.ts)} · {SHIFT_LABEL[shiftOfTs(m.ts)]}
               </Text>
             ))}
           </View>
@@ -263,7 +277,7 @@ export default function AsistenciaScreen() {
               </View>
               <View style={{ alignItems: 'flex-end' }}>
                 <Text style={{ color: m.kind === 'entrada' ? colors.success : colors.danger, fontWeight: '800', fontSize: 13 }}>{m.kind === 'entrada' ? '➡️ Entrada' : '⬅️ Salida'}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtHora(m.ts)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtHora(m.ts)} · {SHIFT_LABEL[shiftOfTs(m.ts)]}</Text>
               </View>
             </View>
           </Card>
