@@ -1316,7 +1316,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 // stock (salida) y guarda el registro en inventory_transfers (casado con máquina
 // y empleado de cada lado).
 // Condición del material en el traslado / retorno.
-const COND_MATERIAL = ['usado', 'lleno', 'dañado'];
+const COND_MATERIAL = ['usado', 'lleno', 'vacío', 'dañado'];
 
 function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
@@ -1494,6 +1494,56 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     return `${from} → ${to}`;
   };
 
+  // Reporte PDF de TODOS los traslados (con lugar, estado, ítems y si se retornaron).
+  const reporteTraslados = async () => {
+    if (transfers.length === 0) return Alert.alert('Aviso', 'No hay traslados para el reporte.');
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const retornados = transfers.filter((t) => t.returned).length;
+    // Resumen por ESTADO: cuántos traslados y qué cantidad de materiales (bombonas) hay en
+    // cada estado (vacío / lleno / usado / dañado). Solo cuenta los que NO se han retornado.
+    const byEstado = new Map<string, { count: number; qty: number }>();
+    transfers.filter((t) => !t.returned).forEach((t) => {
+      const est = t.estado ? t.estado : 'sin estado';
+      const g = byEstado.get(est) ?? { count: 0, qty: 0 };
+      g.count += 1;
+      g.qty += (t.items ?? []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
+      byEstado.set(est, g);
+    });
+    const resumen = Array.from(byEstado.entries()).sort((a, b) => b[1].qty - a[1].qty).map(([est, g]) => `<tr>
+      <td style="text-transform:capitalize;font-weight:700">${esc(est)}</td>
+      <td class="c">${g.count}</td>
+      <td class="c b">${qtyFmt(g.qty)}</td>
+    </tr>`).join('');
+    const rows = transfers.map((t, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${esc(fmtDate(t.created_at))}</td>
+      <td>${esc(trasladoLabel(t))}</td>
+      <td>${esc(t.lugar || '—')}</td>
+      <td class="c">${esc(t.estado ? t.estado.toUpperCase() : '—')}</td>
+      <td>${(t.items ?? []).map((it) => `${esc(it.name)} (${qtyFmt(it.qty)} ${esc(it.unit || '')})`).join('<br/>') || '—'}</td>
+      <td class="c" style="font-weight:800;color:${t.returned ? '#16A34A' : '#D97706'}">${t.returned ? 'Retornado' : 'En destino'}</td>
+    </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Reporte de traslados',
+      subtitle: `${transfers.length} traslado(s) · ${retornados} retornado(s) · ${dmy}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left;vertical-align:top} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}
+        h3{margin:14px 0 2px;font-size:13px;color:#16324F}`,
+      body: `
+        <h3>Cantidad por estado (en destino)</h3>
+        <table><thead><tr><th>Estado</th><th class="c">Traslados</th><th class="c">Cantidad</th></tr></thead>
+          <tbody>${resumen || '<tr><td colspan="3" class="c">Sin traslados en destino</td></tr>'}</tbody></table>
+        <h3>Detalle de traslados</h3>
+        <table>
+        <thead><tr><th style="width:26px" class="c">#</th><th>Fecha</th><th>Origen → Destino</th><th>Lugar</th>
+          <th class="c">Estado</th><th>Materiales</th><th class="c">Situación</th></tr></thead>
+        <tbody>${rows}</tbody></table>`,
+    });
+    await exportPdf(html, `Traslados - ${dmy}`);
+  };
+
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
@@ -1502,7 +1552,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       <SectionTitle>Nota de traslado</SectionTitle>
 
       {/* Sub-vista: crear traslado | traslados realizados (para retornar). */}
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm }}>
         {([['nuevo', '🔁 Trasladar'], ['lista', `📋 Realizados (${transfers.length})`]] as [typeof view, string][]).map(([k, l]) => {
           const on = view === k;
           return (
@@ -1511,6 +1561,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
             </TouchableOpacity>
           );
         })}
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity onPress={reporteTraslados} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: '#111827', backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📄 Reporte</Text>
+        </TouchableOpacity>
       </View>
 
       {view === 'lista' ? (
@@ -1568,13 +1622,14 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
           {/* ORIGEN */}
           <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>ORIGEN (de dónde sale)</Text>
-          <Selector id="fromMach" icon="🚜" label="Máquina" valueId={fromMachId} valueText={machName(fromMachId)} onPick={setFromMachId} options={machOptions} />
-          <Selector id="fromEmp" icon="👷" label="Responsable" valueId={fromEmpId} valueText={empNameById(fromEmpId)} onPick={setFromEmpId} options={empOptions} />
+          <Selector id="fromMach" icon="🚜" label="Máquina origen" valueId={fromMachId} valueText={machName(fromMachId)} onPick={setFromMachId} options={machOptions} />
+          <Selector id="fromEmp" icon="👷" label="Responsable origen" valueId={fromEmpId} valueText={empNameById(fromEmpId)} onPick={setFromEmpId} options={empOptions} />
 
           {/* DESTINO */}
           <Text style={{ color: '#0d6b3f', fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
-          <Selector id="toMach" icon="🚜" label="Máquina" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
-          <Selector id="toEmp" icon="👷" label="Responsable" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
+          <Selector id="toMach" icon="🚜" label="Máquina destino" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Agregar responsable destino (opcional): la persona que RECIBE en el destino.</Text>
+          <Selector id="toEmp" icon="👷" label="Responsable destino" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
 
           {/* LUGAR y ESTADO del material trasladado */}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Lugar / obra a donde se hace el traslado (opcional)</Text>

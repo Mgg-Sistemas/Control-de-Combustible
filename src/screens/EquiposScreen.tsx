@@ -17,6 +17,7 @@ import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
+import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import MachineQuickScreen from './MachineQuickScreen';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
@@ -149,6 +150,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   const isSupervisor = role === 'supervisor';
   const [jornadaFor, setJornadaFor] = useState<Machinery | null>(null);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({});
+  const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
   // Operadores que ha tenido cada máquina (desplegable en la ficha). Una máquina puede tener varios.
   type OpItem = { key: string; name: string; cedula: string; last: string; days: number };
   const [opsOpen, setOpsOpen] = useState<Record<string, boolean>>({}); // machineId → desplegado
@@ -190,6 +192,9 @@ export default function EquiposScreen({ navigation, route }: any) {
     if (ids.length === 0) { setGuards({}); return; }
     fetchActiveGuards(ids).then(setGuards).catch(() => {});
   }, [machinery.data]);
+
+  // Inspector "asignado" = quien hizo el último check-in en cada máquina.
+  useEffect(() => { latestInspectorByMachine().then(setInspectors).catch(() => {}); }, [machinery.data]);
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
     setGuards((p) => {
@@ -840,6 +845,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+            {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
@@ -1471,6 +1477,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                       {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+                      {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                     </TouchableOpacity>
                     {detailStatus === 'espera' ? (

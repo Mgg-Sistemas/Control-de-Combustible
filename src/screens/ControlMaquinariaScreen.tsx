@@ -12,6 +12,7 @@ import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMac
 import { DateField } from '../components/DateField';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
+import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -133,6 +134,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
+  const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [loading, setLoading] = useState(true);
@@ -240,6 +242,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setMachines((m ?? []) as Machinery[]);
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
+      // Inspector "asignado" = quien hizo el último check-in en cada máquina.
+      latestInspectorByMachine().then(setInspectors).catch(() => {});
       const cmap: Record<string, string> = {};
       (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
       setCompanies(cmap);
@@ -1349,6 +1353,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
+                  {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setCardOpen((p) => ({ ...p, [m.id]: !isOpen }))}

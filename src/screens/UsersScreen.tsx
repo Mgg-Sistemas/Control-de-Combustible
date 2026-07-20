@@ -15,7 +15,7 @@ import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
-import { MODULES, LEVELS, PermLevel, defaultLevel } from '../lib/permissions';
+import { MODULES, LEVELS, PermLevel, defaultLevel, roleLabel } from '../lib/permissions';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -186,7 +186,7 @@ export default function UsersScreen() {
                       style={[styles.chip, activeRole && styles.chipActive, isSelf && { opacity: 0.5 }]}
                     >
                       <Text style={{ color: activeRole ? colors.primaryContrast : colors.text, fontSize: 13 }}>
-                        {r}
+                        {roleLabel(r)}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -488,7 +488,7 @@ function NewUserForm({
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {ROLES.map((r) => (
                 <TouchableOpacity key={r} onPress={() => setRole(r)} style={[styles.chip, role === r && styles.chipActive]}>
-                  <Text style={{ color: role === r ? colors.primaryContrast : colors.text, fontSize: 13 }}>{r}</Text>
+                  <Text style={{ color: role === r ? colors.primaryContrast : colors.text, fontSize: 13 }}>{roleLabel(r)}</Text>
                 </TouchableOpacity>
               ))}
             </View>

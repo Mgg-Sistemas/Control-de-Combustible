@@ -519,7 +519,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
               usuario y va directo a marcar la máquina Operativa / Parada / No está. */}
           {onSupervisorLogin ? (
             <TouchableOpacity onPress={onSupervisorLogin} style={{ marginBottom: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E3A5F' }}>
-              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>🪖 SOY SUPERVISOR — ENTRAR</Text>
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>🪖 SOY INSPECTOR — ENTRAR</Text>
               <Text style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2, textAlign: 'center' }}>Inicia sesión con tu usuario para marcar esta máquina (Operativa / No). No necesitas ser operador.</Text>
             </TouchableOpacity>
           ) : null}
@@ -627,7 +627,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
           {/* Supervisor con sesión: hacer el check-in de supervisión (GPS) de esta máquina. */}
           {onSupervisorCheckin ? (
             <TouchableOpacity onPress={onSupervisorCheckin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: '#1E3A5F', backgroundColor: '#1E3A5F' }}>
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🪖 Hacer check-in de supervisión</Text>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🪖 Hacer check-in de inspección</Text>
               <Text style={{ color: '#cbd5e1', fontSize: 11, marginTop: 2 }}>Marca esta máquina con tu ubicación (valida la jornada).</Text>
             </TouchableOpacity>
           ) : null}
@@ -635,7 +635,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
           {/* Supervisor: entrar con su nombre (login) en vez de la vista anónima. */}
           {onSupervisorLogin ? (
             <TouchableOpacity onPress={onSupervisorLogin} style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🪖 ¿Eres supervisor? Inicia sesión con tu nombre</Text>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🪖 ¿Eres inspector? Inicia sesión con tu nombre</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Para que quede registrada tu ronda con tu nombre.</Text>
             </TouchableOpacity>
           ) : null}

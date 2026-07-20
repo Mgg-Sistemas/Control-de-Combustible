@@ -3,6 +3,14 @@
 
 export type PermLevel = 'none' | 'lectura' | 'escritura' | 'full';
 
+/** Etiqueta visible de cada rol del sistema (la CLAVE interna no cambia: el rol
+ *  sigue siendo 'supervisor' en la BD/lógica; el usuario ve "inspector"). */
+export const ROLE_LABEL: Record<string, string> = {
+  admin: 'admin', supervisor: 'inspector', analista: 'analista',
+  operador: 'operador', conductor: 'conductor', cocina: 'cocina',
+};
+export const roleLabel = (r?: string | null) => (r ? (ROLE_LABEL[r] ?? r) : '');
+
 export const LEVELS: { value: PermLevel; label: string; short: string }[] = [
   { value: 'none', label: 'Sin acceso', short: '—' },
   { value: 'lectura', label: 'Lectura', short: 'L' },
@@ -21,7 +29,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'margen_ganancia', label: 'Margen de ganancia' },
   { key: 'mantenimiento', label: 'Mantenimiento maquinaria' },
   { key: 'operadores', label: 'Operadores' },
-  { key: 'supervision', label: 'Supervisión (rondas)' },
+  { key: 'supervision', label: 'Inspecciones (rondas)' },
   { key: 'comida', label: 'Distribución de comida' },
   { key: 'empleados', label: 'Empleados (RRHH)' },
   { key: 'aliados', label: 'Aliados' },

@@ -167,7 +167,7 @@ export default function SupervisionScreen({ navigation }: any) {
           unvalidated.map((r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.companyName)}</td><td>${esc(r.operator ?? '—')}</td><td class="r">${r.worked} h</td></tr>`).join('')
         }</tbody></table>`;
     const html = pdfDocument({
-      title: 'Reporte de supervisión',
+      title: 'Reporte de inspecciones',
       subtitle: `Rondas del ${dmy(date)} · ${visits.length} visita(s) · ${validated} jornada(s) validada(s) · ${unvalidated.length} sin validar`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
@@ -191,7 +191,7 @@ export default function SupervisionScreen({ navigation }: any) {
   return (
     <Screen>
       <ConfigBanner />
-      <SectionTitle>🪖 Supervisión — rondas del día</SectionTitle>
+      <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
 
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -216,7 +216,7 @@ export default function SupervisionScreen({ navigation }: any) {
       <SectionTitle>⛔ Jornadas sin validar</SectionTitle>
       <Card>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-          Máquinas que trabajaron este día pero que <Text style={{ fontWeight: '800', color: colors.danger }}>ningún supervisor marcó</Text>. Regla: sin visita, el operador no cobra.
+          Máquinas que trabajaron este día pero que <Text style={{ fontWeight: '800', color: colors.danger }}>ningún inspector marcó</Text>. Regla: sin visita, el operador no cobra.
         </Text>
         {unvalidated.length === 0 ? (
           <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Todas las jornadas del día están validadas.</Text>
@@ -277,18 +277,18 @@ export default function SupervisionScreen({ navigation }: any) {
         })
       )}
 
-      {/* ── TRAZA POR SUPERVISOR ── */}
-      <SectionTitle>Traza por supervisor</SectionTitle>
+      {/* ── TRAZA POR INSPECTOR ── */}
+      <SectionTitle>Traza por inspector</SectionTitle>
       {bySupervisor.length > 0 ? (
         <>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Toca una máquina para ver su ficha en el Catálogo.</Text>
           <TouchableOpacity onPress={reporte} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de supervisión (PDF)</Text>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de inspecciones (PDF)</Text>
           </TouchableOpacity>
         </>
       ) : null}
       {bySupervisor.length === 0 ? (
-        <EmptyState title="Sin visitas este día" subtitle="Ningún supervisor marcó máquinas en la fecha elegida." />
+        <EmptyState title="Sin visitas este día" subtitle="Ningún inspector marcó máquinas en la fecha elegida." />
       ) : (
         bySupervisor.map(([name, list]) => {
           const s = summarize(list);
