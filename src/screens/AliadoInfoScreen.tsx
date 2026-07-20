@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Aliado } from '../types/database';
 import { qrPngDataUri, aliadoQrUrl } from '../lib/qr';
 import { carnetAliadoHtml, carnetAliadoFront, carnetAliadoStyles, CARNET_ALIADO_MM } from '../lib/carnet';
+import { fichaAliadoHtml } from '../lib/ficha';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -46,11 +47,11 @@ export default function AliadoInfoScreen(props: { aliadoId?: string; onExit?: ()
 
   const getSvg = async () => { try { return await qrPngDataUri(aliadoQrUrl(ali!.id), 420); } catch { return ''; } };
 
-  const carnetPdf = async () => {
+  // PDF = FICHA COMPLETA del aliado (todos los datos); la IMAGEN sigue siendo el carnet.
+  const fichaPdf = async () => {
     if (!ali) return;
-    const svg = await getSvg();
     const photoData = await urlToDataUri(ali.photo_url);
-    await exportPdf(carnetAliadoHtml(ali, { qrSvg: svg, photoOverride: photoData ?? undefined }), `Carnet Aliado - ${fullName(ali)}`);
+    await exportPdf(fichaAliadoHtml(ali, { photoDataUri: photoData ?? undefined }), `Ficha Aliado - ${fullName(ali)}`);
   };
 
   const carnetImagen = async () => {
@@ -146,13 +147,13 @@ export default function AliadoInfoScreen(props: { aliadoId?: string; onExit?: ()
         </Section>
       ) : null}
 
-      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>Descargar carnet (54 × 86 mm)</Text>
+      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>PDF = ficha completa (todos los datos) · Imagen = carnet (54 × 86 mm)</Text>
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-        <TouchableOpacity onPress={carnetPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 PDF</Text>
+        <TouchableOpacity onPress={fichaPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>📄 Ficha completa (PDF)</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={carnetImagen} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#059669' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Imagen (300 dpi)</Text>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Carnet (imagen)</Text>
         </TouchableOpacity>
       </View>
       <View style={{ height: spacing.lg }} />
