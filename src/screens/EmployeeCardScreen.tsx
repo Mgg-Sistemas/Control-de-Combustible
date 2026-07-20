@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Employee } from '../types/database';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
+import { fichaEmpleadoHtml } from '../lib/ficha';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -81,12 +82,12 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
     })();
   }, [employeeId]);
 
-  const carnetPdf = async () => {
+  // PDF = FICHA COMPLETA (todos los datos por secciones), no el carnet.
+  const fichaPdf = async () => {
     if (!emp) return;
-    let svg = '';
-    try { svg = await qrSvg(employeeQrUrl(emp.id), 220); } catch {}
-    const html = carnetHtml(emp, { companyName: emp.companyName, qrSvg: svg });
-    await exportPdf(html, `Carnet - ${fullName(emp)}`);
+    const photoData = await urlToDataUri(emp.photo_url);
+    const html = fichaEmpleadoHtml(emp, { companyName: emp.companyName, photoDataUri: photoData ?? undefined });
+    await exportPdf(html, `Ficha - ${fullName(emp)}`);
   };
 
   const carnetImagen = async () => {
@@ -217,13 +218,13 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         </TouchableOpacity>
       ) : null}
 
-      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>Descargar carnet (54 × 86 mm)</Text>
+      <Text style={{ color: FICHA.muted, fontSize: 12, marginTop: spacing.sm, textAlign: 'center' }}>PDF = ficha completa (todos los datos) · Imagen = carnet (54 × 86 mm)</Text>
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-        <TouchableOpacity onPress={carnetPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🪪 PDF</Text>
+        <TouchableOpacity onPress={fichaPdf} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: FICHA.brand }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>📄 Ficha completa (PDF)</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={carnetImagen} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#059669' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Imagen (300 dpi)</Text>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🖼️ Carnet (imagen)</Text>
         </TouchableOpacity>
       </View>
       <View style={{ height: spacing.lg }} />
