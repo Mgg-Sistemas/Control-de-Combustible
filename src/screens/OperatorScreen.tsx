@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
@@ -317,6 +318,10 @@ export default function OperatorScreen() {
       ) : (
         <EmptyState title="Elige tu máquina" subtitle="Toca “Cambiar máquina” para seleccionar la que vas a operar." />
       )}
+
+      {/* Seguridad: iniciar sesión con huella (disponible para todos los usuarios). */}
+      <SectionTitle>Seguridad</SectionTitle>
+      <BiometricToggle />
 
       {/* Escáner de QR: al detectar, selecciona esa máquina. */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>

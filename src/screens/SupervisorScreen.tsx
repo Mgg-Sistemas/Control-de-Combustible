@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -165,7 +166,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     const { data, error } = await saveVisit({
       machineryId: ci.id,
       supervisorId: uid || null,
-      supervisorName: fullName || 'Supervisor',
+      supervisorName: fullName || 'Inspector',
       visitDate: today,
       status: ciStatus,
       lat: gps?.lat ?? null,
@@ -269,7 +270,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>Supervisor</Text>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Inspector</Text>
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
@@ -319,6 +320,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
           </View>
         </>
       )}
+
+      {/* Seguridad: iniciar sesión con huella (disponible para todos los usuarios). */}
+      <SectionTitle>Seguridad</SectionTitle>
+      <BiometricToggle />
 
       {/* Escáner de QR → abre el check-in de esa máquina. */}
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>

@@ -11,7 +11,7 @@ import { useTheme } from '../theme/ThemeContext';
 const MODULE_NAV: Record<string, { label: string; route: string; icon: string; desc: string }> = {
   mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🛠️', desc: 'Averías por máquina y control de reparaciones' },
   operadores: { label: 'Operadores', route: 'Operadores', icon: '👷', desc: 'Jornadas de operadores (quién trabaja y en qué máquina)' },
-  supervision: { label: 'Supervisión', route: 'Supervision', icon: '🪖', desc: 'Rondas de supervisores: check-ins por máquina' },
+  supervision: { label: 'Inspecciones', route: 'Supervision', icon: '🪖', desc: 'Rondas de inspectores: check-ins por máquina' },
   equipos: { label: 'Catálogo (equipos)', route: 'Equipos', icon: '🚜', desc: 'Lista de máquinas' },
   mapa: { label: 'Mapa', route: 'Map', icon: '🗺️', desc: 'Ubicación de las máquinas' },
   reportes: { label: 'Reportes', route: 'Reports', icon: '📊', desc: 'Combustible y rondas (PDF)' },

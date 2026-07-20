@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, Loading } from '../components/ui';
+import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -434,6 +435,10 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
           </TouchableOpacity>
         </>
       ) : null}
+
+      {/* Seguridad: iniciar sesión con huella (disponible para todos los usuarios). */}
+      <SectionTitle>Seguridad</SectionTitle>
+      <BiometricToggle />
 
       <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>

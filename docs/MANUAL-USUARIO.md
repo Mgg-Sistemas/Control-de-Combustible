@@ -36,7 +36,7 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 
 > **Cambiar tu contraseña (todos los usuarios):** ya dentro del sistema puedes
 > cambiar tu clave cuando quieras. Administrador: **Más → Seguridad → "🔑 Cambiar
-> mi contraseña"**. Operador, Supervisor y Cocina: el botón **"🔑 Contraseña"**
+> mi contraseña"**. Operador, Inspector y Cocina: el botón **"🔑 Contraseña"**
 > arriba, junto a **Salir**. Escribe la nueva clave (mínimo 6 caracteres),
 > repítela y guarda. La próxima vez entras con la nueva.
 
@@ -101,7 +101,7 @@ Otras cosas que puedes hacer en cada máquina:
 - 🔳 **QR** — genera su código para identificarla rápido. La hoja del QR muestra el **nombre** de la
   máquina y su **serial** (o placa) — **no** la empresa. El QR queda **sellado con el serial** de la máquina: si más adelante **cambias el serial**, el QR impreso con el serial anterior **deja de funcionar** (al escanearlo solo sale el logo). Reimprime el QR para volver a activarlo con el nuevo serial. *Nota:* los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.
   - **🚫 Bloquear QR:** dentro del 🔳 QR hay un botón para **bloquear** ese QR. Al bloquearlo, quien lo escanee **solo verá el logo** (no puede registrar nada). Sirve para **matar un QR viejo o robado** sin tocar el serial. Con **✅ Desbloquear QR** vuelve a funcionar.
-  - **🏢 Restricción por empresa:** un **operador solo puede usar equipos de SU empresa**. Si un operador escanea el QR de una máquina de **otra empresa** e intenta identificarse, el sistema lo **bloquea** con un aviso ("Este equipo es de X, solo puedes usar equipos de tu empresa") y **no** lo deja iniciar jornada ni registrar nada. **El supervisor NO tiene esta restricción:** puede escanear **cualquier** máquina y marcarla **Operativa/No** (check-in de supervisión).
+  - **🏢 Restricción por empresa:** un **operador solo puede usar equipos de SU empresa**. Si un operador escanea el QR de una máquina de **otra empresa** e intenta identificarse, el sistema lo **bloquea** con un aviso ("Este equipo es de X, solo puedes usar equipos de tu empresa") y **no** lo deja iniciar jornada ni registrar nada. **El inspector NO tiene esta restricción:** puede escanear **cualquier** máquina y marcarla **Operativa/No** (check-in de inspección).
 - 🪖 **Supervisor** — asigna quién la custodia (Empresa o Militar). Al escribir el nombre sale la lista de los ya usados para elegirlo rápido; cambiar de supervisor deja el anterior en el historial.
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
@@ -311,56 +311,59 @@ cambió** y la **fecha de retorno**. La máquina vuelve a **Operativa** automát
 La lista de operadores. Su vista es **sencilla a propósito**: solo lo que necesitan en el
 campo.
 
-### 4.8b. Supervisión (rondas de supervisores)
-Sirve para saber si los supervisores **sí están yendo a las máquinas** a revisar que estén
-trabajando. Cada supervisor entra con su usuario (**rol Supervisor**) y su pantalla principal es
+### 4.8b. Inspecciones (rondas de inspectores)
+Sirve para saber si los inspectores **sí están yendo a las máquinas** a revisar que estén
+trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-**Cómo marca el supervisor una máquina (tres formas, las tres valen):**
-1. Entra con su cédula y contraseña (rol Supervisor). Cae en la pestaña **🪖 Revisar**.
+**Cómo marca el inspector una máquina (tres formas, las tres valen):**
+1. Entra con su cédula y contraseña (rol inspector). Cae en la pestaña **🪖 Revisar**.
 2. **Desde la lista:** busca la máquina y **tócala** (o toca **"📷 Escanear QR"** si la tiene
    pegada). **Ya no hace falta el QR físico** para marcarla.
 3. **Escaneando el QR con la CÁMARA del teléfono** (aunque no esté dentro del sistema): al abrir,
-   toca el botón azul **"🪖 SOY SUPERVISOR — ENTRAR"**, inicia sesión con su usuario y va
+   toca el botón azul **"🪖 SOY INSPECTOR — ENTRAR"**, inicia sesión con su usuario y va
    **directo** al check-in de esa máquina (no pasa por la identificación de operador).
 4. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
 5. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
 6. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
 
-> El supervisor puede marcar **cualquier** máquina (no tiene la restricción por empresa del
+> El inspector puede marcar **cualquier** máquina (no tiene la restricción por empresa del
 > operador). El operador, en cambio, solo puede usar equipos de **su** empresa.
 
 **👷 Iniciar la jornada del operador (si no tiene teléfono):** dentro del mismo check-in de la
-máquina, el supervisor puede arrancar la jornada del operador con **su** teléfono:
+máquina, el inspector puede arrancar la jornada del operador con **su** teléfono:
 1. Toca **"📷 Escanear carnet del operador"** y lee el **QR del carnet** del operador.
 2. El sistema valida que sea **operador/chofer/servicios generales/obrero** de la nómina y que tenga cédula.
-3. El supervisor **coteja la cédula** (debe coincidir con el carnet) e ingresa el **horómetro inicial**.
+3. El inspector **coteja la cédula** (debe coincidir con el carnet) e ingresa el **horómetro inicial**.
 4. Toca **"🟢 Iniciar jornada del operador"**. Queda registrada la jornada en esa máquina (con las
    mismas reglas: 1 máquina por operador al día y máximo 2 operadores por turno) y la marca de
-   quién la registró (el supervisor). La ubicación del supervisor queda como punto de inicio.
+   quién la registró (el inspector). La ubicación del inspector queda como punto de inicio.
 
-> Antes el supervisor **solo** podía marcar escaneando el QR físico de cada máquina; ahora su
+> Antes el inspector **solo** podía marcar escaneando el QR físico de cada máquina; ahora su
 > pantalla **🪖 Revisar** lista todas las máquinas y puede marcar cualquiera directo. El check-in
-> aparece de inmediato en el módulo **Supervisión** (Traza por supervisor) y **valida la jornada**.
+> aparece de inmediato en el módulo **Inspecciones** (Traza por inspector) y **valida la jornada**.
+
+> **Inspector asignado:** el inspector que hizo el **último check-in** de una máquina queda como su
+> **inspector asignado** y se muestra en el **Catálogo** y en **Control de maquinaria** (🪖 Inspector: nombre).
 
 > La cercanía es **amplia a propósito** (unos 300 m): si la máquina está trabajando y no se
 > puede interrumpir, basta con estar "más o menos cerca". Si está lejos, igual se guarda pero
 > queda marcado **"lejos ⚠️"**.
 
-> **REGLA IMPORTANTE:** si el supervisor **NO marca** una máquina que trabajó ese día, esa
+> **REGLA IMPORTANTE:** si el inspector **NO marca** una máquina que trabajó ese día, esa
 > jornada queda **"sin validar"** y **el operador no cobra**.
 
-**Módulo "Supervisión" (para el jefe, en Más):** muestra por día quién marcó cada máquina, a
+**Módulo "Inspecciones" (para el jefe, en Más):** muestra por día quién marcó cada máquina, a
 qué hora, con qué estado y qué tan cerca estaba, y sobre todo la lista de **"⛔ Jornadas sin
-validar"** (máquinas que trabajaron pero que ningún supervisor marcó). Con las flechas ◀ ▶
-cambias de día. En **"Traza por supervisor"** puedes **tocar cualquier máquina** de la lista y
+validar"** (máquinas que trabajaron pero que ningún inspector marcó). Con las flechas ◀ ▶
+cambias de día. En **"Traza por inspector"** puedes **tocar cualquier máquina** de la lista y
 te lleva a su **ficha en el Catálogo** (con todos sus datos y acciones); el **›** al final de
 cada renglón indica que es clickeable.
 
-Cada supervisor trae un **resumen de cercanía** para saber qué tan confiables fueron sus rondas:
+Cada inspector trae un **resumen de cercanía** para saber qué tan confiables fueron sus rondas:
 **✓ en sitio** (estuvo cerca, dentro de ~300 m), **⚠️ lejos** (marcó sin estar al lado) y
-**• sin GPS** (no se pudo verificar). El botón **"📄 Reporte de supervisión (PDF)"** genera el
-informe del día con ese resumen por supervisor, el detalle de cada visita (hora, máquina,
+**• sin GPS** (no se pudo verificar). El botón **"📄 Reporte de inspecciones (PDF)"** genera el
+informe del día con ese resumen por inspector, el detalle de cada visita (hora, máquina,
 empresa, estado y ubicación) y las jornadas sin validar.
 
 ### 4.8c. Distribución de comida
@@ -467,12 +470,15 @@ pasárselo al jefe. Así todo queda trazado: quién lo pidió, quién lo aprobó
 **🔁 Trasladar** y **📋 Realizados**.
 - **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el
   **Destino** (máquina + responsable), el **📍 lugar/obra** a donde va, el **estado del material**
-  (**usado / lleno / dañado**) y un motivo opcional. Al **generar**, se abre la vista previa del PDF;
+  (**usado / lleno / vacío / dañado**) y un motivo opcional. Al **generar**, se abre la vista previa del PDF;
   al **confirmar**, se **descuenta del inventario** y queda guardado el traslado. Si cancelas, no se
   descuenta nada.
 - **Realizados:** ves la lista de traslados. En cada uno tocas **"↩️ Retornar al inventario"**:
-  indicas el **estado** con que vuelve (usado/dañado/lleno) y **cuánto queda disponible**, y eso
+  indicas el **estado** con que vuelve (usado/dañado/lleno/vacío) y **cuánto queda disponible**, y eso
   **reingresa la cantidad al almacén** (queda como entrada, sin cambiar el costo promedio).
+- **📄 Reporte:** el botón **"📄 Reporte"** (arriba, visible en ambas vistas) genera un **PDF con
+  todos los traslados** —de cualquier estatus— con fecha, origen → destino, lugar, estado, materiales
+  y si ya se **retornaron** o siguen **en destino**.
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
@@ -512,7 +518,7 @@ especial). Un usuario con rol especial ve **SOLO** los módulos de ese rol (no v
 
 > Vienen listos 3 roles: **Coordinador de Mantenimiento Preventivo**, **Coordinador de
 > Mantenimiento Correctivo** (ambos ven *Mantenimiento de Maquinaria*) y **Coordinador de
-> Operadores** (ve *Supervisión* + *Operadores*: si los supervisores hacen sus check-ins y si los
+> Operadores** (ve *Inspecciones* + *Operadores*: si los inspectores hacen sus check-ins y si los
 > operadores están trabajando).
 
 ---

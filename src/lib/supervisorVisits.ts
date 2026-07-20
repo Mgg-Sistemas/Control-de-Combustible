@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, selectAllRows } from './supabase';
 import { SupervisorVisit, VisitStatus } from '../types/database';
 
 /**
@@ -84,6 +84,22 @@ export async function listVisits(fromDate: string, toDate?: string): Promise<Vis
     machineSerial: v.machine?.serial ?? null,
     companyName: v.machine?.company?.name ?? 'Sin empresa',
   }));
+}
+
+/** Inspector "asignado" a una máquina = quien hizo el ÚLTIMO check-in (visita). */
+export type InspectorInfo = { name: string; date: string; status: VisitStatus; near: boolean | null };
+export async function latestInspectorByMachine(): Promise<Record<string, InspectorInfo>> {
+  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_name, visit_date, visited_at, status, near');
+  const acc: Record<string, InspectorInfo & { _ts: string }> = {};
+  (rows ?? []).forEach((v: any) => {
+    const cur = acc[v.machinery_id];
+    if (!cur || String(v.visited_at) > cur._ts) {
+      acc[v.machinery_id] = { name: v.supervisor_name, date: v.visit_date, status: v.status, near: v.near, _ts: v.visited_at };
+    }
+  });
+  const out: Record<string, InspectorInfo> = {};
+  Object.entries(acc).forEach(([k, v]) => { out[k] = { name: v.name, date: v.date, status: v.status, near: v.near }; });
+  return out;
 }
 
 /** IDs de máquinas visitadas en un día (para saber cuáles están validadas). */
