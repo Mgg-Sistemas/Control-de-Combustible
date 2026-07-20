@@ -1109,6 +1109,64 @@ alter table public.inventory_transfers enable row level security;
 drop policy if exists invtr_all on public.inventory_transfers;
 create policy invtr_all on public.inventory_transfers for all to authenticated using (true) with check (true);
 
+-- Traslado: lugar/estado del material y RETORNO al inventario.
+alter table public.inventory_transfers add column if not exists lugar text;            -- lugar/obra a donde se hizo el traslado
+alter table public.inventory_transfers add column if not exists estado text;           -- condición al trasladar: usado|lleno|dañado
+alter table public.inventory_transfers add column if not exists returned boolean not null default false;
+alter table public.inventory_transfers add column if not exists returned_at timestamptz;
+alter table public.inventory_transfers add column if not exists return_note text;       -- resumen del retorno (estado + cantidades)
+
+-- ============================================================================
+-- TASA BCV (Bs/US$): una fila por día (compartida), con histórico. Se baja del
+-- BCV automáticamente (o se fija a mano). Sirve para mostrar los precios del
+-- inventario en $ y en Bs al cambio del día.
+-- ============================================================================
+create table if not exists public.bcv_rates (
+  rate_date  date primary key,
+  rate       numeric not null,               -- Bs por 1 US$
+  source     text default 'BCV',             -- 'BCV' (automática) | 'manual'
+  created_at timestamptz not null default now()
+);
+alter table public.bcv_rates enable row level security;
+drop policy if exists bcv_select on public.bcv_rates;
+create policy bcv_select on public.bcv_rates for select to authenticated using (true);
+drop policy if exists bcv_write on public.bcv_rates;
+create policy bcv_write on public.bcv_rates for all to authenticated using (true) with check (true);
+
+-- ============================================================================
+-- REQUERIMIENTOS DE COMPRA: lista de productos (del inventario o NUEVOS) que se
+-- pasa al jefe para que APRUEBE o RECHACE la compra. Si se compra, se RECIBE en
+-- el inventario (genera entradas con el precio real). Estados:
+--   pendiente → aprobado | rechazado ; aprobado → recibido
+-- Los ítems van en JSONB: [{product_id, name, unit, qty, est_price, currency, note, received}]
+-- ============================================================================
+create table if not exists public.inventory_requirements (
+  id            uuid primary key default gen_random_uuid(),
+  code          text,                          -- REQ-#### (correlativo, se arma en la app)
+  title         text,
+  note          text,
+  status        text not null default 'pendiente', -- pendiente|aprobado|rechazado|recibido
+  items         jsonb not null default '[]'::jsonb,
+  requested_by  uuid references public.profiles(id) on delete set null,
+  requested_by_name text,
+  decided_by    uuid references public.profiles(id) on delete set null,
+  decided_by_name text,
+  decided_at    timestamptz,
+  decision_note text,
+  received_at   timestamptz,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_invreq_status on public.inventory_requirements(status);
+create index if not exists idx_invreq_created on public.inventory_requirements(created_at);
+alter table public.inventory_requirements enable row level security;
+-- Cualquiera con escritura en inventario puede crear/editar sus requerimientos;
+-- la APROBACIÓN (solo admins) se controla en la app.
+drop policy if exists invreq_select on public.inventory_requirements;
+create policy invreq_select on public.inventory_requirements for select to authenticated using (true);
+drop policy if exists invreq_write on public.inventory_requirements;
+create policy invreq_write on public.inventory_requirements for all to authenticated
+  using (public.can_write_module('inventario')) with check (public.can_write_module('inventario'));
+
 -- Al escanear el QR se entra SIN login (sesión anónima). Los operadores NO tienen
 -- usuario: solo quedan registrados aquí (operator_assignments). Se dan permisos
 -- QUIRÚRGICOS a la sesión anónima para lo que hace el operador desde el QR.

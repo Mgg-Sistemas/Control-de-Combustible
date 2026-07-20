@@ -457,7 +457,52 @@ export interface InventoryTransfer {
   motivo: string | null;
   items: InventoryTransferLine[];
   descontado: boolean;
+  lugar: string | null;             // lugar/obra a donde se hizo el traslado
+  estado: string | null;            // condición al trasladar: usado|lleno|dañado
+  returned: boolean;                // ya se retornó al inventario
+  returned_at: string | null;
+  return_note: string | null;
   created_by: string | null;
+  created_at: string;
+}
+
+/** Tasa BCV (Bs por 1 US$) de un día. */
+export interface BcvRate {
+  rate_date: string;
+  rate: number;
+  source: string | null;            // 'BCV' (automática) | 'manual'
+  created_at?: string;
+}
+
+/** Renglón de un requerimiento de compra (guardado en JSONB). */
+export interface RequirementLine {
+  product_id: string | null;        // producto del inventario, o null si es NUEVO
+  name: string;
+  unit: string | null;
+  qty: number;
+  est_price: number;                // precio estimado unitario (en la moneda indicada)
+  currency: 'USD' | 'VES';          // moneda del precio estimado
+  note?: string | null;
+  received?: boolean;               // ya se recibió en inventario
+}
+
+export type RequirementStatus = 'pendiente' | 'aprobado' | 'rechazado' | 'recibido';
+
+/** Requerimiento de compra: se pasa al jefe para aprobar/rechazar; si se compra, se recibe. */
+export interface InventoryRequirement {
+  id: string;
+  code: string | null;
+  title: string | null;
+  note: string | null;
+  status: RequirementStatus;
+  items: RequirementLine[];
+  requested_by: string | null;
+  requested_by_name: string | null;
+  decided_by: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  received_at: string | null;
   created_at: string;
 }
 

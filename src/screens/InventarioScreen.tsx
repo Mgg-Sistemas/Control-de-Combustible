@@ -4,15 +4,17 @@ import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Accord
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal } from '../lib/text';
-import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee } from '../types/database';
+import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
-import { cotizacionHtml, CotizItem } from '../lib/cotizacion';
+import { requerimientoHtml } from '../lib/requerimiento';
+import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -163,7 +165,13 @@ function CategoryPicker({ value, onChange, colors }: { value: string; onChange: 
 // ── Existencias ──────────────────────────────────────────────────────────────
 function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
+  const confirm = useConfirm();
+  const isAdmin = role === 'admin';
+  const { rate, date: rateDate, source: rateSource, loading: rateLoading, refresh: refreshRate, setManual: setRateManual } = useBcvRate();
+  const [rateEdit, setRateEdit] = useState('');       // input de tasa manual
+  const [rateBusy, setRateBusy] = useState(false);
+  const [initCostCur, setInitCostCur] = useState<'USD' | 'VES'>('USD'); // moneda del costo al crear/editar
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
@@ -210,14 +218,35 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setEstado(it.estado || '');
     setEditStock0(Number(it.stock) || 0);
     setEditQty(String(Number(it.stock) || 0)); // cantidad actual (editable)
-    // Costo unitario (PMP) prellenado, editable.
+    // Costo unitario (PMP) prellenado, editable (en US$, la moneda base).
     setInitCost(it.avg_cost != null ? String(it.avg_cost) : '');
+    setInitCostCur('USD');
     setOpen(true);
+  };
+
+  // Elimina un producto y TODO su historial de movimientos (on delete cascade).
+  const eliminar = async () => {
+    if (!editingId) return;
+    const ok = await confirm({
+      title: 'Eliminar producto',
+      message: `¿Seguro que quieres ELIMINAR "${name}"?\n\nSe borrará el producto y todo su historial de movimientos (entradas, salidas, ajustes). Esta acción no se puede deshacer.`,
+      confirmText: 'Sí, eliminar', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    const { error } = await supabase.from('inventory_items').delete().eq('id', editingId);
+    setBusy(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setOpen(false); setEditingId(null); setName(''); setInitCost(''); setEstado(''); setEditQty('');
+    refetch();
+    Alert.alert('Listo', 'Producto eliminado del inventario.');
   };
 
   const crear = async () => {
     if (!name.trim()) return Alert.alert('Aviso', 'Escribe el nombre del material.');
     const cleanName = name.trim().toUpperCase();
+    // Costo unitario en US$ (base): si se ingresó en Bs, se convierte con la tasa del día.
+    const costUsd = Math.round((initCostCur === 'USD' ? parseNum(initCost) : usdFromBs(parseNum(initCost), rate || 0)) * 10000) / 10000;
     // Evita duplicados por nombre (excluyendo el que se está editando).
     if (levels.some((it) => norm(it.name) === norm(cleanName) && it.id !== editingId)) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
     // ── EDICIÓN ──
@@ -225,7 +254,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       setBusy(true);
       const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null };
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
-      if (initCost.trim() !== '') patch.avg_cost = parseNum(initCost);
+      if (initCost.trim() !== '') patch.avg_cost = costUsd;
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
       if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
       // Cantidad: si cambió, se ajusta con un movimiento de AJUSTE (delta = nueva − actual).
@@ -256,7 +285,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const qi = parseNum(initStock);
     if (qi > 0) {
       const { error: mErr } = await supabase.from('inventory_movements').insert({
-        item_id: ins.id, kind: 'entrada', qty: qi, unit_cost: parseNum(initCost) || 0,
+        item_id: ins.id, kind: 'entrada', qty: qi, unit_cost: costUsd || 0,
         reason: 'INVENTARIO INICIAL', company_id: null, created_by: session?.user?.id ?? null,
       });
       if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
@@ -269,7 +298,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   // Abre el modal calculando el próximo SKU incremental para mostrarlo.
   const openCreate = async () => {
     setEditingId(null);
-    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setEstado(''); setEditQty('');
+    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setEditQty('');
     const { data } = await supabase.from('inventory_items').select('sku');
     setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
     setOpen(true);
@@ -409,6 +438,30 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </View>
 
+      {/* Tasa BCV del día (Bs/US$). Precios del inventario visibles en $ y Bs. */}
+      <View style={{ borderWidth: 1, borderColor: '#0F766E', borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>💵 TASA BCV DEL DÍA</Text>
+            <Text style={{ color: '#0F766E', fontSize: 16, fontWeight: '900' }}>
+              {rateLoading ? 'Cargando…' : rate ? `${fmtBs(rate)} / US$` : 'Sin tasa'}
+              {rate ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '600' }}>  ({rateSource === 'manual' ? 'manual' : 'BCV'})</Text> : null}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={async () => { setRateBusy(true); try { await refreshRate(); } catch { Alert.alert('Aviso', 'No se pudo actualizar la tasa del BCV. Puedes fijarla a mano.'); } setRateBusy(false); }} disabled={rateBusy} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{rateBusy ? '…' : '🔄 Actualizar'}</Text>
+          </TouchableOpacity>
+        </View>
+        {isAdmin ? (
+          <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginTop: spacing.xs }}>
+            <TextInput value={rateEdit} onChangeText={(t) => setRateEdit(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Fijar tasa a mano (Bs/$)" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+            <TouchableOpacity onPress={async () => { const v = parseNum(rateEdit); if (v <= 0) return Alert.alert('Aviso', 'Escribe una tasa válida.'); await setRateManual(v); setRateEdit(''); }} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Fijar</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
+
       <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
         <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto…" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
         {canWrite ? (
@@ -454,6 +507,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                       <View>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>PMP (costo promedio)</Text>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd(it.avg_cost)}</Text>
+                        {rate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{fmtBs(bsFromUsd(Number(it.avg_cost) || 0, rate))}</Text> : null}
                       </View>
                       <View style={{ alignItems: 'center' }}>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>SKU</Text>
@@ -462,6 +516,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>VALOR EN STOCK</Text>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
+                        {rate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{fmtBs(bsFromUsd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0), rate))}</Text> : null}
                       </View>
                     </View>
                     {canWrite ? (
@@ -521,8 +576,14 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                     <TextInput value={editQty} onChangeText={(t) => setEditQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario (PMP)</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Costo unit. ({initCostCur === 'USD' ? 'US$' : 'Bs'})</Text>
+                      <TouchableOpacity onPress={() => setInitCostCur(initCostCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{initCostCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                    {parseNum(initCost) > 0 && rate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {initCostCur === 'USD' ? fmtBs(bsFromUsd(parseNum(initCost), rate)) : usd(usdFromBs(parseNum(initCost), rate))}</Text> : null}
                   </View>
                 </View>
                 {parseNum(editQty) !== editStock0 ? (
@@ -541,17 +602,28 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   <TextInput value={initStock} onChangeText={(t) => setInitStock(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Costo unitario</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Costo unit. ({initCostCur === 'USD' ? 'US$' : 'Bs'})</Text>
+                    <TouchableOpacity onPress={() => setInitCostCur(initCostCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{initCostCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
+                    </TouchableOpacity>
+                  </View>
                   <TextInput value={initCost} onChangeText={(t) => setInitCost(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                  {parseNum(initCost) > 0 && rate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {initCostCur === 'USD' ? fmtBs(bsFromUsd(parseNum(initCost), rate)) : usd(usdFromBs(parseNum(initCost), rate))}</Text> : null}
                 </View>
               </View>
-              {parseNum(initStock) > 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Valor inicial: {usd(parseNum(initStock) * parseNum(initCost))}</Text> : null}
+              {parseNum(initStock) > 0 ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Valor inicial: {usd(parseNum(initStock) * (initCostCur === 'USD' ? parseNum(initCost) : usdFromBs(parseNum(initCost), rate || 0)))}</Text> : null}
             </Card>
             )}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity onPress={() => { setOpen(false); setEditingId(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{busy ? 'Guardando…' : (editingId ? 'Guardar cambios' : 'Guardar')}</Text></TouchableOpacity>
             </View>
+            {editingId && canWrite ? (
+              <TouchableOpacity onPress={eliminar} disabled={busy} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+                <Text style={{ color: colors.danger, fontWeight: '800' }}>🗑 Eliminar producto</Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
         </Screen>
       </Modal>
@@ -905,130 +977,335 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   );
 }
 
-// ── Cotización ───────────────────────────────────────────────────────────────
-type CotizRow = { key: string; codigo: string; referencia: string; descripcion: string; cant: string; precio: string };
-function CotizacionTab() {
+// ── Requerimiento de compra ──────────────────────────────────────────────────
+// Lista de productos (del inventario o NUEVOS) que se pasa al jefe para que
+// APRUEBE o RECHACE la compra. Si se compra, se RECIBE en el inventario (genera
+// entradas con el precio real). Solo los administradores aprueban/rechazan/reciben.
+type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string };
+const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
+  pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
+  aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
+  rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
+  recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
+};
+function nextReqCode(codes: (string | null | undefined)[]): string {
+  let max = 0;
+  codes.forEach((c) => { const m = String(c ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; } });
+  return 'REQ-' + String(max + 1).padStart(4, '0');
+}
+const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+
+function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
+  const { session, role } = useAuth();
+  const isAdmin = role === 'admin';
+  const uid = session?.user?.id ?? null;
+  const { rate } = useBcvRate();
+  const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
 
-  const [cliente, setCliente] = useState('');
-  const [rif, setRif] = useState('');
-  const [dir, setDir] = useState('');
-  const [numero, setNumero] = useState('');
-  const [condPago, setCondPago] = useState('CONTADO');
-  const [moneda, setMoneda] = useState('Dólares');
-  const [iva, setIva] = useState('0'); // MONTO del IVA (lo coloca el usuario)
-  const [rows, setRows] = useState<CotizRow[]>([]);
+  // Crear requerimiento
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [note, setNote] = useState('');
+  const [rows, setRows] = useState<ReqRow[]>([]);
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Recibir en inventario
+  const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
+  const [recvRows, setRecvRows] = useState<{ product_id: string | null; name: string; unit: string | null; qty: string; price: string; currency: 'USD' | 'VES' }[]>([]);
+  const [recvBusy, setRecvBusy] = useState(false);
+
+  const inp = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+
   let seq = 0;
   const newKey = () => `${Date.now()}-${seq++}-${rows.length}`;
-  const addBlank = () => setRows((r) => [...r, { key: newKey(), codigo: '', referencia: '', descripcion: '', cant: '1', precio: '0' }]);
+  const addBlank = () => setRows((r) => [...r, { key: newKey(), product_id: null, name: '', unit: '', qty: '1', price: '0', currency: 'USD', note: '' }]);
   const addFromProduct = (it: InventoryLevel) => {
-    setRows((r) => [...r, { key: newKey(), codigo: it.sku || '', referencia: '', descripcion: it.name, cant: '1', precio: String(Number(it.avg_cost) || 0) }]);
+    setRows((r) => [...r, { key: newKey(), product_id: it.id, name: it.name, unit: it.unit || '', qty: '1', price: String(Number(it.avg_cost) || 0), currency: 'USD', note: '' }]);
     setPickOpen(false); setQ('');
   };
-  const upd = (key: string, field: keyof CotizRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
+  const upd = (key: string, field: keyof ReqRow, val: string) => setRows((r) => r.map((x) => (x.key === key ? { ...x, [field]: val } : x)));
   const rm = (key: string) => setRows((r) => r.filter((x) => x.key !== key));
-
-  const base = rows.reduce((s, x) => s + (parseNum(x.cant) * parseNum(x.precio)), 0);
-  const ivaN = parseNum(iva); // monto del IVA (lo coloca el usuario)
-  const total = base + ivaN;
 
   const nq = norm(q);
   const productos = levels.filter((it) => !nq || norm(it.name).includes(nq) || norm(it.sku ?? '').includes(nq)).slice(0, 25);
 
-  const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
-
-  const generar = async () => {
-    if (!cliente.trim()) return Alert.alert('Aviso', 'Escribe el nombre del cliente.');
-    const items: CotizItem[] = rows.filter((x) => x.descripcion.trim()).map((x) => ({ codigo: x.codigo.trim() || null, referencia: x.referencia.trim() || null, descripcion: x.descripcion.trim(), cant: parseNum(x.cant), precio: parseNum(x.precio) }));
-    if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un ítem con descripción.');
-    setBusy(true);
-    try {
-      await exportPdf(cotizacionHtml({ numero: numero.trim() || null, fecha: todayDMY(), cliente: cliente.trim(), clienteRif: rif.trim() || null, clienteDir: dir.trim() || null, condicionPago: condPago.trim() || null, moneda: moneda.trim() || null, ivaMonto: parseNum(iva), items }), `Cotizacion ${numero.trim() || todayDMY()}`);
-    } catch (e: any) { setBusy(false); return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
-    setBusy(false);
+  const perfilNombre = async (): Promise<string | null> => {
+    if (!uid) return null;
+    const { data } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
+    return (data as any)?.full_name ?? null;
   };
 
-  const inp = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+  const crear = async () => {
+    const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
+      product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
+      qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
+    }));
+    if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto (del inventario o nuevo).');
+    setBusy(true);
+    const { data: codeRows } = await supabase.from('inventory_requirements').select('code');
+    const code = nextReqCode((codeRows ?? []).map((r: any) => r.code));
+    const reqName = await perfilNombre();
+    const { error } = await supabase.from('inventory_requirements').insert({
+      code, title: title.trim() || null, note: note.trim() || null, status: 'pendiente', items,
+      requested_by: uid, requested_by_name: reqName,
+    });
+    setBusy(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    setCreateOpen(false); setTitle(''); setNote(''); setRows([]);
+    refetch();
+    Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
+  };
+
+  const decidir = async (r: InventoryRequirement, status: 'aprobado' | 'rechazado') => {
+    const decName = await perfilNombre();
+    const { error } = await supabase.from('inventory_requirements').update({
+      status, decided_by: uid, decided_by_name: decName, decided_at: nowISO(),
+    }).eq('id', r.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    refetch();
+  };
+
+  // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
+  const abrirRecibir = (r: InventoryRequirement) => {
+    setRecvFor(r);
+    setRecvRows(r.items.map((it) => ({ product_id: it.product_id, name: it.name, unit: it.unit, qty: String(it.qty), price: String(it.est_price || 0), currency: it.currency || 'USD' })));
+  };
+
+  const recibir = async () => {
+    if (!recvFor) return;
+    for (const it of recvRows) { if (parseNum(it.qty) <= 0) return Alert.alert('Aviso', `Indica la cantidad recibida de "${it.name}".`); }
+    setRecvBusy(true);
+    // SKU incremental para los productos NUEVOS.
+    const { data: skuRows } = await supabase.from('inventory_items').select('sku');
+    let maxN = 0;
+    (skuRows ?? []).forEach((r: any) => { const m = String(r.sku ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > maxN) maxN = n; } });
+    const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
+    try {
+      for (const it of recvRows) {
+        let itemId = it.product_id;
+        if (!itemId) { // producto NUEVO: se crea a raíz del requerimiento
+          maxN += 1;
+          const { data: ins, error } = await supabase.from('inventory_items')
+            .insert({ name: it.name.toUpperCase(), unit: it.unit || null, sku: pad(maxN), category: 'otros', min_stock: 0, machinery_id: null, company_id: null })
+            .select('id').single();
+          if (error) throw error;
+          itemId = ins.id;
+        }
+        const priceUsd = it.currency === 'USD' ? parseNum(it.price) : usdFromBs(parseNum(it.price), rate || 0);
+        const { error: mErr } = await supabase.from('inventory_movements').insert({
+          item_id: itemId, kind: 'entrada', qty: parseNum(it.qty), unit_cost: Math.round((priceUsd || 0) * 10000) / 10000,
+          reason: `RECIBIDO DE REQUERIMIENTO ${recvFor.code ?? ''}`.trim(), company_id: null, created_by: uid,
+        });
+        if (mErr) throw mErr;
+      }
+      const items2 = recvFor.items.map((it) => ({ ...it, received: true }));
+      const { error: uErr } = await supabase.from('inventory_requirements').update({ status: 'recibido', received_at: nowISO(), items: items2 }).eq('id', recvFor.id);
+      if (uErr) throw uErr;
+      setRecvBusy(false); setRecvFor(null); setRecvRows([]);
+      refetch();
+      Alert.alert('Listo', 'Recibido en el inventario. Las entradas quedaron registradas con su precio.');
+    } catch (e: any) {
+      setRecvBusy(false);
+      Alert.alert('Aviso', e?.message ?? 'No se pudo recibir en inventario.');
+    }
+  };
+
+  const totalUsdDe = (r: InventoryRequirement) => r.items.reduce((s, it) => s + (it.currency === 'USD' ? Number(it.est_price) || 0 : usdFromBs(Number(it.est_price) || 0, rate || 0)) * (Number(it.qty) || 0), 0);
+
+  const pdf = async (r: InventoryRequirement) => {
+    try {
+      await exportPdf(requerimientoHtml({
+        code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
+        requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
+      }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
+    } catch (e: any) { Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
+  };
+
+  const createTotalUsd = rows.reduce((s, x) => s + (x.currency === 'USD' ? parseNum(x.price) : usdFromBs(parseNum(x.price), rate || 0)) * parseNum(x.qty), 0);
+
+  if (loading) return <Screen><Loading /></Screen>;
 
   return (
     <Screen>
       <ConfigBanner />
-      <SectionTitle>Cotización</SectionTitle>
-
-      <Card>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cliente</Text>
-        <TextInput value={cliente} onChangeText={(t) => setCliente(t.toUpperCase())} autoCapitalize="characters" placeholder="NOMBRE DEL CLIENTE" placeholderTextColor={colors.muted} style={inp} />
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>R.I.F</Text><TextInput value={rif} onChangeText={(t) => setRif(t.toUpperCase())} placeholder="J-..." placeholderTextColor={colors.muted} style={inp} /></View>
-          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>N° cotización</Text><TextInput value={numero} onChangeText={setNumero} placeholder="Opcional" placeholderTextColor={colors.muted} style={inp} /></View>
-        </View>
-        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Dirección (opcional)</Text>
-        <TextInput value={dir} onChangeText={setDir} placeholder="Dirección del cliente" placeholderTextColor={colors.muted} style={inp} />
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Condición de pago</Text><TextInput value={condPago} onChangeText={(t) => setCondPago(t.toUpperCase())} style={inp} /></View>
-          <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Moneda</Text><TextInput value={moneda} onChangeText={setMoneda} style={inp} /></View>
-          <View style={{ width: 100 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>IVA (monto)</Text><TextInput value={iva} onChangeText={(t) => setIva(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0.00" placeholderTextColor={colors.muted} style={inp} /></View>
-        </View>
-      </Card>
-
-      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-        <TouchableOpacity onPress={() => setPickOpen((v) => !v)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📦 Traer del inventario</Text></TouchableOpacity>
-        <TouchableOpacity onPress={addBlank} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>＋ Línea libre</Text></TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <SectionTitle>Requerimientos</SectionTitle>
+        {canWrite ? (
+          <TouchableOpacity onPress={() => { setTitle(''); setNote(''); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+        Pide productos del inventario o nuevos para que el jefe apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
+      </Text>
 
-      {pickOpen ? (
-        <Card>
-          <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto por nombre o SKU…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
-          <View style={{ maxHeight: 200 }}>
-            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-              {productos.map((it) => (
-                <TouchableOpacity key={it.id} onPress={() => addFromProduct(it)} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{it.name}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>{it.sku ? `${it.sku} · ` : ''}PMP {usd(it.avg_cost)}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </Card>
-      ) : null}
+      {reqs.length === 0 ? (
+        <EmptyState title="Sin requerimientos" subtitle="Crea uno con ➕ Nuevo para pasárselo al jefe." />
+      ) : reqs.map((r) => {
+        const st = REQ_STATUS[r.status] ?? REQ_STATUS.pendiente;
+        const tUsd = totalUsdDe(r);
+        return (
+          <ExpandableCard
+            key={r.id}
+            summary={
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
+                </View>
+                <Pill label={st.label} color={st.color} />
+              </View>
+            }
+            detail={
+              <View>
+                {r.items.map((it, i) => (
+                  <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.name} {it.product_id ? '' : <Text style={{ color: '#0F766E', fontSize: 11 }}>· NUEVO</Text>}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{qtyFmt(it.qty)} {it.unit || ''} · {it.currency === 'USD' ? usd(it.est_price) : fmtBs(it.est_price)} c/u</Text>
+                    </View>
+                  </View>
+                ))}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '900' }}>{usd(tUsd)}{rate ? ` · ${fmtBs(bsFromUsd(tUsd, rate))}` : ''}</Text>
+                </View>
+                {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: '#2563EB', fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
+                {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: '#DC2626', fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
+                {r.status === 'recibido' ? <Text style={{ color: '#16A34A', fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
 
-      {rows.map((x) => (
-        <Card key={x.key}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <Text style={{ color: colors.muted, fontSize: 11 }}>Ítem</Text>
-            <TouchableOpacity onPress={() => rm(x.key)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑 Quitar</Text></TouchableOpacity>
-          </View>
-          <TextInput value={x.descripcion} onChangeText={(t) => upd(x.key, 'descripcion', t)} placeholder="Descripción" placeholderTextColor={colors.muted} style={inp} />
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6 }}>
-            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Código</Text><TextInput value={x.codigo} onChangeText={(t) => upd(x.key, 'codigo', t)} style={inp} /></View>
-            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Referencia</Text><TextInput value={x.referencia} onChangeText={(t) => upd(x.key, 'referencia', t)} style={inp} /></View>
-          </View>
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
-            <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.cant} onChangeText={(t) => upd(x.key, 'cant', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
-            <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio unit.</Text><TextInput value={x.precio} onChangeText={(t) => upd(x.key, 'precio', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
-            <View style={{ alignItems: 'flex-end', minWidth: 80 }}><Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text><Text style={{ color: colors.text, fontWeight: '800' }}>{usd(parseNum(x.cant) * parseNum(x.precio))}</Text></View>
-          </View>
-        </Card>
-      ))}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+                  <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
+                  </TouchableOpacity>
+                  {isAdmin && r.status === 'pendiente' ? (
+                    <>
+                      <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => decidir(r, 'rechazado')} style={{ backgroundColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>❌ Rechazar</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
+                  {isAdmin && r.status === 'aprobado' ? (
+                    <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: '#16A34A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
+                </View>
+              </View>
+            }
+          />
+        );
+      })}
 
-      {rows.length ? (
-        <Card>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>Base imponible</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(base)}</Text></View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.muted }}>I.V.A.</Text><Text style={{ color: colors.text, fontWeight: '700' }}>{usd(ivaN)}</Text></View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 4 }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL</Text><Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{usd(total)}</Text></View>
-        </Card>
-      ) : (
-        <EmptyState title="Sin ítems" subtitle="Trae productos del inventario o agrega líneas libres." />
-      )}
+      {/* ── Crear requerimiento ── */}
+      <Modal visible={createOpen} animationType="slide" onRequestClose={() => setCreateOpen(false)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>Nuevo requerimiento</SectionTitle>
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Título (opcional)</Text>
+              <TextInput value={title} onChangeText={setTitle} placeholder="EJ. REPUESTOS EXCAVADORA 320" placeholderTextColor={colors.muted} style={inp} />
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Nota / justificación (opcional)</Text>
+              <TextInput value={note} onChangeText={setNote} placeholder="Para qué se necesita…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 60, textAlignVertical: 'top' }]} />
+            </Card>
 
-      <TouchableOpacity onPress={generar} disabled={busy} style={{ backgroundColor: '#16324F', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.sm, marginBottom: spacing.lg, opacity: busy ? 0.6 : 1 }}>
-        <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '🧾 Generar cotización (PDF)'}</Text>
-      </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity onPress={() => setPickOpen((v) => !v)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📦 Del inventario</Text></TouchableOpacity>
+              <TouchableOpacity onPress={addBlank} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>＋ Producto nuevo</Text></TouchableOpacity>
+            </View>
+
+            {pickOpen ? (
+              <Card>
+                <TextInput value={q} onChangeText={setQ} placeholder="Buscar producto por nombre o SKU…" placeholderTextColor={colors.muted} style={[inp, { marginBottom: 6 }]} />
+                <View style={{ maxHeight: 200 }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {productos.map((it) => (
+                      <TouchableOpacity key={it.id} onPress={() => addFromProduct(it)} style={{ paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{it.name}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{it.sku ? `${it.sku} · ` : ''}Stock {qtyFmt(it.stock)} · PMP {usd(it.avg_cost)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </Card>
+            ) : null}
+
+            {rows.map((x) => {
+              const otra = x.currency === 'USD' ? fmtBs(bsFromUsd(parseNum(x.price), rate || 0)) : usd(usdFromBs(parseNum(x.price), rate || 0));
+              return (
+                <Card key={x.key}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: x.product_id ? colors.muted : '#0F766E', fontSize: 11, fontWeight: '700' }}>{x.product_id ? 'Del inventario' : 'Producto NUEVO'}</Text>
+                    <TouchableOpacity onPress={() => rm(x.key)}><Text style={{ color: colors.danger, fontWeight: '800' }}>🗑 Quitar</Text></TouchableOpacity>
+                  </View>
+                  <TextInput value={x.name} onChangeText={(t) => upd(x.key, 'name', t)} editable={!x.product_id} placeholder="Nombre del producto" placeholderTextColor={colors.muted} style={[inp, x.product_id ? { color: colors.muted } : null]} />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
+                    <View style={{ width: 64 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cant</Text><TextInput value={x.qty} onChangeText={(t) => upd(x.key, 'qty', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
+                    <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Unidad</Text><TextInput value={x.unit} onChangeText={(t) => upd(x.key, 'unit', t.toUpperCase())} placeholder="UND" placeholderTextColor={colors.muted} style={inp} /></View>
+                    <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio est.</Text><TextInput value={x.price} onChangeText={(t) => upd(x.key, 'price', onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
+                    <TouchableOpacity onPress={() => upd(x.key, 'currency', x.currency === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{x.currency === 'USD' ? '$' : 'Bs'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {parseNum(x.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+                </Card>
+              );
+            })}
+
+            {rows.length ? (
+              <Card>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><Text style={{ color: colors.text, fontWeight: '900' }}>TOTAL ESTIMADO</Text><Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{usd(createTotalUsd)}</Text></View>
+                {rate ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'right' }}>{fmtBs(bsFromUsd(createTotalUsd, rate))}</Text> : null}
+              </Card>
+            ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity onPress={() => setCreateOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Enviando…' : '📤 Enviar al jefe'}</Text></TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* ── Recibir en inventario ── */}
+      <Modal visible={!!recvFor} animationType="slide" onRequestClose={() => setRecvFor(null)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>Recibir en inventario</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Confirma la cantidad y el PRECIO REAL de compra de cada producto. Se registrará como ENTRADA (los nuevos se crean solos). {recvFor?.code ?? ''}</Text>
+            {recvRows.map((it, idx) => {
+              const otra = it.currency === 'USD' ? fmtBs(bsFromUsd(parseNum(it.price), rate || 0)) : usd(usdFromBs(parseNum(it.price), rate || 0));
+              return (
+                <Card key={idx}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{it.name} {it.product_id ? '' : <Text style={{ color: '#0F766E', fontSize: 11 }}>· NUEVO</Text>}</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 6, alignItems: 'flex-end' }}>
+                    <View style={{ width: 70 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Cantidad</Text><TextInput value={it.qty} onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, qty: onlyDecimal(t) } : r))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'center' }]} /></View>
+                    <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Precio real (unit.)</Text><TextInput value={it.price} onChangeText={(t) => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, price: onlyDecimal(t) } : r))} keyboardType="numeric" inputMode="decimal" style={[inp, { textAlign: 'right' }]} /></View>
+                    <TouchableOpacity onPress={() => setRecvRows((p) => p.map((r, i) => i === idx ? { ...r, currency: r.currency === 'USD' ? 'VES' : 'USD' } : r))} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{it.currency === 'USD' ? '$' : 'Bs'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {parseNum(it.price) > 0 && rate ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'right' }}>≈ {otra} c/u</Text> : null}
+                </Card>
+              );
+            })}
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity onPress={() => setRecvFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={recibir} disabled={recvBusy} style={{ flex: 2, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: recvBusy ? 0.6 : 1 }}><Text style={{ color: '#fff', fontWeight: '800' }}>{recvBusy ? 'Recibiendo…' : '📥 Confirmar entrada'}</Text></TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
     </Screen>
   );
 }
@@ -1038,17 +1315,31 @@ function CotizacionTab() {
 // a otra máquina/empleado (destino). Al confirmar: genera el PDF, descuenta el
 // stock (salida) y guarda el registro en inventory_transfers (casado con máquina
 // y empleado de cada lado).
+// Condición del material en el traslado / retorno.
+const COND_MATERIAL = ['usado', 'lleno', 'dañado'];
+
 function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
+  const uid = session?.user?.id ?? null;
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: transfers, refetch: refetchTr } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false });
 
+  const [view, setView] = useState<'nuevo' | 'lista'>('nuevo'); // crear traslado | traslados realizados
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
   const [motivo, setMotivo] = useState('');
+  const [lugar, setLugar] = useState('');                          // lugar/obra a donde va
+  const [estadoMat, setEstadoMat] = useState('');                  // condición al trasladar (usado/lleno/dañado)
   const [busy, setBusy] = useState(false);
+
+  // Retorno al inventario
+  const [returnFor, setReturnFor] = useState<InventoryTransfer | null>(null);
+  const [returnRows, setReturnRows] = useState<{ item_id: string; name: string; unit: string | null; qty: string }[]>([]);
+  const [returnEstado, setReturnEstado] = useState('');
+  const [returnBusy, setReturnBusy] = useState(false);
 
   // Origen y destino (máquina + empleado responsable de cada lado).
   const [fromMachId, setFromMachId] = useState('');
@@ -1156,14 +1447,51 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       to_machinery_id: toMachId || null, to_machinery_label: toMachId ? machName(toMachId) : null,
       to_employee_id: toEmpId || null, to_employee_name: toEmpId ? empNameById(toEmpId) : null,
       motivo: motivo.trim() || null,
+      lugar: lugar.trim().toUpperCase() || null,
+      estado: estadoMat || null,
       items: cart.map((c) => ({ item_id: c.id, name: c.name, qty: c.qty, unit: c.unit })),
       descontado: true, created_by: session?.user?.id ?? null,
     });
     if (tErr) { setBusy(false); return Alert.alert('Aviso', tErr.message); }
     setBusy(false);
-    setCart([]); setMotivo(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId('');
-    refetch();
+    setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId('');
+    refetch(); refetchTr();
     Alert.alert('Listo', 'Traslado registrado. La salida se descontó del inventario.');
+  };
+
+  // ── Retornar al inventario un traslado ────────────────────────────────────
+  const abrirRetorno = (t: InventoryTransfer) => {
+    setReturnFor(t);
+    setReturnRows((t.items ?? []).map((it) => ({ item_id: it.item_id, name: it.name, unit: it.unit, qty: String(it.qty) })));
+    setReturnEstado(t.estado || '');
+  };
+  const retornar = async () => {
+    if (!returnFor) return;
+    const rows = returnRows.filter((r) => parseNum(r.qty) > 0);
+    if (rows.length === 0) return Alert.alert('Aviso', 'Indica cuánto retorna al inventario (al menos un producto).');
+    setReturnBusy(true);
+    // Entradas de vuelta al stock (sin costo: no altera el PMP).
+    const movs = rows.map((r) => ({
+      item_id: r.item_id, kind: 'entrada' as const, qty: parseNum(r.qty), unit_cost: null,
+      reason: `RETORNO DE TRASLADO${returnEstado ? ` · ${returnEstado.toUpperCase()}` : ''}`,
+      company_id: returnFor.company_id, created_by: uid,
+    }));
+    const { error: mErr } = await supabase.from('inventory_movements').insert(movs);
+    if (mErr) { setReturnBusy(false); return Alert.alert('Aviso', mErr.message); }
+    const resumen = `${returnEstado ? returnEstado.toUpperCase() + ' · ' : ''}` + rows.map((r) => `${r.name}: ${qtyFmt(parseNum(r.qty))} ${r.unit || ''}`).join(' · ');
+    const { error: uErr } = await supabase.from('inventory_transfers').update({
+      returned: true, returned_at: nowISO(), return_note: resumen, estado: returnEstado || returnFor.estado,
+    }).eq('id', returnFor.id);
+    if (uErr) { setReturnBusy(false); return Alert.alert('Aviso', uErr.message); }
+    setReturnBusy(false); setReturnFor(null); setReturnRows([]); setReturnEstado('');
+    refetch(); refetchTr();
+    Alert.alert('Listo', 'Retornado al inventario. Las entradas quedaron registradas.');
+  };
+
+  const trasladoLabel = (t: InventoryTransfer) => {
+    const from = t.from_machinery_label || t.from_employee_name || '—';
+    const to = t.to_machinery_label || t.to_employee_name || '—';
+    return `${from} → ${to}`;
   };
 
   if (loading) return <Screen><Loading /></Screen>;
@@ -1172,6 +1500,53 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Nota de traslado</SectionTitle>
+
+      {/* Sub-vista: crear traslado | traslados realizados (para retornar). */}
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {([['nuevo', '🔁 Trasladar'], ['lista', `📋 Realizados (${transfers.length})`]] as [typeof view, string][]).map(([k, l]) => {
+          const on = view === k;
+          return (
+            <TouchableOpacity key={k} onPress={() => setView(k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{l}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {view === 'lista' ? (
+        transfers.length === 0 ? (
+          <EmptyState title="Sin traslados" subtitle="Los traslados que registres aparecerán aquí para poder retornarlos." />
+        ) : transfers.map((t) => (
+          <ExpandableCard
+            key={t.id}
+            summary={
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: '800', fontSize: 13, color: colors.text }} numberOfLines={1}>{trasladoLabel(t)}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{fmtDate(t.created_at)}{t.lugar ? ` · 📍 ${t.lugar}` : ''}{t.estado ? ` · ${t.estado.toUpperCase()}` : ''}</Text>
+                </View>
+                <Pill label={t.returned ? '↩️ Retornado' : '📦 En destino'} color={t.returned ? '#16A34A' : '#D97706'} />
+              </View>
+            }
+            detail={
+              <View>
+                {(t.items ?? []).map((it, i) => (
+                  <Text key={i} style={{ color: colors.text, fontSize: 13 }}>• {it.name}: {qtyFmt(it.qty)} {it.unit || ''}</Text>
+                ))}
+                {t.motivo ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Motivo: {t.motivo}</Text> : null}
+                {t.returned ? (
+                  <Text style={{ color: '#16A34A', fontSize: 12, marginTop: spacing.xs }}>Retornado{t.returned_at ? ` · ${fmtDate(t.returned_at)}` : ''}{t.return_note ? ` · ${t.return_note}` : ''}</Text>
+                ) : canWrite ? (
+                  <TouchableOpacity onPress={() => abrirRetorno(t)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>↩️ Retornar al inventario</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            }
+          />
+        ))
+      ) : (
+      <>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
         Traslada materiales de una máquina/empleado (origen) a otra (destino). Al generar, descuenta del inventario y guarda el registro.
       </Text>
@@ -1200,6 +1575,21 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
           <Text style={{ color: '#0d6b3f', fontWeight: '800', fontSize: 12, marginTop: spacing.md, letterSpacing: 0.5 }}>DESTINO (a dónde va)</Text>
           <Selector id="toMach" icon="🚜" label="Máquina" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
           <Selector id="toEmp" icon="👷" label="Responsable" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
+
+          {/* LUGAR y ESTADO del material trasladado */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Lugar / obra a donde se hace el traslado (opcional)</Text>
+          <TextInput value={lugar} onChangeText={(t) => setLugar(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA GUAIRA, TALLER CENTRAL…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Estado del material</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+            {COND_MATERIAL.map((e) => {
+              const on = estadoMat === e;
+              return (
+                <TouchableOpacity key={e} onPress={() => setEstadoMat(on ? '' : e)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13, textTransform: 'capitalize' }}>{e}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Motivo (opcional)</Text>
           <TextInput value={motivo} onChangeText={(t) => setMotivo(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. REASIGNACIÓN, PRÉSTAMO DE HERRAMIENTA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
@@ -1231,6 +1621,55 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
           </Card>
         );
       })}
+      </>
+      )}
+
+      {/* ── Retornar al inventario ── */}
+      <Modal visible={!!returnFor} animationType="slide" onRequestClose={() => setReturnFor(null)}>
+        <Screen>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <SectionTitle>Retornar al inventario</SectionTitle>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              {returnFor ? trasladoLabel(returnFor) : ''}. Indica el estado del material y cuánto queda disponible para reingresar al almacén.
+            </Text>
+
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Estado del material que retorna</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {COND_MATERIAL.map((e) => {
+                  const on = returnEstado === e;
+                  return (
+                    <TouchableOpacity key={e} onPress={() => setReturnEstado(on ? '' : e)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13, textTransform: 'capitalize' }}>{e}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </Card>
+
+            {returnRows.map((r, idx) => (
+              <Card key={idx}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>{r.name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Trasladado: {qtyFmt(parseNum(r.qty))} {r.unit || ''}</Text>
+                  </View>
+                  <View style={{ width: 90 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Retorna</Text>
+                    <TextInput value={r.qty} onChangeText={(t) => setReturnRows((p) => p.map((x, i) => i === idx ? { ...x, qty: onlyDecimal(t) } : x))} keyboardType="numeric" inputMode="decimal" style={{ textAlign: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, width: 34 }}>{r.unit || ''}</Text>
+                </View>
+              </Card>
+            ))}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
+              <TouchableOpacity onPress={() => setReturnFor(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={retornar} disabled={returnBusy} style={{ flex: 2, backgroundColor: '#0F766E', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: returnBusy ? 0.6 : 1 }}><Text style={{ color: '#fff', fontWeight: '800' }}>{returnBusy ? 'Retornando…' : '↩️ Confirmar retorno'}</Text></TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Screen>
+      </Modal>
     </Screen>
   );
 }
@@ -1438,7 +1877,7 @@ export default function InventarioScreen() {
     { key: 'nota', label: 'Salida', icon: '📤' },
     { key: 'traslado', label: 'Nota de traslado', icon: '🔁' },
     { key: 'gastos', label: 'Gastos', icon: '💸' },
-    { key: 'cotizacion', label: 'Cotización', icon: '📄' },
+    { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
   ];
   const [active, setActive] = useState('existencias');
@@ -1459,7 +1898,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'cotizacion' ? <CotizacionTab /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : <MovimientosTab />}
       </View>
     </View>
   );
