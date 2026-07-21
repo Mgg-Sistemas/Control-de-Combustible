@@ -1477,7 +1477,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 // stock (salida) y guarda el registro en inventory_transfers (casado con máquina
 // y empleado de cada lado).
 // Condición del material en el traslado / retorno.
-const COND_MATERIAL = ['usado', 'lleno', 'vacío', 'dañado'];
+const COND_MATERIAL = ['nuevo', 'usado', 'lleno', 'vacío', 'dañado'];
 
 function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
