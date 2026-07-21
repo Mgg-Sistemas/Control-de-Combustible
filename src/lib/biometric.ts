@@ -4,6 +4,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 
 const FLAG_KEY = 'biometric_enabled';
 const CRED_KEY = 'biometric_cred_id'; // credencial WebAuthn (solo web)
+const SESS_KEY = 'biometric_refresh'; // refresh token de Supabase, para reautenticar con huella
 
 const isWeb = Platform.OS === 'web';
 // En web usamos las APIs del navegador (WebAuthn). Casteamos a any para no
@@ -97,6 +98,24 @@ export async function enableBiometric(label = 'Control de Combustible'): Promise
 export async function disableBiometric(): Promise<void> {
   await AsyncStorage.removeItem(FLAG_KEY);
   await AsyncStorage.removeItem(CRED_KEY);
+  await AsyncStorage.removeItem(SESS_KEY);
+}
+
+// ============================================================
+// Sesión protegida por huella (para "Entrar con huella" tras vencer la sesión)
+// ============================================================
+/** Guarda el refresh token para poder reautenticar con la huella más adelante. */
+export async function saveBiometricSession(refreshToken?: string | null): Promise<void> {
+  if (!refreshToken) return;
+  try { await AsyncStorage.setItem(SESS_KEY, refreshToken); } catch {}
+}
+/** Devuelve el refresh token guardado (o null). */
+export async function getBiometricRefreshToken(): Promise<string | null> {
+  try { return await AsyncStorage.getItem(SESS_KEY); } catch { return null; }
+}
+/** Borra el refresh token guardado (al cerrar sesión explícitamente). */
+export async function clearBiometricSession(): Promise<void> {
+  try { await AsyncStorage.removeItem(SESS_KEY); } catch {}
 }
 
 // ============================================================

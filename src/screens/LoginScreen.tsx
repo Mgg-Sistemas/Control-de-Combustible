@@ -21,7 +21,7 @@ export default function LoginScreen() {
   const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
   // Máxima seguridad: SOLO inicio de sesión, BLINDADO por USUARIO + contraseña.
   // El registro de usuarios lo hace únicamente el administrador (en Usuarios).
-  const { signInWithUsername } = useAuth();
+  const { signInWithUsername, bioLoginAvailable, biometricLogin } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -32,6 +32,14 @@ export default function LoginScreen() {
     setError(null);
     setLoading(true);
     const res = await signInWithUsername(username, password);
+    setLoading(false);
+    if (res.error) setError(res.error);
+  };
+
+  const submitBiometric = async () => {
+    setError(null);
+    setLoading(true);
+    const res = await biometricLogin();
     setLoading(false);
     if (res.error) setError(res.error);
   };
@@ -103,6 +111,12 @@ export default function LoginScreen() {
         <TouchableOpacity style={styles.button} onPress={submit} disabled={loading}>
           <Text style={styles.buttonText}>{loading ? 'Procesando…' : 'Entrar'}</Text>
         </TouchableOpacity>
+
+        {bioLoginAvailable ? (
+          <TouchableOpacity style={styles.bioButton} onPress={submitBiometric} disabled={loading}>
+            <Text style={styles.bioText}>👆 Entrar con huella</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <Text style={[typography.muted, { textAlign: 'center', marginTop: spacing.lg, fontSize: 12 }]}>
           🔒 Acceso restringido. Las cuentas las crea únicamente el administrador.
