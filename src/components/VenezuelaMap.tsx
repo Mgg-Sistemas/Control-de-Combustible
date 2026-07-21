@@ -206,13 +206,12 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
     a.href='#'; a.title='Pantalla completa'; a.textContent='⛶';
     a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
+    // Usamos SIEMPRE el modo pantalla completa de la app (Modal RN), no el fullscreen
+    // del documento interno del iframe: ese aísla la geolocalización y el botón
+    // "📍 Mi ubicación" deja de funcionar. En el Modal el iframe conserva
+    // allow="geolocation", así que ubicar sí funciona en pantalla completa.
     L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev);
-      try {
-        var el = document.documentElement;
-        if (document.fullscreenElement){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
-        else { (el.requestFullscreen||el.webkitRequestFullscreen).call(el); }
-        setTimeout(function(){ map.invalidateSize(); }, 300);
-      } catch(err){ try { parent.postMessage({ type:'map-fullscreen' }, '*'); } catch(e){} }
+      try { parent.postMessage({ type:'map-fullscreen' }, '*'); } catch(e){}
     });
     return c; }});
   map.addControl(new FsBtn());
