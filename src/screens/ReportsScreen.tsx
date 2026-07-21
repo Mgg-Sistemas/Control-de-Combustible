@@ -469,6 +469,7 @@ export default function ReportsScreen({ route }: any) {
   const [fleetFletes, setFleetFletes] = useState<{ company: string; viajes: number; usd: number }[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
   const [showCompanyBtns, setShowCompanyBtns] = useState(false);
+  const [showCountByCompany, setShowCountByCompany] = useState(false); // chips por empresa del reporte "solo cantidad"
   const [fleetWithPrices, setFleetWithPrices] = useState(true);
 
   const fleetByCompany = useMemo(() => {
@@ -1330,15 +1331,17 @@ export default function ReportsScreen({ route }: any) {
   // Reporte SOLO CANTIDAD de equipos: sin horas ni precio. Es GENERAL (todas las
   // empresas) o de UNA empresa si arriba filtras por empresa. Incluye el DETALLE
   // equipo por equipo en orden alfabético, más los totales por clasificación y empresa.
-  const downloadFleetCountPdf = async () => {
+  const downloadFleetCountPdf = async (onlyCompany?: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const companies = fleetByCompany;
+    const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
-    const alcance = repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
-    const typeRows = fleetByType
-      .slice()
-      .sort((a, b) => cmpText(a.tipo, b.tipo))
-      .map((t) => `<tr><td>${esc(t.tipo)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
+    const alcance = onlyCompany ? `Empresa: ${onlyCompany}` : repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
+    // Cantidad por clasificación DENTRO del alcance elegido (general o una empresa).
+    const typeAgg = new Map<string, number>();
+    companies.forEach((c) => c.items.forEach((it) => { const t = it.tipo || 'Sin clasificación'; typeAgg.set(t, (typeAgg.get(t) ?? 0) + 1); }));
+    const typeRows = [...typeAgg.entries()]
+      .sort((a, b) => cmpText(a[0], b[0]))
+      .map(([tipo, count]) => `<tr><td>${esc(tipo)}</td><td style="text-align:right;font-weight:700">${count}</td></tr>`)
       .join('');
     const companyRows = companies
       .map((c) => `<tr><td>${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
@@ -1373,7 +1376,7 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
       <tbody>${companyRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>`;
-    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), 'Reportes - Cantidad de equipos');
+    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), onlyCompany ? `Reportes - Cantidad ${onlyCompany}` : 'Reportes - Cantidad de equipos');
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -2357,12 +2360,36 @@ export default function ReportsScreen({ route }: any) {
           </View>
 
           {/* Reporte solo con la CANTIDAD de equipos (sin horas ni precio). */}
-          <TouchableOpacity
-            style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.xs }]}
-            onPress={downloadFleetCountPdf}
-          >
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>🔢 Solo cantidad de equipos (sin horas ni precio)</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }]}
+              onPress={() => downloadFleetCountPdf()}
+            >
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🔢 Cantidad · General</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: showCountByCompany ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }]}
+              onPress={() => setShowCountByCompany((v) => !v)}
+            >
+              <Text style={{ color: showCountByCompany ? colors.primaryContrast : colors.primary, fontWeight: '800', fontSize: 13 }}>🏢 Cantidad · Por empresa</Text>
+            </TouchableOpacity>
+          </View>
+          {showCountByCompany ? (
+            <View style={{ marginTop: spacing.xs }}>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Toca una empresa para descargar SOLO su cantidad de equipos (detalle A→Z):</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {fleetByCompany.map((c) => (
+                  <TouchableOpacity
+                    key={c.company}
+                    onPress={() => downloadFleetCountPdf(c.company)}
+                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{c.company} ({c.count})</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
           {showCompanyBtns ? (
             <View>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>

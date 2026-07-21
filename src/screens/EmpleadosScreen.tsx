@@ -38,7 +38,7 @@ const FIELDS: Field[] = [
   { key: 'first_name', label: 'Nombre', type: 'text', required: true },
   { key: 'last_name', label: 'Apellido', type: 'text', required: true },
   { key: 'cedula', label: 'Cédula', type: 'text' },
-  { key: 'company_id', label: 'Empresa', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false, food_only: false } },
+  { key: 'company_id', label: 'Empresa', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
   { key: 'cargo', label: 'Cargo', type: 'suggest', table: 'employees', column: 'cargo', dropdown: true, placeholder: 'Elegir cargo…' },
   { key: 'department', label: 'Departamento', type: 'suggest', table: 'employees', column: 'department' },
   { key: 'grupo', label: 'Grupo / zona', type: 'suggest', table: 'employees', column: 'grupo' },
