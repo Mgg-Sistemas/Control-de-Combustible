@@ -93,7 +93,9 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > del **catálogo** y de la **lista semanal de Control de maquinaria**; solo aparece en la tarjeta
 > **"🔴 Maquinaria inactiva"**. Sus **horas ya trabajadas no se borran** (siguen en los reportes).
 > Al volverla **✅ Operativa**, regresa al catálogo y al control. Los detalles de **inactiva** y
-> **en espera** salen **agrupados por empresa** (desplegables y colapsables), igual que el catálogo.
+> **en espera** salen **agrupados por empresa** (desplegables y colapsables). La lista de
+> **inactivas arranca COLAPSADA** (se abre al tocar la empresa) y cada máquina muestra su
+> **placa y su serial**.
 
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
@@ -407,6 +409,11 @@ Con las flechas ◀ ▶ cambias de día.
 > Queda guardado con la **empresa**, la **cantidad**, la **hora** y **quién** la registró.
 > Ese registro **ES el control de asistencia/entrega** de la empresa.
 
+> **Empresa "solo comidas":** en **Empresas** (admin) puedes marcar una empresa como
+> **"🍽️ Solo comidas"**. Esa empresa aparecerá **únicamente en la distribución de comidas** y
+> **no saldrá en ningún otro** selector, lista ni reporte del sistema (p. ej. **PNB Canica**).
+> Es distinto de **"🚫 Ocultar"**, que la desactiva en todo (incluida la comida).
+
 **Control por empresa (asistencia/entrega):** en **Distribución de comida** (jefe) toca la
 pestaña **"📊 Control por empresa"**. Elige un **rango de fechas** (o los atajos *Hoy / 7 días /
 30 días*) y verás:
@@ -434,6 +441,12 @@ en **US$** y te muestra el equivalente en la otra moneda.
 (bombona, silla, mecate…) — lo escribes o lo tocas de las sugerencias. Arriba de la lista aparece
 **"Filtrar por tipo"** con un chip por cada tipo (y su cantidad): toca uno para ver **solo esos
 productos**. El tipo también sale en el **reporte de productos**.
+
+**🛢️ Bombonas — carga (vacía / en uso / llena):** en los productos tipo **bombona** aparecen
+botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta o en el editor
+(vuelve a tocar el mismo para quitarlo). Arriba tienes **"Filtrar por carga"** para ver solo las
+llenas, en uso o vacías, y **"🛢️ Reporte de bombonas por carga"** genera un PDF con cuántas hay
+en cada estado.
 
 **🗑 Eliminar un producto:** entra a **✏️ Editar producto** y abajo toca **"🗑 Eliminar
 producto"**. Pide confirmación y borra el producto **y todo su historial** de movimientos
@@ -499,9 +512,15 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   y Sector Este). Cada zona tiene su **color** y sus **límites** (Oeste/Este). El **nombre** de
   la zona aparece al **pasar el cursor** por encima (computadora) o al **tocar** la zona (teléfono).
 - Con el panel **🗂️ Capas** prendes y apagas los puntos por **TIPO de equipo** (igual que el
-  Conteo: payloaders, jumbos, tractores, cisternas…), cada uno con su **cantidad**.
+  Conteo: payloaders, jumbos, tractores, cisternas…). Cada tipo muestra cuántas están
+  **UBICADAS del total** (ej. **📍 22/25 · faltan 3**) y arriba el total ubicadas/total del
+  sistema, para saber cuántas **faltan por ubicar**.
   Usa **"Mostrar todas" / "Ocultar todas"**, o toca un tipo para ver sus máquinas y
   elegir una por una.
+- **📍 Ubicar manualmente (solo administradores):** en el panel **"Ubicar manualmente (admin)"**
+  eliges una máquina (las que faltan por ubicar salen primero) y **tocas el mapa** en el punto
+  donde está; queda ubicada al instante. **Solo los administradores** pueden reubicar máquinas
+  y eliminar ubicaciones del mapa.
 - **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,
   igual que Sectores) muestra **quién colocó** cada ubicación, con su **fecha y hora**. Toca una
   fila para ver esa máquina en el mapa. Sirve para **vigilar quién está haciendo las ubicaciones**.
