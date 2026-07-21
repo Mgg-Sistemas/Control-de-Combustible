@@ -42,12 +42,11 @@ export function companyLegend(pins: MapPin[]): { rows: { company: string; color:
 /** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
 export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
 
-function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets: Record<string, { d_lat: number; d_lng: number }> = {}): string {
+function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   const data = JSON.stringify(pins);
   const zonesData = JSON.stringify(SUBSECTORS);
   const firstLayer = streets ? 'calles' : 'sat';
   const canEditJs = JSON.stringify(!!canEdit);
-  const zoneOffJs = JSON.stringify(zoneOffsets || {});
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -61,7 +60,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets:
   var pins = ${data};
   var SUBSECTORS = ${zonesData};
   var CAN_EDIT = ${canEditJs}; // solo admin puede eliminar/reubicar
-  var ZONE_OFF = ${zoneOffJs}; // desfase guardado por sector: { 'NOMBRE': { d_lat, d_lng } }
+  var ZONE_OFF = {};           // desfase por sector (llega por mensaje, no recarga el mapa)
   var locateMode = false;      // modo "tocar el mapa para ubicar" (admin)
   var zoneEditMode = false;    // modo "arrastrar sectores" (admin)
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
@@ -279,6 +278,14 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets:
     if (on){ sectorLayers[i].addTo(map); if (zoneEditMode && !zoneMarkers[i]){ zoneMarkers[i] = makeZoneMarker(i).addTo(map); } }
     else { map.removeLayer(sectorLayers[i]); if (zoneMarkers[i]){ map.removeLayer(zoneMarkers[i]); delete zoneMarkers[i]; } }
   }
+  // Aplica los desfases guardados (llegan por mensaje, sin recargar el mapa): redibuja
+  // cada polígono y reubica su marcador de edición si está visible.
+  function applyOffsets(){
+    SUBSECTORS.forEach(function(s, i){
+      if (zonePolys[i]) zonePolys[i].setLatLngs(polyOf(s));
+      if (zoneMarkers[i]) zoneMarkers[i].setLatLng(centroidOf(polyOf(s)));
+    });
+  }
 
   // ── Mensajes desde la app (leyendas y filtros van FUERA del mapa) ──
   window.addEventListener('message', function(e){
@@ -298,6 +305,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets:
       try { map.getContainer().style.cursor = locateMode ? 'crosshair' : ''; } catch(e){}
     }
     else if (d.type === 'map-zone-edit'){ setZoneEdit(!!d.on); }
+    else if (d.type === 'map-zone-offsets'){ ZONE_OFF = d.offsets || {}; applyOffsets(); }
   });
 
   // Ubicación MANUAL (solo admin): al tocar el mapa en modo ubicar, avisa el punto.
@@ -306,6 +314,10 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets:
   });
 
   refresh();
+  // Avisa al padre que el mapa ya está listo, para que reenvíe el estado actual
+  // (empresa, sectores prendidos, modo ubicar/editar). Evita que en pantalla
+  // completa aparezca sin los sectores por una condición de carrera al cargar.
+  try { parent.postMessage({ type: 'map-ready' }, '*'); } catch(e){}
 </script></body></html>`;
 }
 
@@ -330,18 +342,33 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
   useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
   useEffect(() => { post({ type: 'map-zone-edit', on: zoneEdit }); }, [zoneEdit]);
-  // Al recargarse el iframe (cambian los pines) reaplicamos el estado actual.
-  const onLoad = () => {
+  // Los desfases de sectores van por mensaje (NO incrustados en el HTML): así al
+  // guardar uno no se recarga el mapa (antes el sector "se quitaba" al soltarlo).
+  useEffect(() => { post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} }); }, [zoneOffsets]);
+  // Reaplica todo el estado actual: al recargarse el iframe (onLoad) y cuando el
+  // mapa avisa que ya está listo (map-ready) — evita que en pantalla completa
+  // aparezca sin los sectores por una condición de carrera.
+  const pushState = () => {
     post({ type: 'map-filter-company', company: selectedCompany ?? null });
+    post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} });
     post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
     post({ type: 'map-locate-mode', on: locateMode });
     post({ type: 'map-zone-edit', on: zoneEdit });
   };
+  const onLoad = () => pushState();
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    const onMsg = (e: any) => {
+      if (e?.data?.type === 'map-ready' && e.source && e.source === iframeRef.current?.contentWindow) pushState();
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  });
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
       ref: iframeRef,
-      srcDoc: buildHtml(pins, streets, canEdit, zoneOffsets ?? {}),
+      srcDoc: buildHtml(pins, streets, canEdit),
       onLoad,
       // Permite mostrar la ubicación del usuario y el modo pantalla completa.
       allow: 'geolocation; fullscreen',
