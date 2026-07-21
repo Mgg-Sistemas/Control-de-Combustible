@@ -1585,6 +1585,50 @@ $fn$;
 revoke all on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) from public;
 grant execute on function public.login_status_for_cedula(text), public.register_failed_login(text), public.reset_failed_login(text) to anon, authenticated;
 
+-- ── LOGIN POR USUARIO ────────────────────────────────────────────────────────
+-- Ahora el inicio de sesión es por USUARIO (máx. 10 caracteres) + contraseña. El
+-- usuario es único (sin distinguir mayúsculas). Mismo blindaje de bloqueo por
+-- intentos fallidos que la cédula (al 3er intento se bloquea; solo admin desbloquea).
+alter table public.profiles add column if not exists username text;
+create unique index if not exists profiles_username_key on public.profiles (lower(username)) where username is not null;
+
+-- Estado de login por usuario: correo interno + si está bloqueado.
+create or replace function public.login_status_for_username(p_username text)
+  returns table(email text, locked boolean)
+  language sql security definer set search_path = public, auth
+as $fn$
+  select au.email::text, coalesce(p.locked, false)
+  from auth.users au
+  join public.profiles p on p.id = au.id
+  where lower(btrim(p.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false
+  limit 1
+$fn$;
+
+-- Registra un intento fallido por usuario; bloquea al llegar a 3.
+create or replace function public.register_failed_login_username(p_username text)
+  returns table(attempts int, locked boolean)
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles
+  set failed_attempts = coalesce(failed_attempts, 0) + 1,
+      locked = (coalesce(failed_attempts, 0) + 1) >= 3,
+      locked_at = case when (coalesce(failed_attempts, 0) + 1) >= 3 then now() else locked_at end
+  where lower(btrim(username)) = lower(btrim(p_username))
+  returning failed_attempts, locked
+$fn$;
+
+-- Limpia el contador al iniciar sesión correctamente.
+create or replace function public.reset_failed_login_username(p_username text)
+  returns void
+  language sql security definer set search_path = public
+as $fn$
+  update public.profiles set failed_attempts = 0, locked = false, locked_at = null
+  where lower(btrim(username)) = lower(btrim(p_username))
+$fn$;
+
+revoke all on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) from public;
+grant execute on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) to anon, authenticated;
+
 -- ============================================================================
 -- CONTROL DE PAGO A PERSONAL (dentro de Nómina)
 -- Paga por PRECIO por hora / día / semana, definido POR TRABAJADOR (employees:

@@ -19,10 +19,10 @@ import { useTheme } from '../theme/ThemeContext';
 export default function LoginScreen() {
   const { colors, typography } = useTheme();
   const styles = useMemo(() => makeStyles(colors, typography), [colors, typography]);
-  // Máxima seguridad: SOLO inicio de sesión, BLINDADO por CÉDULA + contraseña.
+  // Máxima seguridad: SOLO inicio de sesión, BLINDADO por USUARIO + contraseña.
   // El registro de usuarios lo hace únicamente el administrador (en Usuarios).
-  const { signInWithCedula } = useAuth();
-  const [cedula, setCedula] = useState('');
+  const { signInWithUsername } = useAuth();
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function LoginScreen() {
   const submit = async () => {
     setError(null);
     setLoading(true);
-    const res = await signInWithCedula(cedula, password);
+    const res = await signInWithUsername(username, password);
     setLoading(false);
     if (res.error) setError(res.error);
   };
@@ -65,18 +65,18 @@ export default function LoginScreen() {
         <Text style={[styles.brand, { textAlign: 'center' }]}>CONTROL INTERNO</Text>
         <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>{COMPANY_NAME}</Text>
         <Text style={[typography.muted, { marginBottom: spacing.lg, textAlign: 'center' }]}>
-          Inicia sesión con tu cédula y contraseña
+          Inicia sesión con tu usuario y contraseña
         </Text>
 
         <TextInput
           style={styles.input}
-          placeholder="Cédula"
+          placeholder="Usuario"
           placeholderTextColor={colors.muted}
-          value={cedula}
-          onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))}
-          keyboardType="number-pad"
-          inputMode="numeric"
+          value={username}
+          onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))}
+          maxLength={10}
           autoCapitalize="none"
+          autoCorrect={false}
         />
         <View style={{ position: 'relative', justifyContent: 'center' }}>
           <TextInput

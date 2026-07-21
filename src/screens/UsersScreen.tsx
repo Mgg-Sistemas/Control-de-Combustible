@@ -167,7 +167,7 @@ export default function UsersScreen() {
                       {u.full_name ?? 'Sin nombre'}
                       {isSelf ? ' (tú)' : ''}
                     </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>{u.cedula ? `C.I. ${u.cedula}` : 'Sin cédula'}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{u.username ? `👤 ${u.username}` : '⚠️ Sin usuario'}{u.cedula ? ` · C.I. ${u.cedula}` : ''}</Text>
                     {u.locked ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>🔒 BLOQUEADO por intentos fallidos</Text> : null}
                   </View>
                 </View>
@@ -422,6 +422,7 @@ function NewUserForm({
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [cedula, setCedula] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [role, setRole] = useState<UserRole>('conductor');
@@ -434,6 +435,7 @@ function NewUserForm({
     setFirstName('');
     setLastName('');
     setCedula('');
+    setUsername('');
     setPassword('');
     setRole('conductor');
     setError(null);
@@ -446,23 +448,28 @@ function NewUserForm({
       return;
     }
     const ci = cedula.trim();
+    const un = username.trim();
+    if (!un) { setError('El USUARIO es obligatorio (con él inicia sesión).'); return; }
     // No permitir dos usuarios con la misma cédula.
     if (ci) {
       const { data: dup } = await supabase.from('profiles').select('id').eq('cedula', ci).limit(1);
       if (dup && dup.length) { setError('Ya existe un usuario con esa cédula.'); return; }
     }
+    // No permitir dos personas con el mismo usuario (sin distinguir mayúsculas).
+    const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).limit(1);
+    if (dupU && dupU.length) { setError('Ya existe ese usuario. Elige otro.'); return; }
     setSaving(true);
     const { data, error } = await supabase.functions.invoke('admin-create-user', {
-      body: { first_name: firstName, last_name: lastName, password, role, cedula: ci || undefined },
+      body: { first_name: firstName, last_name: lastName, password, role, cedula: ci || undefined, username: un },
     });
     if (error || (data as any)?.error) {
       setSaving(false);
       setError((data as any)?.error ?? error?.message ?? 'No se pudo crear el usuario.');
       return;
     }
-    // Respaldo: si la función no guardó la cédula, la fijamos por id devuelto.
+    // Respaldo: fijamos cédula y usuario por el id devuelto (por si la función no los guardó).
     const newId = (data as any)?.id ?? (data as any)?.user?.id;
-    if (ci && newId) { await supabase.from('profiles').update({ cedula: ci }).eq('id', newId); }
+    if (newId) { await supabase.from('profiles').update({ cedula: ci || null, username: un }).eq('id', newId); }
     setSaving(false);
     reset();
     onSaved();
@@ -477,7 +484,8 @@ function NewUserForm({
           <ScrollView contentContainerStyle={{ gap: spacing.sm }}>
             <TextInput style={styles.input} placeholder="Nombre" placeholderTextColor={colors.muted} value={firstName} onChangeText={setFirstName} autoCapitalize="words" />
             <TextInput style={styles.input} placeholder="Apellido" placeholderTextColor={colors.muted} value={lastName} onChangeText={setLastName} autoCapitalize="words" />
-            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
+            <TextInput style={styles.input} placeholder="Cédula (opcional, única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
+            <TextInput style={styles.input} placeholder="Usuario (para entrar · máx 10)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Contraseña (mín. 6)" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" />
               <TouchableOpacity onPress={() => setShowPass((v) => !v)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md }}>
@@ -523,6 +531,7 @@ function EditUserForm({
 }) {
   const [fullName, setFullName] = useState('');
   const [cedula, setCedula] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -536,6 +545,7 @@ function EditUserForm({
   useEffect(() => {
     setFullName(user?.full_name ?? '');
     setCedula(user?.cedula ?? '');
+    setUsername(user?.username ?? '');
     setPassword('');
     setShowPass(false);
     setError(null);
@@ -594,12 +604,14 @@ function EditUserForm({
       setError((data as any)?.error ?? error?.message ?? 'No se pudo guardar.');
       return;
     }
-    // Cédula: se guarda directo en el perfil (índice único → no se repite).
+    // Cédula y USUARIO: se guardan directo en el perfil (índices únicos → no se repiten).
     const ci = cedula.trim() || null;
-    const { error: ciErr } = await supabase.from('profiles').update({ cedula: ci }).eq('id', user.id);
+    const un = username.trim() || null;
+    if (!un) { setSaving(false); setError('El USUARIO es obligatorio (con él inicia sesión).'); return; }
+    const { error: ciErr } = await supabase.from('profiles').update({ cedula: ci, username: un }).eq('id', user.id);
     setSaving(false);
     if (ciErr) {
-      setError(/duplicate|unique/i.test(ciErr.message) ? 'Ya existe otro usuario con esa cédula.' : ciErr.message);
+      setError(/duplicate|unique/i.test(ciErr.message) ? 'Ya existe otro usuario con esa cédula o ese usuario.' : ciErr.message);
       return;
     }
     onSaved();
@@ -638,7 +650,9 @@ function EditUserForm({
             <Text style={typography.muted}>Nombre completo</Text>
             <TextInput style={styles.input} placeholder="Nombre y apellido" placeholderTextColor={colors.muted} value={fullName} onChangeText={setFullName} autoCapitalize="words" />
             <Text style={typography.muted}>Cédula</Text>
-            <TextInput style={styles.input} placeholder="Cédula (única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
+            <TextInput style={styles.input} placeholder="Cédula (opcional, única)" placeholderTextColor={colors.muted} value={cedula} onChangeText={(t) => setCedula(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" />
+            <Text style={typography.muted}>Usuario (para iniciar sesión · máx 10)</Text>
+            <TextInput style={styles.input} placeholder="Usuario (único)" placeholderTextColor={colors.muted} value={username} onChangeText={(t) => setUsername(t.replace(/\s/g, '').slice(0, 10))} maxLength={10} autoCapitalize="none" autoCorrect={false} />
             <Text style={typography.muted}>Nueva contraseña (opcional)</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center' }}>
               <TextInput style={[styles.input, { flex: 1 }]} placeholder="Dejar vacío para no cambiar" placeholderTextColor={colors.muted} value={password} onChangeText={setPassword} secureTextEntry={!showPass} autoCapitalize="none" />

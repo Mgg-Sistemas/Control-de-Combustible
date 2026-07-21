@@ -29,6 +29,8 @@ type AuthState = {
   signIn: (firstName: string, lastName: string, password: string) => Promise<{ error?: string }>;
   /** Inicio de sesión BLINDADO por cédula + contraseña (solo personas registradas con cédula). */
   signInWithCedula: (cedula: string, password: string) => Promise<{ error?: string }>;
+  /** Inicio de sesión por USUARIO + contraseña (usuario máx. 10 caracteres). */
+  signInWithUsername: (username: string, password: string) => Promise<{ error?: string }>;
   signUp: (
     firstName: string,
     lastName: string,
@@ -202,6 +204,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return {};
   };
 
+  // Inicio de sesión por USUARIO + contraseña. Igual de blindado que por cédula:
+  // traduce el usuario al correo interno, respeta el BLOQUEO por intentos fallidos
+  // y solo un administrador puede desbloquear.
+  const signInWithUsername: AuthState['signInWithUsername'] = async (username, password) => {
+    const u = (username ?? '').trim();
+    if (!u) return { error: 'Ingresa tu usuario.' };
+    if (!password) return { error: 'Ingresa tu contraseña.' };
+    const { data: statusRows, error: rpcErr } = await supabase.rpc('login_status_for_username', { p_username: u });
+    if (rpcErr) return { error: 'No se pudo validar el usuario. Revisa tu conexión e inténtalo de nuevo.' };
+    const status: any = Array.isArray(statusRows) ? statusRows[0] : statusRows;
+    const email = status?.email;
+    if (!email) return { error: 'Usuario no registrado. Pídele al administrador de sistemas que te cree un usuario.' };
+    if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
+    const { error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    if (error) {
+      const invalid = error.message.toLowerCase().includes('invalid');
+      if (!invalid) return { error: error.message };
+      const { data: fRows } = await supabase.rpc('register_failed_login_username', { p_username: u });
+      const f: any = Array.isArray(fRows) ? fRows[0] : fRows;
+      if (f?.locked) return { error: '🔒 Usuario BLOQUEADO tras 3 intentos fallidos. El administrador de sistemas debe desbloquearlo.' };
+      const left = Math.max(0, 3 - (Number(f?.attempts) || 0));
+      return { error: `Usuario o contraseña incorrectos. ${left === 1 ? 'Te queda 1 intento' : `Te quedan ${left} intentos`} antes del bloqueo.` };
+    }
+    await supabase.rpc('reset_failed_login_username', { p_username: u });
+    setLocked(false);
+    return {};
+  };
+
   const signUp: AuthState['signUp'] = async (firstName, lastName, password) => {
     const v = validateName(firstName, lastName);
     if (v) return { error: v };
@@ -255,6 +285,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         canSee,
         signIn,
         signInWithCedula,
+        signInWithUsername,
         signOut,
         unlock,
         signUp,
