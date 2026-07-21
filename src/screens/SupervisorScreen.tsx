@@ -37,6 +37,16 @@ const STATUS_OPTS: { key: VisitStatus; label: string; icon: string; color: strin
 ];
 const statusLabel = (s: VisitStatus) => STATUS_OPTS.find((o) => o.key === s)?.label ?? s;
 
+// Materiales de la avería de maquinaria (igual que la vista del operador). Cae en
+// el módulo de Mantenimiento de Maquinaria (tabla maintenance_requests).
+const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
+  { key: 'caucho', label: 'Caucho', icon: '🛞' },
+  { key: 'aceite', label: 'Aceite', icon: '🛢️' },
+  { key: 'filtro', label: 'Filtro', icon: '🧴' },
+  { key: 'repuesto', label: 'Repuesto', icon: '🔩' },
+];
+const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
+
 /**
  * Vista del SUPERVISOR: sale a revisar máquinas. Por cada una hace un check-in
  * ("Revisé la máquina") con hora + GPS + estado (trabajando/parada/no está).
@@ -66,6 +76,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ciNote, setCiNote] = useState('');
   const [ciSaving, setCiSaving] = useState(false);
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
+  // Avería de maquinaria (igual que el operador) → maintenance_requests.
+  const [avOpen, setAvOpen] = useState(false);
+  const [avMaterial, setAvMaterial] = useState<string | null>(null);
+  const [avQty, setAvQty] = useState('');
+  const [avNote, setAvNote] = useState('');
+  const [avSaving, setAvSaving] = useState(false);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
@@ -116,6 +132,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setCi(m);
     setCiStatus('trabajando');
     setCiNote('');
+    setAvOpen(false); setAvMaterial(null); setAvQty(''); setAvNote('');
     setGps(null);
     setGpsErr(null);
     setScanOpen(false);
@@ -170,6 +187,25 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number } as Mach : c));
     setNotice('✅ Ubicación de la máquina guardada.');
     load();
+  };
+
+  // Reporta una AVERÍA de la máquina (misma función que el operador): cae en el
+  // módulo de Mantenimiento de Maquinaria como solicitud pendiente.
+  const registrarAveria = async () => {
+    if (!ci || !avMaterial) return;
+    setAvSaving(true);
+    const { error } = await supabase.from('maintenance_requests').insert({
+      machinery_id: ci.id,
+      material: avMaterial,
+      quantity: avNumOrNull(avQty),
+      notes: avNote.trim() || null,
+      status: 'pendiente',
+      requested_by: uid || null,
+    });
+    setAvSaving(false);
+    if (error) { setNotice('❌ ' + error.message); return; }
+    setAvMaterial(null); setAvQty(''); setAvNote(''); setAvOpen(false);
+    setNotice('✅ Avería registrada. Va al módulo de Mantenimiento de Maquinaria.');
   };
 
   // Distancia del supervisor a la máquina (si ambos tienen coordenadas).
@@ -440,6 +476,41 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                     <TouchableOpacity onPress={confirmOperatorJornada} disabled={opBusy} style={{ marginTop: spacing.md, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: opBusy ? 0.6 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '800' }}>{opBusy ? 'Guardando…' : '🟢 Iniciar jornada del operador'}</Text>
                     </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* ── Avería de maquinaria (misma función que el operador) → Mantenimiento ── */}
+              <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
+                <TouchableOpacity onPress={() => setAvOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🛠️ Avería de maquinaria</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '800' }}>{avOpen ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+                {avOpen ? (
+                  <View style={{ marginTop: spacing.sm }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Toca el material que se necesita cambiar. Va al módulo de Mantenimiento de Maquinaria.</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                      {AV_MATERIALS.map((mt) => {
+                        const on = avMaterial === mt.key;
+                        return (
+                          <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ width: '47%', alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? '#2563EB' : colors.border, backgroundColor: on ? '#2563EB' : colors.surface }}>
+                            <Text style={{ fontSize: 28 }}>{mt.icon}</Text>
+                            <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', marginTop: 2, fontSize: 13 }}>{mt.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {avMaterial ? (
+                      <View style={{ marginTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad a cambiar</Text>
+                        <TextInput value={avQty} onChangeText={(t) => setAvQty(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Nota (opcional)</Text>
+                        <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+                        <TouchableOpacity onPress={registrarAveria} disabled={avSaving} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: avSaving ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '800' }}>{avSaving ? 'Guardando…' : '🛠️ Registrar avería'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
               </View>

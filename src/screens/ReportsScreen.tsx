@@ -1343,11 +1343,19 @@ export default function ReportsScreen({ route }: any) {
     const companyRows = companies
       .map((c) => `<tr><td>${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
       .join('');
-    // DETALLE: cada equipo, uno por uno, en ORDEN ALFABÉTICO por código.
-    const detailRows = fleetItems
-      .slice()
-      .sort((a, b) => cmpText(a.name, b.name))
-      .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.tipo)}</td><td>${esc(it.company)}</td></tr>`)
+    // DETALLE por EMPRESA: cada empresa (A→Z) con sus máquinas listadas una por una
+    // en orden alfabético. Al filtrar una empresa arriba, sale solo la de esa empresa.
+    const detailBlocks = companies
+      .map((c) => {
+        const rows = c.items
+          .slice()
+          .sort((a, b) => cmpText(a.name, b.name))
+          .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.tipo)}</td></tr>`)
+          .join('');
+        return `<h3 style="margin:12px 0 2px">${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''} — ${c.count} equipo(s)</h3>
+          <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+      })
       .join('');
     const body = `
       <div class="muted">${esc(alcance)}</div>
@@ -1355,10 +1363,8 @@ export default function ReportsScreen({ route }: any) {
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
-      <h2>Detalle de equipos (A→Z)</h2>
-      <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Empresa</th></tr></thead>
-      <tbody>${detailRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td></td><td style="font-weight:800">TOTAL</td><td></td><td style="text-align:right;font-weight:800">${totalEquipos} equipo(s)</td></tr></tfoot></table>
+      <h2>Detalle de equipos por empresa (A→Z)</h2>
+      ${detailBlocks || '<span class="muted">Sin datos</span>'}
       <h2 style="margin-top:16px">Cantidad de equipos por clasificación</h2>
       <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
       <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
