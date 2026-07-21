@@ -463,7 +463,7 @@ export default function MapScreen({ navigation, route }: any) {
               </View>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                 {zoneEdit
-                  ? 'Prende los sectores en “📐 Sectores” y arrastra el marcador ✋ de cada uno hasta su lugar. Se guarda solo.'
+                  ? 'Prende los sectores en “🗺️ Sectores (zonas)” y arrastra el marcador ✋ de cada uno hasta su lugar. Se guarda solo.'
                   : 'Actívalo para arrastrar los sectores a su posición correcta. Los cambios quedan guardados para todos.'}
               </Text>
             </Card>
