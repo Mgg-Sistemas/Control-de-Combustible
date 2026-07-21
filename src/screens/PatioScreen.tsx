@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput, ActivityIndicator, Scro
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { supabase } from '../lib/supabase';
@@ -152,6 +153,7 @@ export default function PatioScreen({ navigation }: any) {
       </TouchableOpacity>
 
       <SectionTitle>Seguridad</SectionTitle>
+      <ChangePasswordButton variant="row" />
       <BiometricToggle />
 
       {busy ? <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}

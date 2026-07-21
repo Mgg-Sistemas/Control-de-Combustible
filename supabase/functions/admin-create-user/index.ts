@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     if (String(password).length < 6) {
       return json({ error: 'La contraseña debe tener al menos 6 caracteres' }, 400);
     }
-    const allowed = ['admin', 'supervisor', 'operador', 'conductor'];
+    const allowed = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
     const finalRole = allowed.includes(role) ? role : 'conductor';
     const fullName = `${first_name.trim()} ${last_name.trim()}`;
     const email = `${slug(first_name)}.${slug(last_name)}@combustible.app`;

@@ -22,6 +22,24 @@ import { useConfirm } from '../components/ConfirmProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
 
+// Extrae el mensaje REAL de un error de Edge Function. supabase.functions.invoke,
+// ante un status no-2xx, deja `data` en null y `error.message` genérico
+// ("Edge Function returned a non-2xx status code"); el cuerpo real está en
+// `error.context` (un Response). Esto lo lee para mostrar la causa exacta.
+async function fnErrorMessage(error: any, data: any, fallback = 'No se pudo completar la operación.'): Promise<string> {
+  if (data?.error) return String(data.error);
+  try {
+    const ctx = error?.context;
+    if (ctx && typeof ctx.clone === 'function') {
+      const body = await ctx.clone().json().catch(() => null);
+      if (body?.error) return String(body.error);
+      const txt = await ctx.clone().text().catch(() => '');
+      if (txt) return txt;
+    }
+  } catch {}
+  return error?.message ?? fallback;
+}
+
 export default function UsersScreen() {
   const { role, onlineIds, session } = useAuth();
   const { colors, typography } = useTheme();
@@ -463,8 +481,8 @@ function NewUserForm({
       body: { first_name: firstName, last_name: lastName, password, role, cedula: ci || undefined, username: un },
     });
     if (error || (data as any)?.error) {
+      setError(await fnErrorMessage(error, data, 'No se pudo crear el usuario.'));
       setSaving(false);
-      setError((data as any)?.error ?? error?.message ?? 'No se pudo crear el usuario.');
       return;
     }
     // Respaldo: fijamos cédula y usuario por el id devuelto (por si la función no los guardó).
@@ -600,8 +618,8 @@ function EditUserForm({
       body: { action: 'update', id: user.id, full_name: fullName, password: password || undefined },
     });
     if (error || (data as any)?.error) {
+      setError(await fnErrorMessage(error, data, 'No se pudo guardar.'));
       setSaving(false);
-      setError((data as any)?.error ?? error?.message ?? 'No se pudo guardar.');
       return;
     }
     // Cédula y USUARIO: se guardan directo en el perfil (índices únicos → no se repiten).
