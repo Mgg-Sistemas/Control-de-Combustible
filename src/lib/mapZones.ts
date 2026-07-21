@@ -43,7 +43,7 @@ export function sectorMacro(name: string | null): 'ESTE' | 'OESTE' | null {
 // asienten justo sobre el mapa satelital. Afina estos dos valores si hace falta:
 //   ZONE_LAT_SHIFT negativo = hacia el SUR (baja en el mapa)
 //   ZONE_LNG_SHIFT negativo = hacia el OESTE (izquierda)
-const ZONE_LAT_SHIFT = -0.012;
+const ZONE_LAT_SHIFT = -0.005;
 const ZONE_LNG_SHIFT = 0;
 function shiftZonePts(pts: [number, number][]): [number, number][] {
   return pts.map(([la, ln]) => [la + ZONE_LAT_SHIFT, ln + ZONE_LNG_SHIFT] as [number, number]);

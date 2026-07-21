@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
@@ -67,6 +67,14 @@ export default function MapScreen({ navigation, route }: any) {
   const [zonesOpen, setZonesOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false); // mapa en pantalla completa
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
+  // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
+  // de las capas y para el selector de la ubicación manual (solo admin).
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean }[]>([]);
+  // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
+  const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
@@ -102,6 +110,10 @@ export default function MapScreen({ navigation, route }: any) {
       route: routes.get(m.id) ?? [],
     }));
     setPins(built);
+
+    // TODAS las máquinas (con y sin ubicación) para el conteo "ubicadas/total".
+    const { data: every } = await supabase.from('machinery').select('id, code, latitude');
+    setAllMachines((every ?? []).map((m: any) => ({ id: m.id, code: m.code ?? '', located: m.latitude != null })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
@@ -193,16 +205,35 @@ export default function MapScreen({ navigation, route }: any) {
     setRoutePoints((data ?? []) as RoutePoint[]);
   }, []);
 
-  // Web: el popup del mapa (iframe) avisa por postMessage al pulsar "Eliminar ubicación".
+  // Ubicación MANUAL (solo admin): coloca la máquina elegida en el punto tocado.
+  const placeManual = React.useCallback(async (lat: number, lng: number) => {
+    if (!locateFor || !isFinite(lat) || !isFinite(lng)) return;
+    const ok = await confirm({
+      title: 'Ubicar máquina',
+      message: `¿Colocar ${locateFor.code} en este punto del mapa?\n${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+      confirmText: 'Ubicar aquí',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { error } = await supabase.rpc('update_machine_location', { p_id: locateFor.id, p_lat: Number(lat.toFixed(6)), p_lng: Number(lng.toFixed(6)) });
+    if (error) { setNotice(`⚠️ No se pudo ubicar: ${error.message}`); return; }
+    setNotice(`✅ ${locateFor.code} ubicada en el mapa.`);
+    setLocateFor(null);
+    load();
+  }, [locateFor, confirm, load]);
+
+  // Web: el popup del mapa (iframe) avisa por postMessage al pulsar "Eliminar ubicación",
+  // o el punto tocado en el mapa cuando el admin está en modo "ubicar manualmente".
   useEffect(() => {
     if (typeof window === 'undefined' || !window.addEventListener) return;
     const h = (e: any) => {
       if (e?.data?.type === 'map-delete-pin' && e.data.id) deleteLocation(e.data.id, e.data.name);
       else if (e?.data?.type === 'map-fullscreen') setFullscreen(true);
+      else if (e?.data?.type === 'map-picked' && isAdmin) placeManual(Number(e.data.lat), Number(e.data.lng));
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
-  }, [deleteLocation]);
+  }, [deleteLocation, placeManual, isAdmin]);
 
   // Al entrar desde el catálogo ("Ver en mapa"), enfocar SOLO esa máquina.
   // Se consume el parámetro para poder volver a enfocar la misma más tarde.
@@ -232,6 +263,23 @@ export default function MapScreen({ navigation, route }: any) {
   }, [pins, pinCat]);
   // Tipos presentes, en orden ALFABÉTICO (igual que el conteo "por tipo").
   const presentCats = useMemo(() => [...groups.keys()].sort((a, b) => a.localeCompare(b, 'es')), [groups]);
+
+  // Total de máquinas por categoría (incluye las SIN ubicar) → para "ubicadas/total".
+  const catTotal = useMemo(() => {
+    const m = new Map<string, number>();
+    allMachines.forEach((a) => { const k = equipCategory(a.code) || CAT_OTHER_KEY; m.set(k, (m.get(k) ?? 0) + 1); });
+    return m;
+  }, [allMachines]);
+  const totalMachines = allMachines.length;
+  const totalLocated = allMachines.filter((a) => a.located).length;
+  const totalPending = Math.max(0, totalMachines - totalLocated);
+  // Máquinas para el selector de ubicación manual: primero las SIN ubicar.
+  const pickerList = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    return allMachines
+      .filter((a) => !q || a.code.toLowerCase().includes(q))
+      .sort((a, b) => (a.located === b.located ? a.code.localeCompare(b.code, 'es') : a.located ? 1 : -1));
+  }, [allMachines, pickerQuery]);
 
   const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER_KEY) && !hiddenIds.has(p.id);
   // El mapa muestra: la enfocada (si hay), o las que pasan el filtro de capas.
@@ -287,6 +335,14 @@ export default function MapScreen({ navigation, route }: any) {
                 </TouchableOpacity>
               </View>
 
+              {/* Resumen: cuántas máquinas están ubicadas del total (pendientes por ubicar). */}
+              {totalMachines > 0 ? (
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm }}>
+                  📍 Ubicadas: {totalLocated}/{totalMachines}
+                  {totalPending ? <Text style={{ color: colors.danger }}>  ·  faltan {totalPending} por ubicar</Text> : null}
+                </Text>
+              ) : null}
+
               {presentCats.map((k) => {
                 const list = groups.get(k) ?? [];
                 const catHidden = hiddenCats.has(k);
@@ -302,7 +358,15 @@ export default function MapScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{meta.icon} {meta.label}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>{shownInCat}/{list.length}  {expanded ? '▲' : '▼'}</Text>
+                        {(() => {
+                          const total = catTotal.get(k) ?? list.length; // total de esa categoría (con y sin ubicar)
+                          const pend = Math.max(0, total - list.length); // list = ubicadas de la categoría
+                          return (
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>
+                              📍 {list.length}/{total}{pend ? <Text style={{ color: colors.danger }}> · faltan {pend}</Text> : null}  {expanded ? '▲' : '▼'}
+                            </Text>
+                          );
+                        })()}
                       </TouchableOpacity>
                     </View>
 
@@ -340,7 +404,30 @@ export default function MapScreen({ navigation, route }: any) {
           >
             <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
           </TouchableOpacity>
-          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} />
+
+          {/* Ubicación MANUAL — solo administradores pueden reubicar máquinas. */}
+          {isAdmin && !focus ? (
+            <Card style={locateFor ? { borderColor: '#D97706', borderWidth: 1 } : undefined}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>📍 Ubicar manualmente (admin)</Text>
+                {locateFor ? (
+                  <TouchableOpacity onPress={() => { setLocateFor(null); setNotice(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '800' }}>✕ Cancelar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Elige una máquina y toca el mapa donde está. Solo administradores pueden reubicar.</Text>
+              <TouchableOpacity onPress={() => setPickerOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: locateFor ? colors.text : colors.muted, fontWeight: '700' }}>{locateFor ? `🎯 ${locateFor.code}` : 'Elegir máquina…'}</Text>
+              </TouchableOpacity>
+              {locateFor ? (
+                <Text style={{ color: '#D97706', fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
+              ) : null}
+              {notice ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 }}>{notice}</Text> : null}
+            </Card>
+          ) : null}
+
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} />
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (
@@ -496,7 +583,44 @@ export default function MapScreen({ navigation, route }: any) {
               selectedCompany={selectedCompany}
               zones={zonesOn}
               height={Math.max(320, Dimensions.get('window').height - 56)}
+              canEdit={isAdmin}
             />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Selector de máquina para la ubicación manual (solo admin). */}
+      <Modal visible={pickerOpen} animationType="slide" transparent onRequestClose={() => setPickerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
+            <View style={{ padding: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>Elegir máquina para ubicar</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Las que faltan por ubicar aparecen primero.</Text>
+              <TextInput
+                value={pickerQuery}
+                onChangeText={setPickerQuery}
+                placeholder="Buscar por código…"
+                placeholderTextColor={colors.muted}
+                style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+            </View>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+              {pickerList.length === 0 ? (
+                <Text style={{ color: colors.muted }}>Sin resultados.</Text>
+              ) : pickerList.map((a) => (
+                <TouchableOpacity
+                  key={a.id}
+                  onPress={() => { setLocateFor({ id: a.id, code: a.code }); setPickerOpen(false); setPickerQuery(''); setNotice(null); }}
+                  style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                >
+                  <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{a.code || '—'}</Text>
+                  <Text style={{ color: a.located ? colors.success : colors.danger, fontSize: 12, fontWeight: '700' }}>{a.located ? '📍 Ubicada' : '⬜ Sin ubicar'}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setPickerOpen(false)} style={{ margin: spacing.lg, marginTop: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

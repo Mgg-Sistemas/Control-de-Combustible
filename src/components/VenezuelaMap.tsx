@@ -42,10 +42,11 @@ export function companyLegend(pins: MapPin[]): { rows: { company: string; color:
 /** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
 export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
 
-function buildHtml(pins: MapPin[], streets = false): string {
+function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   const data = JSON.stringify(pins);
   const zonesData = JSON.stringify(SUBSECTORS);
   const firstLayer = streets ? 'calles' : 'sat';
+  const canEditJs = JSON.stringify(!!canEdit);
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -58,6 +59,8 @@ function buildHtml(pins: MapPin[], streets = false): string {
 <body><div id="map"></div><script>
   var pins = ${data};
   var SUBSECTORS = ${zonesData};
+  var CAN_EDIT = ${canEditJs}; // solo admin puede eliminar/reubicar
+  var locateMode = false;      // modo "tocar el mapa para ubicar" (admin)
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
   var sat = L.layerGroup([
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri' }),
@@ -109,12 +112,15 @@ function buildHtml(pins: MapPin[], streets = false): string {
       + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
       + '<br/>Estado: '+(p.operational?'Operativa':'No operativa');
-    var btn = document.createElement('button');
-    btn.textContent = '🗑️ Eliminar ubicación';
-    btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
-    btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
-    div.appendChild(document.createElement('br'));
-    div.appendChild(btn);
+    // El botón "Eliminar ubicación" (reubicar) solo para administradores.
+    if (CAN_EDIT) {
+      var btn = document.createElement('button');
+      btn.textContent = '🗑️ Eliminar ubicación';
+      btn.style.cssText = 'margin-top:8px;background:#B91C1C;color:#fff;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:700';
+      btn.onclick = function(){ try { parent.postMessage({type:'map-delete-pin', id: p.id, name: p.name}, '*'); } catch(e){} };
+      div.appendChild(document.createElement('br'));
+      div.appendChild(btn);
+    }
     mk.bindPopup(div);
     allMarkers.push({ marker: mk, company: co, latlng: [p.lat, p.lng] });
   });
@@ -263,19 +269,30 @@ function buildHtml(pins: MapPin[], streets = false): string {
         if (bb.length) map.fitBounds(bb, { padding:[40,40], maxZoom:15 });
       }
     }
+    else if (d.type === 'map-locate-mode'){
+      locateMode = CAN_EDIT && !!d.on; // solo admin
+      try { map.getContainer().style.cursor = locateMode ? 'crosshair' : ''; } catch(e){}
+    }
+  });
+
+  // Ubicación MANUAL (solo admin): al tocar el mapa en modo ubicar, avisa el punto.
+  map.on('click', function(e){
+    if (locateMode){ try { parent.postMessage({ type:'map-picked', lat: e.latlng.lat, lng: e.latlng.lng }, '*'); } catch(err){} }
   });
 
   refresh();
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets }: {
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false }: {
   pins: MapPin[];
   onDelete?: (id: string, name?: string) => void;
   selectedCompany?: string | null;
   zones?: Set<number>;
   height?: number;
   streets?: boolean; // arrancar en vista de CALLES (por defecto: satélite)
+  canEdit?: boolean;   // solo admin: muestra "Eliminar ubicación" y permite ubicar
+  locateMode?: boolean; // admin en modo "tocar el mapa para ubicar"
 }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
@@ -284,16 +301,18 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   // Al cambiar el filtro de empresa o las zonas, avisamos al mapa (sin recargarlo).
   useEffect(() => { post({ type: 'map-filter-company', company: selectedCompany ?? null }); }, [selectedCompany]);
   useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
+  useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
   // Al recargarse el iframe (cambian los pines) reaplicamos el estado actual.
   const onLoad = () => {
     post({ type: 'map-filter-company', company: selectedCompany ?? null });
     post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
+    post({ type: 'map-locate-mode', on: locateMode });
   };
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
       ref: iframeRef,
-      srcDoc: buildHtml(pins, streets),
+      srcDoc: buildHtml(pins, streets, canEdit),
       onLoad,
       // Permite mostrar la ubicación del usuario y el modo pantalla completa.
       allow: 'geolocation; fullscreen',
