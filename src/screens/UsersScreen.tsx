@@ -22,6 +22,19 @@ import { useConfirm } from '../components/ConfirmProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
 
+// Asegura un token de sesión VÁLIDO antes de llamar a una Edge Function. Si el
+// access token está por vencer (o ya venció), lo refresca. Evita el 401
+// "No autenticado" cuando la pestaña estuvo un rato inactiva. Devuelve el token.
+async function ensureFreshToken(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  const expMs = data.session?.expires_at ? data.session.expires_at * 1000 : 0;
+  if (!data.session || expMs - Date.now() < 60_000) {
+    const { data: r } = await supabase.auth.refreshSession();
+    return r.session?.access_token ?? null;
+  }
+  return data.session.access_token ?? null;
+}
+
 // Extrae el mensaje REAL de un error de Edge Function. supabase.functions.invoke,
 // ante un status no-2xx, deja `data` en null y `error.message` genérico
 // ("Edge Function returned a non-2xx status code"); el cuerpo real está en
@@ -477,8 +490,10 @@ function NewUserForm({
     const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).limit(1);
     if (dupU && dupU.length) { setError('Ya existe ese usuario. Elige otro.'); return; }
     setSaving(true);
+    const token = await ensureFreshToken();
     const { data, error } = await supabase.functions.invoke('admin-create-user', {
       body: { first_name: firstName, last_name: lastName, password, role, cedula: ci || undefined, username: un },
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     if (error || (data as any)?.error) {
       setError(await fnErrorMessage(error, data, 'No se pudo crear el usuario.'));
@@ -614,8 +629,10 @@ function EditUserForm({
       return;
     }
     setSaving(true);
+    const token = await ensureFreshToken();
     const { data, error } = await supabase.functions.invoke('admin-manage-user', {
       body: { action: 'update', id: user.id, full_name: fullName, password: password || undefined },
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     if (error || (data as any)?.error) {
       setError(await fnErrorMessage(error, data, 'No se pudo guardar.'));
@@ -647,12 +664,14 @@ function EditUserForm({
     if (!ok) return;
     setError(null);
     setDeleting(true);
+    const token = await ensureFreshToken();
     const { data, error } = await supabase.functions.invoke('admin-manage-user', {
       body: { action: 'delete', id: user.id },
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     setDeleting(false);
     if (error || (data as any)?.error) {
-      setError((data as any)?.error ?? error?.message ?? 'No se pudo eliminar.');
+      setError(await fnErrorMessage(error, data, 'No se pudo eliminar.'));
       return;
     }
     onSaved();
