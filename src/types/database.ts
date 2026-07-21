@@ -2,7 +2,7 @@
 // Para regenerar automáticamente desde el esquema:
 //   npx supabase gen types typescript --project-id <ref> > src/types/supabase.ts
 
-export type UserRole = 'admin' | 'supervisor' | 'analista' | 'operador' | 'conductor' | 'cocina';
+export type UserRole = 'admin' | 'supervisor' | 'analista' | 'operador' | 'conductor' | 'cocina' | 'coordinador_patio';
 export type FuelType = 'gasolina' | 'diesel';
 export type AuthorizationStatus = 'pendiente' | 'aprobado' | 'rechazado';
 export type AssetKind = 'vehiculo' | 'maquinaria';
@@ -17,6 +17,18 @@ export interface Profile {
   locked?: boolean; // bloqueado por intentos fallidos (el admin desbloquea)
   locked_at?: string | null;
   app_role_id?: string | null; // rol dinámico asignado (define qué módulos ve)
+  created_at: string;
+}
+
+/** Registro de ENTRADA / SALIDA de un camión al patio (Coordinador de Patio). */
+export interface TruckYardLog {
+  id: string;
+  machinery_id: string | null;
+  machine_code: string | null;
+  direction: 'entrada' | 'salida';
+  logged_by: string | null;
+  logged_by_name: string | null;
+  note: string | null;
   created_at: string;
 }
 

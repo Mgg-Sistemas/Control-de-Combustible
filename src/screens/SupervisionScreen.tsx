@@ -212,6 +212,20 @@ export default function SupervisionScreen({ navigation }: any) {
         </View>
       </Card>
 
+      {/* Submódulo: entrada y salida de camiones (calendario del patio). */}
+      <TouchableOpacity onPress={() => navigation?.navigate?.('Camiones')} activeOpacity={0.8}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Text style={{ fontSize: 26 }}>🚚</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 15 }}>Entrada y salida de camiones</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Calendario: cuántos camiones entraron y salieron cada día</Text>
+            </View>
+            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>›</Text>
+          </View>
+        </Card>
+      </TouchableOpacity>
+
       {/* ── JORNADAS SIN VALIDAR (el operador no cobra) ── */}
       <SectionTitle>⛔ Jornadas sin validar</SectionTitle>
       <Card>
