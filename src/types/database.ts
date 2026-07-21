@@ -13,6 +13,7 @@ export interface Profile {
   role: UserRole;
   active: boolean;
   cedula: string | null; // cédula del usuario (única entre usuarios)
+  username?: string | null; // usuario para iniciar sesión (único, máx. 10 caracteres)
   failed_attempts?: number; // intentos de login fallidos (se bloquea al 3ro)
   locked?: boolean; // bloqueado por intentos fallidos (el admin desbloquea)
   locked_at?: string | null;
