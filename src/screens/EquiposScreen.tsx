@@ -93,7 +93,7 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
-  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false, food_only: false } },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
