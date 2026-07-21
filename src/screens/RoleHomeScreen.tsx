@@ -3,6 +3,7 @@ import { Text, TouchableOpacity, View } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
+import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { useAuth } from '../context/AuthContext';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
