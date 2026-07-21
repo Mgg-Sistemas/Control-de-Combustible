@@ -1448,7 +1448,9 @@ export default function EquiposScreen({ navigation, route }: any) {
           ) : (
             <ScrollView>
               {groupByCompany(detailList).map((g) => {
-                const open = detailExpanded[g.key] ?? true;
+                // Las INACTIVAS arrancan COLAPSADAS (solo se abren si el usuario toca);
+                // activas y en espera siguen abiertas por defecto.
+                const open = detailExpanded[g.key] ?? (detailStatus !== 'inactive');
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
@@ -1479,6 +1481,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                       {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
+                      {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                     </TouchableOpacity>
                     {detailStatus === 'espera' ? (
                       <TouchableOpacity
