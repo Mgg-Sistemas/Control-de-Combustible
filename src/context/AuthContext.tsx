@@ -8,6 +8,9 @@ import {
   isBiometricSupported,
   isBiometricEnabled,
   authenticateBiometric,
+  saveBiometricSession,
+  getBiometricRefreshToken,
+  clearBiometricSession,
 } from '../lib/biometric';
 
 type AuthState = {
@@ -26,6 +29,12 @@ type AuthState = {
   canSee: (moduleKey: string) => boolean;
   /** Bloqueado a la espera de huella (sesión existe pero no se ha desbloqueado). */
   locked: boolean;
+  /** Hay una sesión guardada tras la huella: se puede ENTRAR con huella desde el login. */
+  bioLoginAvailable: boolean;
+  /** Inicia sesión con la huella reautenticando el refresh token guardado. */
+  biometricLogin: () => Promise<{ error?: string }>;
+  /** Guarda la sesión actual para poder entrar con huella (al activar la huella). */
+  rememberBiometricSession: () => Promise<void>;
   signIn: (firstName: string, lastName: string, password: string) => Promise<{ error?: string }>;
   /** Inicio de sesión BLINDADO por cédula + contraseña (solo personas registradas con cédula). */
   signInWithCedula: (cedula: string, password: string) => Promise<{ error?: string }>;
@@ -50,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [appRole, setAppRole] = useState<AppRole | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<Record<string, PermLevel>>({});
+  const [bioLoginAvailable, setBioLoginAvailable] = useState(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -59,15 +69,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSession(data.session);
+      const enabled = await isBiometricEnabled();
       // Si hay sesión persistida y el usuario activó la huella, exigir desbloqueo.
       if (data.session) {
-        const enabled = await isBiometricEnabled();
         const supported = await isBiometricSupported();
         if (enabled && supported) setLocked(true);
+      } else if (enabled) {
+        // No hay sesión (venció o se limpió) pero la huella está activa y guardamos
+        // el refresh token: ofrecer "Entrar con huella" en el login.
+        const rt = await getBiometricRefreshToken();
+        if (rt) setBioLoginAvailable(true);
       }
       setLoading(false);
     })();
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      // Mantener fresco el refresh token protegido por huella (login y renovaciones).
+      if (s?.refresh_token) isBiometricEnabled().then((en) => { if (en) saveBiometricSession(s.refresh_token); });
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -254,7 +273,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    await clearBiometricSession(); // salir explícito: la huella ya no reautentica esta cuenta
     setLocked(false);
+    setBioLoginAvailable(false);
+  };
+
+  // Entrar con HUELLA reautenticando el refresh token guardado (aunque la sesión
+  // de Supabase ya haya vencido). No guardamos contraseñas: solo el refresh token.
+  const biometricLogin: AuthState['biometricLogin'] = async () => {
+    const rt = await getBiometricRefreshToken();
+    if (!rt) return { error: 'No hay una sesión de huella guardada en este dispositivo.' };
+    const ok = await authenticateBiometric();
+    if (!ok) return { error: 'No se pudo verificar la huella.' };
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token: rt });
+    if (error || !data?.session) {
+      await clearBiometricSession();
+      setBioLoginAvailable(false);
+      return { error: 'La sesión de la huella venció. Entra con tu usuario y contraseña una vez.' };
+    }
+    await saveBiometricSession(data.session.refresh_token);
+    setLocked(false);
+    setBioLoginAvailable(false);
+    return {};
+  };
+
+  // Guarda la sesión actual protegida por huella (al activar la huella estando dentro).
+  const rememberBiometricSession = async () => {
+    if (session?.refresh_token) await saveBiometricSession(session.refresh_token);
   };
 
   const unlock = async () => {
@@ -281,6 +326,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         appRole,
         onlineIds,
         locked,
+        bioLoginAvailable,
+        biometricLogin,
+        rememberBiometricSession,
         moduleLevel,
         canSee,
         signIn,
