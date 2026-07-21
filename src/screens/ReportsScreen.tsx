@@ -1327,26 +1327,39 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body), 'Reportes - Maquinaria-Vehículo');
   };
 
-  // Reporte SOLO CANTIDAD de equipos: sin horas ni precio, solo el conteo por
-  // clasificación y por empresa (usa los mismos filtros del reporte de maquinaria).
+  // Reporte SOLO CANTIDAD de equipos: sin horas ni precio. Es GENERAL (todas las
+  // empresas) o de UNA empresa si arriba filtras por empresa. Incluye el DETALLE
+  // equipo por equipo en orden alfabético, más los totales por clasificación y empresa.
   const downloadFleetCountPdf = async () => {
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const companies = fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
+    const alcance = repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
     const typeRows = fleetByType
       .slice()
       .sort((a, b) => cmpText(a.tipo, b.tipo))
-      .map((t) => `<tr><td>${t.tipo}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
+      .map((t) => `<tr><td>${esc(t.tipo)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
       .join('');
     const companyRows = companies
-      .map((c) => `<tr><td>${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+      .map((c) => `<tr><td>${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+      .join('');
+    // DETALLE: cada equipo, uno por uno, en ORDEN ALFABÉTICO por código.
+    const detailRows = fleetItems
+      .slice()
+      .sort((a, b) => cmpText(a.name, b.name))
+      .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.tipo)}</td><td>${esc(it.company)}</td></tr>`)
       .join('');
     const body = `
-      <div class="muted">${repCompanies.length ? `Empresas: ${repCompanies.join(', ')}` : 'Todas las empresas'}</div>
+      <div class="muted">${esc(alcance)}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
-      <h2>Cantidad de equipos por clasificación</h2>
+      <h2>Detalle de equipos (A→Z)</h2>
+      <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Empresa</th></tr></thead>
+      <tbody>${detailRows || '<tr><td colspan="4" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td></td><td style="font-weight:800">TOTAL</td><td></td><td style="text-align:right;font-weight:800">${totalEquipos} equipo(s)</td></tr></tfoot></table>
+      <h2 style="margin-top:16px">Cantidad de equipos por clasificación</h2>
       <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
       <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
@@ -1354,7 +1367,7 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
       <tbody>${companyRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>`;
-    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', 'Solo cantidad (sin horas ni precio)', body), 'Reportes - Cantidad de equipos');
+    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), 'Reportes - Cantidad de equipos');
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
