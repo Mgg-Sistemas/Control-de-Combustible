@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
-import { norm, onlyDecimal, onlyDigits } from '../lib/text';
+import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard } from '../types/database';
@@ -372,7 +372,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         return; // nada que sincronizar
       }
       machines.sort((a, b) =>
-        a.date === b.date ? String(a.code).localeCompare(String(b.code)) : String(a.date).localeCompare(String(b.date))
+        a.date === b.date ? cmpText(a.code, b.code) : String(a.date).localeCompare(String(b.date))
       );
       const uniqueMachines = new Set(machines.map((s) => s.machineId || s.serial || s.code)).size;
       await supabase
@@ -464,7 +464,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const from = dates[0];
     const to = dates[dates.length - 1];
     const snapshot: ClosureMachine[] = rows
-      .sort((a: any, b: any) => (a.round_date === b.round_date ? String(a.machinery?.code).localeCompare(String(b.machinery?.code)) : a.round_date.localeCompare(b.round_date)))
+      .sort((a: any, b: any) => (a.round_date === b.round_date ? cmpText(a.machinery?.code, b.machinery?.code) : a.round_date.localeCompare(b.round_date)))
       .map((r: any) => {
         const dayH = Number(r.day_hours) || 0;
         const nightH = Number(r.night_hours) || 0;
@@ -764,9 +764,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       g.viajes.push({ code: f.code || '—', viajes: v, precio });
       g.viajesUSD += v * precio;
     });
-    const companyList = [...groups.values()].sort((a, b) => a.company.localeCompare(b.company, 'es', { sensitivity: 'base' }));
+    const companyList = [...groups.values()].sort((a, b) => cmpText(a.company, b.company));
     // Alfabético por nombre de máquina (antes iba por horas trabajadas).
-    companyList.forEach((g) => g.rows.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })));
+    companyList.forEach((g) => g.rows.sort((a, b) => cmpText(a.name, b.name)));
     const grandH = companyList.reduce((s, g) => s + g.worked, 0);
     const grandUSD = companyList.reduce((s, g) => s + g.amount, 0);
     const grandViajes = companyList.reduce((s, g) => s + g.viajesUSD, 0);
@@ -868,7 +868,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       if (!totalByDay.has(day)) totalByDay.set(day, new Set());
       totalByDay.get(day)!.add(b.machinery_id);
     });
-    const companyList = [...grid.keys()].sort((a, b) => (a === 'Sin empresa' ? 1 : b === 'Sin empresa' ? -1 : a.localeCompare(b)));
+    const companyList = [...grid.keys()].sort((a, b) => (a === 'Sin empresa' ? 1 : b === 'Sin empresa' ? -1 : cmpText(a, b)));
     const dayTh = days.map((d) => `<th>${dayLabel(d).replace(' ', '<br/>')}</th>`).join('');
     const rowsHtml = companyList
       .map((cname) => {
@@ -1039,7 +1039,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       g.items.push(it);
       map.set(k, g);
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    const list = Array.from(map.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
+    list.forEach((g) => g.items.sort((a, b) => cmpText(a.code, b.code)));
+    return list;
   })();
 
   // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta solo las
@@ -1050,7 +1052,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     ...Object.entries(companies)
       .map(([id, name]) => ({ label: name, value: id, count: activasControl.filter((m) => m.company_id === id).length }))
       .filter((o) => o.count > 0)
-      .sort((a, b) => a.label.localeCompare(b.label)),
+      .sort((a, b) => cmpText(a.label, b.label)),
     { label: 'Sin empresa', value: '__none__', count: activasControl.filter((m) => !m.company_id).length },
   ];
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
@@ -1068,7 +1070,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       g.items.push(it);
       map.set(k, g);
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    const list = Array.from(map.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
+    list.forEach((g) => g.items.sort((a, b) => cmpText(a.code, b.code)));
+    return list;
   })();
 
   return (
@@ -1800,7 +1804,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 });
               });
               const list = Array.from(groups.values()).sort((a, b) =>
-                a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : a.company.localeCompare(b.company)
+                a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : cmpText(a.company, b.company)
               );
               return list.map((g) => (
                 <View key={g.company} style={{ marginBottom: spacing.sm }}>
@@ -1880,7 +1884,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 const q = norm(closureSearch.trim());
                 let groups = Array.from(map.values());
                 if (q) groups = groups.filter((g) => norm(g.code).includes(q) || norm(g.serial).includes(q) || norm(g.company).includes(q));
-                groups.sort((a, b) => a.code.localeCompare(b.code));
+                groups.sort((a, b) => cmpText(a.code, b.code));
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
                 const StatBox = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (

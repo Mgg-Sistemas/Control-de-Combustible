@@ -16,13 +16,15 @@ export const matchNorm = (q: string, ...hay: any[]): boolean =>
   !q || hay.some((v) => norm(v).includes(q));
 
 /** Compara dos textos alfabéticamente (A→Z) SIN distinguir acentos ni
- *  mayúsculas. Los vacíos van al final. Úsalo en todos los `.sort(...)`. */
+ *  mayúsculas y con NÚMEROS NATURALES (PAYLOADER 2 antes que PAYLOADER 10).
+ *  Los vacíos van al final. Úsalo en TODOS los `.sort(...)` del sistema para que
+ *  el orden A→Z sea idéntico en toda la app y en los reportes. */
 export const cmpText = (a: any, b: any): number => {
   const na = norm(a), nb = norm(b);
   if (!na && !nb) return 0;
   if (!na) return 1;
   if (!nb) return -1;
-  return na < nb ? -1 : na > nb ? 1 : 0;
+  return na.localeCompare(nb, 'es', { numeric: true, sensitivity: 'base' });
 };
 
 /** Devuelve un comparador alfabético usando `sel(x)` como clave de texto.

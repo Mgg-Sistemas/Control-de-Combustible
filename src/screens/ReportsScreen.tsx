@@ -19,6 +19,7 @@ import { canonTipo } from './EquiposScreen';
 import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
+import { cmpText } from '../lib/text';
 import { sectorOf, SUBSECTORS } from '../lib/mapZones';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
@@ -480,7 +481,7 @@ export default function ReportsScreen({ route }: any) {
       m.set(it.company, c);
     });
     // Orden ALFABÉTICO por empresa (así se ve en el sistema y en los reportes).
-    return Array.from(m.values()).sort((a, b) => a.company.localeCompare(b.company, 'es', { sensitivity: 'base' }));
+    return Array.from(m.values()).sort((a, b) => cmpText(a.company, b.company));
   }, [fleetItems]);
   // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
   const fleetByType = useMemo(() => {
@@ -624,12 +625,11 @@ export default function ReportsScreen({ route }: any) {
       g.viajesUSD += v * precio;
     });
     const list = Array.from(groups.values()).sort((x, y) =>
-      x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : x.company.localeCompare(y.company)
+      x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : cmpText(x.company, y.company)
     );
     // Alfabético por NOMBRE de máquina (acentos/mayúsculas indiferentes), luego serial.
     list.forEach((g) => g.machines.sort((x, y) =>
-      x.machine.localeCompare(y.machine, 'es', { sensitivity: 'base' }) ||
-      String(x.serial ?? '').localeCompare(String(y.serial ?? ''), 'es', { sensitivity: 'base' })
+      cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial)
     ));
 
     // Estado de la flota: total de activos, en producción (trabajaron), en tránsito
@@ -857,7 +857,7 @@ export default function ReportsScreen({ route }: any) {
       a.viajes += v; a.usd += v * precio;
       flByCo.set(co, a);
     });
-    setFleetFletes([...flByCo.values()].sort((a, b) => a.company.localeCompare(b.company)));
+    setFleetFletes([...flByCo.values()].sort((a, b) => cmpText(a.company, b.company)));
     setLoading(false);
     setFleetPreview(true);
   };
@@ -904,7 +904,7 @@ export default function ReportsScreen({ route }: any) {
     // Inactivos con su empresa.
     const inact = list
       .filter((m) => !m.active)
-      .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code))
+      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code))
       .map((m) => ({ code: m.code, serial: m.serial, tipo: m.tipo, company: m.company }));
     const totals = {
       equipos: list.length,
@@ -951,7 +951,7 @@ export default function ReportsScreen({ route }: any) {
       const tt = tipoMap.get(tk) ?? { name: tk, count: 0, conHoras: 0, sinHoras: 0 }; tt.count += 1; if (tieneHoras) tt.conHoras += 1; else tt.sinHoras += 1; tipoMap.set(tk, tt);
     });
     // Orden ALFABÉTICO por nombre (es-VE) en las tablas del conteo.
-    const alfa = (a: ConteoRow, b: ConteoRow) => a.name.localeCompare(b.name, 'es');
+    const alfa = (a: ConteoRow, b: ConteoRow) => cmpText(a.name, b.name);
     const byClas = [...clasMap.values()].sort(alfa);
     const byTipo = [...tipoMap.values()].sort(alfa);
     const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
@@ -960,7 +960,7 @@ export default function ReportsScreen({ route }: any) {
     const sinList: ConteoMachine[] = list
       .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
-      .sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
+      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Estado (referencia sobre el catálogo COMPLETO): stand by (en espera) tiene
     // prioridad; luego inactivo; el resto son los activos que forman el conteo.
     const standby = all.filter((m) => m.en_espera === true).length;
@@ -970,7 +970,7 @@ export default function ReportsScreen({ route }: any) {
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m) }))
-      .sort((a, b) => a.company.localeCompare(b.company, 'es') || a.code.localeCompare(b.code, 'es'));
+      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
     // reporte: NO toca el mapa ni el GPS (que quedan intactos). Reparto estable: los sin
@@ -978,7 +978,7 @@ export default function ReportsScreen({ route }: any) {
     const macroById = new Map<string, 'Este' | 'Oeste'>();
     list.forEach((m) => { const sec = sectorOf(m.latitude, m.longitude); if (sec != null) macroById.set(m.id, sec.startsWith('Oeste') ? 'Oeste' : 'Este'); });
     list.filter((m) => sectorOf(m.latitude, m.longitude) == null)
-      .sort((a, b) => String(a.code ?? '').localeCompare(String(b.code ?? ''), 'es'))
+      .sort((a, b) => cmpText(a.code, b.code))
       .forEach((m, i) => macroById.set(m.id, i % 2 === 0 ? 'Este' : 'Oeste'));
     // Zona del reporte: SIEMPRE "Este" u "Oeste" (sin sub-sectores). Las ubicadas por GPS
     // toman su lado real; las sin GPS, el reparto 50/50. Así TODAS quedan ubicadas.
@@ -1035,7 +1035,7 @@ export default function ReportsScreen({ route }: any) {
     const aggregate = (key: 'clas' | 'tipo') => {
       const m = new Map<string, number>();
       rowsZona.forEach((r) => m.set(r[key], (m.get(r[key]) ?? 0) + 1));
-      return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+      return [...m.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
     };
     const byClas = aggregate('clas');
     const byTipo = aggregate('tipo');
@@ -1143,7 +1143,7 @@ export default function ReportsScreen({ route }: any) {
     const trucks = (mach ?? [])
       .filter((m: any) => TRUCK_RE.test(`${m.code || ''} ${canonTipo(m.tipo) || ''} ${m.clasificacion || ''}`.toUpperCase()))
       .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
-      .sort((a, b) => a.company.localeCompare(b.company) || (a.code || '').localeCompare(b.code || ''));
+      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
     trucks.forEach((t) => { const a = map.get(t.company) ?? []; a.push({ code: t.code, plate: t.plate, serial: t.serial }); map.set(t.company, a); });
     return [...map.entries()].map(([company, items]) => ({ company, items }));
@@ -1333,6 +1333,8 @@ export default function ReportsScreen({ route }: any) {
     const companies = fleetByCompany;
     const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
     const typeRows = fleetByType
+      .slice()
+      .sort((a, b) => cmpText(a.tipo, b.tipo))
       .map((t) => `<tr><td>${t.tipo}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
       .join('');
     const companyRows = companies
@@ -1370,7 +1372,7 @@ export default function ReportsScreen({ route }: any) {
     selectAllRows('machinery', 'clasificacion').then((rows) => {
       const set = new Set<string>();
       (rows ?? []).forEach((m: any) => { const t = canonTipo(m.clasificacion); if (t) set.add(t); });
-      setTypeList(Array.from(set).sort((a, b) => a.localeCompare(b)));
+      setTypeList(Array.from(set).sort((a, b) => cmpText(a, b)));
     });
   }, []);
 
@@ -1797,7 +1799,7 @@ export default function ReportsScreen({ route }: any) {
                 const aggregate = (key: 'clas' | 'tipo'): ConteoRow[] => {
                   const m = new Map<string, ConteoRow>();
                   rowsZona.forEach((r) => { const k = r[key]; const a = m.get(k) ?? { name: k, count: 0, conHoras: 0, sinHoras: 0 }; a.count += 1; if (r.tieneHoras) a.conHoras += 1; else a.sinHoras += 1; m.set(k, a); });
-                  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+                  return [...m.values()].sort((a, b) => cmpText(a.name, b.name));
                 };
                 const byClas = aggregate('clas');
                 const byTipo = aggregate('tipo');

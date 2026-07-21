@@ -9,7 +9,7 @@ import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, cargosPorUb
 import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { onlyDecimal } from '../lib/text';
+import { onlyDecimal, cmpText } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
@@ -246,7 +246,7 @@ export default function NominaScreen({ navigation }: any) {
       g.items.push(p);
       m.set(k, g);
     });
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [periods, companies]);
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;

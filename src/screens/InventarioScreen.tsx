@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
@@ -132,7 +132,7 @@ function groupByMachine<T extends { machinery_id: string | null }>(items: T[], n
     g.items.push(it);
     m.set(k, g);
   });
-  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...m.values()].sort((a, b) => cmpText(a.name, b.name));
 }
 
 const MOV_KIND: Record<string, { label: string; color: string; sign: string }> = {
@@ -213,7 +213,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const tipoOptions = useMemo(() => {
     const m = new Map<string, number>();
     levels.forEach((it) => { const t = (it.tipo || '').trim(); if (t) m.set(t, (m.get(t) ?? 0) + 1); });
-    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'));
+    return Array.from(m.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [levels]);
   // ¿El producto es una BOMBONA? (por tipo o por nombre) — para carga/filtro/reporte.
   const isBombona = (it: InventoryLevel) => norm(it.tipo || '').includes('bombona') || norm(it.name).includes('bombona');
@@ -232,7 +232,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       if (cargaFilter === '__sin__') { if (CARGA_OPTS.includes(c)) return false; } else if (c !== cargaFilter) return false;
     }
     return !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq) || norm(it.tipo || '').includes(nq);
-  }), [levels, nq, tipoFilter, cargaFilter]);
+  }).sort((a, b) => cmpText(a.name, b.name)), [levels, nq, tipoFilter, cargaFilter]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
   const bajoMin = useMemo(() => levels.filter((it) => Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0).length, [levels]);
 
@@ -275,7 +275,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const order = ['llena', 'en uso', 'vacía', 'sin definir'];
     const resumen = order.map((k) => `<tr><td>${esc(k.toUpperCase())}</td><td class="c b">${cargaCounts[k] ?? 0}</td></tr>`).join('');
-    const sorted = [...bombonas].sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'es'));
+    const sorted = [...bombonas].sort((a, b) => cmpText(a.name, b.name));
     const rows = sorted.map((it, i) => `<tr>
       <td class="c">${i + 1}</td>
       <td>${esc(it.name)}</td>
@@ -383,7 +383,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     if (levels.length === 0) return Alert.alert('Aviso', 'No hay productos para el reporte.');
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    const sorted = [...levels].sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'es'));
+    const sorted = [...levels].sort((a, b) => cmpText(a.name, b.name));
     const rows = sorted.map((it, i) => {
       const disp = dispoOf(Number(it.stock), Number(it.min_stock));
       return `<tr>
