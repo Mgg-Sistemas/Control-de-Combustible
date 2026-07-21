@@ -33,6 +33,16 @@ export default function EmpresasScreen() {
     else refetch();
   };
 
+  // "Solo comidas": la empresa aparece únicamente en la distribución de comidas
+  // y se oculta del resto del sistema (selectores, listas, leyendas, reportes).
+  const toggleFoodOnly = async (c: Company) => {
+    setBusy(c.id + '-f');
+    const { error } = await supabase.from('companies').update({ food_only: !c.food_only }).eq('id', c.id);
+    setBusy(null);
+    if (error) Alert.alert('Aviso', error.message);
+    else refetch();
+  };
+
   return (
     <Screen>
       <ConfigBanner />
@@ -58,7 +68,7 @@ export default function EmpresasScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => open(c)}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
-                  🏢 {c.name}{c.hidden ? '  · (oculta)' : ''}
+                  🏢 {c.name}{c.hidden ? '  · (oculta)' : c.food_only ? '  · (solo comidas)' : ''}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{c.rif ? `RIF ${c.rif}` : 'Sin RIF'}</Text>
               </TouchableOpacity>
@@ -70,6 +80,16 @@ export default function EmpresasScreen() {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{c.hidden ? '👁️ Mostrar' : '🚫 Ocultar'}</Text>
               </TouchableOpacity>
             </View>
+            {/* Solo comidas: aparece únicamente en distribución de comidas. */}
+            <TouchableOpacity
+              onPress={() => toggleFoodOnly(c)}
+              disabled={busy === c.id + '-f'}
+              style={{ marginTop: spacing.sm, alignSelf: 'flex-start', borderWidth: 1, borderColor: c.food_only ? '#0F766E' : colors.border, backgroundColor: c.food_only ? '#0F766E' : colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}
+            >
+              <Text style={{ color: c.food_only ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>
+                {c.food_only ? '🍽️ Solo comidas (activo) · quitar' : '🍽️ Marcar “solo comidas”'}
+              </Text>
+            </TouchableOpacity>
           </Card>
         ))
       )}

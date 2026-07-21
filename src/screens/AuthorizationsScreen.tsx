@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Authorization, Profile, Tank, Machinery, Vehicle, Company } from '../types/database';
+import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -168,12 +169,12 @@ export default function AuthorizationsScreen() {
             <Chip key={k} on={period === k} label={l} onPress={() => setPeriod(k)} />
           ))}
         </View>
-        {companies.length > 1 ? (
+        {generalCompanies(companies).length > 1 ? (
           <>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa (máquinas)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
               <Chip on={companyFilter === ''} label="Todas" onPress={() => setCompanyFilter('')} />
-              {companies.map((c) => <Chip key={c.id} on={companyFilter === c.id} label={c.name} onPress={() => setCompanyFilter(c.id)} />)}
+              {generalCompanies(companies).map((c) => <Chip key={c.id} on={companyFilter === c.id} label={c.name} onPress={() => setCompanyFilter(c.id)} />)}
             </View>
           </>
         ) : null}

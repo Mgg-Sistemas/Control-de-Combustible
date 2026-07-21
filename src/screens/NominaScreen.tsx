@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
+import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -383,7 +384,7 @@ export default function NominaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nueva nómina</Text>
             <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
-              {companies.map((c) => {
+              {generalCompanies(companies).map((c) => {
                 const on = cCompany === c.id;
                 return (
                   <TouchableOpacity key={c.id} onPress={() => setCCompany(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>

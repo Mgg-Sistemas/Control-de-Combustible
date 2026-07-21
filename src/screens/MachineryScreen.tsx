@@ -18,7 +18,7 @@ const FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
-  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name' },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false, food_only: false } },
   { key: 'machinery_type', label: 'Tipo', type: 'text' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
 ];

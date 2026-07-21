@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm } from '../lib/text';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
+import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -512,7 +513,7 @@ export default function PagoPersonalScreen() {
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nuevo pago a personal</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
-                {companies.map((c) => {
+                {generalCompanies(companies).map((c) => {
                   const on = cCompany === c.id;
                   return <TouchableOpacity key={c.id} onPress={() => setCCompany(c.id)} style={chip(on)}><Text style={chipTxt(on)}>{c.name}</Text></TouchableOpacity>;
                 })}

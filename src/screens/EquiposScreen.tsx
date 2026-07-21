@@ -18,6 +18,7 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
+import { generalCompanies } from '../lib/companies';
 import MachineQuickScreen from './MachineQuickScreen';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
@@ -92,7 +93,7 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
-  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false } },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false, food_only: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
@@ -643,8 +644,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const countFor = (id: string) => ofKind.filter((m) => m.company_id === id).length;
     return [
       { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
-      ...companies.data
-        .filter((c) => !(c as any).hidden) // ocultar empresas marcadas como ocultas (p. ej. HBS)
+      ...generalCompanies(companies.data) // sin ocultas ni "solo comidas" (p. ej. HBS, PNB Canica)
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((c) => ({ label: c.name, value: c.id, count: countFor(c.id) })),

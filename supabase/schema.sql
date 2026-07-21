@@ -473,6 +473,12 @@ create table if not exists public.companies (
   name text not null unique,
   created_at timestamptz not null default now()
 );
+-- Visibilidad de la empresa:
+--   hidden:    inactiva en TODO el sistema (incluido comidas).
+--   food_only: aparece SOLO en la distribución de comidas; se oculta del resto
+--              del sistema (selectores, listas, leyendas, reportes).
+alter table public.companies add column if not exists hidden boolean not null default false;
+alter table public.companies add column if not exists food_only boolean not null default false;
 
 -- Tabulador maestro de precios por jornada (clasificación + modelo).
 -- Editable desde Control de pagos. "Sincronizar" lo aplica a
