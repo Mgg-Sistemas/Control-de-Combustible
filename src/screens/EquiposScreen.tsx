@@ -640,7 +640,8 @@ export default function EquiposScreen({ navigation, route }: any) {
   const kindMeta = KINDS.find((k) => k.value === kind)!;
 
   const companyOptions = useMemo(() => {
-    const ofKind = machinery.data;
+    // Solo contar las ACTIVAS (igual que la lista del catálogo, que excluye inactivas).
+    const ofKind = machinery.data.filter((m) => m.operational !== false);
     const countFor = (id: string) => ofKind.filter((m) => m.company_id === id).length;
     return [
       { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
