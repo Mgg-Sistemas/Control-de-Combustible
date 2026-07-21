@@ -1327,6 +1327,34 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body), 'Reportes - Maquinaria-Vehículo');
   };
 
+  // Reporte SOLO CANTIDAD de equipos: sin horas ni precio, solo el conteo por
+  // clasificación y por empresa (usa los mismos filtros del reporte de maquinaria).
+  const downloadFleetCountPdf = async () => {
+    const companies = fleetByCompany;
+    const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
+    const typeRows = fleetByType
+      .map((t) => `<tr><td>${t.tipo}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
+      .join('');
+    const companyRows = companies
+      .map((c) => `<tr><td>${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+      .join('');
+    const body = `
+      <div class="muted">${repCompanies.length ? `Empresas: ${repCompanies.join(', ')}` : 'Todas las empresas'}</div>
+      <div class="summary">
+        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
+        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
+      </div>
+      <h2>Cantidad de equipos por clasificación</h2>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
+      <h2 style="margin-top:16px">Cantidad de equipos por empresa</h2>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
+      <tbody>${companyRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>`;
+    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', 'Solo cantidad (sin horas ni precio)', body), 'Reportes - Cantidad de equipos');
+  };
+
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
   // "Ver reporte" en Control de maquinaria → reporte de rondas de ese día).
   // Carga la lista de empresas para el selector del reporte por jornada.
@@ -2306,6 +2334,14 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: showCompanyBtns ? colors.primaryContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Reporte solo con la CANTIDAD de equipos (sin horas ni precio). */}
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.xs }]}
+            onPress={downloadFleetCountPdf}
+          >
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>🔢 Solo cantidad de equipos (sin horas ni precio)</Text>
+          </TouchableOpacity>
           {showCompanyBtns ? (
             <View>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
