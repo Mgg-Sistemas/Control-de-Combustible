@@ -32,6 +32,10 @@ function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) =
 
 // Estado FÍSICO del material (manual) y DISPONIBILIDAD (automática por cantidad).
 const ESTADOS = ['Nuevo', 'Bueno', 'Regular', 'Dañado'];
+// Carga de la bombona (vacía / en uso / llena) — para tildar, filtrar y reportar.
+const CARGA_OPTS = ['vacía', 'en uso', 'llena'];
+const cargaColor = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '#16A34A' : v === 'en uso' ? '#F59E0B' : v === 'vacía' ? '#DC2626' : '#6B7280'; };
+const cargaIcon = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '🟢' : v === 'en uso' ? '🟡' : v === 'vacía' ? '🔴' : '⚪'; };
 const dispoOf = (stock: number, min: number) => (stock <= 0 ? 'Agotado' : min > 0 && stock <= min ? 'Bajo mínimo' : 'Disponible');
 const dispoColor = (d: string) => (d === 'Agotado' ? '#DC2626' : d === 'Bajo mínimo' ? '#F59E0B' : '#16A34A');
 
@@ -177,6 +181,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
   const [q, setQ] = useState('');
   const [tipoFilter, setTipoFilter] = useState('__all__'); // filtro por tipo de producto
+  const [cargaFilter, setCargaFilter] = useState('__all__'); // filtro por carga de bombona
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('repuestos');
@@ -189,6 +194,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [initCost, setInitCost] = useState('');
   const [estado, setEstado] = useState('');       // estado físico (Nuevo/Bueno/Regular/Dañado)
   const [tipo, setTipo] = useState('');            // tipo de producto (bombona, silla, mecate…)
+  const [carga, setCarga] = useState('');          // carga de la bombona (vacía/en uso/llena)
   const [editQty, setEditQty] = useState('');      // cantidad al editar (se ajusta con un movimiento)
   const [editStock0, setEditStock0] = useState(0); // stock actual al abrir edición (para el delta)
   const [busy, setBusy] = useState(false);
@@ -209,11 +215,24 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     levels.forEach((it) => { const t = (it.tipo || '').trim(); if (t) m.set(t, (m.get(t) ?? 0) + 1); });
     return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0], 'es'));
   }, [levels]);
+  // ¿El producto es una BOMBONA? (por tipo o por nombre) — para carga/filtro/reporte.
+  const isBombona = (it: InventoryLevel) => norm(it.tipo || '').includes('bombona') || norm(it.name).includes('bombona');
+  const bombonas = useMemo(() => levels.filter(isBombona), [levels]);
+  // Conteo de bombonas por carga (para los chips del filtro y el reporte).
+  const cargaCounts = useMemo(() => {
+    const m: Record<string, number> = { 'vacía': 0, 'en uso': 0, 'llena': 0, 'sin definir': 0 };
+    bombonas.forEach((it) => { const c = (it.carga || '').toLowerCase(); m[CARGA_OPTS.includes(c) ? c : 'sin definir']++; });
+    return m;
+  }, [bombonas]);
   const filtered = useMemo(() => levels.filter((it) => {
     if (tipoFilter === '__none__') { if ((it.tipo || '').trim()) return false; }
     else if (tipoFilter !== '__all__' && norm(it.tipo || '') !== norm(tipoFilter)) return false;
+    if (cargaFilter !== '__all__') {
+      const c = (it.carga || '').toLowerCase();
+      if (cargaFilter === '__sin__') { if (CARGA_OPTS.includes(c)) return false; } else if (c !== cargaFilter) return false;
+    }
     return !nq || norm(it.name).includes(nq) || norm(it.category).includes(nq) || norm(it.tipo || '').includes(nq);
-  }), [levels, nq, tipoFilter]);
+  }), [levels, nq, tipoFilter, cargaFilter]);
   const totalValor = useMemo(() => levels.reduce((s, it) => s + (Number(it.stock) || 0) * (Number(it.avg_cost) || 0), 0), [levels]);
   const bajoMin = useMemo(() => levels.filter((it) => Number(it.stock) <= Number(it.min_stock) && Number(it.min_stock) > 0).length, [levels]);
 
@@ -234,7 +253,49 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setInitCost(it.avg_cost != null ? String(it.avg_cost) : '');
     setInitCostCur('USD');
     setTipo((it as any).tipo || '');
+    setCarga((it as any).carga || '');
     setOpen(true);
+  };
+
+  // Tildar rápido la CARGA de una bombona (vacía/en uso/llena) sin abrir el editor.
+  const [cargaBusy, setCargaBusy] = useState<string | null>(null);
+  const quickCarga = async (it: InventoryLevel, value: string) => {
+    if (!canWrite) return;
+    setCargaBusy(it.id);
+    const next = (it.carga || '').toLowerCase() === value ? null : value; // volver a tocar = quitar
+    const { error } = await supabase.from('inventory_items').update({ carga: next }).eq('id', it.id);
+    setCargaBusy(null);
+    if (error) Alert.alert('Aviso', error.message); else refetch();
+  };
+
+  // Reporte PDF: cuántas bombonas hay por carga (vacía / en uso / llena).
+  const reporteBombonas = async () => {
+    if (bombonas.length === 0) return Alert.alert('Aviso', 'No hay bombonas registradas.');
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    const order = ['llena', 'en uso', 'vacía', 'sin definir'];
+    const resumen = order.map((k) => `<tr><td>${esc(k.toUpperCase())}</td><td class="c b">${cargaCounts[k] ?? 0}</td></tr>`).join('');
+    const sorted = [...bombonas].sort((a, b) => norm(a.name).localeCompare(norm(b.name), 'es'));
+    const rows = sorted.map((it, i) => `<tr>
+      <td class="c">${i + 1}</td>
+      <td>${esc(it.name)}</td>
+      <td class="c b" style="color:${cargaColor(it.carga)}">${esc((it.carga || 'sin definir').toUpperCase())}</td>
+      <td class="c">${qtyFmt(it.stock)} ${esc(it.unit || '')}</td>
+    </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Reporte de bombonas por carga',
+      subtitle: `${bombonas.length} bombona(s) · ${dmy}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}
+        h3{margin:14px 0 4px;font-size:13px}`,
+      body: `
+        <h3>Cantidad por carga</h3>
+        <table><thead><tr><th>Carga</th><th class="c" style="width:120px">Bombonas</th></tr></thead><tbody>${resumen}</tbody></table>
+        <h3>Detalle</h3>
+        <table><thead><tr><th style="width:30px" class="c">#</th><th>Bombona</th><th class="c">Carga</th><th class="c">Existencia</th></tr></thead><tbody>${rows}</tbody></table>`,
+    });
+    await exportPdf(html, 'bombonas-por-carga');
   };
 
   // Elimina un producto y TODO su historial de movimientos (on delete cascade).
@@ -265,7 +326,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
-      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null };
+      const patch: any = { name: cleanName, category, unit: unit.trim().toUpperCase() || null, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null };
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
       if (initCost.trim() !== '') patch.avg_cost = costUsd;
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
@@ -281,7 +342,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
       }
       setBusy(false);
-      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setEditQty('');
+      setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setCarga(''); setEditQty('');
       refetch();
       return;
     }
@@ -291,7 +352,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const autoSku = nextSkuFrom((skuRows ?? []).map((r: any) => r.sku));
     // Inventario GENERAL: no se vincula a empresa ni equipo al crear.
     const { data: ins, error } = await supabase.from('inventory_items')
-      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, machinery_id: null, company_id: null })
+      .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, machinery_id: null, company_id: null })
       .select('id').single();
     if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
@@ -311,7 +372,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   // Abre el modal calculando el próximo SKU incremental para mostrarlo.
   const openCreate = async () => {
     setEditingId(null);
-    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setTipo(''); setEditQty('');
+    setName(''); setCategory('repuestos'); setUnit(''); setMinStock(''); setInitStock(''); setInitCost(''); setInitCostCur('USD'); setEstado(''); setTipo(''); setCarga(''); setEditQty('');
     const { data } = await supabase.from('inventory_items').select('sku');
     setSku(nextSkuFrom((data ?? []).map((r: any) => r.sku)));
     setOpen(true);
@@ -494,6 +555,31 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de productos (cantidad y estado)</Text>
       </TouchableOpacity>
 
+      {/* Bombonas: reporte por carga (vacía/en uso/llena) — solo si hay bombonas. */}
+      {bombonas.length ? (
+        <TouchableOpacity onPress={reporteBombonas} style={{ marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#0F766E', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: '#0F766E', fontWeight: '800', fontSize: 13 }}>🛢️ Reporte de bombonas por carga · 🟢 {cargaCounts['llena']} · 🟡 {cargaCounts['en uso']} · 🔴 {cargaCounts['vacía']}</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {/* Filtro por CARGA de bombona (vacía / en uso / llena). */}
+      {bombonas.length ? (
+        <View style={{ marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por carga (bombonas)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+            {([['__all__', 'Todas', bombonas.length], ['llena', '🟢 Llena', cargaCounts['llena']], ['en uso', '🟡 En uso', cargaCounts['en uso']], ['vacía', '🔴 Vacía', cargaCounts['vacía']], ['__sin__', '⚪ Sin definir', cargaCounts['sin definir']]] as [string, string, number][]).map(([val, label, n]) => {
+              const on = cargaFilter === val;
+              return (
+                <TouchableOpacity key={val} onPress={() => setCargaFilter(val)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0F766E' : colors.border, backgroundColor: on ? '#0F766E' : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                  <Text style={{ color: on ? '#fff' : colors.muted, fontSize: 11 }}>({n})</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Filtro por TIPO de producto (bombona, silla, mecate…) */}
       {tipoOptions.length ? (
         <View style={{ marginTop: spacing.sm }}>
@@ -527,6 +613,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
                       <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 1 }}>
+                        {isBombona(it) ? <Text style={{ color: cargaColor(it.carga), fontSize: 11, fontWeight: '800' }}>{cargaIcon(it.carga)} {(it.carga || 'sin carga').toUpperCase()}</Text> : null}
                         {it.estado ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{it.estado}</Text> : null}
                         <Text style={{ color: dispoColor(dispoOf(Number(it.stock), Number(it.min_stock))), fontSize: 11, fontWeight: '800' }}>{dispoOf(Number(it.stock), Number(it.min_stock))}</Text>
                       </View>
@@ -551,6 +638,22 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                         {rate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{fmtBs(bsFromUsd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0), rate))}</Text> : null}
                       </View>
                     </View>
+                    {/* Bombonas: tildar carga rápido (vacía / en uso / llena). */}
+                    {isBombona(it) ? (
+                      <View style={{ marginTop: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Carga de la bombona {cargaBusy === it.id ? '· guardando…' : ''}</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                          {CARGA_OPTS.map((v) => {
+                            const on = (it.carga || '').toLowerCase() === v;
+                            return (
+                              <TouchableOpacity key={v} disabled={!canWrite || cargaBusy === it.id} onPress={() => quickCarga(it, v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? cargaColor(v) : colors.border, backgroundColor: on ? cargaColor(v) : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: canWrite ? 1 : 0.5 }}>
+                                <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 13 }}>{cargaIcon(v)} {v}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
                     {canWrite ? (
                       <TouchableOpacity onPress={() => openEdit(it)} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                         <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>✏️ Editar producto</Text>
@@ -611,6 +714,19 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                   ))}
                 </View>
               ) : null}
+
+              {/* Carga (para bombonas): vacía / en uso / llena. */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Carga de la bombona (opcional)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                {CARGA_OPTS.map((v) => {
+                  const on = norm(carga) === norm(v);
+                  return (
+                    <TouchableOpacity key={v} onPress={() => setCarga(on ? '' : v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? cargaColor(v) : colors.border, backgroundColor: on ? cargaColor(v) : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 13 }}>{cargaIcon(v)} {v}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </Card>
             <Text style={{ color: colors.muted, fontSize: 11 }}>📦 Inventario GENERAL. La máquina y los empleados se eligen al dar salida (pestaña Salida).</Text>
             {editingId ? (

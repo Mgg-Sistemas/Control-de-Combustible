@@ -1062,13 +1062,15 @@ create index if not exists idx_inv_mov_order on public.inventory_movements(order
 alter table public.inventory_items add column if not exists estado text;
 -- Tipo de producto (libre, con sugerencias): bombona, silla, mecate… — para FILTRAR.
 alter table public.inventory_items add column if not exists tipo text;
+-- CARGA de la bombona: vacía / en uso / llena — para tildar, filtrar y reportar.
+alter table public.inventory_items add column if not exists carga text;
 
 -- Existencias actuales por producto (stock derivado de los movimientos).
 create or replace view public.inventory_levels as
 select
   i.id, i.name, i.category, i.unit, i.sku, i.min_stock, i.avg_cost, i.company_id, i.active, i.created_at,
   coalesce(sum(case when m.kind='entrada' then m.qty when m.kind in ('salida','consumo') then -m.qty when m.kind='ajuste' then m.qty else 0 end), 0)::numeric(14,2) as stock,
-  i.machinery_id, i.estado, i.tipo
+  i.machinery_id, i.estado, i.tipo, i.carga
 from public.inventory_items i
 left join public.inventory_movements m on m.item_id = i.id
 group by i.id;

@@ -411,6 +411,7 @@ export interface InventoryItem {
   active: boolean;
   estado: string | null;  // estado físico del material (Nuevo/Bueno/Regular/Dañado)
   tipo: string | null;    // tipo de producto (bombona, silla, mecate…) para filtrar
+  carga: string | null;   // carga de la bombona: vacía | en uso | llena
   created_at: string;
 }
 
