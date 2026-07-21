@@ -20,7 +20,7 @@ import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 
-const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina'];
+const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
 
 export default function UsersScreen() {
   const { role, onlineIds, session } = useAuth();

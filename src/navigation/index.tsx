@@ -29,6 +29,8 @@ import ComidaScreen from '../screens/ComidaScreen';
 import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import ScanQrScreen from '../screens/ScanQrScreen';
+import PatioScreen from '../screens/PatioScreen';
+import CamionesScreen from '../screens/CamionesScreen';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
@@ -147,6 +149,7 @@ function MoreStack() {
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
+      <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
@@ -187,6 +190,19 @@ function CoordinadorStack() {
       <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
+/** Panel del COORDINADOR DE PATIO (rol fijo): escanea QR de camiones (entrada/salida),
+ *  reporta averías y ve el calendario de entradas/salidas. No ve el resto del sistema. */
+function PatioStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      <Stack.Screen name="PatioHome" component={PatioScreen} options={{ title: 'Coordinador de Patio', headerLeft: () => <HeaderLogoutButton /> }} />
+      <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
@@ -409,6 +425,9 @@ export default function RootNavigator() {
       ) : role === 'cocina' ? (
         // Cocina reparte comida: escanea carnets y registra las comidas entregadas.
         <CocinaScreen />
+      ) : role === 'coordinador_patio' ? (
+        // Coordinador de patio: registra entrada/salida de camiones (QR) y averías.
+        <PatioStack />
       ) : (
         <Tabs />
       )}
