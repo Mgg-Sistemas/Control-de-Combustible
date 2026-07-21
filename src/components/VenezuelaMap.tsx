@@ -42,11 +42,12 @@ export function companyLegend(pins: MapPin[]): { rows: { company: string; color:
 /** Zonas (nombre + color) para pintar el panel FUERA del mapa. El índice = orden. */
 export const MAP_ZONES = SUBSECTORS.map((s) => ({ n: s.n as string, color: s.color as string }));
 
-function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
+function buildHtml(pins: MapPin[], streets = false, canEdit = true, zoneOffsets: Record<string, { d_lat: number; d_lng: number }> = {}): string {
   const data = JSON.stringify(pins);
   const zonesData = JSON.stringify(SUBSECTORS);
   const firstLayer = streets ? 'calles' : 'sat';
   const canEditJs = JSON.stringify(!!canEdit);
+  const zoneOffJs = JSON.stringify(zoneOffsets || {});
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -60,7 +61,9 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   var pins = ${data};
   var SUBSECTORS = ${zonesData};
   var CAN_EDIT = ${canEditJs}; // solo admin puede eliminar/reubicar
+  var ZONE_OFF = ${zoneOffJs}; // desfase guardado por sector: { 'NOMBRE': { d_lat, d_lng } }
   var locateMode = false;      // modo "tocar el mapa para ubicar" (admin)
+  var zoneEditMode = false;    // modo "arrastrar sectores" (admin)
   var map = L.map('map').setView([6.42, -66.58], 6); // Venezuela
   var sat = L.layerGroup([
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri' }),
@@ -81,7 +84,11 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   pins.forEach(function(p){ var co = p.company || 'Sin empresa'; if (!(co in companyColor)) { companyColor[co] = PALETTE[companyOrder.length % PALETTE.length]; companyOrder.push(co); } });
 
   // ── ¿En qué SECTOR/zona cae cada máquina? (punto-en-polígono) ──
-  function polyOf(s){ if (s.pts && s.pts.length >= 3) return s.pts; var D = 0.007; return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]]; }
+  function offOf(name){ var o = ZONE_OFF[name] || {}; return [Number(o.d_lat) || 0, Number(o.d_lng) || 0]; }
+  function basePolyOf(s){ if (s.pts && s.pts.length >= 3) return s.pts; var D = 0.007; return [[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]]; }
+  function centroidOf(pts){ var la = 0, ln = 0; for (var i = 0; i < pts.length; i++){ la += pts[i][0]; ln += pts[i][1]; } return [la / pts.length, ln / pts.length]; }
+  // Polígono con el desfase guardado aplicado (para dibujar y para detectar zona).
+  function polyOf(s){ var base = basePolyOf(s); var o = offOf(s.n); if (o[0] === 0 && o[1] === 0) return base; return base.map(function(p){ return [p[0] + o[0], p[1] + o[1]]; }); }
   function pointInPoly(lat, lng, poly){ var inside = false; for (var i = 0, j = poly.length - 1; i < poly.length; j = i++){ var yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1]; if (((yi > lat) != (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside; } return inside; }
   function zoneOf(lat, lng){
     for (var i = 0; i < SUBSECTORS.length; i++){ if (pointInPoly(lat, lng, polyOf(SUBSECTORS[i]))) return { name: SUBSECTORS[i].n, near: false }; }
@@ -240,20 +247,38 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     layer.bindTooltip(name, { sticky: true, direction: 'top', className: 'zoneLbl', opacity: 1 });
     layer.on('click', function(ev){ this.openTooltip(ev.latlng); }); // móvil: al tocar
   }
+  var zonePolys = {};   // i -> polígono (para moverlo en vivo al arrastrar)
+  var zoneMarkers = {}; // i -> marcador arrastrable (solo en modo edición)
   SUBSECTORS.forEach(function(s, i){
-    if (s.pts && s.pts.length >= 3){
-      var pg = L.polygon(s.pts, { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
-      bindZoneName(pg, s.n);
-      sectorLayers[i] = L.layerGroup([pg]);
-      return;
-    }
-    var D = 0.007;
-    var poly = L.polygon([[s.a.lat, s.a.lng], [s.b.lat, s.b.lng], [s.b.lat - D, s.b.lng], [s.a.lat - D, s.a.lng]], { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
-    bindZoneName(poly, s.n);
-    var mkr = function(pt){ var m = L.circleMarker([pt.lat, pt.lng], { radius:6, color:'#fff', weight:2, fillColor:s.color, fillOpacity:1 }); m.bindPopup('<b>'+s.n+'</b><br/>'+pt.lbl+': <b>'+pt.name+'</b><br/>📍 '+pt.lat.toFixed(6)+', '+pt.lng.toFixed(6)); return m; };
-    sectorLayers[i] = L.layerGroup([poly, mkr(s.a), mkr(s.b)]);
+    var pg = L.polygon(polyOf(s), { color: s.color, weight: 2, fillColor: s.color, fillOpacity: 0.25 });
+    bindZoneName(pg, s.n);
+    zonePolys[i] = pg;
+    sectorLayers[i] = L.layerGroup([pg]);
   });
-  function setZone(i, on){ zonesOn[i] = on; if (on){ sectorLayers[i].addTo(map); } else { map.removeLayer(sectorLayers[i]); } }
+
+  // ── Modo ADMIN "mover sectores": marcador arrastrable en el centro de cada zona.
+  // Al arrastrar, el polígono se mueve en vivo; al soltar, se guarda el desfase.
+  function makeZoneMarker(i){
+    var s = SUBSECTORS[i];
+    var m = L.marker(centroidOf(polyOf(s)), { draggable: true, title: s.n });
+    m.bindTooltip('✋ ' + s.n, { permanent: true, direction: 'top', className: 'zoneLbl', opacity: 1 });
+    var apply = function(np){ var base = basePolyOf(s); var bc = centroidOf(base); var dLat = np.lat - bc[0], dLng = np.lng - bc[1]; zonePolys[i].setLatLngs(base.map(function(p){ return [p[0] + dLat, p[1] + dLng]; })); return [dLat, dLng]; };
+    m.on('drag', function(e){ apply(e.target.getLatLng()); });
+    m.on('dragend', function(e){ var d = apply(e.target.getLatLng()); ZONE_OFF[s.n] = { d_lat: d[0], d_lng: d[1] }; try { parent.postMessage({ type:'map-zone-moved', name: s.n, d_lat: d[0], d_lng: d[1] }, '*'); } catch(err){} });
+    return m;
+  }
+  function setZoneEdit(on){
+    zoneEditMode = !!on && CAN_EDIT;
+    SUBSECTORS.forEach(function(s, i){
+      if (zoneMarkers[i]){ map.removeLayer(zoneMarkers[i]); delete zoneMarkers[i]; }
+      if (zoneEditMode && zonesOn[i]){ zoneMarkers[i] = makeZoneMarker(i).addTo(map); }
+    });
+  }
+  function setZone(i, on){
+    zonesOn[i] = on;
+    if (on){ sectorLayers[i].addTo(map); if (zoneEditMode && !zoneMarkers[i]){ zoneMarkers[i] = makeZoneMarker(i).addTo(map); } }
+    else { map.removeLayer(sectorLayers[i]); if (zoneMarkers[i]){ map.removeLayer(zoneMarkers[i]); delete zoneMarkers[i]; } }
+  }
 
   // ── Mensajes desde la app (leyendas y filtros van FUERA del mapa) ──
   window.addEventListener('message', function(e){
@@ -272,6 +297,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
       locateMode = CAN_EDIT && !!d.on; // solo admin
       try { map.getContainer().style.cursor = locateMode ? 'crosshair' : ''; } catch(e){}
     }
+    else if (d.type === 'map-zone-edit'){ setZoneEdit(!!d.on); }
   });
 
   // Ubicación MANUAL (solo admin): al tocar el mapa en modo ubicar, avisa el punto.
@@ -283,7 +309,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false }: {
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false }: {
   pins: MapPin[];
   onDelete?: (id: string, name?: string) => void;
   selectedCompany?: string | null;
@@ -292,6 +318,8 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   streets?: boolean; // arrancar en vista de CALLES (por defecto: satélite)
   canEdit?: boolean;   // solo admin: muestra "Eliminar ubicación" y permite ubicar
   locateMode?: boolean; // admin en modo "tocar el mapa para ubicar"
+  zoneOffsets?: Record<string, { d_lat: number; d_lng: number }>; // desfase guardado por sector
+  zoneEdit?: boolean;  // admin en modo "arrastrar sectores"
 }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
@@ -301,17 +329,19 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   useEffect(() => { post({ type: 'map-filter-company', company: selectedCompany ?? null }); }, [selectedCompany]);
   useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
   useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
+  useEffect(() => { post({ type: 'map-zone-edit', on: zoneEdit }); }, [zoneEdit]);
   // Al recargarse el iframe (cambian los pines) reaplicamos el estado actual.
   const onLoad = () => {
     post({ type: 'map-filter-company', company: selectedCompany ?? null });
     post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
     post({ type: 'map-locate-mode', on: locateMode });
+    post({ type: 'map-zone-edit', on: zoneEdit });
   };
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
       ref: iframeRef,
-      srcDoc: buildHtml(pins, streets, canEdit),
+      srcDoc: buildHtml(pins, streets, canEdit, zoneOffsets ?? {}),
       onLoad,
       // Permite mostrar la ubicación del usuario y el modo pantalla completa.
       allow: 'geolocation; fullscreen',

@@ -1629,6 +1629,23 @@ $fn$;
 revoke all on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) from public;
 grant execute on function public.login_status_for_username(text), public.register_failed_login_username(text), public.reset_failed_login_username(text) to anon, authenticated;
 
+-- ── DESFASE DE SECTORES EN EL MAPA (reubicación por admin) ───────────────────
+-- Los sectores (polígonos KMZ) pueden quedar un poco desfasados sobre el satélite.
+-- El admin los arrastra en el mapa y aquí se guarda el desfase (lat/lng) por sector.
+-- Se aplica al dibujarlos para todos. Solo los administradores pueden escribir.
+create table if not exists public.map_zone_offsets (
+  zone_name text primary key,
+  d_lat double precision not null default 0,
+  d_lng double precision not null default 0,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references public.profiles(id) on delete set null
+);
+alter table public.map_zone_offsets enable row level security;
+drop policy if exists "zone_off_read" on public.map_zone_offsets;
+create policy "zone_off_read"  on public.map_zone_offsets for select using (auth.role() = 'authenticated');
+drop policy if exists "zone_off_write" on public.map_zone_offsets;
+create policy "zone_off_write" on public.map_zone_offsets for all using (public.is_admin()) with check (public.is_admin());
+
 -- ============================================================================
 -- CONTROL DE PAGO A PERSONAL (dentro de Nómina)
 -- Paga por PRECIO por hora / día / semana, definido POR TRABAJADOR (employees:

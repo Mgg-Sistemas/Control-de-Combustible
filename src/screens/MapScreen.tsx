@@ -66,6 +66,9 @@ export default function MapScreen({ navigation, route }: any) {
   const [legendOpen, setLegendOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false); // mapa en pantalla completa
+  // Reubicación de SECTORES (solo admin): desfase guardado por sector + modo arrastrar.
+  const [zoneOffsets, setZoneOffsets] = useState<Record<string, { d_lat: number; d_lng: number }>>({});
+  const [zoneEdit, setZoneEdit] = useState(false);
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
@@ -222,6 +225,27 @@ export default function MapScreen({ navigation, route }: any) {
     load();
   }, [locateFor, confirm, load]);
 
+  // Carga los desfases guardados de los sectores (para dibujarlos donde el admin los dejó).
+  const loadZoneOffsets = React.useCallback(async () => {
+    const { data } = await supabase.from('map_zone_offsets').select('zone_name, d_lat, d_lng');
+    const m: Record<string, { d_lat: number; d_lng: number }> = {};
+    (data ?? []).forEach((r: any) => { m[r.zone_name] = { d_lat: Number(r.d_lat) || 0, d_lng: Number(r.d_lng) || 0 }; });
+    setZoneOffsets(m);
+  }, []);
+  useEffect(() => { loadZoneOffsets(); }, [loadZoneOffsets]);
+
+  // Guarda (solo admin) el desfase de un sector cuando el admin lo arrastra.
+  const saveZoneOffset = React.useCallback(async (name: string, dLat: number, dLng: number) => {
+    if (!name || !isFinite(dLat) || !isFinite(dLng)) return;
+    setZoneOffsets((prev) => ({ ...prev, [name]: { d_lat: dLat, d_lng: dLng } }));
+    const { error } = await supabase.from('map_zone_offsets').upsert(
+      { zone_name: name, d_lat: dLat, d_lng: dLng, updated_at: new Date().toISOString() },
+      { onConflict: 'zone_name' }
+    );
+    if (error) setNotice(`⚠️ No se pudo guardar la posición del sector: ${error.message}`);
+    else setNotice(`✅ Sector "${name}" reubicado.`);
+  }, []);
+
   // Web: el popup del mapa (iframe) avisa por postMessage al pulsar "Eliminar ubicación",
   // o el punto tocado en el mapa cuando el admin está en modo "ubicar manualmente".
   useEffect(() => {
@@ -230,10 +254,11 @@ export default function MapScreen({ navigation, route }: any) {
       if (e?.data?.type === 'map-delete-pin' && e.data.id) deleteLocation(e.data.id, e.data.name);
       else if (e?.data?.type === 'map-fullscreen') setFullscreen(true);
       else if (e?.data?.type === 'map-picked' && isAdmin) placeManual(Number(e.data.lat), Number(e.data.lng));
+      else if (e?.data?.type === 'map-zone-moved' && isAdmin) saveZoneOffset(e.data.name, Number(e.data.d_lat), Number(e.data.d_lng));
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
-  }, [deleteLocation, placeManual, isAdmin]);
+  }, [deleteLocation, placeManual, saveZoneOffset, isAdmin]);
 
   // Al entrar desde el catálogo ("Ver en mapa"), enfocar SOLO esa máquina.
   // Se consume el parámetro para poder volver a enfocar la misma más tarde.
@@ -427,7 +452,24 @@ export default function MapScreen({ navigation, route }: any) {
             </Card>
           ) : null}
 
-          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} />
+          {/* Mover SECTORES — solo administradores pueden reubicar las zonas del mapa. */}
+          {isAdmin && !focus ? (
+            <Card style={zoneEdit ? { borderColor: '#2563EB', borderWidth: 1 } : undefined}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Mover sectores (admin)</Text>
+                <TouchableOpacity onPress={() => setZoneEdit((v) => !v)} style={{ backgroundColor: zoneEdit ? '#2563EB' : colors.surfaceAlt, borderWidth: 1, borderColor: zoneEdit ? '#2563EB' : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: zoneEdit ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{zoneEdit ? '✓ Activado' : 'Activar'}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                {zoneEdit
+                  ? 'Prende los sectores en “📐 Sectores” y arrastra el marcador ✋ de cada uno hasta su lugar. Se guarda solo.'
+                  : 'Actívalo para arrastrar los sectores a su posición correcta. Los cambios quedan guardados para todos.'}
+              </Text>
+            </Card>
+          ) : null}
+
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} />
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (
@@ -584,6 +626,8 @@ export default function MapScreen({ navigation, route }: any) {
               zones={zonesOn}
               height={Math.max(320, Dimensions.get('window').height - 56)}
               canEdit={isAdmin}
+              zoneOffsets={zoneOffsets}
+              zoneEdit={isAdmin && zoneEdit}
             />
           </View>
         </View>
