@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
@@ -121,7 +121,7 @@ export default function EmpleadosScreen({ navigation }: any) {
     () => baseFiltered
       .filter((e) => cargoSel.size === 0 || cargoSel.has(cargoLabel(e)))
       .sort((a, b) => {
-        const cmp = fullName(a).localeCompare(fullName(b), 'es', { sensitivity: 'base' });
+        const cmp = cmpText(fullName(a), fullName(b));
         return sortDir === 'az' ? cmp : -cmp;
       }),
     [baseFiltered, cargoSel, sortDir]
@@ -136,7 +136,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       g.items.push(e);
       map.set(k, g);
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
   }, [shown, companies]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };

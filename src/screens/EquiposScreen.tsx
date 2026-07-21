@@ -10,7 +10,7 @@ import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
@@ -243,7 +243,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       c.set(t, (c.get(t) ?? 0) + 1);
     });
     const entries = Array.from(c.entries()).sort((a, b) =>
-      a[0] === '__none__' ? 1 : b[0] === '__none__' ? -1 : a[0].localeCompare(b[0])
+      a[0] === '__none__' ? 1 : b[0] === '__none__' ? -1 : cmpText(a[0], b[0])
     );
     return entries;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -646,7 +646,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       { label: 'Todas las empresas', value: '__all__', count: ofKind.length },
       ...generalCompanies(companies.data) // sin ocultas ni "solo comidas" (p. ej. HBS, PNB Canica)
         .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => cmpText(a.name, b.name))
         .map((c) => ({ label: c.name, value: c.id, count: countFor(c.id) })),
       { label: 'Sin empresa', value: '__none__', count: ofKind.filter((m) => !m.company_id).length },
     ];
@@ -665,7 +665,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       g.items.push(it);
       m.set(k, g);
     });
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(m.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
   };
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
@@ -693,13 +693,10 @@ export default function EquiposScreen({ navigation, route }: any) {
     const groups = Array.from(m.values());
     // Alfabético por nombre de máquina (antes por identificador), acentos/mayúsculas indiferentes.
     groups.forEach((g) =>
-      g.items.sort((a, b) =>
-        a.code.localeCompare(b.code, 'es', { sensitivity: 'base' }) ||
-        String(a.serial ?? '').localeCompare(String(b.serial ?? ''), 'es', { sensitivity: 'base' })
-      )
+      g.items.sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial, b.serial))
     );
     return groups.sort((a, b) =>
-      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })
+      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)
     );
   };
   const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, reportDim, machinery.data, companyName]);
@@ -719,7 +716,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     });
     return Array.from(c.entries())
       .map(([tipo, count]) => ({ tipo, count }))
-      .sort((a, b) => (a.tipo === sinLabel ? 1 : b.tipo === sinLabel ? -1 : a.tipo.localeCompare(b.tipo)));
+      .sort((a, b) => (a.tipo === sinLabel ? 1 : b.tipo === sinLabel ? -1 : cmpText(a.tipo, b.tipo)));
   }, [reportCompany, reportDim, machinery.data]);
   // Subgrupos por la dimensión activa dentro de un conjunto, con "Sin …" al final.
   const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
@@ -731,7 +728,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       c.get(t)!.push(it);
     });
     return Array.from(c.entries()).sort((a, b) =>
-      a[0] === sinLabel ? 1 : b[0] === sinLabel ? -1 : a[0].localeCompare(b[0])
+      a[0] === sinLabel ? 1 : b[0] === sinLabel ? -1 : cmpText(a[0], b[0])
     );
   };
   const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
@@ -1464,7 +1461,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                   {open ? (
                     <View style={{ marginTop: spacing.sm }}>
-                      {g.items.slice().sort((a, b) => a.code.localeCompare(b.code)).map((m) => (
+                      {g.items.slice().sort((a, b) => cmpText(a.code, b.code)).map((m) => (
                   <Card key={m.id}>
                     <TouchableOpacity
                       activeOpacity={0.7}
