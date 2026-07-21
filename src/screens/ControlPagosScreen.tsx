@@ -359,12 +359,12 @@ export default function ControlPagosScreen({ navigation }: any) {
   const loadTariffs = async (scope: string = tarScope) => {
     const [{ data: gen }, { data: comps }, { data: cpt }] = await Promise.all([
       supabase.from('price_tariffs').select('*').order('sort_order', { ascending: true }),
-      supabase.from('companies').select('id, name, hidden').order('name'),
+      supabase.from('companies').select('id, name, hidden, food_only').order('name'),
       supabase.from('company_price_tariffs').select('company_id, modelo, price_jornada'),
     ]);
     const rows = (gen ?? []) as PriceTariff[];
     setTariffs(rows);
-    setTarCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
+    setTarCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden && !c.food_only).map((c) => ({ id: c.id, name: c.name })));
     const overrides: Record<string, Record<string, number>> = {};
     ((cpt ?? []) as any[]).forEach((r) => {
       (overrides[r.company_id] = overrides[r.company_id] ?? {})[r.modelo] = Number(r.price_jornada);

@@ -118,6 +118,7 @@ export interface Company {
   name: string;
   rif: string | null;      // RIF fiscal (se imprime en los reportes)
   hidden: boolean;         // empresa oculta: no aparece en selectores ni reportes
+  food_only: boolean;      // solo comidas: aparece únicamente en distribución de comidas
   created_at: string;
 }
 

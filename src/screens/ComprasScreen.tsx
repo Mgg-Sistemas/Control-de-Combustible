@@ -9,6 +9,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel } from '../types/database';
+import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { norm } from '../lib/text';
@@ -302,7 +303,7 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
             <SectionTitle>Nueva solicitud</SectionTitle>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
-              <CompanyPicker companies={companies} value={company} onChange={setCompany} colors={colors} />
+              <CompanyPicker companies={generalCompanies(companies)} value={company} onChange={setCompany} colors={colors} />
             </Card>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Categoría del gasto</Text>
@@ -578,7 +579,7 @@ function ResumenTab() {
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Empresa</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-          {[{ id: '', name: 'Todas' }, ...companies].map((c) => {
+          {[{ id: '', name: 'Todas' }, ...generalCompanies(companies)].map((c) => {
             const on = companyFilter === c.id;
             return (
               <TouchableOpacity key={c.id || 'all'} onPress={() => setCompanyFilter(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>

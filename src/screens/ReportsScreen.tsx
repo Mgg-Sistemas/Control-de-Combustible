@@ -1331,8 +1331,8 @@ export default function ReportsScreen({ route }: any) {
   // "Ver reporte" en Control de maquinaria → reporte de rondas de ese día).
   // Carga la lista de empresas para el selector del reporte por jornada.
   useEffect(() => {
-    supabase.from('companies').select('name, rif, hidden').order('name').then(({ data }) => {
-      const visibles = (data ?? []).filter((c: any) => !c.hidden && c.name);
+    supabase.from('companies').select('name, rif, hidden, food_only').order('name').then(({ data }) => {
+      const visibles = (data ?? []).filter((c: any) => !c.hidden && !c.food_only && c.name);
       setCompanyList(visibles.map((c: any) => c.name));
       const rif: Record<string, string> = {};
       visibles.forEach((c: any) => { if (c.rif) rif[c.name] = c.rif; });
