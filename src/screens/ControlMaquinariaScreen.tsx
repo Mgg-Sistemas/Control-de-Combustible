@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView, Switch } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -286,6 +287,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     ch.subscribe();
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [load]);
+
+  // Recarga al VOLVER a esta pantalla (p. ej. tras agregar/editar un equipo en Equipos).
+  // Así el equipo nuevo aparece aunque el realtime de la BD no esté activo para machinery.
+  useFocusEffect(useCallback(() => { load(true); }, [load]));
 
   // Guarda/actualiza el registro base (round_no=1) de una máquina en un día concreto,
   // conservando lo demás. Todo el control es por (máquina, fecha).
