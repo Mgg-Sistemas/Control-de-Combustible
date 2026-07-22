@@ -167,7 +167,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   // ── Fletes / viajes por equipo (registrados aquí, CON FECHA). Se cargan los del bloque visible.
   const [fletesByMachine, setFletesByMachine] = useState<Record<string, any[]>>({}); // machineId → fletes del bloque
+  const [fletesGeneral, setFletesGeneral] = useState<Record<string, any[]>>({}); // companyId → fletes generales del bloque
   const [fleteFor, setFleteFor] = useState<Machinery | null>(null); // máquina cuyo flete se registra
+  const [fleteGeneralCo, setFleteGeneralCo] = useState<{ id: string; name: string } | null>(null); // flete general de una empresa
   const [fleteDate, setFleteDate] = useState(todayISO());
   const [fleteViajes, setFleteViajes] = useState('');
   const [fletePrecio, setFletePrecio] = useState('');
@@ -239,10 +241,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         supabase.from('companies').select('id, name'),
         supabase.from('fletes').select('*').in('flete_date', days),
       ]);
-      // Fletes del bloque visible, agrupados por máquina (para mostrarlos en su tarjeta).
+      // Fletes del bloque visible: los de máquina van en su tarjeta; los GENERALES (sin
+      // máquina) se agrupan por empresa para mostrarlos en la cabecera de la empresa.
       const fmap: Record<string, any[]> = {};
-      (fl ?? []).forEach((row: any) => { (fmap[row.machinery_id] ??= []).push(row); });
+      const fgen: Record<string, any[]> = {};
+      (fl ?? []).forEach((row: any) => {
+        if (row.machinery_id) (fmap[row.machinery_id] ??= []).push(row);
+        else if (row.company_id) (fgen[row.company_id] ??= []).push(row);
+      });
       setFletesByMachine(fmap);
+      setFletesGeneral(fgen);
       setMachines((m ?? []) as Machinery[]);
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
@@ -978,29 +986,48 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // ── Flete / viaje: registrar cuántos viajes hizo el equipo y a qué precio, con su fecha.
   //    El monto (viajes × precio) se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha.
   const openFlete = (m: Machinery) => {
+    setFleteGeneralCo(null);
     setFleteFor(m);
     setFleteDate(weekEnd); // por defecto el último día del bloque en pantalla
     setFleteViajes('');
     setFletePrecio('');
   };
 
+  // Flete GENERAL de una empresa (sin máquina): mismo modal, se guarda con machinery_id nulo.
+  const openFleteGeneral = (companyId: string, companyName: string) => {
+    setFleteFor(null);
+    setFleteGeneralCo({ id: companyId, name: companyName });
+    setFleteDate(weekEnd);
+    setFleteViajes('');
+    setFletePrecio('');
+  };
+
   const saveFlete = async () => {
-    if (!fleteFor) return;
+    if (!fleteFor && !fleteGeneralCo) return;
     const viajes = Math.max(0, Math.round(Number(fleteViajes.replace(',', '.')) || 0));
     const precio = Math.max(0, Number(fletePrecio.replace(',', '.')) || 0);
     if (viajes <= 0 || precio <= 0) { Alert.alert('Aviso', 'Indica el nº de viajes y el precio por viaje.'); return; }
-    if (!fleteFor.company_id) { Alert.alert('Aviso', 'La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
+    // General → company_id de la empresa; por equipo → company_id de la máquina.
+    const companyId = fleteGeneralCo ? fleteGeneralCo.id : fleteFor?.company_id ?? null;
+    if (!companyId) { Alert.alert('Aviso', 'La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
     setFleteBusy(true);
-    const payload = { company_id: fleteFor.company_id, machinery_id: fleteFor.id, code: fleteFor.code, flete_date: fleteDate, viajes, precio };
+    const payload = {
+      company_id: companyId,
+      machinery_id: fleteGeneralCo ? null : fleteFor!.id,
+      code: fleteGeneralCo ? 'General' : fleteFor!.code,
+      flete_date: fleteDate, viajes, precio,
+    };
     const { data, error } = await supabase.from('fletes').insert(payload).select().single();
     setFleteBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
-    // Solo se agrega a la tarjeta si su fecha cae dentro del bloque visible.
+    // Solo se agrega a la lista visible si la fecha cae dentro del bloque.
     if (weekDays.includes(fleteDate)) {
-      setFletesByMachine((p) => ({ ...p, [fleteFor.id]: [...(p[fleteFor.id] ?? []), data] }));
+      if (fleteGeneralCo) setFletesGeneral((p) => ({ ...p, [companyId]: [...(p[companyId] ?? []), data] }));
+      else setFletesByMachine((p) => ({ ...p, [fleteFor!.id]: [...(p[fleteFor!.id] ?? []), data] }));
     }
     setFleteViajes(''); setFletePrecio('');
-    setNotice(`✅ Flete registrado en ${fleteFor.code}: ${viajes} viaje(s) × $${precio.toLocaleString()} = $${(viajes * precio).toLocaleString()} · ${fmtDMY(fleteDate)}`);
+    const donde = fleteGeneralCo ? `${fleteGeneralCo.name} (general)` : fleteFor!.code;
+    setNotice(`✅ Flete registrado en ${donde}: ${viajes} viaje(s) × $${precio.toLocaleString()} = $${(viajes * precio).toLocaleString()} · ${fmtDMY(fleteDate)}`);
   };
 
   const deleteFlete = async (f: any) => {
@@ -1012,7 +1039,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (!ok) return;
     const { error } = await supabase.from('fletes').delete().eq('id', f.id);
     if (error) return Alert.alert('Aviso', error.message);
-    setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
+    if (f.machinery_id) setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
+    else if (f.company_id) setFletesGeneral((p) => ({ ...p, [f.company_id]: (p[f.company_id] ?? []).filter((x) => x.id !== f.id) }));
   };
 
   const openPrice = (m: Machinery) => {
@@ -1399,6 +1427,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
                 </View>
               </TouchableOpacity>
+              {/* Flete GENERAL de la empresa (sin máquina). Se suma al TOTAL POR PAGAR igual. */}
+              {open && g.key !== '__none__' ? (() => {
+                const gen = fletesGeneral[g.key] ?? [];
+                const genUSD = gen.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
+                return (
+                  <TouchableOpacity onPress={() => openFleteGeneral(g.key, g.name)} style={{ marginBottom: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>🚚 Flete general de {g.name}{gen.length ? ` · ${gen.length} en el bloque = $${genUSD.toLocaleString()}` : ''}</Text>
+                  </TouchableOpacity>
+                );
+              })() : null}
               {open ? g.items.map((m) => {
           const weekWorked = weekDays.reduce((s, d) => {
             const b = rounds[rkey(m.id, d)];
@@ -1646,21 +1684,24 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal: registrar FLETE / VIAJE del equipo (fecha · nº viajes · precio) */}
-      <Modal visible={!!fleteFor} transparent animationType="fade" onRequestClose={() => setFleteFor(null)}>
+      {/* Modal: registrar FLETE / VIAJE (por equipo o GENERAL de la empresa) */}
+      <Modal visible={!!fleteFor || !!fleteGeneralCo} transparent animationType="fade" onRequestClose={() => { setFleteFor(null); setFleteGeneralCo(null); }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '88%' }}>
-            {fleteFor ? (() => {
+            {(fleteFor || fleteGeneralCo) ? (() => {
+              const isGen = !!fleteGeneralCo;
+              const coId = isGen ? fleteGeneralCo!.id : fleteFor!.company_id;
+              const coName = isGen ? fleteGeneralCo!.name : (fleteFor!.company_id ? (companies[fleteFor!.company_id] ?? 'Empresa') : 'Sin empresa');
               const viajes = Math.max(0, Math.round(Number(fleteViajes.replace(',', '.')) || 0));
               const precio = Math.max(0, Number(fletePrecio.replace(',', '.')) || 0);
               const total = viajes * precio;
-              const list = (fletesByMachine[fleteFor.id] ?? []).slice().sort((a, b) => String(a.flete_date).localeCompare(String(b.flete_date)));
+              const list = ((isGen ? (coId ? fletesGeneral[coId] : []) : fletesByMachine[fleteFor!.id]) ?? []).slice().sort((a, b) => String(a.flete_date).localeCompare(String(b.flete_date)));
               const listUSD = list.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
               return (
                 <ScrollView>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>➕ Flete / viaje · {fleteFor.code}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{isGen ? `🚚 Flete general · ${coName}` : `➕ Flete / viaje · ${fleteFor!.code}`}</Text>
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                    🏢 {fleteFor.company_id ? (companies[fleteFor.company_id] ?? 'Empresa') : 'Sin empresa'} · el monto se suma al TOTAL POR PAGAR de la empresa en la semana de la fecha del flete.
+                    🏢 {coName}{isGen ? ' · flete general (no asignado a una máquina)' : ''} · el monto se suma al TOTAL POR PAGAR de la empresa en la semana de la fecha del flete.
                   </Text>
 
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>📅 Fecha del flete</Text>
@@ -1720,7 +1761,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     </View>
                   ) : null}
 
-                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setFleteFor(null)}>
+                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => { setFleteFor(null); setFleteGeneralCo(null); }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Listo</Text>
                   </TouchableOpacity>
                 </ScrollView>
