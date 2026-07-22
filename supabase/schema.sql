@@ -550,6 +550,17 @@ alter table public.machinery add column if not exists latitude    numeric(9,6);
 alter table public.machinery add column if not exists longitude   numeric(9,6);
 alter table public.machinery add column if not exists location_at timestamptz;
 
+-- No permitir dos máquinas con el mismo SERIAL o la misma PLACA (sin distinguir
+-- mayúsculas ni espacios). Se ignoran los vacíos/nulos (varias máquinas pueden no
+-- tener serial/placa). Índice ÚNICO parcial: es el candado real a nivel de BD.
+-- OJO: si ya existen duplicados, la creación del índice FALLA hasta limpiarlos.
+create unique index if not exists machinery_serial_uniq
+  on public.machinery (lower(btrim(serial)))
+  where serial is not null and btrim(serial) <> '';
+create unique index if not exists machinery_plate_uniq
+  on public.machinery (lower(btrim(plate)))
+  where plate is not null and btrim(plate) <> '';
+
 create table if not exists public.machinery_locations (
   id uuid primary key default uuid_generate_v4(),
   machinery_id uuid not null references public.machinery(id) on delete cascade,
