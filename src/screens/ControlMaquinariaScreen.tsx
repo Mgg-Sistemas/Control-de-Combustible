@@ -452,7 +452,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // cierre guardaba el histórico INCOMPLETO (y luego marcaba TODO como cerrado).
     const openRounds = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, day_operator, day_operator_ci, night_operator, night_operator_ci, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(name))',
       (q) => q.eq('closed', false)
     );
     const rows = (openRounds ?? []).filter(
@@ -490,9 +490,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           hoursStopped: stopped,
           overtime: ot,
           worked: workedFromShifts(dayH, nightH, stopped, ot),
-          // Precio CONGELADO al momento del cierre: una vez cerrada la semana,
-          // aunque cambie el precio de la máquina, el monto del cierre no se mueve.
-          price: Number(r.machinery?.price_per_hour) || 0,
+          // Precio CONGELADO al momento del cierre: usa el precio por RANGO ya fijado
+          // en la jornada (frozen_price) si existe; si no, el precio actual de la máquina.
+          // Una vez cerrada, aunque cambie el precio de la máquina, el monto no se mueve.
+          price: (r.frozen_price != null && Number(r.frozen_price) > 0) ? Number(r.frozen_price) : (Number(r.machinery?.price_per_hour) || 0),
         } as ClosureMachine;
       });
     const uniqueMachines = new Set(snapshot.map((s) => s.machineId || s.serial || s.code)).size;
@@ -725,17 +726,30 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     // Precio actual de cada máquina (para las rondas NO cerradas).
     const priceOfMachine = new Map(machines.map((m) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
+    // ARRASTRE ("igual que la semana pasada"): si una jornada del rango NO tiene precio
+    // congelado, hereda el ÚLTIMO precio congelado de una fecha ANTERIOR de esa misma
+    // máquina. Si nunca tuvo, cae al precio por defecto de la máquina.
+    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', fromArg).gt('frozen_price', 0));
+    const priorPrice = new Map<string, { date: string; price: number }>();
+    (priorRows ?? []).forEach((r: any) => {
+      const cur = priorPrice.get(r.machinery_id);
+      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
+    });
+    const effectivePrice = (machineryId: string, ownFrozen: any) => {
+      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
+      const prev = priorPrice.get(machineryId);
+      if (prev && prev.price > 0) return prev.price;
+      return priceOfMachine.get(machineryId) ?? 0;
+    };
     const workedByMachine = new Map<string, number>();
     // Monto por máquina usando el precio EFECTIVO de cada ronda: congelado (frozen_price)
-    // si la ronda está cerrada; si no, el precio actual. Así un corte cerrado suma con
-    // sus precios aunque después cambien.
+    // del rango; si no, el de la semana anterior (arrastre); si no, el precio actual.
     const amountByMachine = new Map<string, number>();
     byMD.forEach((b) => {
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
       if (w > 0) {
         workedByMachine.set(b.machinery_id, (workedByMachine.get(b.machinery_id) ?? 0) + w);
-        // Un frozen_price 0 (o nulo) NO es un precio válido: cae al precio actual de la máquina.
-        const p = b.frozen_price != null && Number(b.frozen_price) > 0 ? Number(b.frozen_price) : (priceOfMachine.get(b.machinery_id) ?? 0);
+        const p = effectivePrice(b.machinery_id, b.frozen_price);
         amountByMachine.set(b.machinery_id, (amountByMachine.get(b.machinery_id) ?? 0) + (w / 12) * p);
       }
     });
