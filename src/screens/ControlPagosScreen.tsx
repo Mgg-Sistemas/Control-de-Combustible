@@ -195,7 +195,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
-        'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))'
+        'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))'
       ),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
       supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
@@ -210,6 +210,16 @@ export default function ControlPagosScreen({ navigation }: any) {
         if (m.price == null || !m.machineId || !m.date) return;
         frozen.set(`${m.machineId}|${weekStartISO(m.date)}`, Number(m.price));
       });
+    });
+
+    // Precio POR RANGO de un corte ABIERTO: tomado de machine_rounds.frozen_price (lo que
+    // se fijó por rango de fechas en el Control). Clave: máquina|inicio de semana. Así el
+    // Control de Pagos coincide con los reportes aunque el corte aún no esté cerrado.
+    const rangePriceWk = new Map<string, number>();
+    (rounds ?? []).forEach((r: any) => {
+      const mid = r.machinery?.id ?? r.machinery?.code ?? '—';
+      const ws = weekStartISO(r.round_date);
+      if (r.frozen_price != null && Number(r.frozen_price) > 0) rangePriceWk.set(`${mid}|${ws}`, Number(r.frozen_price));
     });
 
     const map = new Map<string, Group>();
@@ -249,8 +259,14 @@ export default function ControlPagosScreen({ navigation }: any) {
     // Solo cuentan las rondas en verde (3 h c/u), descontando las horas parada.
     const list = Array.from(map.values());
     list.forEach((g) => {
+      // Corte ABIERTO con precio por rango: usa ese precio (no el global) para que
+      // Pagos coincida con los reportes. El corte CERRADO sigue mandando por el cierre.
+      Object.entries(g.machines).forEach(([mid, ma]) => {
+        const rp = rangePriceWk.get(`${mid}|${g.weekStart}`);
+        if (rp != null && rp > 0) { ma.priceCurrent = rp; ma.price = rp; }
+      });
       // Semana cerrada con precio congelado → por defecto muestra "del cierre"
-      // (inmutable); si no hay cierre, usa el precio actual (sincronizado).
+      // (inmutable); si no hay cierre, usa el precio actual (sincronizado / por rango).
       g.priceMode = g.hasFrozen ? 'cierre' : 'actual';
       recomputeGroup(g);
     });
