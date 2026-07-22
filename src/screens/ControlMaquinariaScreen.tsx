@@ -1026,8 +1026,19 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // apague; el estado se maneja con Operativa/Inactiva y En espera). No se filtra por
   // ella para que Control y Equipos muestren siempre lo mismo.
   const esActiva = (m: Machinery) => m.operational !== false;
+  // Máquinas que YA trabajaron en el corte visible (tienen horas esta semana). Si una
+  // máquina se marca Inactiva pero ya trabajó en esta semana, NO debe desaparecer del
+  // control ni del reporte de ese corte (sus horas y su pago siguen contando). Como
+  // `rounds` solo trae los días visibles, esto solo la mantiene en la semana donde tiene
+  // horas; en semanas posteriores (sin horas) ya no aparece.
+  const conHorasEstaSemana = new Set<string>();
+  Object.values(rounds).forEach((b: any) => {
+    const h = Number(b.day_hours ?? 0) + Number(b.night_hours ?? 0) + Number(b.overtime_hours ?? 0) + Number(b.hours_stopped ?? 0);
+    if (h > 0) conHorasEstaSemana.add(b.machinery_id);
+  });
+  const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
-  const shown = machines.filter((m) => esActiva(m) && !m.en_espera && matchCompany(m) && matchText(m));
+  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompany(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
   const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompany(m) && matchText(m));
   const enEsperaByCompany = (() => {
@@ -1044,9 +1055,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     return list;
   })();
 
-  // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta solo las
-  // máquinas ACTIVAS (operativas), igual que la lista semanal.
-  const activasControl = machines.filter(esActiva);
+  // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta las máquinas
+  // que están en el control esta semana: operativas + inactivas que ya trabajaron.
+  const activasControl = machines.filter((m) => enControl(m) && !m.en_espera);
   const companyOptions = [
     { label: 'Todas las empresas', value: '__all__', count: activasControl.length },
     ...Object.entries(companies)
@@ -1346,6 +1357,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
                     {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.primary, fontSize: 13 }}> ✎</Text> : null}
                   </Text>
+                  {m.operational === false ? (
+                    <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
+                      ⛔ Inactiva · se mantiene en este corte por sus horas trabajadas
+                    </Text>
+                  ) : null}
                   <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
                     🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
                   </Text>
