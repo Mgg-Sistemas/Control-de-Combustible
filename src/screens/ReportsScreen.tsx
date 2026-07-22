@@ -47,6 +47,7 @@ type RoundCompany = {
   days: number; dayH: number; nightH: number; totalH: number; totalUSD: number;
   viajes: ViajeItem[];      // viajes por máquina (Golden)
   viajesUSD: number;        // total $ de viajes
+  abonado?: number;         // abonos (pagos) de la empresa dentro del rango del reporte
 };
 
 type Row = {
@@ -638,13 +639,24 @@ export default function ReportsScreen({ route }: any) {
       g.viajes.push({ code: f.code || '—', clasificacion: '—', viajes: v, precio });
       g.viajesUSD += v * precio;
     });
+    // ABONOS (pagos) de cada empresa dentro del rango del informe: sincroniza el Control
+    // de Pagos con el reporte. Se cuentan los abonos cuya semana CAE en el rango.
+    const abonoRows = await selectAllRows('company_payments', 'company_name, amount, period_start, period_end',
+      (q) => q.lte('period_start', toArg).gte('period_end', fromArg));
+    const abonoByCompany = new Map<string, number>();
+    (abonoRows ?? []).forEach((p: any) => {
+      const co = p.company_name ?? '';
+      abonoByCompany.set(co, (abonoByCompany.get(co) ?? 0) + (Number(p.amount) || 0));
+    });
+
     const list = Array.from(groups.values()).sort((x, y) =>
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : cmpText(x.company, y.company)
     );
     // Alfabético por NOMBRE de máquina (acentos/mayúsculas indiferentes), luego serial.
-    list.forEach((g) => g.machines.sort((x, y) =>
-      cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial)
-    ));
+    list.forEach((g) => {
+      g.machines.sort((x, y) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial));
+      g.abonado = abonoByCompany.get(g.company) ?? 0;
+    });
 
     // Estado de la flota: total de activos, en producción (trabajaron), en tránsito
     // (activas que aún no trabajaron = pendientes de incorporación), inactivas y
@@ -693,8 +705,16 @@ export default function ReportsScreen({ route }: any) {
         })
         .join('');
       const totalPagar = g.totalUSD + g.viajesUSD;
+      const abonado = Number(g.abonado) || 0;
+      const saldo = Math.max(0, totalPagar - abonado);
+      // Si hay abonos en el rango, muestra Abonado y Saldo (sincronizado con Control de Pagos).
+      const abonoRows = abonado > 0
+        ? `<tr><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">ABONADO ${esc(g.company)}</td><td style="text-align:right;font-weight:700;background:#EAF6EE;color:#15803D;padding:5px 8px">− ${usd(abonado)}</td></tr>
+        <tr><td style="text-align:right;font-weight:800;background:#FBEEEE;color:#B91C1C;padding:6px 8px">SALDO POR PAGAR ${esc(g.company)}</td><td style="text-align:right;font-weight:800;background:#FBEEEE;color:#B91C1C;padding:6px 8px">${usd(saldo)}</td></tr>`
+        : '';
       return `<table style="margin-top:-4px;margin-bottom:10px"><tbody>${groupRows}
         <tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">TOTAL POR PAGAR ${esc(g.company)}</td><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">${usd(totalPagar)}</td></tr>
+        ${abonoRows}
       </tbody></table>`;
     };
     const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>📅 Llegada</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
@@ -2302,6 +2322,24 @@ export default function ReportsScreen({ route }: any) {
                     </View>
                   </View>
                 ) : null}
+                {/* Abonado y saldo (sincronizado con Control de Pagos), si hay abonos en el rango. */}
+                {Number(g.abonado) > 0 ? (() => {
+                  const totalPagar = g.totalUSD + g.viajesUSD;
+                  const abonado = Number(g.abonado) || 0;
+                  const saldo = Math.max(0, totalPagar - abonado);
+                  return (
+                    <View style={{ marginTop: 2 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 3 }}>
+                        <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>Abonado</Text>
+                        <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>− {usd(abonado)}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>SALDO POR PAGAR</Text>
+                        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{usd(saldo)}</Text>
+                      </View>
+                    </View>
+                  );
+                })() : null}
               </View>
             ))
           )}
