@@ -232,7 +232,13 @@ export function RecordForm({
     }
     setSaving(false);
     if (error) {
-      setError(error.message);
+      // La BD rechazó un duplicado (índice único, p. ej. serial/placa). Mensaje claro.
+      if ((error as any).code === '23505' || /duplicate key|unique/i.test(error.message)) {
+        const campo = /serial/i.test(error.message) ? 'serial' : /plate|placa/i.test(error.message) ? 'placa' : 'serial o placa';
+        setError(`YA EXISTE otra máquina con ese ${campo}. No se permiten duplicados.`);
+      } else {
+        setError(error.message);
+      }
       return;
     }
     onSaved(savedId);
