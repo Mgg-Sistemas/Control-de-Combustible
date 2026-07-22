@@ -717,6 +717,23 @@ alter table public.machine_rounds add column if not exists night_hours numeric(6
 alter table public.machine_rounds add column if not exists day_operator text;
 alter table public.machine_rounds add column if not exists day_operator_ci text;
 alter table public.machine_rounds add column if not exists night_operator text;
+
+-- CONGELAR EL PRECIO EN CADA JORNADA (no solo al cerrar el corte): en cuanto una
+-- ronda tiene horas y aún no tiene precio congelado, se le fija el precio ACTUAL de
+-- la máquina. Así, cambiar el precio de una máquina NO afecta jornadas ni cortes
+-- pasados: solo las jornadas futuras toman el precio nuevo.
+create or replace function public.freeze_round_price() returns trigger
+language plpgsql as $$
+begin
+  if (coalesce(new.day_hours, 0) + coalesce(new.night_hours, 0)) > 0
+     and (new.frozen_price is null or new.frozen_price <= 0) then
+    select price_per_hour into new.frozen_price from public.machinery where id = new.machinery_id;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_freeze_round_price on public.machine_rounds;
+create trigger trg_freeze_round_price before insert or update on public.machine_rounds
+  for each row execute function public.freeze_round_price();
 alter table public.machine_rounds add column if not exists night_operator_ci text;
 
 create table if not exists public.company_payments (
