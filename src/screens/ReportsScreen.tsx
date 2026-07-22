@@ -559,6 +559,15 @@ export default function ReportsScreen({ route }: any) {
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
     type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null }> };
+    // ARRASTRE ("igual que la semana pasada"): si una jornada del rango NO tiene precio
+    // congelado, hereda el ÚLTIMO precio congelado de una fecha ANTERIOR de esa misma
+    // máquina. Igual que el resumen del Control, para que AMBOS reportes den lo mismo.
+    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', fromArg).gt('frozen_price', 0));
+    const priorPrice = new Map<string, { date: string; price: number }>();
+    (priorRows ?? []).forEach((r: any) => {
+      const cur = priorPrice.get(r.machinery_id);
+      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
+    });
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -578,9 +587,13 @@ export default function ReportsScreen({ route }: any) {
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
-      // Precio efectivo de la ronda: congelado si la ronda está cerrada; si no, el actual.
-      // Un frozen_price 0 (o nulo) NO es un precio válido: cae al precio actual de la máquina.
-      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
+      // Precio efectivo de la ronda: congelado del rango si existe; si no, el de la semana
+      // anterior (arrastre); si no, el precio actual de la máquina. Un frozen_price 0/nulo
+      // NO es válido. Misma cascada que el resumen del Control → ambos reportes coinciden.
+      const prev = mm.id ? priorPrice.get(mm.id) : undefined;
+      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0
+        ? Number(r.frozen_price)
+        : (prev && prev.price > 0 ? prev.price : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null));
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
@@ -784,7 +797,8 @@ export default function ReportsScreen({ route }: any) {
         .lte('dispatch_date', to),
       // Horas trabajadas dentro del rango del reporte (día + noche − parada + extras).
       // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas (HBS quedaba corto).
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
+      // Trae frozen_price para calcular el monto con el precio POR RANGO de cada jornada.
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price', (q) => q.gte('round_date', from).lte('round_date', to)),
     ]);
     const mLit = new Map<string, number>();
     const vLit = new Map<string, number>();
@@ -792,20 +806,43 @@ export default function ReportsScreen({ route }: any) {
       if (d.machinery_id) mLit.set(d.machinery_id, (mLit.get(d.machinery_id) ?? 0) + Number(d.liters));
       if (d.vehicle_id) vLit.set(d.vehicle_id, (vLit.get(d.vehicle_id) ?? 0) + Number(d.liters));
     });
-    // Horas por máquina (dedupe por máquina+día).
+    // ARRASTRE ("igual que la semana pasada"): precio efectivo de cada jornada = precio
+    // congelado del rango > último precio congelado de una fecha anterior > precio actual.
+    // Misma cascada que el Informe por jornada y el resumen del Control → todos coinciden.
+    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', from).gt('frozen_price', 0));
+    const priorPrice = new Map<string, { date: string; price: number }>();
+    (priorRows ?? []).forEach((r: any) => {
+      const cur = priorPrice.get(r.machinery_id);
+      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
+    });
+    const curPrice = new Map<string, number>((mach ?? []).map((m: any) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
+    const effPrice = (mid: string, ownFrozen: any) => {
+      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
+      const prev = priorPrice.get(mid);
+      if (prev && prev.price > 0) return prev.price;
+      return curPrice.get(mid) ?? 0;
+    };
+    // Horas y MONTO por máquina (dedupe por máquina+día); el monto usa el precio por rango.
     const byMD = new Map<string, any>();
     (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
     const mHours = new Map<string, number>();
+    const mAmount = new Map<string, number>();
     byMD.forEach((r) => {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
-      if (w > 0) mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
+      if (w > 0) {
+        mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
+        const p = effPrice(r.machinery_id, r.frozen_price);
+        mAmount.set(r.machinery_id, (mAmount.get(r.machinery_id) ?? 0) + (w / 12) * p);
+      }
     });
     // Guardia/militar actual de cada máquina, para mostrarlo en el reporte.
     const guardMap = await fetchActiveGuards((mach ?? []).map((m: any) => m.id));
     const items: FleetItem[] = [];
     (mach ?? []).forEach((m: any) => {
       const worked = mHours.get(m.id) ?? 0;
-      const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+      // Monto con el precio POR RANGO de cada jornada (frozen/arrastre); el $/hora mostrado
+      // es el efectivo (monto ÷ horas). Si no trabajó, cae al precio actual de la máquina.
+      const amount = mAmount.get(m.id) ?? 0;
       const gd = guardMap[m.id];
       items.push({
         name: m.code,
@@ -819,8 +856,8 @@ export default function ReportsScreen({ route }: any) {
         company: m.company?.name || 'Sin empresa',
         liters: mLit.get(m.id) ?? 0,
         worked,
-        amount: (worked / 12) * price,
-        pricePerHour: price / 12,
+        amount,
+        pricePerHour: worked > 0 ? amount / worked : (m.price_per_hour != null ? Number(m.price_per_hour) / 12 : 0),
         guard: gd ? `${gd.rank ? gd.rank + ' ' : ''}${gd.guard_name}` : null,
       });
     });
