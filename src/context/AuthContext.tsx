@@ -102,16 +102,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const uid = session.user.id;
     let active = true;
 
-    supabase
-      .from('profiles')
-      .select('role, app_role:app_role_id(id, name, modules, panel_type, created_at)')
-      .eq('id', uid)
-      .single()
-      .then(({ data }) => {
-        if (!active) return;
-        setRole((data?.role as UserRole) ?? null);
-        setAppRole(((data as any)?.app_role as AppRole) ?? null);
-      });
+    // El ROL se carga con un query SIMPLE (nunca toca columnas de app_roles), para que
+    // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
+    // ni sus módulos. El rol especial (app_role) se trae aparte, con respaldo.
+    (async () => {
+      const { data } = await supabase.from('profiles').select('role, app_role_id').eq('id', uid).single();
+      if (!active) return;
+      setRole((data?.role as UserRole) ?? null);
+      const arId = (data as any)?.app_role_id ?? null;
+      if (!arId) { setAppRole(null); return; }
+      // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.
+      let ar = await supabase.from('app_roles').select('id, name, modules, panel_type, created_at').eq('id', arId).single();
+      if (ar.error) ar = await supabase.from('app_roles').select('id, name, modules, created_at').eq('id', arId).single();
+      if (!active) return;
+      setAppRole((ar.data as AppRole) ?? null);
+    })();
 
     // Permisos por módulo del usuario.
     const loadPerms = () =>
