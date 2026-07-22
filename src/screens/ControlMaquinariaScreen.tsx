@@ -1105,6 +1105,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     !q ||
     norm(m.code).includes(q) ||
     norm(m.serial).includes(q) ||
+    norm(m.plate).includes(q) ||
+    norm(m.identifier).includes(q) ||
+    norm(m.tipo).includes(q) ||
     (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
   // El control SOLO muestra equipos ACTIVOS: si una máquina se desactiva (active=false)
   // desaparece del control; al reactivarla, vuelve a aparecer automáticamente.
@@ -1127,10 +1130,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (h > 0) conHorasEstaSemana.add(b.machinery_id);
   });
   const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
+  // Al BUSCAR se ignora el filtro de empresa: así encuentras un equipo por código/serial/
+  // placa aunque esté en otra empresa (p. ej. uno recién agregado). Sin búsqueda, aplica
+  // el filtro de empresa normal.
+  const matchCompanyOrSearch = (m: Machinery) => (q ? true : matchCompany(m));
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
-  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompany(m) && matchText(m));
+  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
-  const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompany(m) && matchText(m));
+  const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompanyOrSearch(m) && matchText(m));
   const enEsperaByCompany = (() => {
     const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
     enEspera.forEach((it) => {
@@ -1349,14 +1356,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-              <Text style={{ color: colors.warning, fontSize: 16 }}>{esperaOpen ? '▾' : '▸'}</Text>
+              <Text style={{ color: colors.warning, fontSize: 16 }}>{(esperaOpen || !!q) ? '▾' : '▸'}</Text>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🕓 En espera (por recibir)</Text>
             </View>
             <View style={{ backgroundColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{enEspera.length}</Text>
             </View>
           </TouchableOpacity>
-          {esperaOpen ? (
+          {(esperaOpen || !!q) ? (
             <View style={{ marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 Máquinas en espera por recepción. Al recibir una, pasa a Operativa, se guarda su fecha de entrada y entra al control.
