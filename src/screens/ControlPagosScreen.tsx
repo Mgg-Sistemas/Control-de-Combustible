@@ -563,26 +563,47 @@ export default function ControlPagosScreen({ navigation }: any) {
       await confirm({ title: 'Monto inválido', message: 'Ingresa un monto mayor a 0 para el abono.', confirmText: 'Entendido', cancelText: ' ' });
       return;
     }
-    const detail: PaymentDetail = {
-      machines: machinesOf(payFor).map((m) => ({ machine: m.machine, hours: m.hours, price: m.price ?? 0, subtotal: m.subtotal })),
-      totalHours: payFor.hoursWorked,
-      total: payFor.total,
-    };
-    setSaving(true);
-    const { error } = await supabase.from('company_payments').insert({
-      company_id: payFor.companyId,
-      company_name: payFor.company,
-      period_start: payFor.weekStart,
-      period_end: payFor.weekEnd,
-      amount,
-      currency: payCurrency,
-      detail,
-      created_by: session?.user?.id ?? null,
+    const uid = session?.user?.id ?? null;
+    const detailOf = (g: Group): PaymentDetail => ({
+      machines: machinesOf(g).map((m) => ({ machine: m.machine, hours: m.hours, price: m.price ?? 0, subtotal: m.subtotal })),
+      totalHours: g.hoursWorked,
+      total: g.total,
     });
+
+    // CASCADA: el pago cubre la semana elegida; el excedente se abona a las demás
+    // semanas pendientes de la MISMA empresa, de la más ANTIGUA a la más nueva.
+    // Si aún sobra, queda como SALDO A FAVOR (se registra sobre la semana elegida).
+    const others = groups
+      .filter((g) => g.company === payFor.company && g.weekStart !== payFor.weekStart && g.saldo > 0)
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    const targets = [payFor, ...others];
+
+    const rows: any[] = [];
+    let remaining = amount;
+    for (const g of targets) {
+      if (remaining <= 0) break;
+      const alloc = round2(Math.min(remaining, g.saldo));
+      if (alloc <= 0) continue;
+      rows.push({ company_id: g.companyId, company_name: g.company, period_start: g.weekStart, period_end: g.weekEnd, amount: alloc, currency: payCurrency, detail: detailOf(g), created_by: uid });
+      remaining = round2(remaining - alloc);
+    }
+    // Excedente sin semana pendiente donde aplicar → saldo a favor (prepago).
+    if (remaining > 0) {
+      rows.push({ company_id: payFor.companyId, company_name: payFor.company, period_start: payFor.weekStart, period_end: payFor.weekEnd, amount: round2(remaining), currency: payCurrency, detail: { ...detailOf(payFor), credit: true } as any, created_by: uid });
+    }
+
+    setSaving(true);
+    const { error } = await supabase.from('company_payments').insert(rows);
     setSaving(false);
     if (error) {
       await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' });
       return;
+    }
+    // Resumen de cómo se distribuyó el pago.
+    const semanasCubiertas = rows.filter((r) => !r.detail?.credit).length;
+    if (semanasCubiertas > 1 || remaining > 0) {
+      const extra = remaining > 0 ? `  ·  💚 Saldo a favor: ${payCurrency} ${money(round2(remaining))}` : '';
+      await confirm({ title: 'Pago distribuido', message: `El pago se aplicó a ${semanasCubiertas} semana(s) de ${payFor.company}.${extra}`, confirmText: 'Entendido', cancelText: ' ' });
     }
     setPayFor(null);
     setSelected(null);
