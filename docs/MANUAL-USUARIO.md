@@ -141,9 +141,21 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Ese monto se **suma al TOTAL POR PAGAR** de la empresa **en la semana de esa fecha** (sale en el reporte).
 - Puedes registrar **varios** fletes y borrar los que no van con **🗑**.
 
-**Precio congelado al cerrar:**
-- Al **cerrar un corte**, el sistema **congela el precio** de cada máquina de ese corte.
-- Si en el siguiente corte una máquina **sube o baja de precio**, el corte cerrado **mantiene su total original** (en el reporte y en el Histórico). Los cortes **abiertos** usan el precio actual.
+**Precio por RANGO de fechas (lo nuevo):**
+- En el Control, toca el **nombre de una máquina** para abrir su precio. Ahí eliges el
+  **rango de fechas** (desde/hasta; por defecto el corte que estás viendo) y ese precio
+  queda fijo **solo en ese rango**.
+- **Cambiar el precio de un rango NO afecta los reportes de otros cortes.** Ejemplo: un
+  camión puede valer **500 del 6 al 12** y **750 del 26 al 05**, y cada corte muestra su
+  propio número.
+- **Si no cambias el precio, se mantiene el de la semana anterior** (arrastre automático):
+  una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior
+  de esa misma máquina. Solo tocas el precio cuando **cambia**.
+- **Para corregir un corte con precio equivocado:** ve a esa semana, toca la máquina, pon
+  el precio correcto con el rango de esas fechas y Guarda. El reporte de ese corte se
+  actualiza al instante y los demás no se tocan. Funciona esté el corte **abierto o cerrado**.
+- Al **cerrar un corte**, el sistema **congela el precio**: respeta el precio por rango ya
+  fijado y a las jornadas sin precio propio les pone el precio actual de la máquina.
 
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
