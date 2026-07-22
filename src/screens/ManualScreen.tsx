@@ -30,11 +30,12 @@ const SECTIONS: Sec[] = [
     blocks: [
       { t: 'steps', items: [
         'Abre la aplicación (o la página web).',
-        'Escribe tu cédula y tu contraseña.',
+        'Escribe tu USUARIO y tu contraseña. (El usuario lo crea el administrador; tiene máximo 10 caracteres. Ya no se entra con la cédula.)',
         'Si quieres revisar que la clave esté bien escrita, toca el ícono de ojo 👁️ dentro del campo de contraseña para mostrarla u ocultarla.',
         'Toca el botón Entrar.',
         'Si el teléfono te lo pide, la próxima vez puedes entrar con tu huella o tu cara.',
       ] },
+      { t: 'note', text: 'Cuidado con los intentos: si te equivocas de contraseña 3 veces, el usuario se BLOQUEA por seguridad. Solo un administrador puede desbloquearlo (en "Más" → Usuarios).' },
       { t: 'note', text: 'Iniciar sesión con huella (TODOS los usuarios): actívalo con el interruptor "🔐 Iniciar sesión con huella". El administrador lo tiene en "Más" → Seguridad; los demás roles lo ven en su propio panel, en la sección Seguridad. Una vez activo, la app te pide tu huella o tu cara al abrirla.' },
       { t: 'note', text: '¿Olvidaste la contraseña? Toca "¿Olvidaste tu contraseña?" y sigue lo que llega a tu correo.' },
       { t: 'note', text: 'Cambiar tu contraseña (todos los usuarios): ya dentro del sistema puedes cambiar tu clave cuando quieras. Administrador: en "Más" → sección Seguridad → "🔑 Cambiar mi contraseña". Operador, Inspector y Cocina: el botón "🔑 Contraseña" arriba, junto a "Salir". Escribe la nueva clave (mínimo 6 caracteres), repítela y guarda. La próxima vez entras con la nueva.' },
@@ -142,13 +143,15 @@ const SECTIONS: Sec[] = [
     icon: '💰',
     title: 'Control de pagos',
     blocks: [
-      { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios.' },
+      { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios. El corte es semanal.' },
       { t: 'bullets', items: [
         'El Tabulador de precios es la lista maestra de precios por tipo de máquina. Se puede modificar y sincronizar.',
         'Tiene dos modos: General (aplica a todas las empresas) y por empresa. Arriba eliges "💲 General" o la empresa. Si a una empresa le pones un precio propio, ese manda; si lo dejas vacío, usa el General.',
         'Al sincronizar, cada máquina toma el precio de SU empresa (o el General si no tiene propio).',
-        'Los cierres viejos no cambian; los nuevos usan el precio del tabulador.',
       ] },
+      { t: 'note', text: 'El precio NO afecta lo pasado: cada jornada guarda el precio que tenía la máquina el día que se trabajó. Si cambias el precio de una máquina, solo cambian las jornadas NUEVAS; los cortes y jornadas pasadas quedan igual. (Consejo: cierra el corte de cada semana; así queda blindado.)' },
+      { t: 'note', text: 'Si un corte VIEJO se te movió por un cambio de precio: 1) pon el precio VIEJO en esas máquinas; 2) cierra ese corte (si ya estaba cerrado, reábrelo y ciérralo de nuevo) — al cerrar, congela ese precio viejo; 3) cambia el precio al nuevo para el próximo corte. El corte viejo queda fijo y el nuevo toma el precio nuevo.' },
+      { t: 'note', text: 'Sobrepago que se abona a la siguiente: si una empresa debe 50.000 y pagas 100.000, el sistema cubre esa semana y ABONA el resto a las siguientes semanas pendientes de la misma empresa (la más vieja primero). Si aún sobra, queda como saldo a favor. Al registrar el pago te muestra un resumen de cómo se repartió.' },
     ],
   },
   {
@@ -365,13 +368,41 @@ const SECTIONS: Sec[] = [
     icon: '🛠️',
     title: 'Mantenimiento de Maquinaria y roles de coordinador',
     blocks: [
-      { t: 'p', text: 'Módulo para los coordinadores de mantenimiento. Tiene tres pestañas: ⏳ Averías (lo que reportan los operadores por QR, por empresa → máquina, con su detalle), 🔧 En reparación y ✓ Historial.' },
+      { t: 'p', text: 'Módulo para los coordinadores de mantenimiento. Tiene tres pestañas: ⏳ Averías (lo que reportan por QR, por empresa → máquina), 🔧 En reparación y ✓ Historial.' },
       { t: 'steps', items: [
-        'Enviar a reparación: toca "🔧 Enviar una máquina a reparación" (o el botón en la tarjeta). Indica tipo (correctivo/preventivo), fecha de salida, por cuánto tiempo (días) y qué se le va a cambiar. La máquina queda NO OPERATIVA en todo el sistema.',
+        'Ver el detalle de una avería: TOCA la avería (donde dice el material y la fecha) y se abre una ficha con los DATOS de la máquina (empresa, tipo, placa, serial, último horómetro) y LA FALLA (qué necesita, nota y la FOTO de referencia si la subieron).',
+        'Enviar a reparación: toca "🔧 Enviar una máquina a reparación" (o el botón en la tarjeta). Indica tipo (correctivo/preventivo), fecha de salida, días estimados y qué se le va a cambiar. La máquina queda NO OPERATIVA en todo el sistema.',
         'Registrar retorno: cuando vuelve, toca "✓ Registrar retorno operativo", pon qué se le cambió y la fecha. La máquina vuelve a OPERATIVA automáticamente.',
       ] },
-      { t: 'note', text: 'ROLES DINÁMICOS (Usuarios → 🏷️ Roles del sistema): el administrador crea roles con un nombre y elige qué módulos ve cada uno; se ven en una lista buscable y se pueden quitar. En la tarjeta de cada usuario, "Rol especial" lo asigna (lista buscable) o lo quita. Un usuario con rol especial ve SOLO los módulos de su rol.' },
-      { t: 'note', text: 'Vienen listos: Coordinador de Mantenimiento Preventivo y Correctivo (ven Mantenimiento de Maquinaria), y Coordinador de Operadores (ve Inspecciones + Operadores: si los inspectores hacen sus check-ins y si los operadores trabajan).' },
+      { t: 'note', text: 'Foto en las averías: al reportar una avería (operador, inspector, coordinador de patio o coordinador) hay un botón "📷 Foto de referencia (opcional)". La foto se ve luego en el detalle de la avería, aquí en Mantenimiento.' },
+      { t: 'note', text: 'CATÁLOGO DE ROLES (Usuarios → 🏷️ Roles del sistema): el administrador crea, EDITA (✏️) y borra roles. Al crear/editar eliges el TIPO DE PANEL: "📋 Módulos" (ve una lista de módulos) o "📷 Coordinador QR" (panel con escáner). No se puede borrar un rol si tiene usuarios vinculados (te avisa). En la tarjeta de cada usuario, "Rol especial" lo asigna o lo quita.' },
+      { t: 'note', text: 'Roles tipo COORDINADOR QR (ej. preventivo, correctivo, almacén): al entrar ven un panel con botones grandes para escanear el QR de la máquina y: ⛽ Surtir gasoil, 🛠️ Registrar avería, ✅ Marcar máquina lista (esto cierra las averías pendientes de esa máquina y la vuelve Operativa). El panel también trae Cambiar contraseña, Huella y Salir.' },
+    ],
+  },
+  {
+    icon: '⛽',
+    title: 'Surtir gasoil (por QR)',
+    blocks: [
+      { t: 'p', text: 'Se puede registrar el surtido de gasoil escaneando el QR de la máquina, desde: el Inspector (en su check-in), el Coordinador de Patio y los Coordinadores QR.' },
+      { t: 'steps', items: [
+        'Toca "⛽ Surtir gasoil" y escanea el QR de la máquina (o, en el inspector, ya estando en el check-in de esa máquina).',
+        'Escribe el HORÓMETRO actual y los LITROS surtidos.',
+        'Toca "Registrar surtido".',
+      ] },
+      { t: 'note', text: 'La pantalla te muestra el SURTIDO TOTAL (litros que se le han echado) y el CONSUMIDO estimado (las horas desde el último surtido × el rendimiento L/h de la máquina), para comparar de un vistazo.' },
+    ],
+  },
+  {
+    icon: '🚧',
+    title: 'Coordinador de Patio',
+    blocks: [
+      { t: 'p', text: 'Rol para controlar la ENTRADA y SALIDA de los camiones al patio, y reportar averías, todo por QR.' },
+      { t: 'steps', items: [
+        '📷 Escanear QR: escanea el QR del camión y elige ENTRADA o SALIDA. Queda registrado con la hora.',
+        '⛽ Surtir gasoil: escanea y registra horómetro + litros (igual que arriba).',
+        '🛠️ Avería de maquinaria: escanea y reporta la falla (va a Mantenimiento).',
+        '🚚 Entrada y salida de camiones: abre un CALENDARIO; cada día muestra cuántos camiones entraron (↓) y salieron (↑). Toca un día para ver el detalle. (El administrador también lo ve dentro de Inspecciones.)',
+      ] },
     ],
   },
   {
@@ -384,6 +415,7 @@ const SECTIONS: Sec[] = [
         'Mapa: muestra dónde está cada máquina según su última ubicación GPS. Con el panel "🗺️ Sectores (zonas)" puedes ver u ocultar las zonas de La Guaira (Sector Oeste y Este), cada una con su color y sus límites.',
         'Mapa · Capas: con el panel "🗂️ Capas" prendes y apagas los puntos por TIPO de equipo (igual que el Conteo: payloaders, jumbos, tractores, cisternas…). Cada tipo muestra cuántas están UBICADAS del total (ej. 📍 22/25 · faltan 3), y arriba el total ubicadas/total del sistema, para saber cuántas quedan por ubicar. Usa "Mostrar todas" / "Ocultar todas" o toca un tipo para ver sus máquinas y elegir una por una.',
         'Mapa · Ubicar manualmente (solo administradores): en el panel "📍 Ubicar manualmente (admin)" elige una máquina (las que faltan por ubicar salen primero) y toca el mapa en el punto donde está; queda ubicada al instante. Solo los administradores pueden reubicar máquinas y eliminar ubicaciones del mapa.',
+        'Mapa · Mover sectores (solo administradores): en el panel "🗺️ Sectores (zonas)" prende los sectores que quieras mover; luego, en "🗺️ Mover sectores (admin)" toca Activar. Cada sector muestra un marcador ✋ con su nombre en el centro: arrástralo hasta su lugar y se guarda solo (para todos). Funciona igual en pantalla completa.',
         'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
         'Mapa · Monitoreo (solo administradores): el panel "🕵️ Monitoreo · quién ubica" (colapsable, igual que Sectores) muestra QUIÉN colocó cada ubicación, con su fecha y hora. Toca una fila para ver esa máquina en el mapa. Sirve para vigilar quién está haciendo las ubicaciones.',
       ] },

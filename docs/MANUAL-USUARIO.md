@@ -21,10 +21,14 @@ Puedes usarlo de dos formas, **las dos funcionan igual**:
 ## 2. Cómo entrar (iniciar sesión)
 
 1. Abre la aplicación (o la página web).
-2. Escribe tu **cédula** y tu **contraseña**. Para revisar que la clave esté bien escrita,
-   toca el **ícono de ojo 👁️** dentro del campo de contraseña para **mostrarla u ocultarla**.
+2. Escribe tu **USUARIO** y tu **contraseña**. (El usuario lo crea el administrador; tiene
+   **máximo 10 caracteres**. Ya **no se entra con la cédula**.) Para revisar que la clave esté
+   bien escrita, toca el **ícono de ojo 👁️** dentro del campo de contraseña.
 3. Toca el botón **Entrar**.
 4. Si el teléfono te lo pide, puedes entrar con tu **huella** o tu **cara** la próxima vez.
+
+> **Cuidado con los intentos:** si te equivocas de contraseña **3 veces**, el usuario se
+> **BLOQUEA** por seguridad. Solo un **administrador** puede desbloquearlo (Más → Usuarios).
 
 > **Iniciar sesión con huella (TODOS los usuarios):** actívalo con el interruptor
 > **"🔐 Iniciar sesión con huella"**. El administrador lo tiene en **Más → Seguridad**; los
@@ -544,10 +548,53 @@ Administrar"**. Ahí puedes:
 toca **Asignar** y elige el rol de la **lista buscable** (o **Quitar** para dejarlo sin rol
 especial). Un usuario con rol especial ve **SOLO** los módulos de ese rol (no ve el resto).
 
-> Vienen listos 3 roles: **Coordinador de Mantenimiento Preventivo**, **Coordinador de
-> Mantenimiento Correctivo** (ambos ven *Mantenimiento de Maquinaria*) y **Coordinador de
-> Operadores** (ve *Inspecciones* + *Operadores*: si los inspectores hacen sus check-ins y si los
-> operadores están trabajando).
+**Catálogo de roles (novedad):** el administrador **crea, EDITA (✏️) y borra** roles. Al
+crear/editar eliges el **TIPO DE PANEL**:
+- **📋 Módulos** — el usuario ve una lista de módulos (lo de siempre).
+- **📷 Coordinador QR** — el usuario ve un panel con **escáner QR** (surtir gasoil, avería,
+  marcar máquina lista). No usa módulos.
+
+No se puede **borrar** un rol si tiene **usuarios vinculados** (el sistema te avisa).
+
+---
+
+### 4.20. Surtir gasoil (por QR)
+
+Se registra el surtido de gasoil escaneando el **QR de la máquina**, desde: el **Inspector**
+(en su check-in), el **Coordinador de Patio** y los **Coordinadores QR**.
+
+1. Toca **"⛽ Surtir gasoil"** y escanea el QR de la máquina.
+2. Escribe el **HORÓMETRO** actual y los **LITROS** surtidos.
+3. Toca **"Registrar surtido"**.
+
+> La pantalla muestra el **SURTIDO total** (litros echados) y el **CONSUMIDO estimado**
+> (horas desde el último surtido × rendimiento L/h de la máquina), para comparar.
+
+---
+
+### 4.21. Coordinador de Patio
+
+Rol para controlar la **entrada y salida de camiones** al patio, y reportar averías, por QR.
+
+- **📷 Escanear QR** → elige **ENTRADA** o **SALIDA** del camión (queda con la hora).
+- **⛽ Surtir gasoil** → horómetro + litros.
+- **🛠️ Avería** → reporta la falla (va a Mantenimiento).
+- **🚚 Entrada y salida de camiones** → un **CALENDARIO**: cada día muestra cuántos camiones
+  entraron (↓) y salieron (↑); toca un día para el detalle. (El administrador también lo ve
+  dentro de *Inspecciones*.)
+
+---
+
+### 4.22. Panel Coordinador QR (preventivo, correctivo, almacén…)
+
+Los roles con panel **📷 Coordinador QR** ven botones grandes: escanean el QR de la máquina y:
+
+- **⛽ Surtir gasoil** (horómetro + litros).
+- **🛠️ Registrar avería** (va a Mantenimiento).
+- **✅ Marcar máquina lista** → cierra las **averías pendientes** de esa máquina y la vuelve
+  **Operativa**.
+
+El panel también trae **Cambiar contraseña**, **Huella** y **Salir**.
 
 ---
 
