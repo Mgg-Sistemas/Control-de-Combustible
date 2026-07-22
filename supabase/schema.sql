@@ -1168,6 +1168,7 @@ alter table public.inventory_transfers add column if not exists estado text;    
 alter table public.inventory_transfers add column if not exists returned boolean not null default false;
 alter table public.inventory_transfers add column if not exists returned_at timestamptz;
 alter table public.inventory_transfers add column if not exists return_note text;       -- resumen del retorno (estado + cantidades)
+alter table public.inventory_transfers add column if not exists to_company_name text;   -- empresa destino NO registrada (texto libre; no entra en nómina)
 
 -- ============================================================================
 -- TASA BCV (Bs/US$): una fila por día (compartida), con histórico. Se baja del

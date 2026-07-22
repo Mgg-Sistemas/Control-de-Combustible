@@ -18,7 +18,19 @@ export interface Profile {
   locked?: boolean; // bloqueado por intentos fallidos (el admin desbloquea)
   locked_at?: string | null;
   app_role_id?: string | null; // rol dinámico asignado (define qué módulos ve)
+  can_audit?: boolean; // puede ver el módulo de Auditoría (bitácora de todos)
   created_at: string;
+}
+
+/** Bitácora de auditoría: quién hizo qué (crear/modificar/eliminar) y cuándo. */
+export interface AuditLog {
+  id: number;
+  at: string;
+  user_id: string | null;
+  user_name: string | null;
+  action: 'INSERT' | 'UPDATE' | 'DELETE';
+  table_name: string;
+  row_id: string | null;
 }
 
 /** Registro de ENTRADA / SALIDA de un camión al patio (Coordinador de Patio). */
@@ -470,6 +482,7 @@ export interface InventoryTransfer {
   to_machinery_label: string | null;
   to_employee_id: string | null;
   to_employee_name: string | null;
+  to_company_name: string | null;   // empresa destino NO registrada (texto libre)
   motivo: string | null;
   items: InventoryTransferLine[];
   descontado: boolean;
