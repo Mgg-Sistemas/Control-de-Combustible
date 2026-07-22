@@ -1018,9 +1018,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo puedes INGRESAR horas nuevas (no modificar las ya cargadas).'); return; }
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
-    // El precio aplica al RANGO de fechas visible por defecto (el corte que estás viendo).
-    setPriceFrom(weekStart);
-    setPriceTo(weekEnd);
+    // Por defecto aplica al RANGO COMPLETO del reporte (sumFrom→sumTo). Es el período que
+    // se está cuajando (p. ej. 26→05, que abarca más de una semana): así el precio cubre
+    // TODAS las jornadas del período y no queda una mezcla de precios por días sin estampar.
+    setPriceFrom(sumFrom);
+    setPriceTo(sumTo);
   };
 
   // Guarda el precio ATÁNDOLO al rango de fechas elegido: congela ese precio en cada
@@ -1756,13 +1758,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
                   />
 
-                  {/* Rango de fechas al que aplica el precio (por defecto, el corte visible). */}
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>📅 Aplicar este precio del … al …</Text>
+                  {/* Rango de fechas al que aplica el precio (por defecto, el rango del reporte). */}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>📅 Aplicar este precio del … al … (cubre TODO el período)</Text>
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
                     <View style={{ flex: 1 }}><DateField value={priceFrom} onChange={(v) => v && setPriceFrom(v)} /></View>
                     <View style={{ flex: 1 }}><DateField value={priceTo} onChange={(v) => v && setPriceTo(v)} /></View>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
+                    <TouchableOpacity onPress={() => { setPriceFrom(sumFrom); setPriceTo(sumTo); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>📊 Rango del reporte ({dayLabel(sumFrom)}→{dayLabel(sumTo)})</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => { setPriceFrom(weekStart); setPriceTo(weekEnd); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Corte visible ({dayLabel(weekStart)}→{dayLabel(weekEnd)})</Text>
                     </TouchableOpacity>
