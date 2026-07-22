@@ -148,6 +148,10 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - **Cambiar el precio de un rango NO afecta los reportes de otros cortes.** Ejemplo: un
   camión puede valer **500 del 6 al 12** y **750 del 26 al 05**, y cada corte muestra su
   propio número.
+- **Switch 🔒 "Blindar precio a estas fechas"** (viene activado): **clava** el precio en
+  esas fechas. Si el precio **sube en otra semana, esta no cambia**; y si lo **modificas,
+  solo afecta esa semana**. Todos los reportes (Informe por jornada, Maquinaria/Vehículo y
+  Control de Pagos) usan ese mismo precio blindado.
 - **Si no cambias el precio, se mantiene el de la semana anterior** (arrastre automático):
   una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior
   de esa misma máquina. Solo tocas el precio cuando **cambia**.
