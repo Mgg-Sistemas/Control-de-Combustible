@@ -560,15 +560,6 @@ export default function ReportsScreen({ route }: any) {
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
     type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null }> };
-    // ARRASTRE ("igual que la semana pasada"): si una jornada del rango NO tiene precio
-    // congelado, hereda el ÚLTIMO precio congelado de una fecha ANTERIOR de esa misma
-    // máquina. Igual que el resumen del Control, para que AMBOS reportes den lo mismo.
-    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', fromArg).gt('frozen_price', 0));
-    const priorPrice = new Map<string, { date: string; price: number }>();
-    (priorRows ?? []).forEach((r: any) => {
-      const cur = priorPrice.get(r.machinery_id);
-      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
-    });
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -588,13 +579,9 @@ export default function ReportsScreen({ route }: any) {
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
-      // Precio efectivo de la ronda: congelado del rango si existe; si no, el de la semana
-      // anterior (arrastre); si no, el precio actual de la máquina. Un frozen_price 0/nulo
-      // NO es válido. Misma cascada que el resumen del Control → ambos reportes coinciden.
-      const prev = mm.id ? priorPrice.get(mm.id) : undefined;
-      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0
-        ? Number(r.frozen_price)
-        : (prev && prev.price > 0 ? prev.price : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null));
+      // Precio efectivo de la ronda: congelado del rango (frozen_price>0) si existe; si no,
+      // el precio ACTUAL de la máquina (que ya es "el de la semana pasada" si no lo cambiaste).
+      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
       a.byDate.set(r.round_date, cur);
       accs.set(key, a);
     });
@@ -826,20 +813,11 @@ export default function ReportsScreen({ route }: any) {
       if (d.machinery_id) mLit.set(d.machinery_id, (mLit.get(d.machinery_id) ?? 0) + Number(d.liters));
       if (d.vehicle_id) vLit.set(d.vehicle_id, (vLit.get(d.vehicle_id) ?? 0) + Number(d.liters));
     });
-    // ARRASTRE ("igual que la semana pasada"): precio efectivo de cada jornada = precio
-    // congelado del rango > último precio congelado de una fecha anterior > precio actual.
-    // Misma cascada que el Informe por jornada y el resumen del Control → todos coinciden.
-    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', from).gt('frozen_price', 0));
-    const priorPrice = new Map<string, { date: string; price: number }>();
-    (priorRows ?? []).forEach((r: any) => {
-      const cur = priorPrice.get(r.machinery_id);
-      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
-    });
+    // Precio efectivo de cada jornada: congelado del rango (frozen_price>0) si existe; si no,
+    // el precio ACTUAL de la máquina. Sin arrastre desde semanas anteriores (era impredecible).
     const curPrice = new Map<string, number>((mach ?? []).map((m: any) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
     const effPrice = (mid: string, ownFrozen: any) => {
       if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
-      const prev = priorPrice.get(mid);
-      if (prev && prev.price > 0) return prev.price;
       return curPrice.get(mid) ?? 0;
     };
     // Horas y MONTO por máquina (dedupe por máquina+día); el monto usa el precio por rango.

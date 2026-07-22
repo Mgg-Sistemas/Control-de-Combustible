@@ -741,24 +741,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     // Precio actual de cada máquina (para las rondas NO cerradas).
     const priceOfMachine = new Map(machines.map((m) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
-    // ARRASTRE ("igual que la semana pasada"): si una jornada del rango NO tiene precio
-    // congelado, hereda el ÚLTIMO precio congelado de una fecha ANTERIOR de esa misma
-    // máquina. Si nunca tuvo, cae al precio por defecto de la máquina.
-    const priorRows = await selectAllRows('machine_rounds', 'machinery_id, round_date, frozen_price', (q) => q.lt('round_date', fromArg).gt('frozen_price', 0));
-    const priorPrice = new Map<string, { date: string; price: number }>();
-    (priorRows ?? []).forEach((r: any) => {
-      const cur = priorPrice.get(r.machinery_id);
-      if (!cur || r.round_date > cur.date) priorPrice.set(r.machinery_id, { date: r.round_date, price: Number(r.frozen_price) });
-    });
     const effectivePrice = (machineryId: string, ownFrozen: any) => {
       if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
-      const prev = priorPrice.get(machineryId);
-      if (prev && prev.price > 0) return prev.price;
       return priceOfMachine.get(machineryId) ?? 0;
     };
     const workedByMachine = new Map<string, number>();
     // Monto por máquina usando el precio EFECTIVO de cada ronda: congelado (frozen_price)
-    // del rango; si no, el de la semana anterior (arrastre); si no, el precio actual.
+    // del rango si existe; si no, el precio ACTUAL de la máquina (sin arrastre).
     const amountByMachine = new Map<string, number>();
     byMD.forEach((b) => {
       const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
