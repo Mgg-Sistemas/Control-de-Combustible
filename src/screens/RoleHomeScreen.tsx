@@ -4,6 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import CoordinadorQrPanel from '../components/CoordinadorQrPanel';
 import { useAuth } from '../context/AuthContext';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -29,6 +30,12 @@ const MODULE_NAV: Record<string, { label: string; route: string; icon: string; d
 export default function RoleHomeScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { appRole, canSee } = useAuth();
+
+  // Rol con panel de COORDINADOR QR (surtir gasoil, avería, marcar lista).
+  if (appRole?.panel_type === 'coordinador_qr') {
+    return <CoordinadorQrPanel title={appRole.name} />;
+  }
+
   const keys = Object.keys(appRole?.modules ?? {}).filter((k) => MODULE_NAV[k] && canSee(k));
 
   return (

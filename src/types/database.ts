@@ -791,6 +791,10 @@ export interface AppRole {
   id: string;
   name: string;
   modules: Record<string, string>; // { module_key: 'lectura'|'escritura'|'full' }
+  /** Tipo de panel del rol: 'modulos' = lista de módulos (por defecto);
+   *  'coordinador_qr' = panel de coordinador con escáner QR (surtir gasoil,
+   *  avería y marcar máquina lista). */
+  panel_type?: 'modulos' | 'coordinador_qr';
   created_at: string;
 }
 

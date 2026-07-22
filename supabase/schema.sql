@@ -814,6 +814,8 @@ create table if not exists public.maintenance_requests (
   resolved_by uuid references public.profiles(id) on delete set null,
   resolved_at timestamptz
 );
+-- Foto de referencia de la avería (opcional; se ve en el detalle de Mantenimiento).
+alter table public.maintenance_requests add column if not exists photo_url text;
 alter table public.maintenance_requests enable row level security;
 create policy mr_maint_read on public.maintenance_requests for select to authenticated using (true);
 create policy mr_maint_insert on public.maintenance_requests for insert to authenticated with check (true);
@@ -853,6 +855,9 @@ create table if not exists public.app_roles (
   modules jsonb not null default '{}'::jsonb,      -- { "mantenimiento": "full", ... }
   created_at timestamptz not null default now()
 );
+-- Tipo de panel del rol: 'modulos' (lista de módulos) o 'coordinador_qr' (panel con
+-- escáner QR: surtir gasoil, avería y marcar máquina lista).
+alter table public.app_roles add column if not exists panel_type text not null default 'modulos';
 alter table public.app_roles enable row level security;
 create policy app_roles_read on public.app_roles for select to authenticated using (true);
 create policy app_roles_write on public.app_roles for all to authenticated using (public.current_role() = 'admin') with check (public.current_role() = 'admin');

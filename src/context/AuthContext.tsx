@@ -104,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase
       .from('profiles')
-      .select('role, app_role:app_role_id(id, name, modules, created_at)')
+      .select('role, app_role:app_role_id(id, name, modules, panel_type, created_at)')
       .eq('id', uid)
       .single()
       .then(({ data }) => {
