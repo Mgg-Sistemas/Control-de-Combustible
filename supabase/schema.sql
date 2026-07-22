@@ -1758,7 +1758,11 @@ declare t text;
 begin
   foreach t in array array[
     'employees', 'food_distributions', 'food_company_meals', 'supervisor_visits',
-    'operator_assignments', 'inventory_movements', 'inventory_items'
+    'operator_assignments', 'inventory_movements', 'inventory_items',
+    -- Control de maquinaria, reportes y pagos: para que el alta/edición de una
+    -- máquina, jornada, flete, etc. se vea al instante sin refrescar a mano.
+    'machinery', 'machine_rounds', 'fletes', 'companies', 'machine_guards',
+    'company_payments', 'control_closures', 'maintenance_requests'
   ] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
