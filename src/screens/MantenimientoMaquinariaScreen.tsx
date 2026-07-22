@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Image } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -21,7 +21,7 @@ function fmtDT(iso: string | null): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string };
+type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
 type Mach = { id: string; code: string; tipo: string | null; company: string; operational: boolean };
 
@@ -65,16 +65,19 @@ export default function MantenimientoMaquinariaScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQ, setPickerQ] = useState('');
 
+  // Detalle de una avería (datos de la máquina + la falla + foto de referencia)
+  const [detailReq, setDetailReq] = useState<Req | null>(null);
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const load = async () => {
     setLoading(true);
     const [{ data: mr }, { data: rp }, { data: mac }] = await Promise.all([
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
+      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, machinery:machinery_id(code, tipo, plate, serial, last_horometro, operational, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, operational, active, company:company_id(name)').eq('active', true).order('code'),
     ]);
-    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa' })));
+    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false })));
     setLoading(false);
@@ -213,11 +216,11 @@ export default function MantenimientoMaquinariaScreen() {
                     {mm.items.map((r) => (
                       <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ fontSize: 24 }}>{MAT_ICON[r.material] ?? '🔧'}</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}</Text>
-                          {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }}>{r.notes}</Text> : null}
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>{fmtDT(r.created_at)}</Text>
-                        </View>
+                        <TouchableOpacity activeOpacity={0.7} onPress={() => setDetailReq(r)} style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}{r.photo_url ? '  📷' : ''}</Text>
+                          {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.notes}</Text> : null}
+                          <Text style={{ color: colors.primary, fontSize: 11 }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
                           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
                         </TouchableOpacity>
@@ -342,6 +345,48 @@ export default function MantenimientoMaquinariaScreen() {
                     <Text style={{ color: '#fff', fontWeight: '800' }}>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
                   </TouchableOpacity>
                 </View>
+                <View style={{ height: spacing.lg }} />
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: detalle de la avería (datos de la máquina + la falla + foto) */}
+      <Modal visible={!!detailReq} transparent animationType="slide" onRequestClose={() => setDetailReq(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '90%' }}>
+            {detailReq ? (
+              <ScrollView>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>{MAT_ICON[detailReq.material] ?? '🔧'} {detailReq.code}</Text>
+                <Text style={{ color: detailReq.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12, marginTop: 2 }}>{detailReq.operational ? '● Operativa' : '● No operativa'}</Text>
+
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>🚜 Datos de la máquina</Text>
+                <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 3 }}>
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.company}</Text></Text>
+                  {detailReq.tipo ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔧 Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.tipo}</Text></Text> : null}
+                  {detailReq.plate ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.plate}</Text></Text> : null}
+                  {detailReq.serial ? <Text style={{ color: colors.muted, fontSize: 13 }}>#️⃣ Serial: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.serial}</Text></Text> : null}
+                  {detailReq.last_horometro != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>⏱️ Último horómetro: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.last_horometro}</Text></Text> : null}
+                </View>
+
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>🛠️ La falla</Text>
+                <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 3 }}>
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>Necesita: <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(detailReq.material)}{detailReq.quantity != null ? ` · ${detailReq.quantity.toLocaleString()}` : ''}</Text></Text>
+                  {detailReq.notes ? <Text style={{ color: colors.muted, fontSize: 13 }}>Nota: <Text style={{ color: colors.text }}>{detailReq.notes}</Text></Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Reportada: {fmtDT(detailReq.created_at)}</Text>
+                </View>
+
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>📷 Foto de referencia</Text>
+                {detailReq.photo_url ? (
+                  <Image source={{ uri: detailReq.photo_url }} style={{ width: '100%', height: 240, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Sin foto de referencia.</Text>
+                )}
+
+                <TouchableOpacity onPress={() => setDetailReq(null)} style={{ marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                </TouchableOpacity>
                 <View style={{ height: spacing.lg }} />
               </ScrollView>
             ) : null}

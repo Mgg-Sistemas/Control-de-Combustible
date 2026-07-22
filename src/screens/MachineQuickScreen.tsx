@@ -129,6 +129,8 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const [material, setMaterial] = useState<MaintenanceMaterial | null>(null);
   const [qty, setQty] = useState('');
   const [maintNote, setMaintNote] = useState('');
+  const [maintPhoto, setMaintPhoto] = useState<string | null>(null);
+  const [maintPhotoUp, setMaintPhotoUp] = useState(false);
   const [savingMaint, setSavingMaint] = useState(false);
 
   // Jornada (INICIO / FIN) sincronizada con Control de maquinaria.
@@ -280,6 +282,15 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setNotice(`✅ Ubicación marcada en el mapa · UTM ${formatUTM(r.lat, r.lng)}.`);
   };
 
+  const subirFotoMantenimiento = async () => {
+    if (!machine) return;
+    setMaintPhotoUp(true);
+    const r = await captureAndUploadPhoto(machine.id, 'averias');
+    setMaintPhotoUp(false);
+    if (r.ok && r.url) setMaintPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
+
   const registrarMantenimiento = async () => {
     if (!machine || !material) return;
     setSavingMaint(true);
@@ -291,10 +302,11 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
       notes: maintNote.trim() || null,
       status: 'pendiente',
       requested_by: authorId,
+      photo_url: maintPhoto,
     });
     setSavingMaint(false);
     if (error) { setNotice('❌ ' + error.message); return; }
-    setMaterial(null); setQty(''); setMaintNote('');
+    setMaterial(null); setQty(''); setMaintNote(''); setMaintPhoto(null);
     setNotice('✅ Solicitud de mantenimiento registrada.');
     setView('home');
   };
@@ -793,6 +805,9 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
               <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
               <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+              <TouchableOpacity onPress={subirFotoMantenimiento} disabled={maintPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: maintPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: maintPhoto ? colors.success : colors.text, fontWeight: '700', fontSize: 13 }}>{maintPhotoUp ? 'Subiendo…' : maintPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+              </TouchableOpacity>
             </View>
           ) : null}
 

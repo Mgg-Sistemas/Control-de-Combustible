@@ -11,6 +11,7 @@ import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
 import QrScanner from '../components/QrScanner';
+import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo } from '../lib/jornada';
 import { useTheme } from '../theme/ThemeContext';
@@ -68,6 +69,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
   // ── Check-in ──────────────────────────────────────────────────────────────
@@ -82,6 +84,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [avQty, setAvQty] = useState('');
   const [avNote, setAvNote] = useState('');
   const [avSaving, setAvSaving] = useState(false);
+  const [avPhoto, setAvPhoto] = useState<string | null>(null);
+  const [avPhotoUp, setAvPhotoUp] = useState(false);
+
+  const subirFotoAveria = async () => {
+    if (!ci) return;
+    setAvPhotoUp(true);
+    const r = await captureAndUploadPhoto(ci.id, 'averias');
+    setAvPhotoUp(false);
+    if (r.ok && r.url) setAvPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsBusy, setGpsBusy] = useState(false);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
@@ -201,10 +214,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       notes: avNote.trim() || null,
       status: 'pendiente',
       requested_by: uid || null,
+      photo_url: avPhoto,
     });
     setAvSaving(false);
     if (error) { setNotice('❌ ' + error.message); return; }
-    setAvMaterial(null); setAvQty(''); setAvNote(''); setAvOpen(false);
+    setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setAvOpen(false);
     setNotice('✅ Avería registrada. Va al módulo de Mantenimiento de Maquinaria.');
   };
 
@@ -396,6 +410,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
         </View>
       </Modal>
 
+      {/* Surtir gasoil a la máquina del check-in */}
+      <SurtidoGasoilModal machineId={gasoilId} onClose={() => setGasoilId(null)} authorName={fullName} authorId={uid || null} />
+
       {/* Modal de check-in: GPS + estado + nota. */}
       <Modal visible={!!ci} transparent animationType="fade" onRequestClose={() => setCi(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
@@ -506,6 +523,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                         <TextInput value={avQty} onChangeText={(t) => setAvQty(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
                         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Nota (opcional)</Text>
                         <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+                        <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700', fontSize: 13 }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity onPress={registrarAveria} disabled={avSaving} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: avSaving ? 0.6 : 1 }}>
                           <Text style={{ color: '#fff', fontWeight: '800' }}>{avSaving ? 'Guardando…' : '🛠️ Registrar avería'}</Text>
                         </TouchableOpacity>
@@ -514,6 +534,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                   </View>
                 ) : null}
               </View>
+
+              {/* ── Surtir gasoil (horómetro + litros, surtido vs consumido) ── */}
+              {ci ? (
+                <TouchableOpacity onPress={() => setGasoilId(ci.id)} style={{ marginTop: spacing.md, backgroundColor: '#15803D', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>⛽ Surtir gasoil</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <TouchableOpacity onPress={confirmCheckin} disabled={ciSaving} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '✅ Marcar como revisada'}</Text>

@@ -4,8 +4,10 @@ import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
+import { captureAndUploadPhoto } from '../lib/photo';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -19,7 +21,7 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
 ];
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 
-type Mode = 'camion' | 'averia';
+type Mode = 'camion' | 'averia' | 'gasoil';
 type Mach = { id: string; code: string; plate: string | null };
 
 /**
@@ -37,6 +39,7 @@ export default function PatioScreen({ navigation }: any) {
   const [scanMode, setScanMode] = useState<Mode | null>(null); // scanner abierto y para qué
   const [machine, setMachine] = useState<Mach | null>(null);   // máquina escaneada
   const [avStarted, setAvStarted] = useState(false);           // true = flujo de avería (no camión)
+  const [gasoilId, setGasoilId] = useState<string | null>(null); // máquina para surtir gasoil
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -44,6 +47,17 @@ export default function PatioScreen({ navigation }: any) {
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
   const [avQty, setAvQty] = useState('');
   const [avNote, setAvNote] = useState('');
+  const [avPhoto, setAvPhoto] = useState<string | null>(null);
+  const [avPhotoUp, setAvPhotoUp] = useState(false);
+
+  const subirFotoAveria = async () => {
+    if (!machine) return;
+    setAvPhotoUp(true);
+    const r = await captureAndUploadPhoto(machine.id, 'averias');
+    setAvPhotoUp(false);
+    if (r.ok && r.url) setAvPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
 
   useEffect(() => {
     if (!uid) return;
@@ -61,8 +75,9 @@ export default function PatioScreen({ navigation }: any) {
     const { data } = await supabase.from('machinery').select('id, code, plate').eq('id', id).single();
     setBusy(false);
     if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
+    if (mode === 'gasoil') { setGasoilId((data as Mach).id); return; }
     setMachine(data as Mach);
-    if (mode === 'averia') { setAvMaterial(null); setAvQty(''); setAvNote(''); }
+    if (mode === 'averia') { setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); }
     // Si era modo camión, el modal de Entrada/Salida se muestra solo (machine != null && no avería).
   };
 
@@ -94,11 +109,12 @@ export default function PatioScreen({ navigation }: any) {
       notes: avNote.trim() || null,
       status: 'pendiente',
       requested_by: uid || null,
+      photo_url: avPhoto,
     });
     setBusy(false);
     if (error) { setNotice('❌ ' + error.message); return; }
     const code = machine.code;
-    setMachine(null); setAvMaterial(null); setAvQty(''); setAvNote('');
+    setMachine(null); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null);
     setNotice(`✅ Avería registrada · ${code}. Va a Mantenimiento de Maquinaria.`);
   };
 
@@ -128,6 +144,7 @@ export default function PatioScreen({ navigation }: any) {
       ) : null}
 
       {bigBtn('📷  ESCANEAR QR', 'Registrar ENTRADA o SALIDA del camión', '#2563EB', () => { setAvStarted(false); setScanMode('camion'); })}
+      {bigBtn('⛽  SURTIR GASOIL', 'Horómetro + litros (surtido vs consumido)', '#15803D', () => { setAvStarted(false); setScanMode('gasoil'); })}
       {bigBtn('🛠️  AVERÍA DE MAQUINARIA', 'Reportar una avería (va a Mantenimiento)', '#B45309', () => { setAvStarted(true); setScanMode('averia'); })}
 
       <TouchableOpacity onPress={() => navigation.navigate('Camiones')} activeOpacity={0.8}>
@@ -162,6 +179,9 @@ export default function PatioScreen({ navigation }: any) {
       <Modal visible={scanMode !== null} animationType="slide" onRequestClose={() => setScanMode(null)}>
         <QrScanner onClose={() => setScanMode(null)} onDetected={onDetected} />
       </Modal>
+
+      {/* Surtir gasoil */}
+      <SurtidoGasoilModal machineId={gasoilId} onClose={() => setGasoilId(null)} authorName={fullName} authorId={uid || null} />
 
       {/* Elegir ENTRADA o SALIDA (modo camión) */}
       <Modal visible={showMov} transparent animationType="fade" onRequestClose={() => setMachine(null)}>
@@ -207,6 +227,9 @@ export default function PatioScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
               <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 60 }} />
+              <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+              </TouchableOpacity>
               <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
               </TouchableOpacity>
