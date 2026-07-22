@@ -949,6 +949,10 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const [empQuery, setEmpQuery] = useState('');
   const [empSel, setEmpSel] = useState<{ id: string; name: string }[]>([]);
   const [empOpen, setEmpOpen] = useState(false);
+  // Empresa / persona NO registradas (texto libre): solo van en la nota y el registro,
+  // NO se crean como empresa ni empleado, así que NO entran en la nómina.
+  const [empresaLibre, setEmpresaLibre] = useState('');
+  const [personaLibre, setPersonaLibre] = useState('');
 
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
@@ -987,8 +991,9 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       confirmado = await exportPdf(notaEntregaHtml({
         fecha: todayDMY(),
         destino: destino.trim() || null,
+        empresa: empresaLibre.trim() || null,
         maquina: machineryId ? machineName(machineryId) : null,
-        empleados: empSel.map((e) => e.name),
+        empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
         items,
       }), `Nota de salida - ${todayDMY()}`);
     } catch (e: any) {
@@ -1003,16 +1008,18 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     // 2) CONFIRMADO: registra la salida de cada producto (descuenta del inventario).
     {
       const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
+      const detalleEmp = empresaLibre.trim() ? ` · EMPRESA: ${empresaLibre.trim().toUpperCase()}` : '';
+      const detallePers = personaLibre.trim() ? ` · RECIBE: ${personaLibre.trim().toUpperCase()}` : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
-        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}`,
+        reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleEmp}${detallePers}`,
         company_id: c.company_id, created_by: session?.user?.id ?? null,
       }));
       const { error } = await supabase.from('inventory_movements').insert(rows);
       if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     }
     setBusy(false);
-    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery('');
+    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre('');
     refetch();
     Alert.alert('Listo', 'Nota generada. La salida se descontó del inventario.');
   };
@@ -1103,6 +1110,13 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
               </View>
             </View>
           ) : null}
+
+          {/* Empresa / persona NO registradas (texto libre). NO entran en la nómina. */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa NO registrada (opcional)</Text>
+          <TextInput value={empresaLibre} onChangeText={(t) => setEmpresaLibre(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. CONSTRUCTORA EXTERNA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada (opcional)</Text>
+          <TextInput value={personaLibre} onChangeText={setPersonaLibre} placeholder="Nombre de quien recibe (no es empleado)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>La empresa/persona no registrada solo salen en la nota; NO se agregan a la nómina.</Text>
 
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Destino / motivo (opcional)</Text>
           <TextInput value={destino} onChangeText={(t) => setDestino(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. OBRA CARABALLEDA, MANTENIMIENTO…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
@@ -1507,6 +1521,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const [fromEmpId, setFromEmpId] = useState('');
   const [toMachId, setToMachId] = useState('');
   const [toEmpId, setToEmpId] = useState('');
+  // Destino NO registrado (texto libre): empresa y/o persona que no están en el sistema.
+  // NO se crean como empresa ni empleado, así que NO entran en la nómina.
+  const [toEmpresaLibre, setToEmpresaLibre] = useState('');
+  const [toPersonaLibre, setToPersonaLibre] = useState('');
   const [open, setOpen] = useState<string | null>(null); // 'fromMach' | 'fromEmp' | 'toMach' | 'toEmp'
   const [pick, setPick] = useState('');
 
@@ -1568,7 +1586,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const generar = async () => {
     if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un material al traslado.');
     if (!fromMachId && !fromEmpId) return Alert.alert('Aviso', 'Indica el origen (máquina o empleado).');
-    if (!toMachId && !toEmpId) return Alert.alert('Aviso', 'Indica el destino (máquina o empleado).');
+    if (!toMachId && !toEmpId && !toEmpresaLibre.trim() && !toPersonaLibre.trim())
+      return Alert.alert('Aviso', 'Indica el destino: máquina, empleado, o una empresa/persona no registrada.');
     for (const c of cart) {
       if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
       if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
@@ -1580,10 +1599,11 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     try {
       confirmado = await exportPdf(notaTrasladoHtml({
         fecha: todayDMY(),
+        empresa: toEmpresaLibre.trim() || null,
         fromMaquina: fromMachId ? machName(fromMachId) : null,
         fromEmpleado: fromEmpId ? empNameById(fromEmpId) : null,
         toMaquina: toMachId ? machName(toMachId) : null,
-        toEmpleado: toEmpId ? empNameById(toEmpId) : null,
+        toEmpleado: toEmpId ? empNameById(toEmpId) : (toPersonaLibre.trim() || null),
         motivo: motivo.trim() || null,
         items,
       }), `Nota de traslado - ${todayDMY()}`);
@@ -1593,7 +1613,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     }
     if (!confirmado) { setBusy(false); return; }
     // 2) CONFIRMADO: descuenta stock (salida) y guarda el encabezado del traslado.
-    const detalle = `${fromMachId ? machName(fromMachId) : (fromEmpId ? empNameById(fromEmpId) : '—')} → ${toMachId ? machName(toMachId) : (toEmpId ? empNameById(toEmpId) : '—')}`;
+    const destinoTxt = toMachId ? machName(toMachId) : toEmpId ? empNameById(toEmpId) : [toPersonaLibre.trim(), toEmpresaLibre.trim() ? `(${toEmpresaLibre.trim()})` : ''].filter(Boolean).join(' ') || '—';
+    const detalle = `${fromMachId ? machName(fromMachId) : (fromEmpId ? empNameById(fromEmpId) : '—')} → ${destinoTxt}`;
     const rows = cart.map((c) => ({
       item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
       reason: `NOTA DE TRASLADO · ${detalle}${motivo.trim().toUpperCase() ? ` · ${motivo.trim().toUpperCase()}` : ''}`,
@@ -1601,21 +1622,25 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     }));
     const { error: mErr } = await supabase.from('inventory_movements').insert(rows);
     if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
-    const { error: tErr } = await supabase.from('inventory_transfers').insert({
+    const transferPayload: Record<string, any> = {
       company_id: cart[0]?.company_id ?? null,
       from_machinery_id: fromMachId || null, from_machinery_label: fromMachId ? machName(fromMachId) : null,
       from_employee_id: fromEmpId || null, from_employee_name: fromEmpId ? empNameById(fromEmpId) : null,
       to_machinery_id: toMachId || null, to_machinery_label: toMachId ? machName(toMachId) : null,
-      to_employee_id: toEmpId || null, to_employee_name: toEmpId ? empNameById(toEmpId) : null,
+      to_employee_id: toEmpId || null, to_employee_name: toEmpId ? empNameById(toEmpId) : (toPersonaLibre.trim() || null),
       motivo: motivo.trim() || null,
       lugar: lugar.trim().toUpperCase() || null,
       estado: estadoMat || null,
       items: cart.map((c) => ({ item_id: c.id, name: c.name, qty: c.qty, unit: c.unit })),
       descontado: true, created_by: session?.user?.id ?? null,
-    });
+    };
+    // Solo se manda to_company_name si hay empresa libre (así los traslados normales
+    // no fallan si aún no corriste la migración de esa columna).
+    if (toEmpresaLibre.trim()) transferPayload.to_company_name = toEmpresaLibre.trim();
+    const { error: tErr } = await supabase.from('inventory_transfers').insert(transferPayload);
     if (tErr) { setBusy(false); return Alert.alert('Aviso', tErr.message); }
     setBusy(false);
-    setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId('');
+    setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId(''); setToEmpresaLibre(''); setToPersonaLibre('');
     refetch(); refetchTr();
     Alert.alert('Listo', 'Traslado registrado. La salida se descontó del inventario.');
   };
@@ -1651,8 +1676,9 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   const trasladoLabel = (t: InventoryTransfer) => {
     const from = t.from_machinery_label || t.from_employee_name || '—';
-    const to = t.to_machinery_label || t.to_employee_name || '—';
-    return `${from} → ${to}`;
+    const to = t.to_machinery_label || t.to_employee_name || (t as any).to_company_name || '—';
+    const empresa = (t as any).to_company_name && (t.to_machinery_label || t.to_employee_name) ? ` (${(t as any).to_company_name})` : '';
+    return `${from} → ${to}${empresa}`;
   };
 
   // Reporte PDF de TODOS los traslados (con lugar, estado, ítems y si se retornaron).
@@ -1791,6 +1817,13 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
           <Selector id="toMach" icon="🚜" label="Máquina destino" valueId={toMachId} valueText={machName(toMachId)} onPick={setToMachId} options={machOptions} />
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>➕ Agregar responsable destino (opcional): la persona que RECIBE en el destino.</Text>
           <Selector id="toEmp" icon="👷" label="Responsable destino" valueId={toEmpId} valueText={empNameById(toEmpId)} onPick={setToEmpId} options={empOptions} />
+
+          {/* Destino NO registrado (texto libre): empresa/persona fuera del sistema. NO entra en nómina. */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🏢 Empresa destino NO registrada (opcional)</Text>
+          <TextInput value={toEmpresaLibre} onChangeText={(t) => setToEmpresaLibre(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. CONSTRUCTORA EXTERNA…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>🧑 Persona que recibe NO registrada (opcional)</Text>
+          <TextInput value={toPersonaLibre} onChangeText={setToPersonaLibre} placeholder="Nombre de quien recibe (no es empleado)" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+          <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>La empresa/persona no registrada solo salen en la nota y el registro; NO se agregan a la nómina.</Text>
 
           {/* LUGAR y ESTADO del material trasladado */}
           <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Lugar / obra a donde se hace el traslado (opcional)</Text>
