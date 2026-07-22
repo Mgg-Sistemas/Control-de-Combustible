@@ -751,13 +751,15 @@ export default function ReportsScreen({ route }: any) {
     );
     const genWorked = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+    const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
     const genEquipos = grandMachines;
     const clasRows = [...clasAgg.entries()]
       .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
       .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td></tr>`)
       .join('');
+    // Por empresa: equipos + FLETES = total a pagar (los fletes del rango se suman aquí).
     const empRows = roundGroups
-      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td><td style="text-align:right">${phStr(g.totalUSD, g.totalH)}</td><td style="text-align:right;font-weight:700">${usd(g.totalUSD)}</td></tr>`)
+      .map((g) => `<tr><td>${esc(g.company)}</td><td style="text-align:right;font-weight:700">${g.machines.length}</td><td style="text-align:right">${nH(g.totalH)}</td><td style="text-align:right">${usd(g.totalUSD)}</td><td style="text-align:right">${g.viajesUSD > 0 ? usd(g.viajesUSD) : '—'}</td><td style="text-align:right;font-weight:800">${usd(g.totalUSD + g.viajesUSD)}</td></tr>`)
       .join('');
     const generalBlockJ = `
       <h2 style="margin-top:20px">Reporte general</h2>
@@ -765,11 +767,11 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
       <tbody>${clasRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td></tr></tfoot></table>
-      <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th></tr></thead>
-      <tbody>${empRows || '<tr><td colspan="5" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${phStr(genAmount, genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td></tr></tfoot></table>
-      <p class="muted" style="margin-top:6px">Resumen de equipos (horas × precio). No incluye fletes/viajes; ver el detalle por empresa.</p>`;
+      <h3 style="margin:12px 0 2px">Totales por empresa (equipos + fletes)</h3>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th><th style="text-align:right">Equipos $</th><th style="text-align:right">Fletes $</th><th style="text-align:right">Total a pagar</th></tr></thead>
+      <tbody>${empRows || '<tr><td colspan="6" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td></tr></tfoot></table>
+      <p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>`;
     const content = `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
       ${generalBlockJ}
@@ -2200,6 +2202,7 @@ export default function ReportsScreen({ route }: any) {
             }));
             const genWorked = roundGroups.reduce((s, g) => s + g.totalH, 0);
             const genAmount = roundGroups.reduce((s, g) => s + g.totalUSD, 0);
+            const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
             const genEquipos = roundGroups.reduce((s, g) => s + g.machines.length, 0);
             const ph = (a: number, w: number) => (w > 0 ? usd(a / w) : '—');
             const clas = [...clasAgg.entries()].sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]));
@@ -2231,13 +2234,13 @@ export default function ReportsScreen({ route }: any) {
                 ))}
                 {row('TOTAL', String(genEquipos), nH(genWorked), ph(genAmount, genWorked), usd(genAmount), true)}
 
-                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>Totales de equipos por empresa</Text>
-                {hdr('EMPRESA', 'EQUIP.', 'HORAS', '$/HORA', 'TOTAL')}
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 4 }}>Totales por empresa (equipos + fletes)</Text>
+                {hdr('EMPRESA', 'EQUIP.', 'FLETES $', 'EQUIPOS $', 'TOTAL')}
                 {roundGroups.map((g) => (
-                  <React.Fragment key={g.company}>{row(g.company, String(g.machines.length), nH(g.totalH), ph(g.totalUSD, g.totalH), usd(g.totalUSD))}</React.Fragment>
+                  <React.Fragment key={g.company}>{row(g.company, String(g.machines.length), g.viajesUSD > 0 ? usd(g.viajesUSD) : '—', usd(g.totalUSD), usd(g.totalUSD + g.viajesUSD))}</React.Fragment>
                 ))}
-                {row('TOTAL', String(genEquipos), nH(genWorked), ph(genAmount, genWorked), usd(genAmount), true)}
-                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Resumen por horas × precio. No incluye fletes/viajes (ver detalle por empresa).</Text>
+                {row('TOTAL', String(genEquipos), genFletes > 0 ? usd(genFletes) : '—', usd(genAmount), usd(genAmount + genFletes), true)}
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>El "Total" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos.</Text>
               </Card>
             );
           })() : null}
