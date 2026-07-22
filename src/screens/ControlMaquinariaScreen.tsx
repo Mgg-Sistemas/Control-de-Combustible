@@ -175,6 +175,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [fleteViajes, setFleteViajes] = useState('');
   const [fletePrecio, setFletePrecio] = useState('');
   const [fleteBusy, setFleteBusy] = useState(false);
+  const [fleteDelConfirm, setFleteDelConfirm] = useState<string | null>(null); // id del flete pendiente de confirmar borrado
 
   // Operador por turno: máquina + fecha + turno (día/noche) que se está editando.
   const [opFor, setOpFor] = useState<{ m: Machinery; d: string; which: 'day' | 'night' } | null>(null);
@@ -991,6 +992,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // ── Flete / viaje: registrar cuántos viajes hizo el equipo y a qué precio, con su fecha.
   //    El monto (viajes × precio) se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha.
   const openFlete = (m: Machinery) => {
+    setFleteDelConfirm(null);
     setFleteGeneralCo(null);
     setFleteFor(m);
     setFleteDate(weekEnd); // por defecto el último día del bloque en pantalla
@@ -1000,6 +1002,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   // Flete GENERAL de una empresa (sin máquina): mismo modal, se guarda con machinery_id nulo.
   const openFleteGeneral = (companyId: string, companyName: string) => {
+    setFleteDelConfirm(null);
     setFleteFor(null);
     setFleteGeneralCo({ id: companyId, name: companyName });
     setFleteDate(weekEnd);
@@ -1035,13 +1038,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     setNotice(`✅ Flete registrado en ${donde}: ${viajes} viaje(s) × $${precio.toLocaleString()} = $${(viajes * precio).toLocaleString()} · ${fmtDMY(fleteDate)}`);
   };
 
+  // Borra el flete SIN el diálogo global (que queda tapado bajo el modal de fletes).
+  // La confirmación se hace en línea dentro del modal (dos toques).
   const deleteFlete = async (f: any) => {
-    const ok = await confirm({
-      title: 'Eliminar flete',
-      message: `¿Eliminar ${f.viajes} viaje(s) × $${Number(f.precio).toLocaleString()} del ${fmtDMY(f.flete_date)}?`,
-      confirmText: 'Eliminar', cancelText: 'Cancelar',
-    });
-    if (!ok) return;
+    setFleteDelConfirm(null);
     const { error } = await supabase.from('fletes').delete().eq('id', f.id);
     if (error) return Alert.alert('Aviso', error.message);
     if (f.machinery_id) setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
@@ -1765,15 +1765,26 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{fmtDMY(f.flete_date)} · {f.viajes} viaje(s) × ${Number(f.precio).toLocaleString()}</Text>
                             <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>= ${(Number(f.viajes) * Number(f.precio)).toLocaleString()}</Text>
                           </View>
-                          <TouchableOpacity onPress={() => deleteFlete(f)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
-                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑 Eliminar</Text>
-                          </TouchableOpacity>
+                          {fleteDelConfirm === f.id ? (
+                            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                              <TouchableOpacity onPress={() => deleteFlete(f)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.danger }}>
+                                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => setFleteDelConfirm(null)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }}>
+                                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>No</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity onPress={() => setFleteDelConfirm(f.id)} style={{ paddingVertical: 4, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.danger }}>
+                              <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑 Eliminar</Text>
+                            </TouchableOpacity>
+                          )}
                         </View>
                       ))}
                     </View>
                   ) : null}
 
-                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => { setFleteFor(null); setFleteGeneralCo(null); }}>
+                  <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => { setFleteFor(null); setFleteGeneralCo(null); setFleteDelConfirm(null); }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Listo</Text>
                   </TouchableOpacity>
                 </ScrollView>
