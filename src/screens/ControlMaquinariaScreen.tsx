@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView, Switch } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -159,6 +159,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [priceInput, setPriceInput] = useState('');
   const [priceFrom, setPriceFrom] = useState(''); // rango de fechas al que aplica el precio
   const [priceTo, setPriceTo] = useState('');
+  const [priceBlindar, setPriceBlindar] = useState(true); // blindar: clavar el precio a ese rango
   const [savingPrice, setSavingPrice] = useState(false);
   const [esperaOpen, setEsperaOpen] = useState(false); // sección "En espera" (por recibir) desplegada
   const [busyRecibir, setBusyRecibir] = useState<string | null>(null); // id de la máquina que se está recibiendo
@@ -1018,6 +1019,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo puedes INGRESAR horas nuevas (no modificar las ya cargadas).'); return; }
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
+    setPriceBlindar(true); // por defecto BLINDA el precio a esas fechas
     // Por defecto aplica al RANGO COMPLETO del reporte (sumFrom→sumTo). Es el período que
     // se está cuajando (p. ej. 26→05, que abarca más de una semana): así el precio cubre
     // TODAS las jornadas del período y no queda una mezcla de precios por días sin estampar.
@@ -1040,15 +1042,21 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       // 1) Precio por defecto de la máquina (para fechas futuras/sin precio fijado).
       const { error: e1 } = await supabase.from('machinery').update({ price_per_hour: val }).eq('id', m.id);
       if (e1) throw e1;
-      // 2) Congela ese precio SOLO en las jornadas del rango elegido. Un precio nulo/0
-      //    "descongela" el rango (vuelve al precio por defecto de la máquina).
-      const { error: e2 } = await supabase.from('machine_rounds')
-        .update({ frozen_price: val && val > 0 ? val : null })
-        .eq('machinery_id', m.id).gte('round_date', from).lte('round_date', to);
-      if (e2) throw e2;
+      // 2) BLINDAR: si el switch está activo, CLAVA ese precio SOLO en las jornadas del
+      //    rango elegido (frozen_price). Queda fijo para esas fechas: si el precio sube en
+      //    otra semana, esta NO cambia; si lo modificas, solo afecta esta semana. Un precio
+      //    nulo/0 "descongela" el rango (vuelve al precio por defecto de la máquina).
+      if (priceBlindar) {
+        const { error: e2 } = await supabase.from('machine_rounds')
+          .update({ frozen_price: val && val > 0 ? val : null })
+          .eq('machinery_id', m.id).gte('round_date', from).lte('round_date', to);
+        if (e2) throw e2;
+      }
       setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, price_per_hour: val } as Machinery) : x)));
       setPriceFor(null);
-      setNotice(`✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} aplicado a ${m.code} del ${from} al ${to}. No afecta otros cortes.`);
+      setNotice(priceBlindar
+        ? `🔒 Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} BLINDADO en ${m.code} del ${from} al ${to}. Queda fijo para esas fechas y no afecta otros cortes.`
+        : `✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} de ${m.code} actualizado (sin blindar: aplica a fechas sin precio fijo).`);
       load(true);
     } catch (err: any) {
       Alert.alert('Aviso', err?.message ?? 'No se pudo guardar el precio.');
@@ -1771,6 +1779,19 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <TouchableOpacity onPress={() => { setPriceFrom(weekStart); setPriceTo(weekEnd); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Corte visible ({dayLabel(weekStart)}→{dayLabel(weekEnd)})</Text>
                     </TouchableOpacity>
+                  </View>
+
+                  {/* Switch: BLINDAR el precio a esas fechas (queda clavado). */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, backgroundColor: priceBlindar ? colors.surfaceAlt : colors.surface, borderWidth: 1, borderColor: priceBlindar ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
+                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🔒 Blindar precio a estas fechas</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        {priceBlindar
+                          ? 'Queda FIJO para esas fechas: si sube en otra semana, esta no cambia; si lo modificas, solo afecta esta semana.'
+                          : 'Sin blindar: solo cambia el precio por defecto de la máquina (fechas sin precio fijo).'}
+                      </Text>
+                    </View>
+                    <Switch value={priceBlindar} onValueChange={setPriceBlindar} />
                   </View>
 
                   {/* Precio por hora: automático = jornada ÷ 12 */}
