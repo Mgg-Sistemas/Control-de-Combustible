@@ -157,6 +157,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [sumTo, setSumTo] = useState(PERIODO_CORTE);
   const [priceFor, setPriceFor] = useState<Machinery | null>(null); // máquina cuyo precio/hora se edita
   const [priceInput, setPriceInput] = useState('');
+  const [priceFrom, setPriceFrom] = useState(''); // rango de fechas al que aplica el precio
+  const [priceTo, setPriceTo] = useState('');
+  const [savingPrice, setSavingPrice] = useState(false);
   const [esperaOpen, setEsperaOpen] = useState(false); // sección "En espera" (por recibir) desplegada
   const [busyRecibir, setBusyRecibir] = useState<string | null>(null); // id de la máquina que se está recibiendo
   const [recibirDate, setRecibirDate] = useState<Record<string, string>>({}); // fecha de entrada elegida por máquina al recibir
@@ -515,11 +518,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // Marca TODO lo pendiente como cerrado: sale del control activo pero queda en la BD.
     await supabase.from('machine_rounds').update({ closed: true }).eq('closed', false);
     // Congela el precio de cada ronda recién cerrada (dentro del rango del cierre), para
-    // que los reportes usen ESE precio aunque después cambie el de la máquina.
+    // que los reportes usen ESE precio aunque después cambie el de la máquina. IMPORTANTE:
+    // solo rellena las rondas que AÚN no tienen precio congelado (null o 0). Si ya fijaste
+    // un precio por rango de fechas para ese corte, se respeta y NO se pisa.
     const priceByMachine = new Map<string, number>();
     snapshot.forEach((s) => { if (s.machineId) priceByMachine.set(s.machineId, Number(s.price) || 0); });
     for (const [mid, price] of priceByMachine) {
-      await supabase.from('machine_rounds').update({ frozen_price: price }).eq('machinery_id', mid).gte('round_date', from).lte('round_date', to);
+      if (!(price > 0)) continue;
+      await supabase.from('machine_rounds').update({ frozen_price: price })
+        .eq('machinery_id', mid).gte('round_date', from).lte('round_date', to)
+        .or('frozen_price.is.null,frozen_price.eq.0');
     }
     setClosing(false);
     setNotice(`✅ Control ${rangeTxt} cerrado y guardado en el histórico. El control activo quedó limpio.`);
@@ -996,16 +1004,41 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo puedes INGRESAR horas nuevas (no modificar las ya cargadas).'); return; }
     setPriceFor(m);
     setPriceInput(m.price_per_hour != null ? String(m.price_per_hour) : '');
+    // El precio aplica al RANGO de fechas visible por defecto (el corte que estás viendo).
+    setPriceFrom(weekStart);
+    setPriceTo(weekEnd);
   };
 
+  // Guarda el precio ATÁNDOLO al rango de fechas elegido: congela ese precio en cada
+  // jornada del rango (frozen_price) para que el reporte de ESE corte use ese número y
+  // NO se vea afectado si luego cambias el precio para otro rango. Además guarda el
+  // precio en la máquina como valor por defecto para fechas aún sin precio fijado.
   const savePrice = async (m: Machinery, value: string) => {
     if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios.'); setPriceFor(null); return; }
     const n = Number(value.replace(',', '.'));
     const val = value.trim() === '' ? null : isFinite(n) && n >= 0 ? n : null;
-    const { error } = await supabase.from('machinery').update({ price_per_hour: val }).eq('id', m.id);
-    if (error) return Alert.alert('Aviso', error.message);
-    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, price_per_hour: val } as Machinery) : x)));
-    setPriceFor(null);
+    const from = priceFrom, to = priceTo;
+    if (!from || !to || from > to) { Alert.alert('Rango de fechas', 'Elige un rango válido (desde ≤ hasta) al que aplicar el precio.'); return; }
+    setSavingPrice(true);
+    try {
+      // 1) Precio por defecto de la máquina (para fechas futuras/sin precio fijado).
+      const { error: e1 } = await supabase.from('machinery').update({ price_per_hour: val }).eq('id', m.id);
+      if (e1) throw e1;
+      // 2) Congela ese precio SOLO en las jornadas del rango elegido. Un precio nulo/0
+      //    "descongela" el rango (vuelve al precio por defecto de la máquina).
+      const { error: e2 } = await supabase.from('machine_rounds')
+        .update({ frozen_price: val && val > 0 ? val : null })
+        .eq('machinery_id', m.id).gte('round_date', from).lte('round_date', to);
+      if (e2) throw e2;
+      setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, price_per_hour: val } as Machinery) : x)));
+      setPriceFor(null);
+      setNotice(`✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} aplicado a ${m.code} del ${from} al ${to}. No afecta otros cortes.`);
+      load(true);
+    } catch (err: any) {
+      Alert.alert('Aviso', err?.message ?? 'No se pudo guardar el precio.');
+    } finally {
+      setSavingPrice(false);
+    }
   };
 
   const q = norm(query.trim());
@@ -1694,7 +1727,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 <>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{priceFor.code}</Text>
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                    Precio por jornada (12 h) · bloque {dayLabel(weekStart)} → {dayLabel(weekEnd)}
+                    El precio se aplica al RANGO de fechas que elijas. No afecta otros cortes.
                   </Text>
 
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Precio por jornada de 12 h ($)</Text>
@@ -1708,6 +1741,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     autoFocus
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
                   />
+
+                  {/* Rango de fechas al que aplica el precio (por defecto, el corte visible). */}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md }}>📅 Aplicar este precio del … al …</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 4 }}>
+                    <View style={{ flex: 1 }}><DateField value={priceFrom} onChange={(v) => v && setPriceFrom(v)} /></View>
+                    <View style={{ flex: 1 }}><DateField value={priceTo} onChange={(v) => v && setPriceTo(v)} /></View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                    <TouchableOpacity onPress={() => { setPriceFrom(weekStart); setPriceTo(weekEnd); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Corte visible ({dayLabel(weekStart)}→{dayLabel(weekEnd)})</Text>
+                    </TouchableOpacity>
+                  </View>
 
                   {/* Precio por hora: automático = jornada ÷ 12 */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
@@ -1741,8 +1786,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPriceFor(null)}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => savePrice(priceFor, priceInput)}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar precio</Text>
+                    <TouchableOpacity disabled={savingPrice} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: savingPrice ? 0.6 : 1 }} onPress={() => savePrice(priceFor, priceInput)}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{savingPrice ? 'Guardando…' : 'Guardar precio del rango'}</Text>
                     </TouchableOpacity>
                   </View>
                 </>
