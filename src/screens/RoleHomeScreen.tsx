@@ -15,6 +15,7 @@ const MODULE_NAV: Record<string, { label: string; route: string; icon: string; d
   mantenimiento: { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', icon: '🛠️', desc: 'Averías por máquina y control de reparaciones' },
   operadores: { label: 'Operadores', route: 'Operadores', icon: '👷', desc: 'Jornadas de operadores (quién trabaja y en qué máquina)' },
   supervision: { label: 'Inspecciones', route: 'Supervision', icon: '🪖', desc: 'Rondas de inspectores: check-ins por máquina' },
+  inspecciones_maq: { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', icon: '🔍', desc: 'Control por equipo: herramientas/accesorios y reporte de inspección' },
   equipos: { label: 'Catálogo (equipos)', route: 'Equipos', icon: '🚜', desc: 'Lista de máquinas' },
   mapa: { label: 'Mapa', route: 'Map', icon: '🗺️', desc: 'Ubicación de las máquinas' },
   reportes: { label: 'Reportes', route: 'Reports', icon: '📊', desc: 'Combustible y rondas (PDF)' },
