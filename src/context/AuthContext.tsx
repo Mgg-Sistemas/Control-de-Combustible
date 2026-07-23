@@ -21,6 +21,8 @@ type AuthState = {
   role: UserRole | null;
   /** Rol DINÁMICO asignado (define qué módulos ve). null = usa el rol base + permisos. */
   appRole: AppRole | null;
+  /** ¿el usuario puede ver el módulo de Auditoría (bitácora de todos)? */
+  canAudit: boolean;
   /** IDs de usuarios conectados ahora mismo (Realtime Presence). */
   onlineIds: string[];
   /** Nivel de permiso del usuario para un módulo (admin = full). */
@@ -57,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
   const [appRole, setAppRole] = useState<AppRole | null>(null);
+  const [canAudit, setCanAudit] = useState(false);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<Record<string, PermLevel>>({});
   const [bioLoginAvailable, setBioLoginAvailable] = useState(false);
@@ -95,6 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!session?.user) {
       setRole(null);
       setAppRole(null);
+      setCanAudit(false);
       setOnlineIds([]);
       setPermissions({});
       return;
@@ -106,9 +110,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
     // ni sus módulos. El rol especial (app_role) se trae aparte, con respaldo.
     (async () => {
-      const { data } = await supabase.from('profiles').select('role, app_role_id').eq('id', uid).single();
+      const { data } = await supabase.from('profiles').select('role, app_role_id, can_audit').eq('id', uid).single();
       if (!active) return;
       setRole((data?.role as UserRole) ?? null);
+      setCanAudit(!!(data as any)?.can_audit);
       const arId = (data as any)?.app_role_id ?? null;
       if (!arId) { setAppRole(null); return; }
       // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.
@@ -329,6 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         configured: isSupabaseConfigured,
         role,
         appRole,
+        canAudit,
         onlineIds,
         locked,
         bioLoginAvailable,

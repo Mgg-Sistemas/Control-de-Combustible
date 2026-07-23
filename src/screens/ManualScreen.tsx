@@ -425,6 +425,22 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🔔',
+    title: 'Notificaciones (la campana)',
+    blocks: [
+      { t: 'p', text: 'Arriba a la derecha, junto a la fecha y hora, aparece una campana 🔔 (solo para el administrador). Avisa de lo que va pasando en el sistema sin tener que estar revisando cada módulo.' },
+      { t: 'bullets', items: [
+        '📝 Inventario: cuando alguien monta un requerimiento, te llega el aviso.',
+        '🛒 Compras: cuando se crea una solicitud de compra.',
+        '🛠️ Control: cuando se guarda un cierre de control (con el rango de fechas y cuántas máquinas).',
+        'El número rojo sobre la campana es la cantidad SIN leer. Toca la campana para ver la lista.',
+        'Toca un aviso para marcarlo leído e ir directo al módulo. También hay "Marcar todo leído".',
+        'Cada quien tiene sus propios "leídos": que un admin lo lea no lo marca leído para otro.',
+        'Se actualiza sola en línea: no hace falta refrescar.',
+      ] },
+    ],
+  },
+  {
     icon: '🧩',
     title: 'Cosas que sirven en TODAS las secciones',
     blocks: [

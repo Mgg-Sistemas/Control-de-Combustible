@@ -22,6 +22,22 @@ export interface Profile {
   created_at: string;
 }
 
+/** Notificación in-app (campana). Se le refleja al rol destino (target_role) o a un
+ *  destinatario específico (recipient_id). El estado "leído" es por usuario. */
+export interface AppNotification {
+  id: string;
+  created_at: string;
+  type: string;                 // 'requerimiento' | 'compra' | 'cierre_control' | ...
+  title: string;
+  body: string | null;
+  target_role: string | null;   // audiencia por rol (p. ej. 'admin')
+  recipient_id: string | null;  // destinatario específico (opcional)
+  entity_type: string | null;   // a qué apunta (para "ir a…")
+  entity_id: string | null;
+  created_by: string | null;
+  meta: Record<string, any> | null;
+}
+
 /** Bitácora de auditoría: quién hizo qué (crear/modificar/eliminar) y cuándo. */
 export interface AuditLog {
   id: number;
