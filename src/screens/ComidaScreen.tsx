@@ -7,6 +7,7 @@ import { listFoodByDate } from '../lib/foodDistributions';
 import { listCompanyMealsByDate, listCompanyMealsBetween, MEALS, mealLabel } from '../lib/foodCompanyMeals';
 import { FoodDistribution, FoodCompanyMeal } from '../types/database';
 import { supabase } from '../lib/supabase';
+import { cmpText } from '../lib/text';
 import { comidaQrUrl, qrPngDataUri } from '../lib/qr';
 import { exportCardImage, exportPdf } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -114,7 +115,7 @@ export default function ComidaScreen() {
       if (r.meal_type) g.by[r.meal_type] = (g.by[r.meal_type] || 0) + n;
       g.days.add(r.distribution_date);
     });
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rangePersons]);
   const rangePersonsTotal = useMemo(() => rangePersons.reduce((a, r) => a + (Number(r.meals) || 0), 0), [rangePersons]);
 
@@ -141,7 +142,7 @@ export default function ComidaScreen() {
       g.total += Number(r.delivered) || 0;
       g.days.add(r.meal_date);
     });
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rangeFiltered]);
 
   // Totales generales del rango (por tiempo de comida + total).
@@ -288,7 +289,7 @@ export default function ComidaScreen() {
       g.total += Number(r.meals) || 0;
       g.items.push(r);
     });
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rows]);
 
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;

@@ -491,13 +491,13 @@ export default function ReportsScreen({ route }: any) {
     fleetItems.forEach((it) => { const t = canonTipo(it.tipo) || 'Sin tipo'; m.set(t, (m.get(t) ?? 0) + 1); });
     return Array.from(m.entries())
       .map(([tipo, count]) => ({ tipo, count }))
-      .sort((a, b) => (b.count - a.count) || a.tipo.localeCompare(b.tipo));
+      .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : cmpText(a.tipo, b.tipo)));
   }, [fleetItems]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
   const byDay = useMemo(() => totalsBy(all, (r) => r.dispatch_date), [rows]);
-  const byAsset = useMemo(() => totalsBy(all, (r) => r.asset as any), [rows]);
+  const byAsset = useMemo(() => totalsBy(all, (r) => r.asset as any).sort((a, b) => cmpText(a.label, b.label)), [rows]);
   const byCompany = useMemo(() => {
     const m = new Map<string, { liters: number; assets: Map<string, number> }>();
     all.forEach((r) => {
@@ -512,9 +512,9 @@ export default function ReportsScreen({ route }: any) {
         liters: v.liters,
         assets: Array.from(v.assets.entries())
           .map(([asset, liters]) => ({ asset, liters }))
-          .sort((a, b) => b.liters - a.liters),
+          .sort((a, b) => cmpText(a.asset, b.asset)),
       }))
-      .sort((a, b) => b.liters - a.liters);
+      .sort((a, b) => (a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : cmpText(a.company, b.company)));
   }, [rows]);
   const maxDay = Math.max(1, ...byDay.map((d) => d.liters));
   const maxAsset = Math.max(1, ...byAsset.map((d) => d.liters));
@@ -754,7 +754,7 @@ export default function ReportsScreen({ route }: any) {
     const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
     const genEquipos = grandMachines;
     const clasRows = [...clasAgg.entries()]
-      .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
+      .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])))
       .map(([clas, a]) => `<tr><td>${esc(clas)}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${nH(a.worked)}</td><td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${usd(a.amount)}</td></tr>`)
       .join('');
     // Por empresa: equipos + FLETES = total a pagar (los fletes del rango se suman aquí).
@@ -934,11 +934,11 @@ export default function ReportsScreen({ route }: any) {
     // Agregado por empresa (todas las máquinas, con y sin horas).
     const coMap = new Map<string, { company: string; count: number; hours: number }>();
     list.forEach((m) => { const a = coMap.get(m.company) ?? { company: m.company, count: 0, hours: 0 }; a.count++; a.hours += m.hours; coMap.set(m.company, a); });
-    const byCo = [...coMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
+    const byCo = [...coMap.values()].sort((a, b) => (a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : cmpText(a.company, b.company)));
     // Agregado por CLASIFICACIÓN (lámina 3 "Capacidad por Clasificación").
     const tpMap = new Map<string, { tipo: string; count: number; hours: number }>();
     list.forEach((m) => { const a = tpMap.get(m.clas) ?? { tipo: m.clas, count: 0, hours: 0 }; a.count++; a.hours += m.hours; tpMap.set(m.clas, a); });
-    const byTp = [...tpMap.values()].sort((a, b) => b.hours - a.hours || b.count - a.count);
+    const byTp = [...tpMap.values()].sort((a, b) => (a.tipo === 'SIN CLASIFICACIÓN' ? 1 : b.tipo === 'SIN CLASIFICACIÓN' ? -1 : cmpText(a.tipo, b.tipo)));
     // Inactivos con su empresa.
     const inact = list
       .filter((m) => !m.active)
@@ -1044,7 +1044,7 @@ export default function ReportsScreen({ route }: any) {
     activeRows.forEach((r) => { if (r.zona !== 'Sin zona') zonaCountMap.set(r.zona, (zonaCountMap.get(r.zona) ?? 0) + 1); });
     const zonaCounts = [...zonaCountMap.entries()]
       .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'es'));
+      .sort((a, b) => cmpText(a.name, b.name));
     const ubicados = zonaCounts.reduce((s, z) => s + z.count, 0);
     // Ubicados REALMENTE en el mapa (por GPS) — para el modal del mapa (los puntos son solo estos).
     const ubicadosGps = mapPins.length;
@@ -1058,7 +1058,7 @@ export default function ReportsScreen({ route }: any) {
       const e = dispoMap.get(d)!; e.total += 1;
       if (macroById.get(m.id) === 'Oeste') e.oeste += 1; else e.este += 1;
     });
-    const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es'));
+    const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => cmpText(a.name, b.name));
     // total = TODAS las activas; ubicados = todas (las sin GPS repartidas 50/50); ubicadosGps = solo GPS.
     setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
     setLoading(false);
@@ -1100,8 +1100,8 @@ export default function ReportsScreen({ route }: any) {
     if (conteoZona === '__all__') {
       const m = new Map<string, { total: number; sec: Map<string, number> }>();
       conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') return; if (!m.has(r.tipo)) m.set(r.tipo, { total: 0, sec: new Map() }); const e = m.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1); });
-      const tzRows = [...m.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es')).map(([tipo, e]) => {
-        const parts = [...e.sec.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} en ${esc(s)}`).join(' · ');
+      const tzRows = [...m.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([tipo, e]) => {
+        const parts = [...e.sec.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([s, n]) => `${n} en ${esc(s)}`).join(' · ');
         return `<tr><td><b>${esc(tipo)}</b> (${e.total})</td><td>${parts}</td></tr>`;
       }).join('');
       tipoZonaHtml = `
@@ -1115,7 +1115,7 @@ export default function ReportsScreen({ route }: any) {
       conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') su.set(r.tipo, (su.get(r.tipo) ?? 0) + 1); });
       const sinUbic = conteo.total - conteo.ubicados;
       if (sinUbic) {
-        const suRows = [...su.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es')).map(([t, n]) => `<tr><td>${esc(t)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('');
+        const suRows = [...su.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([t, n]) => `<tr><td>${esc(t)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('');
         sinUbicHtml = `
           <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Máquinas SIN ubicación en el mapa · por tipo</h2>
           <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
@@ -1311,7 +1311,7 @@ export default function ReportsScreen({ route }: any) {
     const genPriceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : '';
     const genColspan = withPrices ? 5 : 3;
     const typeRows = Array.from(typeAgg.entries())
-      .sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]))
+      .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])))
       .map(
         ([tipo, a]) =>
           `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td>${withPrices ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td>` : ''}</tr>`
@@ -1339,7 +1339,7 @@ export default function ReportsScreen({ route }: any) {
       withPrices && grandViajes > 0
         ? `<h3 style="margin:12px 0 2px">Fletes / viajes por empresa</h3>
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Monto fletes</th></tr></thead>
-      <tbody>${[...viajesByCo.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([co, a]) => `<tr><td>${co}</td><td style="text-align:right;font-weight:700">$${money2(a.usd)}</td></tr>`).join('')}</tbody>
+      <tbody>${[...viajesByCo.entries()].sort((a, b) => (a[0] === 'Sin empresa' ? 1 : b[0] === 'Sin empresa' ? -1 : cmpText(a[0], b[0]))).map(([co, a]) => `<tr><td>${co}</td><td style="text-align:right;font-weight:700">$${money2(a.usd)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL FLETES</td><td style="text-align:right;font-weight:800">$${money2(grandViajes)}</td></tr></tfoot></table>
       <div style="margin-top:10px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">TOTAL GENERAL A PAGAR (equipos + fletes): $${money2(grandAmount + grandViajes)}</div>`
         : '';
@@ -1823,13 +1823,13 @@ export default function ReportsScreen({ route }: any) {
                   if (!m.has(r.tipo)) m.set(r.tipo, { total: 0, sec: new Map() });
                   const e = m.get(r.tipo)!; e.total += 1; e.sec.set(r.zona, (e.sec.get(r.zona) ?? 0) + 1);
                 });
-                const rows = [...m.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
+                const rows = [...m.entries()].sort((a, b) => cmpText(a[0], b[0]));
                 if (!rows.length) return null;
                 return (
                   <Card>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(Este / Oeste)</Text></Text>
                     {rows.map(([tipo, e]) => {
-                      const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : b[1] - a[1])).map(([s, n]) => `${n} en ${s}`).join(' · ');
+                      const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : cmpText(a[0], b[0]))).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
                         <View key={tipo} style={{ paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                           <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{tipo} <Text style={{ color: colors.muted, fontWeight: '700' }}>({e.total})</Text></Text>
@@ -1845,7 +1845,7 @@ export default function ReportsScreen({ route }: any) {
               {conteoZona === '__all__' ? (() => {
                 const m = new Map<string, number>();
                 conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1); });
-                const rows = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
+                const rows = [...m.entries()].sort((a, b) => cmpText(a[0], b[0]));
                 const sinUbic = conteo.total - conteo.ubicados;
                 if (!sinUbic) return null;
                 return (
@@ -1976,8 +1976,8 @@ export default function ReportsScreen({ route }: any) {
                 if (!tz.has(tk)) tz.set(tk, { total: 0, sec: new Map() });
                 const e = tz.get(tk)!; e.total += 1; e.sec.set(mm, (e.sec.get(mm) ?? 0) + 1);
               });
-              const zonaRows = [...macroCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'es'));
-              const tzRows = [...tz.entries()].sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], 'es'));
+              const zonaRows = [...macroCounts.entries()].sort((a, b) => cmpText(a[0], b[0]));
+              const tzRows = [...tz.entries()].sort((a, b) => cmpText(a[0], b[0]));
               return (
                 <>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
@@ -2017,7 +2017,7 @@ export default function ReportsScreen({ route }: any) {
                   <Card>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona</Text>
                     {tzRows.map(([tipo, e]) => {
-                      const parts = [...e.sec.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => `${n} en ${s}`).join(' · ');
+                      const parts = [...e.sec.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
                         <View key={tipo} style={{ paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                           <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{tipo} <Text style={{ color: colors.muted, fontWeight: '700' }}>({e.total})</Text></Text>
@@ -2216,7 +2216,7 @@ export default function ReportsScreen({ route }: any) {
             const genFletes = roundGroups.reduce((s, g) => s + g.viajesUSD, 0);
             const genEquipos = roundGroups.reduce((s, g) => s + g.machines.length, 0);
             const ph = (a: number, w: number) => (w > 0 ? usd(a / w) : '—');
-            const clas = [...clasAgg.entries()].sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]));
+            const clas = [...clasAgg.entries()].sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])));
             const hdr = (a: string, b: string, c: string, d: string, e: string) => (
               <View style={{ flexDirection: 'row', backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginBottom: 2 }}>
                 <Text style={{ flex: 2.4, fontSize: 11, color: colors.primaryContrast, fontWeight: '800' }}>{a}</Text>

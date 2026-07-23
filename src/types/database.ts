@@ -575,6 +575,7 @@ export interface InventoryRequirement {
   note: string | null;
   status: RequirementStatus;
   items: RequirementLine[];
+  company_id: string | null;          // empresa para la que se pide (opcional)
   requested_by: string | null;
   requested_by_name: string | null;
   decided_by: string | null;
