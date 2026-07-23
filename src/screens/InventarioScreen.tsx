@@ -36,6 +36,9 @@ const ESTADOS = ['Nuevo', 'Bueno', 'Regular', 'Dañado'];
 const CARGA_OPTS = ['vacía', 'en uso', 'llena'];
 const cargaColor = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '#16A34A' : v === 'en uso' ? '#F59E0B' : v === 'vacía' ? '#DC2626' : '#6B7280'; };
 const cargaIcon = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '🟢' : v === 'en uso' ? '🟡' : v === 'vacía' ? '🔴' : '⚪'; };
+// Estado físico (condición) → color e ícono para verlo de un vistazo en la tarjeta.
+const estadoColor = (e: string | null | undefined) => { const v = norm(e || ''); return v === 'nuevo' ? '#2563EB' : v === 'bueno' ? '#16A34A' : v === 'regular' ? '#F59E0B' : v === 'danado' ? '#DC2626' : '#6B7280'; };
+const estadoIcon = (e: string | null | undefined) => { const v = norm(e || ''); return v === 'nuevo' ? '🔵' : v === 'bueno' ? '🟢' : v === 'regular' ? '🟡' : v === 'danado' ? '🔴' : '⚪'; };
 const dispoOf = (stock: number, min: number) => (stock <= 0 ? 'Agotado' : min > 0 && stock <= min ? 'Bajo mínimo' : 'Disponible');
 const dispoColor = (d: string) => (d === 'Agotado' ? '#DC2626' : d === 'Bajo mínimo' ? '#F59E0B' : '#16A34A');
 
@@ -176,7 +179,9 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const [rateEdit, setRateEdit] = useState('');       // input de tasa manual
   const [rateBusy, setRateBusy] = useState(false);
   const [initCostCur, setInitCostCur] = useState<'USD' | 'VES'>('USD'); // moneda del costo al crear/editar
-  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
+  // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
+  // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
+  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
 
   const [q, setQ] = useState('');
@@ -221,13 +226,15 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   // Bombonas por carga: SUMA LAS CANTIDADES (stock) de cada bombona, no cuenta las
   // filas de producto. Así "total llenas / vacías / en uso" refleja cuántas bombonas
   // hay de verdad (un producto puede tener varias unidades en existencia).
+  // Cada bombona registrada cuenta como 1 aunque su existencia esté en 0 (es un envase
+  // físico que existe); si tiene cantidad mayor, se suma la cantidad. `stock || 1`.
   const cargaCounts = useMemo(() => {
     const m: Record<string, number> = { 'vacía': 0, 'en uso': 0, 'llena': 0, 'sin definir': 0 };
-    bombonas.forEach((it) => { const c = (it.carga || '').toLowerCase(); m[CARGA_OPTS.includes(c) ? c : 'sin definir'] += Number(it.stock) || 0; });
+    bombonas.forEach((it) => { const c = (it.carga || '').toLowerCase(); m[CARGA_OPTS.includes(c) ? c : 'sin definir'] += Number(it.stock) || 1; });
     return m;
   }, [bombonas]);
-  // Total de bombonas (suma de todas las existencias), para el total del reporte.
-  const totalBombonas = useMemo(() => bombonas.reduce((s, it) => s + (Number(it.stock) || 0), 0), [bombonas]);
+  // Total de bombonas para el reporte (misma regla: cada bombona ≥ 1).
+  const totalBombonas = useMemo(() => bombonas.reduce((s, it) => s + (Number(it.stock) || 1), 0), [bombonas]);
   const filtered = useMemo(() => levels.filter((it) => {
     if (tipoFilter === '__none__') { if ((it.tipo || '').trim()) return false; }
     else if (tipoFilter !== '__all__' && norm(it.tipo || '') !== norm(tipoFilter)) return false;
@@ -269,6 +276,17 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const next = (it.carga || '').toLowerCase() === value ? null : value; // volver a tocar = quitar
     const { error } = await supabase.from('inventory_items').update({ carga: next }).eq('id', it.id);
     setCargaBusy(null);
+    if (error) Alert.alert('Aviso', error.message); else refetch();
+  };
+
+  // Tildar rápido el ESTADO (condición) del producto: Nuevo/Bueno/Regular/Dañado.
+  const [estadoBusy, setEstadoBusy] = useState<string | null>(null);
+  const quickEstado = async (it: InventoryLevel, value: string) => {
+    if (!canWrite) return;
+    setEstadoBusy(it.id);
+    const next = norm(it.estado || '') === norm(value) ? null : value; // volver a tocar = quitar
+    const { error } = await supabase.from('inventory_items').update({ estado: next }).eq('id', it.id);
+    setEstadoBusy(null);
     if (error) Alert.alert('Aviso', error.message); else refetch();
   };
 
@@ -617,9 +635,10 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={{ color: colors.text, fontSize: 15, fontWeight: '900' }}>{qtyFmt(it.stock)} {it.unit || ''}</Text>
-                      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 1 }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, alignItems: 'center', marginTop: 1 }}>
                         {isBombona(it) ? <Text style={{ color: cargaColor(it.carga), fontSize: 11, fontWeight: '800' }}>{cargaIcon(it.carga)} {(it.carga || 'sin carga').toUpperCase()}</Text> : null}
-                        {it.estado ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{it.estado}</Text> : null}
+                        {/* Condición del producto: siempre visible (cómo se encuentra). */}
+                        <Text style={{ color: estadoColor(it.estado), fontSize: 11, fontWeight: '800' }}>{estadoIcon(it.estado)} {(it.estado || 'sin estado').toUpperCase()}</Text>
                         <Text style={{ color: dispoColor(dispoOf(Number(it.stock), Number(it.min_stock))), fontSize: 11, fontWeight: '800' }}>{dispoOf(Number(it.stock), Number(it.min_stock))}</Text>
                       </View>
                     </View>
@@ -641,6 +660,20 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
                         <Text style={{ color: colors.muted, fontSize: 11 }}>VALOR EN STOCK</Text>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700' }}>{usd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0))}</Text>
                         {rate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{fmtBs(bsFromUsd((Number(it.stock) || 0) * (Number(it.avg_cost) || 0), rate))}</Text> : null}
+                      </View>
+                    </View>
+                    {/* Estado (condición) rápido para TODOS los productos: cómo se encuentra. */}
+                    <View style={{ marginTop: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>¿Cómo se encuentra? {estadoBusy === it.id ? '· guardando…' : ''}</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                        {ESTADOS.map((v) => {
+                          const on = norm(it.estado || '') === norm(v);
+                          return (
+                            <TouchableOpacity key={v} disabled={!canWrite || estadoBusy === it.id} onPress={() => quickEstado(it, v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? estadoColor(v) : colors.border, backgroundColor: on ? estadoColor(v) : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: canWrite ? 1 : 0.5 }}>
+                              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 13 }}>{estadoIcon(v)} {v}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
                     </View>
                     {/* Bombonas: tildar carga rápido (vacía / en uso / llena). */}
@@ -938,7 +971,9 @@ function MovimientosTab() {
 function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
-  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
+  // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
+  // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
+  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
 
@@ -1578,7 +1613,9 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const uid = session?.user?.id ?? null;
-  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: 'inventory_movements' });
+  // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
+  // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
+  const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: transfers, refetch: refetchTr } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false });
