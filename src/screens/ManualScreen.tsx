@@ -368,6 +368,22 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🔍',
+    title: 'Inspecciones de Maquinaria (control por equipo)',
+    blocks: [
+      { t: 'p', text: 'Módulo para inspeccionar cada equipo: qué herramientas/accesorios tiene y en qué estado, con su REPORTE DE INSPECCIÓN en PDF.' },
+      { t: 'steps', items: [
+        'Entra a "Más → 🔍 Inspecciones de Maquinaria".',
+        'Busca el equipo por PLACA, SERIAL o nombre en el buscador, y tócalo.',
+        'Se abre su detalle (placa, serial, empresa) y el HISTORIAL de inspecciones anteriores (toca una para reimprimir su PDF).',
+        'Toca "📋 REPORTE DE INSPECCIÓN (nueva)" para hacer una inspección nueva.',
+        'Pon la FECHA y HORA, agrega los ÍTEMS (descripción, cantidad, serial/especificación y su ESTADO con color 🟢 Bien / 🟠 Regular / 🔴 Falla), las observaciones y, si quieres, el inspector y el chofer/operador (para las firmas).',
+        'Toca "💾 Guardar y generar REPORTE DE INSPECCIÓN": se guarda en el historial y se abre el PDF (nombre "REPORTE DE INSPECCION - <equipo>").',
+      ] },
+      { t: 'note', text: 'Control por equipo: al hacer una NUEVA inspección se PRECARGAN los ítems de la última inspección de ese equipo, así solo ajustas cantidades y estados sin reteclear todo.' },
+    ],
+  },
+  {
     icon: '🛠️',
     title: 'Mantenimiento de Maquinaria y roles de coordinador',
     blocks: [

@@ -22,6 +22,40 @@ export interface Profile {
   created_at: string;
 }
 
+/** Un ítem del inventario de una inspección de maquinaria (una fila de la tabla). */
+export interface InspectionItem {
+  descripcion: string;
+  cantidad: number;
+  unidad: string;              // "Unid.", "Juego", "Rollo"…
+  serial: string | null;       // Serial / Especificación
+  estado: string;              // texto libre del estado (ej. "Verificado (1000 lbs)")
+  nivel: 'ok' | 'warn' | 'bad'; // color del estado: 🟢 ok · 🟠 warn · 🔴 bad
+}
+
+/** Una OBSERVACIÓN de la sección 2 (etiqueta + texto). */
+export interface InspectionNote {
+  label: string;
+  text: string;
+}
+
+/** Inspección de una máquina (control por equipo). Guarda historial por máquina. */
+export interface MachineInspection {
+  id: string;
+  created_at: string;
+  machinery_id: string | null;
+  machine_code: string | null;
+  machine_type: string | null;   // "Tipo de Unidad" (ej. Camión Taller Soldadura)
+  machine_plate: string | null;
+  machine_serial: string | null;
+  inspected_at: string;          // fecha + hora de la inspección
+  inspector_name: string | null;
+  operator_name: string | null;  // chofer / operador responsable
+  condicion_general: string | null;
+  observaciones: InspectionNote[];
+  items: InspectionItem[];
+  created_by: string | null;
+}
+
 /** Notificación in-app (campana). Se le refleja al rol destino (target_role) o a un
  *  destinatario específico (recipient_id). El estado "leído" es por usuario. */
 export interface AppNotification {
