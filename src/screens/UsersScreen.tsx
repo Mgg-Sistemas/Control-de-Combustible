@@ -22,17 +22,17 @@ import { useConfirm } from '../components/ConfirmProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
 
-// Asegura un token de sesión VÁLIDO antes de llamar a una Edge Function. Si el
-// access token está por vencer (o ya venció), lo refresca. Evita el 401
-// "No autenticado" cuando la pestaña estuvo un rato inactiva. Devuelve el token.
-async function ensureFreshToken(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  const expMs = data.session?.expires_at ? data.session.expires_at * 1000 : 0;
-  if (!data.session || expMs - Date.now() < 60_000) {
-    const { data: r } = await supabase.auth.refreshSession();
-    return r.session?.access_token ?? null;
+// Devuelve un token de sesión VÁLIDO. Si `force` es true (o el token está por
+// vencer/ya venció) fuerza un refresh. Evita el 401 "No autenticado" cuando la
+// pestaña estuvo inactiva y el token quedó rancio.
+async function freshToken(force = false): Promise<string | null> {
+  if (!force) {
+    const { data } = await supabase.auth.getSession();
+    const expMs = data.session?.expires_at ? data.session.expires_at * 1000 : 0;
+    if (data.session && expMs - Date.now() > 60_000) return data.session.access_token ?? null;
   }
-  return data.session.access_token ?? null;
+  const { data: r } = await supabase.auth.refreshSession();
+  return r.session?.access_token ?? null;
 }
 
 // Extrae el mensaje REAL de un error de Edge Function. supabase.functions.invoke,
@@ -51,6 +51,30 @@ async function fnErrorMessage(error: any, data: any, fallback = 'No se pudo comp
     }
   } catch {}
   return error?.message ?? fallback;
+}
+
+// Llama a una Edge Function de administración con el token del admin. Si el token
+// fue rechazado (401 / "No autenticado" — token rancio), fuerza un refresh COMPLETO
+// y reintenta UNA vez. Devuelve un mensaje claro en vez del críptico "No autenticado".
+async function adminInvoke(fn: string, body: any): Promise<{ data: any; errorMsg: string | null }> {
+  const call = (token: string | null) =>
+    supabase.functions.invoke(fn, { body, headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+
+  let token = await freshToken();
+  if (!token) return { data: null, errorMsg: 'Tu sesión expiró. Cierra sesión y vuelve a entrar.' };
+
+  let { data, error } = await call(token);
+  if (error || (data as any)?.error) {
+    const msg = await fnErrorMessage(error, data, '');
+    // ¿El token fue rechazado? Fuerza un refresh completo y reintenta una sola vez.
+    if (/no autenticado|jwt|token|401|unauthor/i.test(msg)) {
+      token = await freshToken(true);
+      if (!token) return { data: null, errorMsg: 'Tu sesión expiró. Cierra sesión y vuelve a entrar.' };
+      ({ data, error } = await call(token));
+    }
+  }
+  if (error || (data as any)?.error) return { data: null, errorMsg: await fnErrorMessage(error, data) };
+  return { data, errorMsg: null };
 }
 
 export default function UsersScreen() {
@@ -109,22 +133,9 @@ export default function UsersScreen() {
     if (!ok) return;
     setDeletingId(u.id);
     setDelError(null);
-    const { data, error } = await supabase.functions.invoke('admin-manage-user', {
-      body: { action: 'delete', id: u.id },
-    });
+    const { errorMsg } = await adminInvoke('admin-manage-user', { action: 'delete', id: u.id });
     setDeletingId(null);
-    if (error || (data as any)?.error) {
-      // Cuando la función responde con un código de error, supabase-js pone el
-      // mensaje genérico en error.message y el detalle real en error.context
-      // (la respuesta HTTP). Lo leemos para mostrar el motivo verdadero.
-      let motivo = (data as any)?.error ?? error?.message ?? 'No se pudo eliminar.';
-      try {
-        const body = await (error as any)?.context?.json?.();
-        if (body?.error) motivo = body.error;
-      } catch { /* si no se puede leer el cuerpo, queda el mensaje genérico */ }
-      setDelError(`${u.full_name ?? 'Usuario'}: ${motivo}`);
-      return;
-    }
+    if (errorMsg) { setDelError(`${u.full_name ?? 'Usuario'}: ${errorMsg}`); return; }
     refetch();
   };
 
@@ -520,13 +531,11 @@ function NewUserForm({
     // neutro (conductor) y luego se le vincula el rol personalizado (app_role_id).
     const baseRole: UserRole = sel.kind === 'base' ? sel.role : 'conductor';
     const appRoleId = sel.kind === 'app' ? sel.id : null;
-    const token = await ensureFreshToken();
-    const { data, error } = await supabase.functions.invoke('admin-create-user', {
-      body: { first_name: firstName, last_name: lastName, password, role: baseRole, cedula: ci || undefined, username: un },
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    const { data, errorMsg } = await adminInvoke('admin-create-user', {
+      first_name: firstName, last_name: lastName, password, role: baseRole, cedula: ci || undefined, username: un,
     });
-    if (error || (data as any)?.error) {
-      setError(await fnErrorMessage(error, data, 'No se pudo crear el usuario.'));
+    if (errorMsg) {
+      setError(errorMsg);
       setSaving(false);
       return;
     }
@@ -687,13 +696,11 @@ function EditUserForm({
       return;
     }
     setSaving(true);
-    const token = await ensureFreshToken();
-    const { data, error } = await supabase.functions.invoke('admin-manage-user', {
-      body: { action: 'update', id: user.id, full_name: fullName, password: password || undefined },
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    const { errorMsg } = await adminInvoke('admin-manage-user', {
+      action: 'update', id: user.id, full_name: fullName, password: password || undefined,
     });
-    if (error || (data as any)?.error) {
-      setError(await fnErrorMessage(error, data, 'No se pudo guardar.'));
+    if (errorMsg) {
+      setError(errorMsg);
       setSaving(false);
       return;
     }
@@ -722,14 +729,10 @@ function EditUserForm({
     if (!ok) return;
     setError(null);
     setDeleting(true);
-    const token = await ensureFreshToken();
-    const { data, error } = await supabase.functions.invoke('admin-manage-user', {
-      body: { action: 'delete', id: user.id },
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    });
+    const { errorMsg } = await adminInvoke('admin-manage-user', { action: 'delete', id: user.id });
     setDeleting(false);
-    if (error || (data as any)?.error) {
-      setError(await fnErrorMessage(error, data, 'No se pudo eliminar.'));
+    if (errorMsg) {
+      setError(errorMsg);
       return;
     }
     onSaved();

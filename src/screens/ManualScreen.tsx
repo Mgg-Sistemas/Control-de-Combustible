@@ -233,20 +233,20 @@ const SECTIONS: Sec[] = [
     icon: '🕒',
     title: 'Control de asistencia (dentro de Nómina)',
     blocks: [
-      { t: 'p', text: 'Sirve para registrar la ENTRADA y la SALIDA del personal escaneando su carnet. Guarda la fecha y la hora automáticamente. Está dentro de Nómina: abre 🕒 Control de asistencia (o desde el menú Más / el panel del rol, según tus permisos).' },
+      { t: 'p', text: 'Sirve para registrar la ENTRADA y la SALIDA del personal escaneando su carnet. Guarda la fecha y la hora automáticamente. Se abre desde el botón grande 🕒 ASISTENCIA EMPLEADOS que aparece en la pantalla de inicio de todos los usuarios (excepto el admin, que la tiene en el menú Más → 🕒 Control de asistencia).' },
       { t: 'steps', items: [
         'Toca "📷 Escanear carnet" y apunta al QR del carnet del trabajador (si el carnet no escanea, búscalo por nombre o cédula).',
         'Aparece la persona (foto, nombre, cargo) y sus marcas de hoy.',
         'Toca el botón grande: si aún no ha entrado dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
         'Cada marca queda etiquetada como ☀️ Día (6:00 a 17:59) o 🌙 Noche (resto), según la hora.',
-        'Al registrar una SALIDA, el sistema PIDE CONFIRMACIÓN ("¿Seguro que quieres registrar la salida?") y te recuerda a qué hora fue su última entrada. Así, si alguien escanea dos veces seguidas por error, no se marca una salida sin querer.',
+        'Al registrar una SALIDA, el sistema PIDE CONFIRMACIÓN ("¿Seguro que quieres registrar la salida?") y te recuerda a qué hora fue su última entrada. Si la entrada fue hace MENOS DE 2 MINUTOS, avisa "¿Doble escaneo?" (casi seguro escanearon el carnet dos veces por error) para que no se marque una salida sin querer.',
         'Se permiten VARIAS marcas al día (por ejemplo, sale a almorzar y vuelve): el sistema alterna entrada/salida y suma las horas presentes de todos los pares.',
         'Abajo tienes un CALENDARIO DEL MES con toda la asistencia (no solo la de hoy): usa ◀ ▶ para cambiar de mes; los días con marcas se resaltan y muestran un globo con el número de personas.',
         'Toca un día: se abre en ☀️ Día y 🌙 Noche (con cuántas personas hay en cada turno). Toca un turno y ves el detalle por persona: entrada → salida y horas de cada par.',
         'Cada día tiene su propio "📊 Reporte del día" (PDF), además del reporte por rango.',
       ] },
       { t: 'p', text: 'Reporte: toca 📊 Reporte, elige el rango de fechas y genera el PDF (o usa 📊 Reporte del día dentro del calendario). Sale por persona: cada jornada con su fecha, ☀️/🌙 turno, hora de entrada y salida y las horas; con subtotales de día y de noche. Una entrada sin salida sale como "abierta". Las jornadas de noche que cruzan la medianoche se emparejan bien.' },
-      { t: 'note', text: 'Solo los usuarios AUTORIZADOS ven y usan esta pantalla (con el módulo "Control de asistencia"): actualmente AGATHA, DORIANNE, MOISES, DIANA y GÉNESIS (y administradores). Los demás no la ven.' },
+      { t: 'note', text: 'Las marcas se SINCRONIZAN en tiempo real: si otra persona marca desde otro dispositivo, el calendario se actualiza solo. Cualquier usuario del sistema puede marcar la asistencia con el botón 🕒 ASISTENCIA EMPLEADOS (así el portero/vigilante puede registrar al personal sin darle acceso al resto del sistema).' },
     ],
   },
   {

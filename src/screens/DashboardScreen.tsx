@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { AsistenciaButton } from '../components/AsistenciaButton';
 import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { TankLevel } from '../types/database';
@@ -199,6 +200,10 @@ export default function DashboardScreen({ navigation }: any) {
           SOS LA GUAIRA 2026
         </Text>
       </Card>
+
+      {/* Marcar asistencia de empleados (escaneo de carnet). Solo para usuarios
+          sin acceso completo (no-admin); el admin ya la tiene en el menú "Más". */}
+      <AsistenciaButton onPress={() => navigation?.navigate('More', { screen: 'Asistencia' })} />
 
       {/* ── Gráfica: jornadas (horas trabajadas) por empresa (día / mes / año) ── */}
       <SectionTitle>Jornadas Totales por Empresa</SectionTitle>

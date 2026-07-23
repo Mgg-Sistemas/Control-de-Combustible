@@ -10,6 +10,7 @@ import { caracasParts } from '../lib/jornada';
 import { markAttendance, pairMarks, fmtDuration, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { Employee, Attendance } from '../types/database';
@@ -122,6 +123,13 @@ export default function AsistenciaScreen() {
     setToday((data ?? []) as Attendance[]);
   };
 
+  // Sincroniza en TIEMPO REAL: si otro dispositivo marca una asistencia, el
+  // calendario del mes (y las marcas de hoy del empleado abierto) se refrescan solos.
+  useRealtimeRefresh(['attendance'], () => {
+    loadMonth(month);
+    if (emp) loadToday(emp.id);
+  });
+
   const pickEmployee = async (employeeId: string) => {
     setQ(''); setResults([]);
     const { data, error } = await supabase.from('employees').select(EMP_COLS).eq('id', employeeId).maybeSingle();
@@ -160,12 +168,19 @@ export default function AsistenciaScreen() {
     // Si la próxima marca es SALIDA, confirmar (evita registrar salida por un doble escaneo).
     if (willMark === 'salida') {
       const lastIn = [...today].reverse().find((m) => m.kind === 'entrada');
+      // Minutos desde la última ENTRADA: si son < 2, casi seguro es un DOBLE ESCANEO
+      // del mismo carnet (no una salida real), así que se avisa con más fuerza.
+      const minsSince = lastIn ? Math.round((Date.now() - new Date(lastIn.ts).getTime()) / 60000) : null;
+      const dobleEscaneo = minsSince !== null && minsSince < 2;
       const ok = await confirm({
-        title: '¿Registrar SALIDA?',
-        message: `¿Seguro que quieres registrar la SALIDA de ${fullName(emp)}?` +
-          (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
+        title: dobleEscaneo ? '¿Doble escaneo?' : '¿Registrar SALIDA?',
+        message: dobleEscaneo
+          ? `La ENTRADA de ${fullName(emp)} fue hace ${minsSince! < 1 ? 'menos de 1 minuto' : `${minsSince} min`}. ` +
+            `Parece un doble escaneo del carnet, no una salida real.\n\n¿Quieres registrar la SALIDA de todas formas?`
+          : `¿Seguro que quieres registrar la SALIDA de ${fullName(emp)}?` +
+            (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
         confirmText: 'Sí, registrar salida',
-        cancelText: 'Cancelar',
+        cancelText: dobleEscaneo ? 'No, fue doble escaneo' : 'Cancelar',
         danger: true,
       });
       if (!ok) return;

@@ -1,10 +1,11 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState } from '../components/ui';
+import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import CoordinadorQrPanel from '../components/CoordinadorQrPanel';
+import { AsistenciaButton } from '../components/AsistenciaButton';
 import { useAuth } from '../context/AuthContext';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -36,19 +37,24 @@ export default function RoleHomeScreen({ navigation }: any) {
     return <CoordinadorQrPanel title={appRole.name} />;
   }
 
-  const keys = Object.keys(appRole?.modules ?? {}).filter((k) => MODULE_NAV[k] && canSee(k));
+  // La asistencia se ofrece SIEMPRE con el botón grande de abajo; se saca de la
+  // lista de módulos para no mostrarla dos veces.
+  const keys = Object.keys(appRole?.modules ?? {}).filter((k) => k !== 'asistencia' && MODULE_NAV[k] && canSee(k));
 
   return (
     <Screen>
       <ConfigBanner />
       <SectionTitle>{appRole?.name ?? 'Mi panel'}</SectionTitle>
-      <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
-        Tu rol te da acceso a {keys.length === 1 ? 'este módulo' : `estos ${keys.length} módulos`}.
-      </Text>
+      {keys.length > 0 ? (
+        <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+          Tu rol te da acceso a {keys.length === 1 ? 'este módulo' : `estos ${keys.length} módulos`}.
+        </Text>
+      ) : null}
 
-      {keys.length === 0 ? (
-        <EmptyState title="Sin módulos asignados" subtitle="Pídele a un administrador que le asigne módulos a tu rol." />
-      ) : (
+      {/* Marcar asistencia de empleados (escaneo de carnet) — disponible para todos. */}
+      <AsistenciaButton onPress={() => navigation.navigate('Asistencia')} />
+
+      {keys.length === 0 ? null : (
         keys.map((k) => {
           const it = MODULE_NAV[k];
           return (

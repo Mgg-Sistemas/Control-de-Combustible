@@ -1774,7 +1774,10 @@ begin
     -- Control de maquinaria, reportes y pagos: para que el alta/edición de una
     -- máquina, jornada, flete, etc. se vea al instante sin refrescar a mano.
     'machinery', 'machine_rounds', 'fletes', 'companies', 'machine_guards',
-    'company_payments', 'control_closures', 'maintenance_requests'
+    'company_payments', 'control_closures', 'maintenance_requests',
+    -- Asistencia: para que las marcas (entrada/salida) se vean al instante en el
+    -- calendario de otro dispositivo sin refrescar a mano.
+    'attendance'
   ] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
