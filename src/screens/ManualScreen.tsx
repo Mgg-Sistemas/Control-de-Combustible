@@ -208,6 +208,7 @@ const SECTIONS: Sec[] = [
     title: 'Control de pago a personal (dentro de Nómina)',
     blocks: [
       { t: 'p', text: 'Sirve para calcular y pagar al personal por PRECIO por hora, día o semana, definido POR TRABAJADOR. Está dentro de Nómina: abre 💵 Control de pago a personal.' },
+      { t: 'note', text: 'El personal se paga SIEMPRE por la organización (SOS LA GUAIRA), no por contratista. Al crear un período NO se elige empresa: se carga a TODO el personal activo y todo queda bajo SOS LA GUAIRA. Así siempre hay a quién ponerle su precio.' },
       { t: 'p', text: 'Cómo se calcula:' },
       { t: 'bullets', items: [
         'Cada trabajador tiene su Precio por hora, Precio por día y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',

@@ -201,6 +201,10 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 Calcula y paga al **personal** por **PRECIO por hora, día o semana**, definido **por
 trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
 
+> El personal se paga **siempre por la organización (SOS LA GUAIRA)**, no por contratista.
+> Al crear un período **no se elige empresa**: se carga a **TODO el personal activo** y todo
+> queda bajo **SOS LA GUAIRA**. Así siempre hay a quién ponerle su precio.
+
 **Cómo se calcula:**
 - Cada trabajador tiene su **Precio por hora**, **Precio por día** y **Precio por semana**
   (los cargas/editas en el renglón de la persona y quedan guardados en su **ficha** para el
