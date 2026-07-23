@@ -580,11 +580,15 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
-**🏷️ Roles del sistema (roles dinámicos):** en Usuarios, toca **"🏷️ Roles del sistema →
+**🏷️ Roles del sistema (roles FIJOS):** en Usuarios, toca **"🏷️ Roles del sistema →
 Administrar"**. Ahí puedes:
 - **Crear un rol** (ej. *Coordinador de Operadores*): le pones un **nombre** y eliges **qué módulos
   ve** (sin acceso / L / E / F por módulo).
 - Ver los roles en una **lista buscable** y **quitarlos** (🗑️).
+
+> Todos los roles son **FIJOS**: los que creas navegan por la **app normal** (pestañas + Más)
+> mostrando solo los módulos que les marques. **Ya no hay "panel dinámico" aparte.** Así, con
+> darle permiso a un módulo (ej. Inspecciones de Maquinaria) ya le aparece, sin configurar más.
 
 **Rol asignado (unificado):** cada usuario tiene **UN solo rol**. En su tarjeta se ve
 **"Rol asignado: X"**. Para elegirlo o cambiarlo:
@@ -593,12 +597,14 @@ Administrar"**. Ahí puedes:
   coordinador de patio) y los **personalizados** (los que creaste en 🏷️ Roles del sistema).
 - **Al editar** el usuario: toca **"Rol asignado → Cambiar ▾"** y elige el nuevo rol.
 
-Un usuario con un rol **personalizado** ve **SOLO** los módulos de ese rol (no ve el resto).
-(No puedes cambiar **tu propio** rol.)
+Un usuario con un rol **personalizado** ve **SOLO** los módulos de ese rol (no ve el resto):
+en las pestañas de abajo verá **Inicio** y **Más** siempre, y **Control / Mapa / Catálogo**
+solo si su rol tiene ese módulo. (No puedes cambiar **tu propio** rol.)
 
-**Catálogo de roles (novedad):** el administrador **crea, EDITA (✏️) y borra** roles. Al
-crear/editar eliges el **TIPO DE PANEL**:
-- **📋 Módulos** — el usuario ve una lista de módulos (lo de siempre).
+**Catálogo de roles:** el administrador **crea, EDITA (✏️) y borra** roles FIJOS. Al
+crear/editar eliges el **TIPO**:
+- **📋 Módulos** — rol fijo que navega por la **app normal** (pestañas + Más) mostrando solo los
+  módulos marcados.
 - **📷 Coordinador QR** — el usuario ve un panel con **escáner QR** (surtir gasoil, avería,
   marcar máquina lista). No usa módulos.
 

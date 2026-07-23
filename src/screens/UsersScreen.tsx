@@ -410,6 +410,7 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Este rol verá un panel para escanear el QR de la máquina y: ⛽ surtir gasoil, 🛠️ registrar avería y ✅ marcar la máquina lista. No usa módulos.</Text>
               ) : (
                 <>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Rol fijo: navega por la app normal (pestañas + Más) mostrando SOLO los módulos que marques aquí.</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué módulos ve? (— sin acceso · L · E · F)</Text>
                   {MODULES.map((mod) => {
                     const cur = mods[mod.key] ?? 'none';

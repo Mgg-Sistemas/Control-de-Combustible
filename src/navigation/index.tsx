@@ -245,7 +245,10 @@ function SupervisorTabs() {
 
 function Tabs() {
   const { colors } = useTheme();
+  const { canSee } = useAuth();
   const screenHeader = useScreenHeader();
+  // Inicio y Más SIEMPRE; las demás pestañas solo si el rol tiene permiso de ese módulo
+  // (así un rol fijo con pocos módulos no ve pestañas que no puede usar).
   return (
     <Tab.Navigator
       screenOptions={{
@@ -260,21 +263,27 @@ function Tabs() {
         component={DashboardScreen}
         options={{ title: 'Inicio', tabBarIcon: tabIcon('🏠') }}
       />
-      <Tab.Screen
-        name="ControlMaquinaria"
-        component={ControlMaquinariaScreen}
-        options={{ title: 'Control', tabBarIcon: tabIcon('🛠️'), headerLeft: () => <HeaderHomeButton /> }}
-      />
-      <Tab.Screen
-        name="Map"
-        component={MapScreen}
-        options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️'), headerLeft: () => <HeaderHomeButton /> }}
-      />
-      <Tab.Screen
-        name="Equipos"
-        component={EquiposScreen}
-        options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜'), headerLeft: () => <HeaderHomeButton /> }}
-      />
+      {canSee('control_maquinaria') ? (
+        <Tab.Screen
+          name="ControlMaquinaria"
+          component={ControlMaquinariaScreen}
+          options={{ title: 'Control', tabBarIcon: tabIcon('🛠️'), headerLeft: () => <HeaderHomeButton /> }}
+        />
+      ) : null}
+      {canSee('mapa') ? (
+        <Tab.Screen
+          name="Map"
+          component={MapScreen}
+          options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️'), headerLeft: () => <HeaderHomeButton /> }}
+        />
+      ) : null}
+      {canSee('equipos') ? (
+        <Tab.Screen
+          name="Equipos"
+          component={EquiposScreen}
+          options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜'), headerLeft: () => <HeaderHomeButton /> }}
+        />
+      ) : null}
       <Tab.Screen
         name="More"
         component={MoreStack}
@@ -424,9 +433,13 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
-      ) : appRole && role !== 'admin' ? (
-        // Usuario con ROL DINÁMICO (coordinador): ve SOLO su panel y los módulos de su rol.
+      ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
+        // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />
+      ) : appRole && role !== 'admin' ? (
+        // Rol personalizado (FIJO) por módulos: navega por la app normal (pestañas + Más),
+        // todo filtrado por sus permisos. Ya no usa el panel dinámico aparte.
+        <Tabs />
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />
