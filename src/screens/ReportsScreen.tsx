@@ -1275,6 +1275,25 @@ export default function ReportsScreen({ route }: any) {
       }).join('');
       return `<table style="margin-top:-4px;margin-bottom:4px"><tbody>${rows}</tbody></table>`;
     };
+    // "Sin precios": agrupa los equipos IGUALES de la empresa (todos los JUMBO, todos los
+    // CAMIÓN DE SERVICIO…) por nombre, con su CANTIDAD y horas sumadas. Marca/Clasificación
+    // muestran el valor común o "Varios" si difieren. A→Z por nombre.
+    const groupItemsByName = (items: typeof companies[number]['items']) => {
+      const g = new Map<string, { name: string; marcas: Set<string>; tipos: Set<string>; count: number; worked: number }>();
+      items.forEach((i) => {
+        const key = norm(i.name);
+        const cur = g.get(key) ?? { name: i.name, marcas: new Set<string>(), tipos: new Set<string>(), count: 0, worked: 0 };
+        cur.count += 1; cur.worked += i.worked; cur.marcas.add(i.marcaModelo || '—'); cur.tipos.add(i.tipo || '—');
+        g.set(key, cur);
+      });
+      return [...g.values()].sort((a, b) => cmpText(a.name, b.name)).map((x) => ({
+        name: x.name,
+        marca: x.marcas.size === 1 ? [...x.marcas][0] : 'Varios',
+        tipo: x.tipos.size === 1 ? [...x.tipos][0] : 'Varios',
+        count: x.count,
+        worked: x.worked,
+      }));
+    };
     const companyBlocks = companies
       .map((c) => {
         const machTot = c.items.reduce((s, i) => s + i.amount, 0);
@@ -1283,15 +1302,27 @@ export default function ReportsScreen({ route }: any) {
           ? renderFletes(c.company) +
             `<table style="margin-bottom:12px"><tbody><tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">TOTAL POR PAGAR ${c.company} (equipos + fletes)</td><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">$${money2(machTot + fl.usd)}</td></tr></tbody></table>`
           : '';
-        return `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>` +
+        const head = `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>`;
+        const totalHoras = c.items.reduce((s, i) => s + i.worked, 0);
+        // SIN PRECIOS → tabla agrupada (Equipo · Marca/Modelo · Clasificación · Cantidad · Horas).
+        if (!withPrices) {
+          const rows = groupItemsByName(c.items)
+            .map((g) => `<tr><td>${g.name}</td><td>${g.marca}</td><td>${g.tipo}</td><td style="text-align:right;font-weight:700">${g.count}</td><td style="text-align:right">${g.worked} h</td></tr>`)
+            .join('');
+          return head +
+            `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th></tr></thead><tbody>${rows}</tbody>` +
+            `<tfoot><tr><td style="text-align:right" colspan="3">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right;font-weight:700">${totalHoras} h</td></tr></tfoot></table>`;
+        }
+        // CON PRECIOS → detalle por unidad (para facturar), como antes.
+        return head +
           `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
             .slice()
             .sort((a, b) => cmpText(a.name, b.name))
             .map(
               (i) =>
-                `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
+                `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td><td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td></tr>`
             )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">${fl ? 'SUB TOTAL' : 'TOTAL'} ${c.company}</td><td style="text-align:right;font-weight:700">${c.items.reduce((s, i) => s + i.worked, 0)} h</td>${withPrices ? `<td></td><td style="text-align:right;font-weight:700">$${money2(machTot)}</td>` : ''}</tr></tfoot></table>${fletesBlock}`;
+            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">${fl ? 'SUB TOTAL' : 'TOTAL'} ${c.company}</td><td style="text-align:right;font-weight:700">${totalHoras} h</td><td></td><td style="text-align:right;font-weight:700">$${money2(machTot)}</td></tr></tfoot></table>${fletesBlock}`;
       })
       .join('');
     const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
