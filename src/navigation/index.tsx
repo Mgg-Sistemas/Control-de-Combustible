@@ -214,6 +214,7 @@ function PatioStack() {
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
       <Stack.Screen name="PatioHome" component={PatioScreen} options={{ title: 'Coordinador de Patio', headerLeft: () => <HeaderLogoutButton /> }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
+      <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
