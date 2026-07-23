@@ -32,7 +32,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
 ];
 
 export default function MoreScreen({ navigation }: any) {
-  const { signOut, session, configured, role, canSee } = useAuth();
+  const { signOut, session, configured, role, canSee, canAudit } = useAuth();
   const { colors, scheme, toggle } = useTheme();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
@@ -113,6 +113,20 @@ export default function MoreScreen({ navigation }: any) {
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Usuarios</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Crear personas, ver conectados y asignar roles</Text>
+              </View>
+            </View>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
+
+      {canAudit ? (
+        <TouchableOpacity onPress={() => navigation.navigate('Audit')}>
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ fontSize: 26 }}>🕵️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Auditoría</Text>
+                <Text style={{ color: colors.muted, fontSize: 13 }}>Quién crea, modifica o elimina cada cosa</Text>
               </View>
             </View>
           </Card>

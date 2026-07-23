@@ -6,6 +6,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import NotificationBell from '../components/NotificationBell';
 import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/LoginScreen';
 import BiometricLockScreen from '../screens/BiometricLockScreen';
@@ -33,6 +34,7 @@ import PatioScreen from '../screens/PatioScreen';
 import CamionesScreen from '../screens/CamionesScreen';
 import MapScreen from '../screens/MapScreen';
 import ManualScreen from '../screens/ManualScreen';
+import AuditScreen from '../screens/AuditScreen';
 import CombustibleScreen from '../screens/CombustibleScreen';
 import EmpleadosScreen from '../screens/EmpleadosScreen';
 import EmployeeCardScreen from '../screens/EmployeeCardScreen';
@@ -128,9 +130,14 @@ function useScreenHeader() {
     headerStyle: { backgroundColor: colors.surface },
     headerTitleStyle: { color: colors.text },
     headerTintColor: colors.primary,
-    // Logo de la empresa en el navbar + fecha/hora (Caracas) a la derecha.
+    // Logo de la empresa en el navbar + campana (solo admin) + fecha/hora (Caracas) a la derecha.
     headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
-    headerRight: () => <HeaderClock />,
+    headerRight: () => (
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <NotificationBell />
+        <HeaderClock />
+      </View>
+    ),
   };
 }
 
@@ -166,6 +173,7 @@ function MoreStack() {
       <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
+      <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>

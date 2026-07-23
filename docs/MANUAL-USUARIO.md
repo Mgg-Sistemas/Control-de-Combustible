@@ -614,6 +614,20 @@ El panel también trae **Cambiar contraseña**, **Huella** y **Salir**.
 
 ---
 
+## 4.23. Notificaciones (la campana) 🔔
+
+Arriba a la derecha, junto a la fecha y hora, aparece una **campana 🔔** (solo para el **administrador**). Avisa de lo que va pasando en el sistema sin tener que revisar cada módulo.
+
+Hoy te avisa cuando:
+
+- **📝 Inventario:** alguien monta un **requerimiento**.
+- **🛒 Compras:** se crea una **solicitud de compra**.
+- **🛠️ Control:** se guarda un **cierre de control** (con el rango de fechas y cuántas máquinas).
+
+El **número rojo** sobre la campana es la cantidad **sin leer**. Toca la campana para ver la lista; toca un aviso para marcarlo leído e **ir directo al módulo**. También hay **"Marcar todo leído"**. Cada quien tiene sus propios "leídos" (que un admin lo lea no lo marca para otro) y se actualiza sola en línea.
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
