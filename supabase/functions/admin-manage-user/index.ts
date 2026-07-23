@@ -56,7 +56,9 @@ Deno.serve(async (req) => {
       }
       if (typeof full_name === 'string' && full_name.trim()) {
         await admin.auth.admin.updateUserById(id, { user_metadata: { full_name: full_name.trim() } });
-        await admin.from('profiles').update({ full_name: full_name.trim() }).eq('id', id);
+        // La actualización del PERFIL se hace con el cliente del ADMIN que llama (no el
+        // de servicio) para que la AUDITORÍA registre QUIÉN hizo el cambio (auth.uid()).
+        await caller.from('profiles').update({ full_name: full_name.trim() }).eq('id', id);
       }
       return json({ ok: true });
     }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -40,6 +40,21 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   DELETE: { icon: '🗑️', label: 'eliminó', color: '#DC2626' },
 };
 
+// Nombre legible del registro afectado (según su tabla) a partir del row_id, para
+// mostrar en el detalle "a qué apunta" la acción (ej. cuál usuario, cuál máquina).
+const NAME_COLS = ['full_name', 'name', 'code', 'title', 'descripcion', 'sku'];
+async function resolveTarget(table: string, rowId: string | null): Promise<string | null> {
+  if (!rowId) return null;
+  try {
+    const { data } = await supabase.from(table).select('*').eq('id', rowId).maybeSingle();
+    if (!data) return null;
+    const d: any = data;
+    if (d.first_name || d.last_name) return [d.first_name, d.last_name].filter(Boolean).join(' ');
+    for (const c of NAME_COLS) { if (d[c]) return String(d[c]); }
+    return null;
+  } catch { return null; }
+}
+
 /**
  * AUDITORÍA / BITÁCORA (solo para quien tenga can_audit): muestra quién creó, modificó
  * o eliminó qué y cuándo. Filtra por fecha, por usuario y por tipo. Los datos los
@@ -54,6 +69,15 @@ export default function AuditScreen() {
   const [userFilter, setUserFilter] = useState('__all__');
   const [tableFilter, setTableFilter] = useState('__all__');
   const [q, setQ] = useState('');
+  const [detail, setDetail] = useState<AuditLog | null>(null);   // fila abierta en detalle
+  const [targetName, setTargetName] = useState<string | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
+
+  useEffect(() => {
+    if (!detail) { setTargetName(null); return; }
+    setTargetLoading(true);
+    resolveTarget(detail.table_name, detail.row_id).then((n) => { setTargetName(n); setTargetLoading(false); });
+  }, [detail]);
 
   const load = async () => {
     setLoading(true);
@@ -148,22 +172,62 @@ export default function AuditScreen() {
         shown.map((r) => {
           const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
           return (
-            <Card key={r.id}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                <Text style={{ fontSize: 22 }}>{a.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontSize: 14 }}>
-                    <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
-                    <Text style={{ color: a.color, fontWeight: '700' }}> {a.label} </Text>
-                    <Text style={{ fontWeight: '700' }}>{tableLabel(r.table_name)}</Text>
-                  </Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}</Text>
+            <TouchableOpacity key={r.id} activeOpacity={0.7} onPress={() => setDetail(r)}>
+              <Card>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ fontSize: 22 }}>{a.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontSize: 14 }}>
+                      <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
+                      <Text style={{ color: a.color, fontWeight: '700' }}> {a.label} </Text>
+                      <Text style={{ fontWeight: '700' }}>{tableLabel(r.table_name)}</Text>
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}</Text>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
                 </View>
-              </View>
-            </Card>
+              </Card>
+            </TouchableOpacity>
           );
         })
       )}
+
+      {/* Detalle de una acción */}
+      <Modal visible={!!detail} transparent animationType="fade" onRequestClose={() => setDetail(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }} onPress={() => setDetail(null)}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, gap: spacing.sm }}>
+            {detail ? (() => {
+              const a = ACTION_META[detail.action] ?? { icon: '•', label: detail.action.toLowerCase(), color: colors.muted };
+              const Row = ({ k, v }: { k: string; v: string }) => (
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 13, width: 96 }}>{k}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }}>{v}</Text>
+                </View>
+              );
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Text style={{ fontSize: 26 }}>{a.icon}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>Detalle de la acción</Text>
+                  </View>
+                  <Row k="Quién" v={detail.user_name || 'No registrado (acción del servidor · gestión de usuarios)'} />
+                  <Row k="Qué hizo" v={`${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
+                  <Row k="A qué registro" v={targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—'))} />
+                  <Row k="Cuándo" v={caracasDT(detail.at)} />
+                  {detail.user_name ? null : (
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                      ℹ️ Las ediciones de usuario hechas antes de esta actualización no guardaron quién las hizo. De ahora en adelante sí queda registrado el admin.
+                    </Text>
+                  )}
+                  <TouchableOpacity onPress={() => setDetail(null)} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Cerrar</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })() : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
