@@ -634,6 +634,21 @@ El **número rojo** sobre la campana es la cantidad **sin leer**. Toca la campan
 
 ---
 
+## 4.24. Inspecciones de Maquinaria (control por equipo) 🔍
+
+Módulo para inspeccionar **cada equipo**: qué herramientas/accesorios tiene y en qué estado, con su **REPORTE DE INSPECCIÓN** en PDF.
+
+1. Entra a **"Más → 🔍 Inspecciones de Maquinaria"**.
+2. Busca el equipo por **placa, serial o nombre** y tócalo.
+3. Ves su **detalle** (placa/serial/empresa) y el **historial** de inspecciones (toca una para **reimprimir** su PDF).
+4. Toca **"📋 REPORTE DE INSPECCIÓN (nueva)"**.
+5. Pon **fecha y hora**, agrega los **ítems** (descripción, cantidad, serial/especificación y su **estado** con color 🟢 Bien / 🟠 Regular / 🔴 Falla), las **observaciones** y, opcional, el **inspector** y el **chofer/operador** (para las firmas).
+6. Toca **"💾 Guardar y generar REPORTE DE INSPECCIÓN"**: se guarda en el historial y se abre el PDF (nombre **"REPORTE DE INSPECCION - <equipo>"**).
+
+> **Control por equipo:** al hacer una inspección **nueva** se **precargan los ítems de la última**, así solo ajustas cantidades y estados sin reteclear todo.
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
