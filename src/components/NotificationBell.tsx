@@ -29,6 +29,38 @@ const DEST: Record<string, { tab?: string; screen: string }> = {
   cierre_control: { screen: 'ControlMaquinaria' },
 };
 
+/**
+ * Sonido SUTIL de notificación (tipo iPhone), a volumen bajo para no ser invasivo.
+ * Se sintetiza con Web Audio (dos notas suaves ascendentes); no requiere archivos.
+ * Solo en web (plataforma principal). Si el navegador aún no permite audio, no falla.
+ */
+function playChime() {
+  if (Platform.OS !== 'web') return;
+  try {
+    const w: any = globalThis;
+    const AC = w.AudioContext || w.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    if (ctx.state === 'suspended') { try { ctx.resume(); } catch {} }
+    const t0 = ctx.currentTime;
+    // Dos notas suaves (A5 → D6), volumen bajo (~0.10) y colita corta.
+    ([[880, 0], [1174.66, 0.11]] as const).forEach(([freq, dt]) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      o.connect(g); g.connect(ctx.destination);
+      const s = t0 + dt;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.exponentialRampToValueAtTime(0.10, s + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.38);
+      o.start(s);
+      o.stop(s + 0.4);
+    });
+    setTimeout(() => { try { ctx.close(); } catch {} }, 1200);
+  } catch {}
+}
+
 /** Fecha/hora corta (Caracas) de una notificación. */
 function whenLabel(iso: string): string {
   try {
@@ -58,6 +90,8 @@ export default function NotificationBell() {
   const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
   const [open, setOpen] = React.useState(false);
   const [detail, setDetail] = React.useState<AppNotification | null>(null);
+  // IDs ya conocidos: para sonar SOLO cuando llega una nueva (no en la 1ra carga).
+  const knownIds = React.useRef<Set<string> | null>(null);
 
   const load = React.useCallback(async () => {
     if (!isSupabaseConfigured || !uid || role !== 'admin') return;
@@ -68,6 +102,10 @@ export default function NotificationBell() {
       .limit(50);
     const list = (notifs as AppNotification[]) ?? [];
     setItems(list);
+    // Sonido sutil al llegar una notificación NUEVA (no en la carga inicial).
+    const ids = new Set(list.map((n) => n.id));
+    if (knownIds.current && list.some((n) => !knownIds.current!.has(n.id))) playChime();
+    knownIds.current = ids;
     if (list.length) {
       const { data: reads } = await supabase
         .from('notification_reads')
