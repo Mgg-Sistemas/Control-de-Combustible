@@ -272,8 +272,9 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 
 ### 4.6cc. Control de asistencia (dentro de Nómina)
 Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; guarda la
-**fecha y la hora** automáticamente. Está dentro de **Nómina** → **🕒 Control de asistencia**
-(también aparece en el menú **Más** o en el panel del rol, según tus permisos).
+**fecha y la hora** automáticamente. Se abre desde el botón grande **🕒 ASISTENCIA EMPLEADOS**
+que aparece en la **pantalla de inicio** de todos los usuarios (el admin la tiene en el menú
+**Más** → **🕒 Control de asistencia**).
 
 1. Toca **"📷 Escanear carnet"** y apunta al **QR del carnet** del trabajador (si no escanea,
    búscalo por **nombre o cédula**).
@@ -282,8 +283,9 @@ Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; g
    **"⬅️ Marcar SALIDA"**. La hora y la fecha se ponen solas.
 4. Cada marca queda etiquetada como **☀️ Día** (6:00–17:59) o **🌙 Noche** (resto), según la hora.
 5. Al registrar una **SALIDA** el sistema **pide confirmación** ("¿Seguro que quieres registrar
-   la salida?") y recuerda a qué hora fue la última entrada. Así un doble escaneo por error no
-   marca una salida sin querer.
+   la salida?") y recuerda a qué hora fue la última entrada. Si la entrada fue hace **menos de
+   2 minutos**, avisa **"¿Doble escaneo?"** (casi seguro escanearon el carnet dos veces por error)
+   para que no se marque una salida sin querer.
 6. Se permiten **varias marcas al día** (sale a almorzar y vuelve): alterna entrada/salida y
    **suma las horas presentes** de todos los pares.
 7. Abajo tienes un **calendario del mes** con toda la asistencia (no solo la de hoy):
@@ -299,8 +301,10 @@ Registra la **ENTRADA** y la **SALIDA** del personal **escaneando su carnet**; g
 con **subtotales de día y de noche**. Una entrada sin salida sale como **"abierta"**; las jornadas
 de noche que cruzan la medianoche se emparejan bien.
 
-> Solo los usuarios **autorizados** ven y usan esta pantalla (módulo **Control de asistencia**):
-> actualmente **AGATHA, DORIANNE, MOISES, DIANA y GÉNESIS** (y administradores). Los demás no la ven.
+> Las marcas se **sincronizan en tiempo real**: si otra persona marca desde otro dispositivo, el
+> calendario se actualiza solo. **Cualquier usuario** del sistema puede marcar la asistencia con el
+> botón **🕒 ASISTENCIA EMPLEADOS** (así el portero/vigilante registra al personal sin darle acceso
+> al resto del sistema).
 
 ### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
 En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
