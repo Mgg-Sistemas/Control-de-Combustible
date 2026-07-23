@@ -349,7 +349,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Las entradas (compras) y los ajustes NO cuentan como gasto: el gasto es el material que efectivamente sale del almacén.' },
       { t: 'p', text: 'Requerimiento (pedir compras al jefe): en la pestaña "📝 Requerimiento" armas una lista de productos que hacen falta — del inventario o NUEVOS — con cantidad y precio estimado (en $ o Bs):' },
       { t: 'steps', items: [
-        'Toca ➕ Nuevo, agrega productos (📦 Del inventario o ＋ Producto nuevo) con su cantidad y precio estimado. Con el botón $/Bs eliges la moneda del precio.',
+        'Toca ➕ Nuevo, escribe el título/nota, elige la EMPRESA para la que se pide (chip "Sin empresa" o una empresa), y agrega productos (📦 Del inventario o ＋ Producto nuevo) con su cantidad y precio estimado. Con el botón $/Bs eliges la moneda del precio.',
         'Toca "📤 Enviar al jefe": queda guardado como Pendiente.',
         'El jefe (administrador) lo ✅ Aprueba o ❌ Rechaza.',
         'Si se compra, el administrador toca "📥 Recibir en inventario", confirma la cantidad y el PRECIO REAL de cada producto, y el sistema crea la ENTRADA (los productos nuevos se crean solos). El requerimiento queda como Recibido.',

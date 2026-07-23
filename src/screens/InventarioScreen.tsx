@@ -1184,12 +1184,15 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name', ascending: true });
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
 
   // Crear / editar requerimiento (editId != null → estamos editando ese requerimiento)
   const [createOpen, setCreateOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
+  const [companyId, setCompanyId] = useState<string | null>(null); // empresa del requerimiento
   const [rows, setRows] = useState<ReqRow[]>([]);
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
@@ -1231,11 +1234,11 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     if (editId) {
       const { error } = await supabase.from('inventory_requirements')
-        .update({ title: title.trim() || null, note: note.trim() || null, items })
+        .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, items })
         .eq('id', editId);
       setBusy(false);
       if (error) return Alert.alert('Aviso', error.message);
-      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setRows([]);
+      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]);
       refetch();
       Alert.alert('Listo', 'Requerimiento actualizado.');
       return;
@@ -1245,12 +1248,12 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const code = nextReqCode((codeRows ?? []).map((r: any) => r.code));
     const reqName = await perfilNombre();
     const { error } = await supabase.from('inventory_requirements').insert({
-      code, title: title.trim() || null, note: note.trim() || null, status: 'pendiente', items,
+      code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, status: 'pendiente', items,
       requested_by: uid, requested_by_name: reqName,
     });
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
-    setCreateOpen(false); setTitle(''); setNote(''); setRows([]);
+    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setRows([]);
     refetch();
     Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
   };
@@ -1260,6 +1263,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setEditId(r.id);
     setTitle(r.title ?? '');
     setNote(r.note ?? '');
+    setCompanyId(r.company_id ?? null);
     let s = 0;
     setRows(r.items.map((it) => ({
       key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
@@ -1346,7 +1350,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     try {
       await exportPdf(requerimientoHtml({
         code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-        requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
         approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
         items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
@@ -1363,7 +1367,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -1384,7 +1388,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
                 </View>
                 <Pill label={st.label} color={st.color} />
               </View>
@@ -1456,6 +1460,19 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               <TextInput value={title} onChangeText={setTitle} placeholder="EJ. REPUESTOS EXCAVADORA 320" placeholderTextColor={colors.muted} style={inp} />
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Nota / justificación (opcional)</Text>
               <TextInput value={note} onChangeText={setNote} placeholder="Para qué se necesita…" placeholderTextColor={colors.muted} multiline style={[inp, { minHeight: 60, textAlignVertical: 'top' }]} />
+
+              {/* Empresa para la que se hace el requerimiento (opcional). */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Empresa (opcional)</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+                {[{ id: null as string | null, name: 'Sin empresa' }, ...companies].map((c) => {
+                  const on = companyId === c.id;
+                  return (
+                    <TouchableOpacity key={c.id ?? '__none__'} onPress={() => setCompanyId(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </Card>
 
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
@@ -1761,7 +1778,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       g.qty += (t.items ?? []).reduce((s, it) => s + (Number(it.qty) || 0), 0);
       byEstado.set(est, g);
     });
-    const resumen = Array.from(byEstado.entries()).sort((a, b) => b[1].qty - a[1].qty).map(([est, g]) => `<tr>
+    const resumen = Array.from(byEstado.entries()).sort((a, b) => cmpText(a[0], b[0])).map(([est, g]) => `<tr>
       <td style="text-transform:capitalize;font-weight:700">${esc(est)}</td>
       <td class="c">${g.count}</td>
       <td class="c b">${qtyFmt(g.qty)}</td>
@@ -2048,7 +2065,7 @@ function GastosTab() {
         const g = map.get(key) ?? { total: 0, count: 0 };
         g.total += valorDe(m); g.count += 1; map.set(key, g);
       });
-    return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.total - a.total);
+    return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => cmpText(a.key, b.key));
   }, [movs, items, periodo]);
 
   const periodoLabel = PERIODOS.find((p) => p.key === periodo)?.label ?? 'Todo';

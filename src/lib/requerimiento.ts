@@ -10,6 +10,7 @@ export type ReqPdfData = {
   fecha: string;              // ya formateada (dd/mm/aaaa)
   title?: string | null;
   note?: string | null;
+  company?: string | null;    // empresa para la que se pide (opcional)
   requestedBy?: string | null;
   statusLabel: string;
   rate: number | null;        // Bs por US$ (para el total en Bs)
@@ -59,7 +60,7 @@ export function requerimientoHtml(d: ReqPdfData): string {
 
   return pdfDocument({
     title: 'Requerimiento de compra',
-    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`,
+    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`,
     extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
       th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
       td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800}
