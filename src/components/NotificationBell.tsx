@@ -15,7 +15,14 @@ const ICON: Record<string, string> = {
   cierre_control: '🛠️',
 };
 
-// A dónde lleva "tocar" la notificación (mejor esfuerzo; si no aplica, no hace nada).
+// Nombre del MÓDULO al que pertenece cada aviso (se muestra en el detalle).
+const MODULE_LABEL: Record<string, string> = {
+  requerimiento: 'Inventario · Requerimiento',
+  compra: 'Compras · Solicitud',
+  cierre_control: 'Control de maquinaria · Cierre',
+};
+
+// A dónde lleva "Ir al módulo" (mejor esfuerzo; si no aplica, no hace nada).
 const DEST: Record<string, { tab?: string; screen: string }> = {
   requerimiento: { tab: 'More', screen: 'Inventario' },
   compra: { tab: 'More', screen: 'Compras' },
@@ -27,7 +34,7 @@ function whenLabel(iso: string): string {
   try {
     const d = new Date(iso);
     const opts = { timeZone: 'America/Caracas' } as const;
-    const fecha = d.toLocaleDateString('es-VE', { ...opts, day: '2-digit', month: '2-digit' });
+    const fecha = d.toLocaleDateString('es-VE', { ...opts, day: '2-digit', month: '2-digit', year: 'numeric' });
     const hora = d.toLocaleTimeString('es-VE', { ...opts, hour: '2-digit', minute: '2-digit', hour12: true });
     return `${fecha} · ${hora}`;
   } catch {
@@ -38,7 +45,8 @@ function whenLabel(iso: string): string {
 /**
  * Campana de notificaciones del encabezado. Solo la ve el ADMIN (audiencia actual
  * de los avisos). Muestra un badge rojo con las NO leídas y un panel desplegable.
- * El estado "leído" es POR USUARIO (tabla notification_reads).
+ * Al tocar un aviso se abre su DETALLE (módulo + detalle) con "Marcar como leída"
+ * e "Ir al módulo". El estado "leído" es POR USUARIO (tabla notification_reads).
  */
 export default function NotificationBell() {
   const { session, role } = useAuth();
@@ -49,6 +57,7 @@ export default function NotificationBell() {
   const [items, setItems] = React.useState<AppNotification[]>([]);
   const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
   const [open, setOpen] = React.useState(false);
+  const [detail, setDetail] = React.useState<AppNotification | null>(null);
 
   const load = React.useCallback(async () => {
     if (!isSupabaseConfigured || !uid || role !== 'admin') return;
@@ -96,14 +105,12 @@ export default function NotificationBell() {
     }
   }, [navigation]);
 
-  const onTapItem = (n: AppNotification) => {
-    markRead([n.id]);
-    setOpen(false);
-    goTo(n);
-  };
+  const closePanel = () => { setOpen(false); setDetail(null); };
 
   // Solo el admin recibe estos avisos: para el resto, ni se muestra la campana.
   if (role !== 'admin') return null;
+
+  const detailUnread = detail ? !readIds.has(detail.id) : false;
 
   return (
     <View>
@@ -123,65 +130,122 @@ export default function NotificationBell() {
         ) : null}
       </TouchableOpacity>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' }} onPress={() => setOpen(false)}>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={closePanel}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.25)' }} onPress={closePanel}>
           <Pressable
             onPress={(e) => e.stopPropagation?.()}
             style={{
               position: 'absolute', top: Platform.OS === 'web' ? 56 : 84, right: 10,
-              width: 330, maxWidth: '92%', maxHeight: 460,
+              width: 340, maxWidth: '92%', maxHeight: 480,
               backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border,
               shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8,
               overflow: 'hidden',
             }}
           >
-            <View style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-              paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border,
-            }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
-                Notificaciones{badge ? ` · ${badge}` : ''}
-              </Text>
-              {badge > 0 ? (
-                <TouchableOpacity onPress={() => markRead(unread.map((n) => n.id))}>
-                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Marcar todo leído</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-
-            <ScrollView style={{ maxHeight: 400 }}>
-              {items.length === 0 ? (
-                <View style={{ padding: 24, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 26 }}>🔕</Text>
-                  <Text style={{ color: colors.muted, marginTop: 6 }}>Sin notificaciones</Text>
+            {detail ? (
+              // ── Vista de DETALLE de un aviso ─────────────────────────────
+              <View>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                  paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border,
+                }}>
+                  <TouchableOpacity onPress={() => setDetail(null)} style={{ paddingRight: 4 }}>
+                    <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>Detalle</Text>
                 </View>
-              ) : (
-                items.map((n) => {
-                  const isUnread = !readIds.has(n.id);
-                  return (
+                <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 16, gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 22 }}>{ICON[detail.type] ?? '🔔'}</Text>
+                    <View style={{
+                      backgroundColor: colors.background, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+                      borderWidth: 1, borderColor: colors.border,
+                    }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>
+                        {MODULE_LABEL[detail.type] ?? 'Notificación'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{detail.title}</Text>
+                  {detail.body ? <Text style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{detail.body}</Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🕒 {whenLabel(detail.created_at)}</Text>
+                </ScrollView>
+                <View style={{ flexDirection: 'row', gap: 8, padding: 14, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  {detailUnread ? (
                     <TouchableOpacity
-                      key={n.id}
-                      onPress={() => onTapItem(n)}
-                      style={{
-                        flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 11,
-                        borderBottomWidth: 1, borderBottomColor: colors.border,
-                        backgroundColor: isUnread ? colors.background : 'transparent',
-                      }}
+                      onPress={() => markRead([detail.id])}
+                      style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: 10, paddingVertical: 11, alignItems: 'center' }}
                     >
-                      <Text style={{ fontSize: 18 }}>{ICON[n.type] ?? '🔔'}</Text>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          {isUnread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626' }} /> : null}
-                          <Text style={{ color: colors.text, fontWeight: isUnread ? '800' : '600', fontSize: 13, flex: 1 }}>{n.title}</Text>
-                        </View>
-                        {n.body ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{n.body}</Text> : null}
-                        <Text style={{ color: colors.muted, fontSize: 10, marginTop: 3 }}>{whenLabel(n.created_at)}</Text>
-                      </View>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>✓ Marcar como leída</Text>
                     </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
+                  ) : (
+                    <View style={{ flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: colors.background }}>
+                      <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 13 }}>✓ Leída</Text>
+                    </View>
+                  )}
+                  {DEST[detail.type] ? (
+                    <TouchableOpacity
+                      onPress={() => { markRead([detail.id]); const n = detail; closePanel(); goTo(n); }}
+                      style={{ flex: 1, backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 11, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>Ir al módulo →</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            ) : (
+              // ── LISTA de avisos ──────────────────────────────────────────
+              <View>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                  paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border,
+                }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>
+                    Notificaciones{badge ? ` · ${badge}` : ''}
+                  </Text>
+                  {badge > 0 ? (
+                    <TouchableOpacity onPress={() => markRead(unread.map((n) => n.id))}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Marcar todo leído</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <ScrollView style={{ maxHeight: 420 }}>
+                  {items.length === 0 ? (
+                    <View style={{ padding: 24, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 26 }}>🔕</Text>
+                      <Text style={{ color: colors.muted, marginTop: 6 }}>Sin notificaciones</Text>
+                    </View>
+                  ) : (
+                    items.map((n) => {
+                      const isUnread = !readIds.has(n.id);
+                      return (
+                        <TouchableOpacity
+                          key={n.id}
+                          onPress={() => setDetail(n)}
+                          style={{
+                            flexDirection: 'row', gap: 10, paddingHorizontal: 14, paddingVertical: 11,
+                            borderBottomWidth: 1, borderBottomColor: colors.border,
+                            backgroundColor: isUnread ? colors.background : 'transparent',
+                          }}
+                        >
+                          <Text style={{ fontSize: 18 }}>{ICON[n.type] ?? '🔔'}</Text>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              {isUnread ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626' }} /> : null}
+                              <Text style={{ color: colors.text, fontWeight: isUnread ? '800' : '600', fontSize: 13, flex: 1 }}>{n.title}</Text>
+                            </View>
+                            {n.body ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }} numberOfLines={2}>{n.body}</Text> : null}
+                            <Text style={{ color: colors.muted, fontSize: 10, marginTop: 3 }}>{whenLabel(n.created_at)}</Text>
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 16 }}>›</Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </View>
+            )}
           </Pressable>
         </Pressable>
       </Modal>

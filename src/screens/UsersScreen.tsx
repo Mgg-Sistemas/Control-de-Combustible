@@ -66,7 +66,6 @@ export default function UsersScreen() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [delError, setDelError] = useState<string | null>(null);
   const [rolesOpen, setRolesOpen] = useState(false);      // gestor de roles
-  const [pickRoleFor, setPickRoleFor] = useState<Profile | null>(null); // asignar rol a un usuario
   const roleName = (id?: string | null) => appRoles.find((r) => r.id === id)?.name ?? null;
   // Cuántos usuarios tiene vinculado cada rol dinámico (para bloquear su borrado).
   const roleUserCounts = useMemo(() => {
@@ -74,13 +73,6 @@ export default function UsersScreen() {
     users.forEach((u) => { if (u.app_role_id) m[u.app_role_id] = (m[u.app_role_id] ?? 0) + 1; });
     return m;
   }, [users]);
-
-  const assignAppRole = async (u: Profile, roleId: string | null) => {
-    const { error } = await supabase.from('profiles').update({ app_role_id: roleId }).eq('id', u.id);
-    if (error) { Alert.alert('Aviso', `No se pudo asignar el rol: ${error.message}`); return; }
-    setPickRoleFor(null);
-    refetch();
-  };
 
   if (role !== 'admin') {
     return (
@@ -99,12 +91,6 @@ export default function UsersScreen() {
   const filtered = !q
     ? users
     : users.filter((u) => norm(u.full_name).includes(q) || norm(u.role).includes(q));
-
-  const changeRole = async (id: string, newRole: UserRole) => {
-    const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
-    if (error) { Alert.alert('Aviso', `No se pudo cambiar el rol a "${newRole}": ${error.message}`); return; }
-    refetch();
-  };
 
   const unlockUser = async (u: Profile) => {
     const { error } = await supabase.from('profiles').update({ locked: false, failed_attempts: 0, locked_at: null }).eq('id', u.id);
@@ -211,49 +197,14 @@ export default function UsersScreen() {
                 <Badge label={online ? 'En línea' : 'Desconectado'} tone={online ? 'success' : 'muted'} />
               </View>
 
-              <Text style={[typography.muted, { marginTop: spacing.xs }]}>Rol</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {ROLES.map((r) => {
-                  const activeRole = u.role === r;
-                  return (
-                    <TouchableOpacity
-                      key={r}
-                      disabled={isSelf}
-                      onPress={() => changeRole(u.id, r)}
-                      style={[styles.chip, activeRole && styles.chipActive, isSelf && { opacity: 0.5 }]}
-                    >
-                      <Text style={{ color: activeRole ? colors.primaryContrast : colors.text, fontSize: 13 }}>
-                        {roleLabel(r)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              {isSelf ? (
-                <Text style={{ color: colors.muted, fontSize: 11 }}>
-                  No puedes cambiar tu propio rol.
+              {/* Rol UNIFICADO: se muestra un solo rol (el especial si lo tiene; si no, su rol base).
+                  El cambio de rol se hace en "Editar" (lista desplegable con todos los roles). */}
+              <View style={{ marginTop: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                <Text style={typography.muted}>Rol asignado:</Text>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14 }}>
+                  {(roleName(u.app_role_id) ?? roleLabel(u.role)).toUpperCase()}
                 </Text>
-              ) : null}
-
-              {/* Rol ESPECIAL (dinámico): si se asigna, el usuario ve SOLO los módulos de ese rol. */}
-              {u.role !== 'admin' ? (
-                <View style={{ marginTop: spacing.xs, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
-                  <Text style={[typography.muted, { marginBottom: 2 }]}>Rol especial (coordinador) — ve SOLO sus módulos</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                    <Text style={{ color: roleName(u.app_role_id) ? colors.primary : colors.muted, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>
-                      {roleName(u.app_role_id) ?? 'Ninguno (usa su rol base y permisos)'}
-                    </Text>
-                    <TouchableOpacity onPress={() => setPickRoleFor(u)} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>{roleName(u.app_role_id) ? 'Cambiar' : 'Asignar'}</Text>
-                    </TouchableOpacity>
-                    {u.app_role_id ? (
-                      <TouchableOpacity onPress={() => assignAppRole(u, null)} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </View>
-              ) : null}
+              </View>
 
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                 <TouchableOpacity
@@ -290,49 +241,69 @@ export default function UsersScreen() {
         })
       )}
 
-      <NewUserForm visible={formOpen} onClose={() => setFormOpen(false)} onSaved={refetch} />
+      <NewUserForm visible={formOpen} roles={appRoles} onClose={() => setFormOpen(false)} onSaved={refetch} />
       <EditUserForm
         user={editing}
+        roles={appRoles}
         isSelf={editing?.id === session?.user?.id}
         onClose={() => setEditing(null)}
         onSaved={refetch}
-      />
-      <RolePickerModal
-        user={pickRoleFor}
-        roles={appRoles}
-        onPick={(roleId) => pickRoleFor && assignAppRole(pickRoleFor, roleId)}
-        onClose={() => setPickRoleFor(null)}
       />
       <RolesManagerModal visible={rolesOpen} roles={appRoles} userCounts={roleUserCounts} onClose={() => setRolesOpen(false)} onChanged={refetchRoles} />
     </Screen>
   );
 }
 
-/** Elige (o quita) el ROL ESPECIAL de un usuario. Lista buscable de roles. */
-function RolePickerModal({ user, roles, onPick, onClose }: { user: Profile | null; roles: AppRole[]; onPick: (roleId: string | null) => void; onClose: () => void }) {
+/** Selección de rol UNIFICADA: un rol base del sistema o un rol personalizado. */
+export type RoleSel = { kind: 'base'; role: UserRole } | { kind: 'app'; id: string };
+
+/** Etiqueta legible de una selección de rol (para mostrar el rol asignado). */
+function selLabel(sel: RoleSel, roles: AppRole[]): string {
+  if (sel.kind === 'base') return roleLabel(sel.role);
+  return roles.find((r) => r.id === sel.id)?.name ?? 'Rol';
+}
+
+/** Lista desplegable con TODOS los roles: los fijos del sistema + los personalizados
+ *  (los que se crean en "🏷️ Roles del sistema"). Devuelve la selección elegida. */
+function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
+  visible: boolean; roles: AppRole[]; current: RoleSel | null; onPick: (sel: RoleSel) => void; onClose: () => void;
+}) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [q, setQ] = useState('');
   const nq = norm(q.trim());
-  const list = !nq ? roles : roles.filter((r) => norm(r.name).includes(nq));
+  const baseList = ROLES.filter((r) => !nq || norm(roleLabel(r)).includes(nq));
+  const appList = roles.filter((r) => !nq || norm(r.name).includes(nq));
+  const isCur = (sel: RoleSel) => current && current.kind === sel.kind && (sel.kind === 'base' ? (current as any).role === sel.role : (current as any).id === sel.id);
+  const rowStyle = (on: boolean) => ({ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, marginBottom: spacing.xs, backgroundColor: on ? colors.primary : colors.surface });
+
   return (
-    <Modal visible={!!user} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={[styles.sheet, { maxHeight: '80%' }]}>
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>Rol especial de {user?.full_name ?? 'usuario'}</Text>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Si asignas un rol, el usuario verá SOLO los módulos de ese rol.</Text>
+        <View style={[styles.sheet, { maxHeight: '82%' }]}>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.xs }}>Elegir rol</Text>
           <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar rol…" placeholderTextColor={colors.muted} style={styles.input} />
           <ScrollView style={{ marginTop: spacing.sm }}>
-            <TouchableOpacity onPress={() => onPick(null)} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}>
-              <Text style={{ color: colors.text, fontWeight: '700' }}>Ninguno (usar rol base y permisos)</Text>
-            </TouchableOpacity>
-            {list.map((r) => (
-              <TouchableOpacity key={r.id} onPress={() => onPick(r.id)} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: user?.app_role_id === r.id ? colors.primary : colors.border, marginBottom: spacing.xs, backgroundColor: user?.app_role_id === r.id ? colors.primary : colors.surface }}>
-                <Text style={{ color: user?.app_role_id === r.id ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
-                <Text style={{ color: user?.app_role_id === r.id ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{Object.keys(r.modules ?? {}).length} módulo(s)</Text>
-              </TouchableOpacity>
-            ))}
-            {list.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin roles. Créalos en “🏷️ Roles del sistema”.</Text> : null}
+            <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>ROLES DEL SISTEMA</Text>
+            {baseList.map((r) => {
+              const on = !!isCur({ kind: 'base', role: r });
+              return (
+                <TouchableOpacity key={r} onPress={() => onPick({ kind: 'base', role: r })} style={rowStyle(on)}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{roleLabel(r)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {appList.length ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.sm, marginBottom: 4 }}>ROLES PERSONALIZADOS</Text> : null}
+            {appList.map((r) => {
+              const on = !!isCur({ kind: 'app', id: r.id });
+              return (
+                <TouchableOpacity key={r.id} onPress={() => onPick({ kind: 'app', id: r.id })} style={rowStyle(on)}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{r.panel_type === 'coordinador_qr' ? 'Panel coordinador QR' : `${Object.keys(r.modules ?? {}).length} módulo(s)`}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {baseList.length + appList.length === 0 ? <Text style={{ color: colors.muted, textAlign: 'center', marginVertical: spacing.md }}>Sin coincidencias.</Text> : null}
           </ScrollView>
           <TouchableOpacity onPress={onClose} style={{ marginTop: spacing.sm, padding: spacing.md, alignItems: 'center' }}>
             <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
@@ -495,10 +466,12 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
 
 function NewUserForm({
   visible,
+  roles,
   onClose,
   onSaved,
 }: {
   visible: boolean;
+  roles: AppRole[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -508,7 +481,8 @@ function NewUserForm({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [role, setRole] = useState<UserRole>('conductor');
+  const [sel, setSel] = useState<RoleSel>({ kind: 'base', role: 'conductor' });
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const { colors, typography } = useTheme();
@@ -520,7 +494,7 @@ function NewUserForm({
     setCedula('');
     setUsername('');
     setPassword('');
-    setRole('conductor');
+    setSel({ kind: 'base', role: 'conductor' });
     setError(null);
   };
 
@@ -542,9 +516,13 @@ function NewUserForm({
     const { data: dupU } = await supabase.from('profiles').select('id').ilike('username', un).limit(1);
     if (dupU && dupU.length) { setError('Ya existe ese usuario. Elige otro.'); return; }
     setSaving(true);
+    // Rol UNIFICADO: si es un rol personalizado, el usuario se crea con un rol base
+    // neutro (conductor) y luego se le vincula el rol personalizado (app_role_id).
+    const baseRole: UserRole = sel.kind === 'base' ? sel.role : 'conductor';
+    const appRoleId = sel.kind === 'app' ? sel.id : null;
     const token = await ensureFreshToken();
     const { data, error } = await supabase.functions.invoke('admin-create-user', {
-      body: { first_name: firstName, last_name: lastName, password, role, cedula: ci || undefined, username: un },
+      body: { first_name: firstName, last_name: lastName, password, role: baseRole, cedula: ci || undefined, username: un },
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
     if (error || (data as any)?.error) {
@@ -552,9 +530,9 @@ function NewUserForm({
       setSaving(false);
       return;
     }
-    // Respaldo: fijamos cédula y usuario por el id devuelto (por si la función no los guardó).
+    // Respaldo: fijamos cédula/usuario y el rol personalizado por el id devuelto.
     const newId = (data as any)?.id ?? (data as any)?.user?.id;
-    if (newId) { await supabase.from('profiles').update({ cedula: ci || null, username: un }).eq('id', newId); }
+    if (newId) { await supabase.from('profiles').update({ cedula: ci || null, username: un, app_role_id: appRoleId }).eq('id', newId); }
     setSaving(false);
     reset();
     onSaved();
@@ -577,16 +555,20 @@ function NewUserForm({
                 <Text style={{ color: colors.text, fontWeight: '700' }}>{showPass ? '🙈 Ocultar' : '👁 Ver'}</Text>
               </TouchableOpacity>
             </View>
-            <Text style={typography.muted}>Rol</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              {ROLES.map((r) => (
-                <TouchableOpacity key={r} onPress={() => setRole(r)} style={[styles.chip, role === r && styles.chipActive]}>
-                  <Text style={{ color: role === r ? colors.primaryContrast : colors.text, fontSize: 13 }}>{roleLabel(r)}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <Text style={typography.muted}>Rol asignado</Text>
+            <TouchableOpacity onPress={() => setPickerOpen(true)} style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+              <Text style={{ color: colors.text, fontWeight: '800' }}>{selLabel(sel, roles)}</Text>
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Cambiar ▾</Text>
+            </TouchableOpacity>
             {error ? <Text style={{ color: colors.danger }}>{error}</Text> : null}
           </ScrollView>
+          <UnifiedRolePicker
+            visible={pickerOpen}
+            roles={roles}
+            current={sel}
+            onPick={(s) => { setSel(s); setPickerOpen(false); }}
+            onClose={() => setPickerOpen(false)}
+          />
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={onClose}>
               <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
@@ -605,11 +587,13 @@ function NewUserForm({
 
 function EditUserForm({
   user,
+  roles,
   isSelf,
   onClose,
   onSaved,
 }: {
   user: Profile | null;
+  roles: AppRole[];
   isSelf: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -623,6 +607,10 @@ function EditUserForm({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [perms, setPerms] = useState<Record<string, PermLevel>>({});
+  // Rol UNIFICADO del usuario en edición (rol personalizado si lo tiene; si no, su rol base).
+  const [sel, setSel] = useState<RoleSel>({ kind: 'base', role: 'conductor' });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [savingRole, setSavingRole] = useState(false);
   const { colors, typography } = useTheme();
   const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -635,6 +623,7 @@ function EditUserForm({
     setShowPass(false);
     setError(null);
     setPerms({});
+    setSel(user?.app_role_id ? { kind: 'app', id: user.app_role_id } : { kind: 'base', role: (user?.role ?? 'conductor') });
     if (user) {
       supabase
         .from('module_permissions')
@@ -654,6 +643,23 @@ function EditUserForm({
     await supabase
       .from('module_permissions')
       .upsert({ user_id: user.id, module: moduleKey, level }, { onConflict: 'user_id,module' });
+  };
+
+  // Cambia el rol del usuario (unificado): un rol base del sistema o uno personalizado.
+  // Base → fija profiles.role y quita el rol personalizado. Personalizado → vincula
+  // app_role_id (y si era admin, baja su rol base a conductor para que vea SOLO su rol).
+  const applyRole = async (s: RoleSel) => {
+    if (!user || isSelf) return;
+    setSel(s);
+    setPickerOpen(false);
+    setSavingRole(true);
+    const patch: Record<string, any> = s.kind === 'base'
+      ? { role: s.role, app_role_id: null }
+      : { app_role_id: s.id, ...(user.role === 'admin' ? { role: 'conductor' } : {}) };
+    const { error } = await supabase.from('profiles').update(patch).eq('id', user.id);
+    setSavingRole(false);
+    if (error) { setError(`No se pudo cambiar el rol: ${error.message}`); return; }
+    onSaved();
   };
 
   // Aplica un nivel a TODOS los módulos de una vez (p. ej. Full control a todo).
@@ -750,6 +756,19 @@ function EditUserForm({
               </TouchableOpacity>
             </View>
 
+            <Text style={[typography.muted, { marginTop: spacing.sm }]}>Rol asignado</Text>
+            {isSelf ? (
+              <View style={styles.input}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>{selLabel(sel, roles)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>No puedes cambiar tu propio rol.</Text>
+              </View>
+            ) : (
+              <TouchableOpacity onPress={() => setPickerOpen(true)} disabled={savingRole} style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>{savingRole ? 'Guardando…' : selLabel(sel, roles)}</Text>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Cambiar ▾</Text>
+              </TouchableOpacity>
+            )}
+
             <Text style={[typography.muted, { marginTop: spacing.sm }]}>Permisos por módulo</Text>
             {isAdminUser ? (
               <Text style={{ color: colors.success, fontSize: 12 }}>
@@ -822,6 +841,13 @@ function EditUserForm({
               No puedes eliminar tu propio usuario.
             </Text>
           )}
+          <UnifiedRolePicker
+            visible={pickerOpen}
+            roles={roles}
+            current={sel}
+            onPick={applyRole}
+            onClose={() => setPickerOpen(false)}
+          />
         </View>
       </View>
     </Modal>
