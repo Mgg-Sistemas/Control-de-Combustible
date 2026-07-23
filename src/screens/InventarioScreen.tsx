@@ -34,6 +34,9 @@ function fmtDate(iso: string) { const d = new Date(iso); const p = (n: number) =
 const ESTADOS = ['Nuevo', 'Bueno', 'Regular', 'Dañado'];
 // Carga de la bombona (vacía / en uso / llena) — para tildar, filtrar y reportar.
 const CARGA_OPTS = ['vacía', 'en uso', 'llena'];
+// Palabras que identifican un envase de gas (por TIPO o por NOMBRE), para que también
+// los "tanques"/"cilindros" de oxígeno, propano, etc. cuenten como bombona (carga/filtro/reporte).
+const BOMBONA_HINTS = ['bombona', 'tanque', 'cilindro', 'botellon', 'oxigeno', 'propano', 'acetileno', 'argon'];
 const cargaColor = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '#16A34A' : v === 'en uso' ? '#F59E0B' : v === 'vacía' ? '#DC2626' : '#6B7280'; };
 const cargaIcon = (c: string | null | undefined) => { const v = (c || '').toLowerCase(); return v === 'llena' ? '🟢' : v === 'en uso' ? '🟡' : v === 'vacía' ? '🔴' : '⚪'; };
 // Estado físico (condición) → color e ícono para verlo de un vistazo en la tarjeta.
@@ -221,7 +224,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     return Array.from(m.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [levels]);
   // ¿El producto es una BOMBONA? (por tipo o por nombre) — para carga/filtro/reporte.
-  const isBombona = (it: InventoryLevel) => norm(it.tipo || '').includes('bombona') || norm(it.name).includes('bombona');
+  const isBombona = (it: InventoryLevel) => { const s = norm(`${it.tipo || ''} ${it.name}`); return BOMBONA_HINTS.some((w) => s.includes(w)); };
   const bombonas = useMemo(() => levels.filter(isBombona), [levels]);
   // Bombonas por carga: SUMA LAS CANTIDADES (stock) de cada bombona, no cuenta las
   // filas de producto. Así "total llenas / vacías / en uso" refleja cuántas bombonas

@@ -160,6 +160,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   actualiza al instante y los demás no se tocan. Funciona esté el corte **abierto o cerrado**.
 - Al **cerrar un corte**, el sistema **congela el precio**: respeta el precio por rango ya
   fijado y a las jornadas sin precio propio les pone el precio actual de la máquina.
+- **Reporte 🚚 Maquinaria/Vehículo — Con precios / Sin precios:** en **"💲 Con precios"** se
+  lista **cada equipo por unidad** (para facturar) con guardia, horas, precio/hora, total y
+  fletes. En **"Sin precios"** se **AGRUPAN** dentro de cada empresa los equipos iguales (todos
+  los **JUMBO** juntos, todos los **CAMIÓN DE SERVICIO** juntos…) mostrando la **cantidad** y las
+  horas sumadas, no una fila por unidad (Marca/Clasificación salen como el valor común o
+  **"Varios"**). Todo **A→Z**.
 
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
