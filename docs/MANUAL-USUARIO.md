@@ -293,6 +293,9 @@ que aparece en la **pantalla de inicio** de todos los usuarios (el admin la tien
 2. Aparece la persona (**foto, nombre, cargo**) y sus **marcas de hoy**.
 3. Toca el **botón grande**: si aún no ha entrado dice **"➡️ Marcar ENTRADA"**; si ya entró dice
    **"⬅️ Marcar SALIDA"**. La hora y la fecha se ponen solas.
+   - **Hora manual** (si no dio tiempo de escanear): con la persona abierta, toca
+     **"⏱️ Marcar con hora manual"**, elige la **fecha**, escribe la **hora real** en formato 24 h
+     (ej. `07:30` o `19:45`), elige **ENTRADA** o **SALIDA** y toca **"💾 Registrar marca manual"**.
 4. Cada marca queda etiquetada como **☀️ Día** (6:00–17:59) o **🌙 Noche** (resto), según la hora.
 5. Al registrar una **SALIDA** el sistema **pide confirmación** ("¿Seguro que quieres registrar
    la salida?") y recuerda a qué hora fue la última entrada. Si la entrada fue hace **menos de
