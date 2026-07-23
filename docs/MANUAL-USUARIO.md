@@ -560,9 +560,15 @@ Administrar"**. Ahí puedes:
   ve** (sin acceso / L / E / F por módulo).
 - Ver los roles en una **lista buscable** y **quitarlos** (🗑️).
 
-**Asignar un rol a un usuario:** en la tarjeta del usuario, en **"Rol especial (coordinador)"**,
-toca **Asignar** y elige el rol de la **lista buscable** (o **Quitar** para dejarlo sin rol
-especial). Un usuario con rol especial ve **SOLO** los módulos de ese rol (no ve el resto).
+**Rol asignado (unificado):** cada usuario tiene **UN solo rol**. En su tarjeta se ve
+**"Rol asignado: X"**. Para elegirlo o cambiarlo:
+- **Al crear** el usuario: en **"Rol asignado"** se abre una **lista desplegable** con **todos
+  los roles** — los **del sistema** (admin, inspector, analista, operador, conductor, cocina,
+  coordinador de patio) y los **personalizados** (los que creaste en 🏷️ Roles del sistema).
+- **Al editar** el usuario: toca **"Rol asignado → Cambiar ▾"** y elige el nuevo rol.
+
+Un usuario con un rol **personalizado** ve **SOLO** los módulos de ese rol (no ve el resto).
+(No puedes cambiar **tu propio** rol.)
 
 **Catálogo de roles (novedad):** el administrador **crea, EDITA (✏️) y borra** roles. Al
 crear/editar eliges el **TIPO DE PANEL**:
