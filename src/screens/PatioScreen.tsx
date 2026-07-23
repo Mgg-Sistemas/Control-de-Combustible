@@ -146,6 +146,7 @@ export default function PatioScreen({ navigation }: any) {
       {bigBtn('📷  ESCANEAR QR', 'Registrar ENTRADA o SALIDA del camión', '#2563EB', () => { setAvStarted(false); setScanMode('camion'); })}
       {bigBtn('⛽  SURTIR GASOIL', 'Horómetro + litros (surtido vs consumido)', '#15803D', () => { setAvStarted(false); setScanMode('gasoil'); })}
       {bigBtn('🛠️  AVERÍA DE MAQUINARIA', 'Reportar una avería (va a Mantenimiento)', '#B45309', () => { setAvStarted(true); setScanMode('averia'); })}
+      {bigBtn('🕒  ASISTENCIA EMPLEADOS', 'Marcar entrada/salida escaneando el carnet', '#4F46E5', () => navigation.navigate('Asistencia'))}
 
       <TouchableOpacity onPress={() => navigation.navigate('Camiones')} activeOpacity={0.8}>
         <Card>
