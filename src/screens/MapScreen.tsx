@@ -40,6 +40,14 @@ function fmt(ts: string): string {
   }
 }
 
+/** Texto "Placa: X · Serial: Y" (omite el que falte). */
+function placaSerial(plate?: string | null, serial?: string | null): string {
+  const parts: string[] = [];
+  if (plate) parts.push(`Placa: ${plate}`);
+  if (serial) parts.push(`Serial: ${serial}`);
+  return parts.join(' · ');
+}
+
 export default function MapScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
@@ -72,7 +80,7 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
   const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -114,9 +122,13 @@ export default function MapScreen({ navigation, route }: any) {
     }));
     setPins(built);
 
-    // TODAS las máquinas (con y sin ubicación) para el conteo "ubicadas/total".
-    const { data: every } = await supabase.from('machinery').select('id, code, latitude');
-    setAllMachines((every ?? []).map((m: any) => ({ id: m.id, code: m.code ?? '', located: m.latitude != null })));
+    // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
+    // LISTAR las que faltan por ubicar con su placa/serial y empresa.
+    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, company:company_id(name)');
+    setAllMachines((every ?? []).map((m: any) => ({
+      id: m.id, code: m.code ?? '', located: m.latitude != null,
+      plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
+    })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
@@ -298,6 +310,17 @@ export default function MapScreen({ navigation, route }: any) {
   const totalMachines = allMachines.length;
   const totalLocated = allMachines.filter((a) => a.located).length;
   const totalPending = Math.max(0, totalMachines - totalLocated);
+  // Máquinas SIN ubicar, agrupadas por categoría (para listarlas en rojo por tipo).
+  const missingByCat = useMemo(() => {
+    const m = new Map<string, typeof allMachines>();
+    allMachines.filter((a) => !a.located).forEach((a) => {
+      const k = equipCategory(a.code) || CAT_OTHER_KEY;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(a);
+    });
+    m.forEach((arr) => arr.sort((a, b) => a.code.localeCompare(b.code, 'es')));
+    return m;
+  }, [allMachines]);
   // Máquinas para el selector de ubicación manual: primero las SIN ubicar.
   const pickerList = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
@@ -395,19 +418,47 @@ export default function MapScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                     </View>
 
-                    {/* Máquinas de la categoría (prender/apagar individual) */}
+                    {/* Máquinas de la categoría: UBICADAS (con placa/serial + empresa) y las
+                        que FALTAN por ubicar (en rojo, también con placa/serial + empresa). */}
                     {expanded ? (
                       <View style={{ marginTop: 6, paddingLeft: 42 }}>
                         {list.map((p) => {
                           const off = catHidden || hiddenIds.has(p.id);
+                          const ps = placaSerial(p.plate, p.serial);
                           return (
                             <TouchableOpacity key={p.id} onPress={() => toggleId(p.id)} disabled={catHidden} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
                               <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
-                              <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{p.name}</Text>
-                              <Text style={{ color: colors.muted, fontSize: 11 }}>{p.company}</Text>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
+                                {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                              </View>
+                              <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{p.company}</Text>
                             </TouchableOpacity>
                           );
                         })}
+
+                        {(() => {
+                          const miss = missingByCat.get(k) ?? [];
+                          if (miss.length === 0) return null;
+                          return (
+                            <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
+                              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>⛔ Faltan por ubicar ({miss.length})</Text>
+                              {miss.map((a) => {
+                                const ps = placaSerial(a.plate, a.serial);
+                                return (
+                                  <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
+                                    <Text style={{ fontSize: 15 }}>📍</Text>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '800' }}>{a.code}</Text>
+                                      {ps ? <Text style={{ color: colors.danger, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                                    </View>
+                                    <Text style={{ color: colors.danger, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()}
                       </View>
                     ) : null}
                   </View>
