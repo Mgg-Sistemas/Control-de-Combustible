@@ -44,7 +44,7 @@ create policy notif_select on public.notifications for select to authenticated
   using (
     public.is_admin()
     or recipient_id = auth.uid()
-    or (target_role is not null and target_role = public.current_role())
+    or (target_role is not null and target_role = public.current_role()::text)
   );
 
 -- El insert lo hacen los triggers (SECURITY DEFINER). Se permite igual a staff por si
