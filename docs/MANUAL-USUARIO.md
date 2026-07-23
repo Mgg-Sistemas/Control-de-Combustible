@@ -545,6 +545,10 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   eliges una máquina (las que faltan por ubicar salen primero) y **tocas el mapa** en el punto
   donde está; queda ubicada al instante. **Solo los administradores** pueden reubicar máquinas
   y eliminar ubicaciones del mapa.
+- **📄 Referencias (reporte PDF):** genera un documento con las máquinas que tienen una
+  **referencia** de ubicación (edificio, parque, plaza, calle) que el **inspector** puso al marcar
+  la ubicación. Sale el **nombre de la máquina**, su **placa/serial**, la **referencia** y la
+  **empresa**.
 - **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,
   igual que Sectores) muestra **quién colocó** cada ubicación, con su **fecha y hora**. Toca una
   fila para ver esa máquina en el mapa. Sirve para **vigilar quién está haciendo las ubicaciones**.
