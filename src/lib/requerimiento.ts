@@ -52,8 +52,9 @@ export function requerimientoHtml(d: ReqPdfData): string {
   // Bloque de firma: si está APROBADO por un firmante conocido, va su firma escaneada
   // y su cargo. Si no, queda la línea "Aprobado por (jefe)" para firmar a mano.
   const signer = d.approved ? firmante(d.decidedBy) : null;
+  const aprobador = (d.decidedBy || '').trim();
   const firmaBlock = signer
-    ? `<img src="${signer.img}"${signer.flip ? ' style="transform:scaleX(-1)"' : ''}/><div class="line">${esc(signer.label)}</div>`
+    ? `<img src="${signer.img}"${signer.flip ? ' style="transform:scaleX(-1)"' : ''}/><div class="line">${esc(signer.label)}</div>${aprobador ? `<div class="firmante">${esc(aprobador.toUpperCase())}</div>` : ''}`
     : `<div class="line">Aprobado por (jefe)</div>`;
 
   return pdfDocument({
@@ -73,7 +74,8 @@ export function requerimientoHtml(d: ReqPdfData): string {
       .push{flex:1 1 auto;min-height:24px}
       .firma{text-align:center;page-break-inside:avoid}
       .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
-      .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}`,
+      .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
+      .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}`,
     body: `
       <div class="reqbody">
         <div>
