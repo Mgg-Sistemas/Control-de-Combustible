@@ -262,9 +262,11 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 > fecha y hora).
 
 **Reporte de productos y estado (pestaña Existencias):**
-- Cada producto tiene un **ESTADO físico** (**Nuevo / Bueno / Regular / Dañado**) que eliges
-  al crear o editar. Además muestra su **DISPONIBILIDAD** automática: **Disponible**, **Bajo
-  mínimo** o **Agotado** (según la cantidad vs el stock mínimo).
+- Cada producto muestra **CÓMO SE ENCUENTRA** con su color: **🔵 Nuevo**, **🟢 Bueno**,
+  **🟡 Regular**, **🔴 Dañado** (o **⚪ Sin estado** si no lo has definido). Lo tildas rápido
+  abriendo el producto (chips **"¿Cómo se encuentra?"**) sin entrar al editor, y **se sincroniza
+  en vivo** con los demás equipos. Además muestra su **DISPONIBILIDAD** automática:
+  **Disponible**, **Bajo mínimo** o **Agotado** (según la cantidad vs el stock mínimo).
 - Toca **"📄 Reporte de productos (cantidad y estado)"**: genera un **PDF** con TODOS los
   productos, su **cantidad**, **disponibilidad** y **estado**.
 - Al **✏️ Editar producto** puedes cambiar la **CANTIDAD** (existencia): el sistema registra
@@ -470,8 +472,9 @@ productos**. El tipo también sale en el **reporte de productos**.
 botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta o en el editor
 (vuelve a tocar el mismo para quitarlo). Arriba tienes **"Filtrar por carga"** para ver solo las
 llenas, en uso o vacías, y **"🛢️ Reporte de bombonas por carga"** genera un PDF con cuántas hay
-en cada estado. Los totales (🟢 llenas, 🟡 en uso, 🔴 vacías y el **TOTAL**) **suman las cantidades**
-(existencias) de cada bombona, no la cantidad de productos.
+en cada estado. Si una bombona sale en **"Sin definir"** es porque **aún no le tildaste la carga**
+(por eso los contadores 🟢🟡🔴 dan **0**). Cada bombona registrada **cuenta como 1** aunque su
+existencia esté en 0; si tiene cantidad mayor, se **suma esa cantidad**.
 
 **🗑 Eliminar un producto:** entra a **✏️ Editar producto** y abajo toca **"🗑 Eliminar
 producto"**. Pide confirmación y borra el producto **y todo su historial** de movimientos
