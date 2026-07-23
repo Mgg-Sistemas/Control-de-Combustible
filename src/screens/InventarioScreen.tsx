@@ -1296,6 +1296,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       await exportPdf(requerimientoHtml({
         code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
         requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+        approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
         items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
     } catch (e: any) { Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
