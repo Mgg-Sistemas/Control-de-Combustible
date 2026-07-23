@@ -9,7 +9,6 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm } from '../lib/text';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
-import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -52,6 +51,10 @@ const TYPE_LABEL: Record<string, string> = { dia: 'Día', semana: 'Semana', quin
 const MODE_LABEL: Record<string, string> = { hora: 'Por hora', dia: 'Por día', semana: 'Por semana' };
 const UNIT: Record<string, string> = { hora: 'h', dia: 'd', semana: 'sem' };
 const METODOS = ['efectivo', 'pago móvil', 'transferencia', 'otro'];
+// El personal se paga SIEMPRE por la organización dueña (SOS LA GUAIRA), no por los
+// contratistas. Por eso los períodos no se scopean por empresa: se carga a TODO el
+// personal activo y se rotula como SOS LA GUAIRA.
+const EMPLEADOR = 'SOS LA GUAIRA';
 
 type Mode = StaffPayPeriod['mode'];
 // Regla: SOLO los operadores cobran por día. Un período "Por día" precarga/agrega
@@ -73,7 +76,8 @@ export default function PagoPersonalScreen() {
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
-  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
+  // Sin empresa (id null) = personal de la organización → se rotula SOS LA GUAIRA.
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : EMPLEADOR);
 
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
@@ -177,17 +181,18 @@ export default function PagoPersonalScreen() {
 
   // ── Crear período: precarga TODOS los empleados activos con sus precios ──────
   const crearPeriodo = async () => {
-    if (!cCompany) return Alert.alert('Aviso', 'Elige la empresa.');
     if (!cName.trim()) return Alert.alert('Aviso', 'Escribe el nombre (ej. "Semana 1 - julio").');
     if (!cFrom || !cTo) return Alert.alert('Aviso', 'Define el rango de fechas.');
     setCreating(true);
+    // Empleador = SOS LA GUAIRA (company_id null): el personal no se separa por contratista.
     const { data: per, error } = await supabase.from('staff_pay_periods').insert({
-      company_id: cCompany, name: cName.trim(), period_type: cType, date_from: cFrom, date_to: cTo,
+      company_id: null, name: cName.trim(), period_type: cType, date_from: cFrom, date_to: cTo,
       mode: cMode, only_validated: cValid, status: 'borrador', created_by: session?.user?.id ?? null,
     }).select().single();
     if (error || !per) { setCreating(false); return Alert.alert('Aviso', error?.message ?? 'No se pudo crear.'); }
 
-    const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('company_id', cCompany).eq('status', 'activo');
+    // TODO el personal activo (de toda la organización), no solo el de un contratista.
+    const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('status', 'activo');
     const byCed = await buildAuto(cFrom, cTo);
     // "Por día" → SOLO operadores. En hora/semana entran todos los activos.
     const empList = (emps ?? []).filter((e: any) => !soloOperadoresSi(cMode) || esOperador(e.cargo));
@@ -232,7 +237,7 @@ export default function PagoPersonalScreen() {
   const agregarFaltantes = async () => {
     if (!sel) return;
     setBusy(true);
-    const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('company_id', sel.company_id).eq('status', 'activo');
+    const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('status', 'activo');
     const byCed = await buildAuto(sel.date_from, sel.date_to);
     const have = new Set(items.map((i) => i.employee_id));
     // "Por día" → SOLO operadores nuevos. En hora/semana entran todos los activos.
@@ -521,12 +526,10 @@ export default function PagoPersonalScreen() {
             <ScrollView>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nuevo pago a personal</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
-                {generalCompanies(companies).map((c) => {
-                  const on = cCompany === c.id;
-                  return <TouchableOpacity key={c.id} onPress={() => setCCompany(c.id)} style={chip(on)}><Text style={chipTxt(on)}>{c.name}</Text></TouchableOpacity>;
-                })}
-              </ScrollView>
+              <View style={{ ...chip(true), alignSelf: 'flex-start', marginTop: spacing.xs, marginBottom: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={chipTxt(true)}>🏢 {EMPLEADOR}</Text>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Se carga a TODO el personal activo (el pago es por {EMPLEADOR}, no por contratista).</Text>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nombre (ej. "Semana 1 - julio")</Text>
               <TextInput value={cName} onChangeText={setCName} placeholder="Nombre del período" placeholderTextColor={colors.muted} style={input} />
