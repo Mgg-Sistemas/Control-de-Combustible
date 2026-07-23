@@ -218,12 +218,16 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   // ¿El producto es una BOMBONA? (por tipo o por nombre) — para carga/filtro/reporte.
   const isBombona = (it: InventoryLevel) => norm(it.tipo || '').includes('bombona') || norm(it.name).includes('bombona');
   const bombonas = useMemo(() => levels.filter(isBombona), [levels]);
-  // Conteo de bombonas por carga (para los chips del filtro y el reporte).
+  // Bombonas por carga: SUMA LAS CANTIDADES (stock) de cada bombona, no cuenta las
+  // filas de producto. Así "total llenas / vacías / en uso" refleja cuántas bombonas
+  // hay de verdad (un producto puede tener varias unidades en existencia).
   const cargaCounts = useMemo(() => {
     const m: Record<string, number> = { 'vacía': 0, 'en uso': 0, 'llena': 0, 'sin definir': 0 };
-    bombonas.forEach((it) => { const c = (it.carga || '').toLowerCase(); m[CARGA_OPTS.includes(c) ? c : 'sin definir']++; });
+    bombonas.forEach((it) => { const c = (it.carga || '').toLowerCase(); m[CARGA_OPTS.includes(c) ? c : 'sin definir'] += Number(it.stock) || 0; });
     return m;
   }, [bombonas]);
+  // Total de bombonas (suma de todas las existencias), para el total del reporte.
+  const totalBombonas = useMemo(() => bombonas.reduce((s, it) => s + (Number(it.stock) || 0), 0), [bombonas]);
   const filtered = useMemo(() => levels.filter((it) => {
     if (tipoFilter === '__none__') { if ((it.tipo || '').trim()) return false; }
     else if (tipoFilter !== '__all__' && norm(it.tipo || '') !== norm(tipoFilter)) return false;
@@ -274,7 +278,8 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const order = ['llena', 'en uso', 'vacía', 'sin definir'];
-    const resumen = order.map((k) => `<tr><td>${esc(k.toUpperCase())}</td><td class="c b">${cargaCounts[k] ?? 0}</td></tr>`).join('');
+    const resumen = order.map((k) => `<tr><td>${esc(k.toUpperCase())}</td><td class="c b">${qtyFmt(cargaCounts[k] ?? 0)}</td></tr>`).join('') +
+      `<tr><td class="b">TOTAL</td><td class="c b">${qtyFmt(totalBombonas)}</td></tr>`;
     const sorted = [...bombonas].sort((a, b) => cmpText(a.name, b.name));
     const rows = sorted.map((it, i) => `<tr>
       <td class="c">${i + 1}</td>
@@ -284,7 +289,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     </tr>`).join('');
     const html = pdfDocument({
       title: 'Reporte de bombonas por carga',
-      subtitle: `${bombonas.length} bombona(s) · ${dmy}`,
+      subtitle: `${qtyFmt(totalBombonas)} bombona(s) en ${bombonas.length} producto(s) · ${dmy}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
         td.c{text-align:center} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}
@@ -567,7 +572,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         <View style={{ marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por carga (bombonas)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
-            {([['__all__', 'Todas', bombonas.length], ['llena', '🟢 Llena', cargaCounts['llena']], ['en uso', '🟡 En uso', cargaCounts['en uso']], ['vacía', '🔴 Vacía', cargaCounts['vacía']], ['__sin__', '⚪ Sin definir', cargaCounts['sin definir']]] as [string, string, number][]).map(([val, label, n]) => {
+            {([['__all__', 'Todas', totalBombonas], ['llena', '🟢 Llena', cargaCounts['llena']], ['en uso', '🟡 En uso', cargaCounts['en uso']], ['vacía', '🔴 Vacía', cargaCounts['vacía']], ['__sin__', '⚪ Sin definir', cargaCounts['sin definir']]] as [string, string, number][]).map(([val, label, n]) => {
               const on = cargaFilter === val;
               return (
                 <TouchableOpacity key={val} onPress={() => setCargaFilter(val)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? '#0F766E' : colors.border, backgroundColor: on ? '#0F766E' : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -1173,14 +1178,16 @@ const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) 
 function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session, role } = useAuth();
+  const confirm = useConfirm();
   const isAdmin = role === 'admin';
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
 
-  // Crear requerimiento
+  // Crear / editar requerimiento (editId != null → estamos editando ese requerimiento)
   const [createOpen, setCreateOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [rows, setRows] = useState<ReqRow[]>([]);
@@ -1221,6 +1228,19 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }));
     if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto (del inventario o nuevo).');
     setBusy(true);
+    // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
+    if (editId) {
+      const { error } = await supabase.from('inventory_requirements')
+        .update({ title: title.trim() || null, note: note.trim() || null, items })
+        .eq('id', editId);
+      setBusy(false);
+      if (error) return Alert.alert('Aviso', error.message);
+      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setRows([]);
+      refetch();
+      Alert.alert('Listo', 'Requerimiento actualizado.');
+      return;
+    }
+    // CREAR: nuevo requerimiento (código incremental, estado pendiente).
     const { data: codeRows } = await supabase.from('inventory_requirements').select('code');
     const code = nextReqCode((codeRows ?? []).map((r: any) => r.code));
     const reqName = await perfilNombre();
@@ -1233,6 +1253,37 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setCreateOpen(false); setTitle(''); setNote(''); setRows([]);
     refetch();
     Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
+  };
+
+  // Abrir el formulario para EDITAR: precarga título, nota e ítems del requerimiento.
+  const abrirEditar = (r: InventoryRequirement) => {
+    setEditId(r.id);
+    setTitle(r.title ?? '');
+    setNote(r.note ?? '');
+    let s = 0;
+    setRows(r.items.map((it) => ({
+      key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
+      qty: String(it.qty), price: String(it.est_price ?? 0), currency: (it.currency as 'USD' | 'VES') || 'USD', note: it.note ?? '',
+    })));
+    setCreateOpen(true);
+  };
+
+  // Eliminar TODO el requerimiento (con confirmación). No revierte movimientos de
+  // inventario ya registrados si estaba "recibido"; solo borra el documento.
+  const eliminar = async (r: InventoryRequirement) => {
+    const recibido = r.status === 'recibido';
+    const ok = await confirm({
+      title: 'Eliminar requerimiento',
+      message: `¿Eliminar el requerimiento ${r.code ?? ''}? Esta acción no se puede deshacer.` +
+        (recibido ? '\n\nNota: ya fue recibido en inventario; sus entradas de stock NO se revierten.' : ''),
+      confirmText: 'Eliminar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('inventory_requirements').delete().eq('id', r.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    refetch();
   };
 
   const decidir = async (r: InventoryRequirement, status: 'aprobado' | 'rechazado') => {
@@ -1312,7 +1363,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setTitle(''); setNote(''); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -1375,6 +1426,18 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
                     </TouchableOpacity>
                   ) : null}
+                  {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
+                  {canWrite && r.status !== 'recibido' ? (
+                    <TouchableOpacity onPress={() => abrirEditar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Eliminar todo el requerimiento. */}
+                  {canWrite ? (
+                    <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
                 </View>
               </View>
@@ -1384,10 +1447,10 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       })}
 
       {/* ── Crear requerimiento ── */}
-      <Modal visible={createOpen} animationType="slide" onRequestClose={() => setCreateOpen(false)}>
+      <Modal visible={createOpen} animationType="slide" onRequestClose={() => { setCreateOpen(false); setEditId(null); }}>
         <Screen>
           <ScrollView keyboardShouldPersistTaps="handled">
-            <SectionTitle>Nuevo requerimiento</SectionTitle>
+            <SectionTitle>{editId ? 'Editar requerimiento' : 'Nuevo requerimiento'}</SectionTitle>
             <Card>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Título (opcional)</Text>
               <TextInput value={title} onChangeText={setTitle} placeholder="EJ. REPUESTOS EXCAVADORA 320" placeholderTextColor={colors.muted} style={inp} />
@@ -1446,8 +1509,8 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
-              <TouchableOpacity onPress={() => setCreateOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Enviando…' : '📤 Enviar al jefe'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setCreateOpen(false); setEditId(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios' : '📤 Enviar al jefe')}</Text></TouchableOpacity>
             </View>
           </ScrollView>
         </Screen>
