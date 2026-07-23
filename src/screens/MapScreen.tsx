@@ -15,6 +15,9 @@ import { spacing, radius } from '../theme';
 // Capas del mapa: una por TIPO ESPECÍFICO de equipo (JUMBO, PAYLOADER, TRACTORES…),
 // EXACTAMENTE igual que el "Conteo de equipos" (usa la misma clasificación).
 const CAT_OTHER_KEY = '—';
+// Las CAMIONETAS PICK-UP no llevan pin fijo: están en constante movimiento (todas las
+// zonas) y se ubican por su ENCARGADO. No cuentan como "faltan por ubicar".
+const CAMIONETA_CAT = 'CAMIONETA PICK-UP';
 /** Tipo (categoría fina) de una máquina, igual que en el conteo. */
 function catOf(p: MapPin): string {
   return equipCategory(p.name) || CAT_OTHER_KEY;
@@ -80,7 +83,7 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
   const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -124,10 +127,11 @@ export default function MapScreen({ navigation, route }: any) {
 
     // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
     // LISTAR las que faltan por ubicar con su placa/serial y empresa.
-    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, company:company_id(name)');
+    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, encargado, company:company_id(name)');
     setAllMachines((every ?? []).map((m: any) => ({
       id: m.id, code: m.code ?? '', located: m.latitude != null,
       plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
+      encargado: m.encargado ?? null,
     })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
@@ -298,8 +302,19 @@ export default function MapScreen({ navigation, route }: any) {
     g.forEach((arr) => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
     return g;
   }, [pins, pinCat]);
-  // Tipos presentes, en orden ALFABÉTICO (igual que el conteo "por tipo").
-  const presentCats = useMemo(() => [...groups.keys()].sort((a, b) => a.localeCompare(b, 'es')), [groups]);
+  // Tipos presentes (UNIÓN de los ubicados y de TODOS los del catálogo), en orden
+  // ALFABÉTICO. Así aparecen también los tipos con máquinas SIN ubicar (p. ej. las
+  // camionetas pick-up, que no llevan pin) para poder verlas y saber cuáles faltan.
+  const presentCats = useMemo(() => {
+    const s = new Set<string>(groups.keys());
+    allMachines.forEach((a) => s.add(equipCategory(a.code) || CAT_OTHER_KEY));
+    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [groups, allMachines]);
+  // Camionetas pick-up del catálogo (con su encargado), para listarlas como "asignadas".
+  const camionetas = useMemo(
+    () => allMachines.filter((a) => (equipCategory(a.code) || CAT_OTHER_KEY) === CAMIONETA_CAT).sort((a, b) => a.code.localeCompare(b.code, 'es')),
+    [allMachines]
+  );
 
   // Total de máquinas por categoría (incluye las SIN ubicar) → para "ubicadas/total".
   const catTotal = useMemo(() => {
@@ -307,13 +322,17 @@ export default function MapScreen({ navigation, route }: any) {
     allMachines.forEach((a) => { const k = equipCategory(a.code) || CAT_OTHER_KEY; m.set(k, (m.get(k) ?? 0) + 1); });
     return m;
   }, [allMachines]);
-  const totalMachines = allMachines.length;
-  const totalLocated = allMachines.filter((a) => a.located).length;
+  // El resumen "ubicadas/faltan" es SOLO de las que sí llevan pin (excluye camionetas,
+  // que van por encargado y no se "ubican").
+  const locatable = useMemo(() => allMachines.filter((a) => (equipCategory(a.code) || CAT_OTHER_KEY) !== CAMIONETA_CAT), [allMachines]);
+  const totalMachines = locatable.length;
+  const totalLocated = locatable.filter((a) => a.located).length;
   const totalPending = Math.max(0, totalMachines - totalLocated);
   // Máquinas SIN ubicar, agrupadas por categoría (para listarlas en rojo por tipo).
+  // Excluye camionetas (no aplican a "faltan por ubicar").
   const missingByCat = useMemo(() => {
     const m = new Map<string, typeof allMachines>();
-    allMachines.filter((a) => !a.located).forEach((a) => {
+    allMachines.filter((a) => !a.located && (equipCategory(a.code) || CAT_OTHER_KEY) !== CAMIONETA_CAT).forEach((a) => {
       const k = equipCategory(a.code) || CAT_OTHER_KEY;
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(a);
@@ -397,6 +416,7 @@ export default function MapScreen({ navigation, route }: any) {
                 const shownInCat = catHidden ? 0 : list.filter((p) => !hiddenIds.has(p.id)).length;
                 const meta = { icon: iconFor(k), label: k };
                 const expanded = expandedCat === k;
+                const isCam = k === CAMIONETA_CAT;
                 return (
                   <View key={k} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -405,9 +425,13 @@ export default function MapScreen({ navigation, route }: any) {
                         <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: catHidden ? 'flex-start' : 'flex-end' }} />
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{meta.icon} {meta.label}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{isCam ? '🚙' : meta.icon} {meta.label}</Text>
                         {(() => {
                           const total = catTotal.get(k) ?? list.length; // total de esa categoría (con y sin ubicar)
+                          // Camionetas: no se "ubican" (van por encargado, todas las zonas).
+                          if (isCam) {
+                            return <Text style={{ color: colors.muted, fontSize: 12 }}>🚙 {total} asignada{total === 1 ? '' : 's'}  {expanded ? '▲' : '▼'}</Text>;
+                          }
                           const pend = Math.max(0, total - list.length); // list = ubicadas de la categoría
                           return (
                             <Text style={{ color: colors.muted, fontSize: 12 }}>
@@ -418,9 +442,28 @@ export default function MapScreen({ navigation, route }: any) {
                       </TouchableOpacity>
                     </View>
 
-                    {/* Máquinas de la categoría: UBICADAS (con placa/serial + empresa) y las
-                        que FALTAN por ubicar (en rojo, también con placa/serial + empresa). */}
-                    {expanded ? (
+                    {/* CAMIONETAS PICK-UP: no llevan pin. Se listan como ASIGNADAS a su
+                        encargado y en constante movimiento (abarcan todas las zonas). */}
+                    {expanded && isCam ? (
+                      <View style={{ marginTop: 6, paddingLeft: 42 }}>
+                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '800', marginBottom: 3 }}>🚙 En constante movimiento · abarcan TODAS las zonas · se ubican por su encargado</Text>
+                        {camionetas.map((a) => {
+                          const ps = placaSerial(a.plate, a.serial);
+                          return (
+                            <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
+                              <Text style={{ fontSize: 15 }}>🚙</Text>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{a.code}</Text>
+                                <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
+                                {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                              </View>
+                              <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
+                            </View>
+                          );
+                        })}
+                        {camionetas.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>Sin camionetas en el catálogo.</Text> : null}
+                      </View>
+                    ) : expanded ? (
                       <View style={{ marginTop: 6, paddingLeft: 42 }}>
                         {list.map((p) => {
                           const off = catHidden || hiddenIds.has(p.id);
