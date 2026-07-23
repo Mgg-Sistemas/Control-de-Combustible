@@ -240,6 +240,7 @@ const SECTIONS: Sec[] = [
         'Toca "📷 Escanear carnet" y apunta al QR del carnet del trabajador (si el carnet no escanea, búscalo por nombre o cédula).',
         'Aparece la persona (foto, nombre, cargo) y sus marcas de hoy.',
         'Toca el botón grande: si aún no ha entrado dice "➡️ Marcar ENTRADA"; si ya entró dice "⬅️ Marcar SALIDA". La hora y la fecha se ponen solas.',
+        'HORA MANUAL (si no dio tiempo de escanear): con la persona abierta, toca "⏱️ Marcar con hora manual", elige la fecha, escribe la hora real en formato 24 h (ej. 07:30 o 19:45), elige ENTRADA o SALIDA y toca "💾 Registrar marca manual". Sirve para cargar después la jornada con su hora verdadera.',
         'Cada marca queda etiquetada como ☀️ Día (6:00 a 17:59) o 🌙 Noche (resto), según la hora.',
         'Al registrar una SALIDA, el sistema PIDE CONFIRMACIÓN ("¿Seguro que quieres registrar la salida?") y te recuerda a qué hora fue su última entrada. Si la entrada fue hace MENOS DE 2 MINUTOS, avisa "¿Doble escaneo?" (casi seguro escanearon el carnet dos veces por error) para que no se marque una salida sin querer.',
         'Se permiten VARIAS marcas al día (por ejemplo, sale a almorzar y vuelve): el sistema alterna entrada/salida y suma las horas presentes de todos los pares.',

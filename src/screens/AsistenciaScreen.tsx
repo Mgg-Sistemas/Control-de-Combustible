@@ -65,6 +65,12 @@ export default function AsistenciaScreen() {
   const [q, setQ] = useState('');
   const [results, setResults] = useState<Emp[]>([]);
 
+  // Marca con HORA MANUAL (cuando no dio tiempo de escanear y se registra después).
+  const [manualOpen, setManualOpen] = useState(false);
+  const [mDate, setMDate] = useState(todayISO);
+  const [mTime, setMTime] = useState('');            // "HH:MM" (24 h)
+  const [mKind, setMKind] = useState<'entrada' | 'salida'>('entrada');
+
   // Reporte
   const [repOpen, setRepOpen] = useState(false);
   const [rFrom, setRFrom] = useState(todayISO);
@@ -192,6 +198,28 @@ export default function AsistenciaScreen() {
     await Promise.all([loadToday(emp.id), loadMonth(month)]);
   };
 
+  // Marca ENTRADA/SALIDA con una FECHA + HORA escritas a mano (Caracas, UTC−4).
+  // Útil cuando no dio tiempo de escanear el carnet y se registra la jornada después.
+  const marcarManual = async () => {
+    if (!emp) return;
+    const mt = mTime.trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!mt) { Alert.alert('Aviso', 'Escribe la hora como HH:MM en formato 24 horas. Ej. 07:30 (día) o 19:45 (noche).'); return; }
+    const hh = Number(mt[1]), mm = Number(mt[2]);
+    if (hh > 23 || mm > 59) { Alert.alert('Aviso', 'Hora inválida. Usa 00:00–23:59.'); return; }
+    const hhs = String(hh).padStart(2, '0'), mms = String(mm).padStart(2, '0');
+    // Caracas es UTC−4 (sin horario de verano): el instante se fija con ese offset.
+    const ts = new Date(`${mDate}T${hhs}:${mms}:00-04:00`).toISOString();
+    setBusy(true);
+    const { error } = await supabase.from('attendance').insert({
+      employee_id: emp.id, ts, work_date: mDate, kind: mKind, recorded_by: uid,
+    });
+    setBusy(false);
+    if (error) { Alert.alert('Aviso', error.message); return; }
+    setManualOpen(false); setMTime('');
+    await Promise.all([loadToday(emp.id), loadMonth(month)]);
+    Alert.alert('Listo', `${mKind === 'entrada' ? 'ENTRADA' : 'SALIDA'} de ${fullName(emp)} registrada: ${fmtDMY(mDate)} ${hhs}:${mms}.`);
+  };
+
   // ── Reporte PDF por rango (o de un día concreto si se pasan fechas) ────────
   const generarReporte = async (fromArg?: string, toArg?: string) => {
     const from = fromArg ?? rFrom ?? todayISO, to = toArg ?? rTo ?? todayISO;
@@ -261,7 +289,7 @@ export default function AsistenciaScreen() {
           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📊 Reporte</Text>
         </TouchableOpacity>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Escanea el carnet del trabajador para marcar su ENTRADA o SALIDA (fecha y hora automáticas). Se permiten varias marcas al día.</Text>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Escanea el carnet (hora automática) o busca al trabajador por nombre/cédula. Si no dio tiempo de escanear, ábrelo y usa "⏱️ Marcar con hora manual" para registrar la ENTRADA/SALIDA con la hora real. Se permiten varias marcas al día.</Text>
 
       {/* Escanear carnet */}
       <TouchableOpacity onPress={() => setScanning(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
@@ -320,6 +348,39 @@ export default function AsistenciaScreen() {
               {busy ? 'Guardando…' : willMark === 'entrada' ? '➡️ Marcar ENTRADA' : '⬅️ Marcar SALIDA'}
             </Text>
           </TouchableOpacity>
+
+          {/* Marca con HORA MANUAL (cuando no dio tiempo de escanear y se registra después). */}
+          <TouchableOpacity onPress={() => { setManualOpen((v) => !v); setMDate(todayISO); setMTime(''); setMKind(willMark); }} style={{ marginTop: spacing.xs, paddingVertical: spacing.xs, alignItems: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{manualOpen ? '▲ Cerrar hora manual' : '⏱️ Marcar con hora manual'}</Text>
+          </TouchableOpacity>
+          {manualOpen ? (
+            <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: 2 }}>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Registra la marca con la fecha y hora reales (por si no se pudo escanear a tiempo).</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Fecha</Text>
+                  <DateField value={mDate} onChange={setMDate} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hora (24 h)</Text>
+                  <TextInput value={mTime} onChangeText={setMTime} keyboardType="numbers-and-punctuation" placeholder="Ej. 07:30" placeholderTextColor={colors.muted} style={input} />
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                {(['entrada', 'salida'] as const).map((k) => {
+                  const on = mKind === k;
+                  return (
+                    <TouchableOpacity key={k} onPress={() => setMKind(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? (k === 'entrada' ? colors.success : colors.danger) : colors.border, backgroundColor: on ? (k === 'entrada' ? colors.success : colors.danger) : colors.surface, alignItems: 'center' }}>
+                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{k === 'entrada' ? '➡️ Entrada' : '⬅️ Salida'}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TouchableOpacity onPress={marcarManual} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>{busy ? 'Guardando…' : '💾 Registrar marca manual'}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </Card>
       ) : null}
 
