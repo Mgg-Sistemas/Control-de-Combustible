@@ -78,6 +78,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ciNote, setCiNote] = useState('');
   const [ciSaving, setCiSaving] = useState(false);
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
+  const [ciRef, setCiRef] = useState(''); // referencia (edificio/parque/plaza/calle) de la ubicación
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
   const [avOpen, setAvOpen] = useState(false);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -111,6 +112,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
+  // Al abrir el check-in de una máquina, precarga su referencia actual (si tiene).
+  useEffect(() => { setCiRef((ci as any)?.referencia ?? ''); }, [ci?.id]);
 
   const load = async () => {
     if (!uid) { setLoading(false); return; }
@@ -195,10 +198,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       lat = r.lat; lng = r.lng; setGps({ lat, lng });
     }
     const { error } = await supabase.rpc('update_machine_location', { p_id: ci.id, p_lat: lat, p_lng: lng });
+    if (error) { setSavingMachLoc(false); setNotice('❌ ' + error.message); return; }
+    // Guarda la REFERENCIA (edificio/parque/plaza/calle) junto con la ubicación.
+    // El inspector tiene permiso de escritura sobre machinery (is_staff).
+    const nuevaRef = ciRef.trim() || null;
+    const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
     setSavingMachLoc(false);
-    if (error) { setNotice('❌ ' + error.message); return; }
-    setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number } as Mach : c));
-    setNotice('✅ Ubicación de la máquina guardada.');
+    if (refErr) { setNotice('❌ ' + refErr.message); return; }
+    setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number, referencia: nuevaRef } as Mach : c));
+    setNotice(nuevaRef ? '✅ Ubicación y referencia guardadas.' : '✅ Ubicación de la máquina guardada.');
     load();
   };
 
@@ -441,10 +449,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                 <TouchableOpacity onPress={recapture} disabled={gpsBusy} style={{ marginTop: 6 }}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
                 </TouchableOpacity>
-                {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa). */}
+                {/* Referencia del punto: edificio, parque, plaza, calle… Se guarda con la
+                    ubicación y sale en el reporte "Referencias" del Mapa. */}
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Referencia (edificio, parque, plaza, calle…)</Text>
+                <TextInput value={ciRef} onChangeText={setCiRef} placeholder="Ej: frente a la plaza Bolívar, calle 5" placeholderTextColor={colors.muted} style={input} />
+                {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + la referencia. */}
                 <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
-                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación de la máquina' : '📍 Guardar ubicación de la máquina')}
+                    {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación + referencia' : '📍 Guardar ubicación + referencia')}
                   </Text>
                 </TouchableOpacity>
               </View>

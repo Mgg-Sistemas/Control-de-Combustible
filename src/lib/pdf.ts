@@ -154,23 +154,63 @@ export async function exportCardImage(opts: {
   });
 }
 
+/** Convierte un Blob a data-URI con FileReader. */
+function blobToDataUri(blob: Blob): Promise<string | null> {
+  return new Promise((resolve) => {
+    const fr: any = new (globalThis as any).FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => resolve(null);
+    fr.readAsDataURL(blob);
+  });
+}
+
+/** Respaldo: carga la imagen en un <img crossOrigin> y la rasteriza en un canvas.
+ *  Sirve cuando el fetch falla (p. ej. una respuesta "opaca" quedó en caché). */
+function imgElementToDataUri(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const d: any = (globalThis as any).document;
+      const img: any = new (globalThis as any).Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas: any = d.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        } catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    } catch { resolve(null); }
+  });
+}
+
 /** WEB: descarga una URL (p. ej. una foto) y la convierte a data-URI, para poder
- *  incrustarla al generar la imagen (evita que el canvas quede "tainted"). */
+ *  incrustarla al generar el PDF/imagen (evita que el canvas quede "tainted").
+ *
+ *  IMPORTANTE: la foto se ve en pantalla con un <img> normal (sin CORS), que deja
+ *  una respuesta "opaca" en la caché del navegador. Un fetch(mode:'cors') que
+ *  reutilice esa respuesta falla el chequeo CORS y devolvía null la PRIMERA vez
+ *  (a la segunda ya estaba cacheada la respuesta CORS y salía). Para que salga a
+ *  la primera: se fuerza `cache:'reload'`, se reintenta, y si aún falla se cae al
+ *  respaldo por <img crossOrigin> + canvas. */
 export async function urlToDataUri(url?: string | null): Promise<string | null> {
   if (Platform.OS !== 'web' || !url) return null;
-  try {
-    const res = await fetch(url, { mode: 'cors' });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise<string | null>((resolve) => {
-      const fr: any = new (globalThis as any).FileReader();
-      fr.onload = () => resolve(String(fr.result));
-      fr.onerror = () => resolve(null);
-      fr.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
+  // 1) fetch CORS. El primer intento fuerza red (cache:'reload') para no reutilizar
+  //    una respuesta opaca; el segundo es un reintento normal.
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetch(url, { mode: 'cors', cache: i === 0 ? 'reload' : 'default' });
+      if (res.ok) {
+        const data = await blobToDataUri(await res.blob());
+        if (data) return data;
+      }
+    } catch { /* probamos el respaldo abajo */ }
   }
+  // 2) Respaldo: <img crossOrigin> + canvas.
+  return await imgElementToDataUri(url);
 }
 
 /** Deja un nombre de archivo válido (sin caracteres prohibidos por el SO). */

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
@@ -7,6 +7,8 @@ import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { equipCategory } from '../lib/equipos';
+import { cmpText } from '../lib/text';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -57,6 +59,7 @@ export default function MapScreen({ navigation, route }: any) {
   const { role } = useAuth();
   const isAdmin = role === 'admin';
   const [pins, setPins] = useState<MapPin[] | null>(null);
+  const [refBusy, setRefBusy] = useState(false); // generando el PDF de "Referencias"
   const [trace, setTrace] = useState<TraceRow[]>([]);
   const [recorderNames, setRecorderNames] = useState<Record<string, string>>({}); // uid → nombre (monitoreo)
   const [monitorOpen, setMonitorOpen] = useState(false);
@@ -83,7 +86,7 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
   const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -127,11 +130,11 @@ export default function MapScreen({ navigation, route }: any) {
 
     // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
     // LISTAR las que faltan por ubicar con su placa/serial y empresa.
-    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, encargado, company:company_id(name)');
+    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, encargado, referencia, company:company_id(name)');
     setAllMachines((every ?? []).map((m: any) => ({
       id: m.id, code: m.code ?? '', located: m.latitude != null,
       plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
-      encargado: m.encargado ?? null,
+      encargado: m.encargado ?? null, referencia: m.referencia ?? null,
     })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
@@ -156,6 +159,37 @@ export default function MapScreen({ navigation, route }: any) {
       }))
     );
   }, []);
+
+  // Reporte "Referencias": las máquinas a las que un inspector le puso una referencia
+  // de ubicación (edificio, parque, plaza, calle…) al marcar su ubicación. Sale el
+  // nombre de la máquina, su placa/serial, la referencia y la empresa.
+  const referenciasPdf = async () => {
+    const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rows = allMachines
+      .filter((m) => (m.referencia ?? '').trim())
+      .sort((a, b) => cmpText(a.code, b.code));
+    if (rows.length === 0) {
+      Alert.alert('Referencias', 'Todavía no hay máquinas con referencia. Los inspectores la colocan al marcar la ubicación de la máquina.');
+      return;
+    }
+    setRefBusy(true);
+    try {
+      const body = rows.map((m) =>
+        `<tr><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(m.referencia)}</td><td>${esc(m.company)}</td></tr>`
+      ).join('');
+      const html = pdfDocument({
+        title: 'Referencias de ubicación',
+        subtitle: `${rows.length} máquina(s) con referencia`,
+        extraCss: `table{width:100%;border-collapse:collapse;font-size:11px}
+          th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top} th{background:#1E3A5F;color:#fff}
+          tr:nth-child(even) td{background:#F3F4F6}`,
+        body: `<table><thead><tr><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Empresa</th></tr></thead><tbody>${body}</tbody></table>`,
+      });
+      await exportPdf(html, 'Referencias de ubicacion');
+    } finally {
+      setRefBusy(false);
+    }
+  };
 
   // Nombres de quienes colocan ubicaciones (para el monitoreo del admin).
   useEffect(() => {
@@ -382,6 +416,18 @@ export default function MapScreen({ navigation, route }: any) {
           Toca un punto y usa “🗑️ Eliminar ubicación” para quitarlo del mapa. Se sincroniza con todos.
         </Text>
       </Card>
+
+      {/* Reporte de REFERENCIAS: el punto de referencia (edificio, parque, plaza,
+          calle) que el inspector le pone a cada máquina al marcar su ubicación. */}
+      <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
+        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1, paddingRight: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquina, placa/serial y la referencia que puso el inspector (edificio, parque, plaza, calle)</Text>
+          </View>
+          <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
+        </Card>
+      </TouchableOpacity>
 
       {/* Capas: prender/apagar puntos por categoría (camiones, grúas…) o por máquina. */}
       {!focus && pins && pins.length > 0 ? (
