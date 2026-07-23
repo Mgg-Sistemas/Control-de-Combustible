@@ -9,6 +9,7 @@ import { formatUTM } from '../lib/utm';
 import { equipCategory } from '../lib/equipos';
 import { cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -160,32 +161,49 @@ export default function MapScreen({ navigation, route }: any) {
     );
   }, []);
 
-  // Reporte "Referencias": las máquinas a las que un inspector le puso una referencia
-  // de ubicación (edificio, parque, plaza, calle…) al marcar su ubicación. Sale el
-  // nombre de la máquina, su placa/serial, la referencia y la empresa.
+  // Reporte "Referencias por inspector": agrupa las máquinas por su INSPECTOR
+  // ASIGNADO (= quien hizo el último check-in, igual que en el catálogo) y lista,
+  // por cada uno, sus máquinas con placa/serial y la REFERENCIA de ubicación
+  // (edificio, parque, plaza, calle). Sirve como hoja de RUTA DE INSPECCIÓN.
   const referenciasPdf = async () => {
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const rows = allMachines
-      .filter((m) => (m.referencia ?? '').trim())
-      .sort((a, b) => cmpText(a.code, b.code));
-    if (rows.length === 0) {
-      Alert.alert('Referencias', 'Todavía no hay máquinas con referencia. Los inspectores la colocan al marcar la ubicación de la máquina.');
-      return;
-    }
     setRefBusy(true);
     try {
-      const body = rows.map((m) =>
-        `<tr><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(m.referencia)}</td><td>${esc(m.company)}</td></tr>`
-      ).join('');
-      const html = pdfDocument({
-        title: 'Referencias de ubicación',
-        subtitle: `${rows.length} máquina(s) con referencia`,
-        extraCss: `table{width:100%;border-collapse:collapse;font-size:11px}
-          th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top} th{background:#1E3A5F;color:#fff}
-          tr:nth-child(even) td{background:#F3F4F6}`,
-        body: `<table><thead><tr><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Empresa</th></tr></thead><tbody>${body}</tbody></table>`,
+      const inspectors = await latestInspectorByMachine(); // machinery_id → inspector del último check-in
+      // Relevantes: con inspector asignado o con referencia (para no perder ninguna).
+      const relevant = allMachines.filter((m) => inspectors[m.id]?.name?.trim() || (m.referencia ?? '').trim());
+      if (relevant.length === 0) {
+        Alert.alert('Referencias', 'Todavía no hay inspectores asignados ni referencias. El inspector asignado es quien hace el último check-in de la máquina; la referencia se coloca al marcar la ubicación.');
+        return;
+      }
+      const SIN = 'Sin inspector asignado';
+      const groups = new Map<string, typeof allMachines>();
+      relevant.forEach((m) => {
+        const key = inspectors[m.id]?.name?.trim() || SIN;
+        const arr = groups.get(key) ?? [];
+        arr.push(m); groups.set(key, arr);
       });
-      await exportPdf(html, 'Referencias de ubicacion');
+      // Inspectores A→Z; "Sin inspector asignado" al final.
+      const keys = Array.from(groups.keys()).sort((a, b) => (a === SIN ? 1 : b === SIN ? -1 : cmpText(a, b)));
+      const inspCount = keys.filter((k) => k !== SIN).length;
+      const body = keys.map((k) => {
+        const list = (groups.get(k) ?? []).slice().sort((a, b) => cmpText(a.code, b.code));
+        const rows = list.map((m, i) =>
+          `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc((m.referencia ?? '').trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+        ).join('');
+        return `<h3 class="insp">🪖 ${esc(k)} <span class="sub">· ${list.length} máquina(s)</span></h3>
+          <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }).join('');
+      const html = pdfDocument({
+        title: 'Referencias por inspector',
+        subtitle: `Ruta de inspección · ${inspCount} inspector(es) · ${relevant.length} máquina(s)`,
+        extraCss: `h3.insp{margin:16px 0 4px;font-size:14px;color:#1E3A5F} h3.insp .sub{font-weight:400;color:#555;font-size:11px}
+          table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
+          th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top} th{background:#1E3A5F;color:#fff}
+          td.c,th.c{text-align:center;width:26px} tbody tr:nth-child(even) td{background:#F3F4F6}`,
+        body,
+      });
+      await exportPdf(html, 'Referencias por inspector');
     } finally {
       setRefBusy(false);
     }
@@ -422,8 +440,8 @@ export default function MapScreen({ navigation, route }: any) {
       <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1, paddingRight: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquina, placa/serial y la referencia que puso el inspector (edificio, parque, plaza, calle)</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias por inspector</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Hoja de ruta: por cada inspector, sus máquinas asignadas con placa/serial y la referencia (edificio, parque, plaza, calle)</Text>
           </View>
           <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
         </Card>

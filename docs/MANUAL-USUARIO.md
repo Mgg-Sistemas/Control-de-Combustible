@@ -470,7 +470,8 @@ productos**. El tipo también sale en el **reporte de productos**.
 botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta o en el editor
 (vuelve a tocar el mismo para quitarlo). Arriba tienes **"Filtrar por carga"** para ver solo las
 llenas, en uso o vacías, y **"🛢️ Reporte de bombonas por carga"** genera un PDF con cuántas hay
-en cada estado.
+en cada estado. Los totales (🟢 llenas, 🟡 en uso, 🔴 vacías y el **TOTAL**) **suman las cantidades**
+(existencias) de cada bombona, no la cantidad de productos.
 
 **🗑 Eliminar un producto:** entra a **✏️ Editar producto** y abajo toca **"🗑 Eliminar
 producto"**. Pide confirmación y borra el producto **y todo su historial** de movimientos
@@ -507,6 +508,9 @@ administrador toca **"📥 Recibir en inventario"**, confirma la **cantidad y el
 producto, y el sistema **crea la entrada** en el almacén (los productos nuevos **se crean solos**);
 el requerimiento queda como **Recibido**. Con **🧾 PDF** puedes imprimir el requerimiento para
 pasárselo al jefe. Así todo queda trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
+Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y productos — no si ya fue
+recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
+escritura en Inventario.
 
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.
@@ -545,10 +549,11 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   eliges una máquina (las que faltan por ubicar salen primero) y **tocas el mapa** en el punto
   donde está; queda ubicada al instante. **Solo los administradores** pueden reubicar máquinas
   y eliminar ubicaciones del mapa.
-- **📄 Referencias (reporte PDF):** genera un documento con las máquinas que tienen una
-  **referencia** de ubicación (edificio, parque, plaza, calle) que el **inspector** puso al marcar
-  la ubicación. Sale el **nombre de la máquina**, su **placa/serial**, la **referencia** y la
-  **empresa**.
+- **📄 Referencias por inspector (reporte PDF):** hoja de **ruta de inspección**. Agrupa las
+  máquinas por su **inspector asignado** (quien hizo el último check-in, igual que en el catálogo)
+  y por cada inspector lista sus máquinas con **placa/serial**, la **referencia** de ubicación
+  (edificio, parque, plaza, calle) y la **empresa**. Las que tienen referencia pero aún sin
+  inspector salen en **"Sin inspector asignado"**.
 - **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,
   igual que Sectores) muestra **quién colocó** cada ubicación, con su **fecha y hora**. Toca una
   fila para ver esa máquina en el mapa. Sirve para **vigilar quién está haciendo las ubicaciones**.
@@ -647,8 +652,8 @@ El **número rojo** sobre la campana es la cantidad **sin leer**. Toca la campan
 Módulo para inspeccionar **cada equipo**: qué herramientas/accesorios tiene y en qué estado, con su **REPORTE DE INSPECCIÓN** en PDF.
 
 1. Entra a **"Más → 🔍 Inspecciones de Maquinaria"**.
-2. Busca el equipo por **placa, serial o nombre** y tócalo.
-3. Ves su **detalle** (placa/serial/empresa) y el **historial** de inspecciones (toca una para **reimprimir** su PDF).
+2. Busca el equipo por **placa, serial o nombre** y tócalo (son los mismos equipos del **catálogo**, en orden A→Z natural).
+3. Ves su **detalle** (placa/serial/empresa) y el **historial** de inspecciones. Cada una tiene **"📄 PDF"** (reimprimir), **"✏️ Editar"** (reabre el formulario con todos sus datos para corregir y regenerar el PDF) y **"🗑️ Eliminar"** (con confirmación).
 4. Toca **"📋 REPORTE DE INSPECCIÓN (nueva)"**.
 5. Pon **fecha y hora**, agrega los **ítems** (descripción, cantidad, serial/especificación y su **estado** con color 🟢 Bien / 🟠 Regular / 🔴 Falla), las **observaciones** y, opcional, el **inspector** y el **chofer/operador** (para las firmas).
 6. Toca **"💾 Guardar y generar REPORTE DE INSPECCIÓN"**: se guarda en el historial y se abre el PDF (nombre **"REPORTE DE INSPECCION - <equipo>"**).

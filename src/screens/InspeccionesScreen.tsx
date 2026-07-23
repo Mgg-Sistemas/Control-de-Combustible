@@ -9,6 +9,7 @@ import { equipCategory } from '../lib/equipos';
 import { exportPdf } from '../lib/pdf';
 import { inspeccionHtml, InspeccionPdfItem } from '../lib/inspeccion';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ConfirmProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { levelMeets } from '../lib/permissions';
 import { spacing, radius } from '../theme';
@@ -61,6 +62,7 @@ const blankItem = (): EditItem => ({ descripcion: '', cantidad: '1', unidad: 'Un
 export default function InspeccionesScreen() {
   const { colors } = useTheme();
   const { session, moduleLevel } = useAuth();
+  const confirm = useConfirm();
   const canWrite = levelMeets(moduleLevel('inspecciones_maq'), 'escritura');
 
   const [machines, setMachines] = useState<Machine[] | null>(null);
@@ -68,6 +70,7 @@ export default function InspeccionesScreen() {
   const [selected, setSelected] = useState<Machine | null>(null);
   const [history, setHistory] = useState<MachineInspection[] | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // inspección en edición (null = nueva)
 
   // Formulario de nueva inspección.
   const [inspDate, setInspDate] = useState(caracasToday());
@@ -106,7 +109,8 @@ export default function InspeccionesScreen() {
 
   const nq = norm(q.trim());
   const shown = useMemo(() => {
-    const list = machines ?? [];
+    // Mismas máquinas del CATÁLOGO y en el mismo orden natural A→Z (cmpText).
+    const list = (machines ?? []).slice().sort((a, b) => cmpText(a.code, b.code));
     if (!nq) return list;
     return list.filter((m) => norm([m.code, m.plate, m.serial, m.tipo, m.clasificacion, m.company].filter(Boolean).join(' ')).includes(nq));
   }, [machines, nq]);
@@ -116,6 +120,7 @@ export default function InspeccionesScreen() {
   // Abre el formulario: si hay inspecciones previas, PRECARGA los ítems de la última
   // (control por equipo: el inventario del equipo se mantiene y solo se ajusta).
   const openForm = () => {
+    setEditId(null);
     const last = (history ?? [])[0];
     if (last && Array.isArray(last.items) && last.items.length) {
       setItems(last.items.map((it) => ({
@@ -130,6 +135,37 @@ export default function InspeccionesScreen() {
     setInspDate(caracasToday()); setInspTime(caracasNowTime());
     setInspector(''); setOperador('');
     setFormOpen(true);
+  };
+
+  // Abre el formulario para EDITAR una inspección guardada (precarga todos sus datos).
+  const openEdit = (r: MachineInspection) => {
+    setEditId(r.id);
+    const dt = new Date(r.inspected_at);
+    setInspDate(new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(dt));
+    setInspTime(new Intl.DateTimeFormat('en-GB', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(dt));
+    setItems((Array.isArray(r.items) && r.items.length ? r.items : []).map((it) => ({
+      descripcion: it.descripcion ?? '', cantidad: String(it.cantidad ?? 1), unidad: it.unidad ?? 'Unid.',
+      serial: it.serial ?? '', estado: it.estado ?? '', nivel: (it.nivel as any) ?? 'ok',
+    })));
+    if (!(Array.isArray(r.items) && r.items.length)) setItems([blankItem()]);
+    setCondicion(r.condicion_general ?? '');
+    setNotas(Array.isArray(r.observaciones) ? r.observaciones : []);
+    setInspector(r.inspector_name ?? '');
+    setOperador(r.operator_name ?? '');
+    setFormOpen(true);
+  };
+
+  // Elimina una inspección del historial (con confirmación).
+  const eliminar = async (r: MachineInspection) => {
+    const ok = await confirm({
+      title: 'Eliminar inspección',
+      message: '¿Eliminar esta inspección? Esta acción no se puede deshacer.',
+      confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true,
+    });
+    if (!ok) return;
+    const { error } = await supabase.from('machine_inspections').delete().eq('id', r.id);
+    if (error) return Alert.alert('Aviso', error.message);
+    if (selected) loadHistory(selected.id);
   };
 
   const setItem = (i: number, patch: Partial<EditItem>) => setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -160,16 +196,25 @@ export default function InspeccionesScreen() {
     setBusy(true);
     const inspectedAt = `${inspDate}T${inspTime || '00:00'}:00-04:00`;
     const obs = cleanNotas();
-    const { error } = await supabase.from('machine_inspections').insert({
-      machinery_id: selected.id, machine_code: selected.code, machine_type: machineType(selected),
-      machine_plate: selected.plate, machine_serial: selected.serial, inspected_at: inspectedAt,
-      inspector_name: inspector.trim() || null, operator_name: operador.trim() || null,
-      condicion_general: condicion.trim() || null, observaciones: obs, items: its,
-      created_by: session?.user?.id ?? null,
-    });
+    // EDITAR: actualiza la inspección existente. CREAR: inserta una nueva.
+    const { error } = editId
+      ? await supabase.from('machine_inspections').update({
+          inspected_at: inspectedAt, machine_type: machineType(selected),
+          machine_plate: selected.plate, machine_serial: selected.serial,
+          inspector_name: inspector.trim() || null, operator_name: operador.trim() || null,
+          condicion_general: condicion.trim() || null, observaciones: obs, items: its,
+        }).eq('id', editId)
+      : await supabase.from('machine_inspections').insert({
+          machinery_id: selected.id, machine_code: selected.code, machine_type: machineType(selected),
+          machine_plate: selected.plate, machine_serial: selected.serial, inspected_at: inspectedAt,
+          inspector_name: inspector.trim() || null, operator_name: operador.trim() || null,
+          condicion_general: condicion.trim() || null, observaciones: obs, items: its,
+          created_by: session?.user?.id ?? null,
+        });
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
     setFormOpen(false);
+    setEditId(null);
     loadHistory(selected.id);
     await exportPdf(
       inspeccionHtml(buildPdfData(selected, its, condicion.trim(), obs, dmy(inspDate), to12h(inspTime), inspector.trim(), operador.trim())),
@@ -268,13 +313,25 @@ export default function InspeccionesScreen() {
                   ) : history.length === 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12 }}>Aún no hay inspecciones de este equipo.</Text>
                   ) : history.map((r) => (
-                    <TouchableOpacity key={r.id} onPress={() => reimprimir(selected, r)} style={{ paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🗓️ {histFmt(r.inspected_at)}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>{(r.items ?? []).length} ítem(s){r.inspector_name ? ` · Inspector: ${r.inspector_name}` : ''}</Text>
+                    <View key={r.id} style={{ paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🗓️ {histFmt(r.inspected_at)}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{(r.items ?? []).length} ítem(s){r.inspector_name ? ` · Inspector: ${r.inspector_name}` : ''}</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 6, flexWrap: 'wrap' }}>
+                        <TouchableOpacity onPress={() => reimprimir(selected, r)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+                        </TouchableOpacity>
+                        {canWrite ? (
+                          <TouchableOpacity onPress={() => openEdit(r)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {canWrite ? (
+                          <TouchableOpacity onPress={() => eliminar(r)} style={{ borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
-                    </TouchableOpacity>
+                    </View>
                   ))}
                 </ScrollView>
               </>
@@ -288,8 +345,8 @@ export default function InspeccionesScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>Nueva inspección · {selected?.code}</Text>
-              <TouchableOpacity onPress={() => setFormOpen(false)}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>{editId ? 'Editar inspección' : 'Nueva inspección'} · {selected?.code}</Text>
+              <TouchableOpacity onPress={() => { setFormOpen(false); setEditId(null); }}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm }}>
@@ -375,7 +432,7 @@ export default function InspeccionesScreen() {
               <TouchableOpacity onPress={addNota}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>+ Agregar observación</Text></TouchableOpacity>
 
               <TouchableOpacity onPress={guardarYPdf} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : '💾 Guardar y generar REPORTE DE INSPECCIÓN'}</Text>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios y generar PDF' : '💾 Guardar y generar REPORTE DE INSPECCIÓN')}</Text>
               </TouchableOpacity>
               <View style={{ height: spacing.lg }} />
             </ScrollView>
