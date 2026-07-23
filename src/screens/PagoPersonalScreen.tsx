@@ -354,12 +354,17 @@ export default function PagoPersonalScreen() {
       subtitle: `${it.person_name} · ${companyName(sel.company_id)} · ${sel.name}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
         th,td{border:1px solid #ccc;padding:6px 8px} th{background:#1E3A5F;color:#fff;text-align:left}
-        .tot{font-weight:800;background:#EEF2F7} .net{font-size:20px;font-weight:800;color:#1E3A5F;text-align:right;margin-top:12px}`,
+        .tot{font-weight:800;background:#EEF2F7} .net{font-size:20px;font-weight:800;color:#1E3A5F;text-align:right;margin-top:12px}
+        .firmas{display:flex;gap:40px;margin-top:58px}
+        .firmas .firma{flex:1;text-align:center}
+        .firmas .firma .l{border-top:1px solid #1a1a1a;margin:0 8px;padding-top:6px;font-weight:800;color:#1E3A5F;font-size:12px}
+        .firmas .firma .s{color:#777;font-size:10px;margin-top:1px}`,
       body: `
         <table><tbody>
           <tr><td>Persona</td><td style="text-align:right">${it.person_name}</td></tr>
           <tr><td>Cargo</td><td style="text-align:right">${it.cargo ?? '—'}</td></tr>
           <tr><td>Cédula</td><td style="text-align:right">${it.cedula ?? '—'}</td></tr>
+          <tr><td>Empresa</td><td style="text-align:right">${companyName(sel.company_id)}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${TYPE_LABEL[sel.period_type]} · ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)}</td></tr>
           <tr><td>Pago</td><td style="text-align:right">${MODE_LABEL[sel.mode]}</td></tr>
           <tr><td>Precio (${MODE_LABEL[sel.mode].toLowerCase()})</td><td style="text-align:right">${usd(priceOf(it, sel.mode))}</td></tr>
@@ -376,7 +381,11 @@ export default function PagoPersonalScreen() {
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
-        <div class="net">Saldo pendiente: ${usd(saldo)}</div>`,
+        <div class="net">Saldo pendiente: ${usd(saldo)}</div>
+        <div class="firmas">
+          <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
+          <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>
+        </div>`,
     });
     await exportPdf(html, `Recibo - ${it.person_name}`);
   };
