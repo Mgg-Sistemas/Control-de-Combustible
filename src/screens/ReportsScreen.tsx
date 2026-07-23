@@ -19,7 +19,7 @@ import { canonTipo } from './EquiposScreen';
 import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
-import { cmpText } from '../lib/text';
+import { cmpText, norm } from '../lib/text';
 import { sectorOf, SUBSECTORS } from '../lib/mapZones';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
@@ -1285,6 +1285,8 @@ export default function ReportsScreen({ route }: any) {
           : '';
         return `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>` +
           `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
+            .slice()
+            .sort((a, b) => cmpText(a.name, b.name))
             .map(
               (i) =>
                 `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td>${withPrices ? `<td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td>` : ''}</tr>`
@@ -1383,36 +1385,44 @@ export default function ReportsScreen({ route }: any) {
     const companyRows = companies
       .map((c) => `<tr><td>${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
       .join('');
-    // DETALLE por EMPRESA: cada empresa (A→Z) con sus máquinas listadas una por una
-    // en orden alfabético. Al filtrar una empresa arriba, sale solo la de esa empresa.
+    // DETALLE por EMPRESA (A→Z): dentro de cada empresa, los equipos se muestran
+    // EN CONJUNTO — agrupados por su nombre con la CANTIDAD (p. ej. "CAMIÓN VOLTEO
+    // TORONTO · 19"), no una fila por unidad. Ordenado alfabéticamente.
     const detailBlocks = companies
       .map((c) => {
-        const rows = c.items
-          .slice()
+        const g = new Map<string, { name: string; clas: string; count: number }>();
+        c.items.forEach((it) => {
+          const key = norm(it.name);
+          const e = g.get(key) ?? { name: it.name, clas: it.tipo, count: 0 };
+          e.count += 1; g.set(key, e);
+        });
+        const rows = [...g.values()]
           .sort((a, b) => cmpText(a.name, b.name))
-          .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.tipo)}</td></tr>`)
+          .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.clas)}</td><td style="text-align:right;font-weight:700">${it.count}</td></tr>`)
           .join('');
         return `<h3 style="margin:12px 0 2px">${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''} — ${c.count} equipo(s)</h3>
-          <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="3" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+          <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
       })
       .join('');
+    // Orden del reporte: primero los RESÚMENES (por clasificación y por empresa),
+    // y al final el detalle por empresa con los equipos agrupados.
     const body = `
       <div class="muted">${esc(alcance)}</div>
       <div class="summary">
         <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
         <div><span class="k">Empresas</span><b>${companies.length}</b></div>
       </div>
-      <h2>Detalle de equipos por empresa (A→Z)</h2>
-      ${detailBlocks || '<span class="muted">Sin datos</span>'}
-      <h2 style="margin-top:16px">Cantidad de equipos por clasificación</h2>
+      <h2>Cantidad de equipos por clasificación</h2>
       <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
       <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
       <h2 style="margin-top:16px">Cantidad de equipos por empresa</h2>
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
       <tbody>${companyRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>`;
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
+      <h2 style="margin-top:16px">Detalle de equipos por empresa (A→Z)</h2>
+      ${detailBlocks || '<span class="muted">Sin datos</span>'}`;
     await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), onlyCompany ? `Reportes - Cantidad ${onlyCompany}` : 'Reportes - Cantidad de equipos');
   };
 
