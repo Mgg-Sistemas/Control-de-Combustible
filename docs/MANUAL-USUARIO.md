@@ -246,12 +246,18 @@ trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal*
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
 
-### 4.6bb. Organigrama (dentro de Nómina)
-Muestra la **estructura de la empresa por cargos** (no por nombres). Está dentro de **Nómina**
-→ **🗂️ Organigrama**. Toca **"👁️ Vista previa"** para verlo con el logo de la empresa y
-guardarlo/imprimirlo como **PDF**, o **"🖼️ Descargar imagen (PNG)"** para bajarlo como imagen.
-Se **sincroniza con la nómina**: si en Empleados hay cargos que aún no están ubicados en el
-organigrama, aparecen en una caja **"🆕 Otros cargos (por ubicar)"** para que no se pierdan.
+### 4.6bb. Organigrama y manual de cargos (dentro de Nómina)
+Muestra la **estructura corporativa de la empresa por cargos** (no por nombres), con diseño en
+dos columnas: **azul** = Administración, servicios y soporte; **naranja** = Operaciones y
+mantenimiento de maquinaria. Arriba van **Director General** y **Coordinador General**. La
+estructura es **fija y cubre todos los cargos**. Está dentro de **Nómina → 🗂️ Organigrama**.
+Toca **"👁️ Vista previa"** para verlo con el logo de la empresa y guardarlo/imprimirlo como
+**PDF**, o **"🖼️ Descargar imagen (PNG)"** para bajarlo como imagen.
+
+**📋 Manual de cargos** (mismo panel): descarga las **funciones** de cada cargo, **de quién
+depende** (reporta a) y qué **personal tiene a su cargo** (subordinados). Toca **"PDF general —
+todos los cargos"** para un solo documento con todos los cargos agrupados por área, o toca un
+**cargo de la lista** para descargar solo su ficha individual.
 
 ### 4.6c. Distribución de uniformes (dentro de Nómina)
 Lleva las **tallas de uniforme** de cada empleado e imprime el listado para la entrega. Está
