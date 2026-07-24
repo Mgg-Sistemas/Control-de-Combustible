@@ -430,7 +430,8 @@ export interface StaffPersonPayment {
   cedula: string | null;
   person_name: string;          // snapshot del nombre
   cargo: string | null;         // snapshot del cargo
-  fecha: string;                // fecha del pago (AAAA-MM-DD)
+  fecha: string;                // fecha del pago / inicio del período que cubre (AAAA-MM-DD)
+  fecha_hasta: string | null;   // fin del período que cubre (rango). null = un solo día
   frecuencia: 'diario' | 'semanal' | 'quincenal' | 'mensual';
   jornada: 'dia' | 'noche' | null; // (heredado) jornada única; en "diario" ahora se usan los campos día+noche
   cantidad: number;             // nº de jornadas/semanas/quincenas/meses (en diario = día + noche)
