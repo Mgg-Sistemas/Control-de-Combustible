@@ -3,7 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
-import { PermLevel, defaultLevel } from '../lib/permissions';
+import { PermLevel, defaultLevel, maxLevel } from '../lib/permissions';
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -320,9 +320,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const moduleLevel = (moduleKey: string): PermLevel => {
     if (role === 'admin') return 'full';
-    // Rol DINÁMICO: el usuario ve SOLO los módulos definidos en su rol (lo demás 'none').
-    if (appRole) return (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
-    return permissions[moduleKey] ?? defaultLevel(moduleKey);
+    // Permiso EXPLÍCITO por módulo que un admin le asignó a este usuario (matriz de
+    // "Permisos por módulo"). Solo existe si el admin lo marcó (sin default aquí).
+    const explicit = permissions[moduleKey];
+    // Rol personalizado (FIJO): ve los módulos de su rol, PERO si además tiene un
+    // permiso explícito por módulo, se respeta el MAYOR de los dos. Así el "Full a
+    // todo"/Escritura extra que el admin le dio en Editar usuario SÍ surte efecto
+    // (antes se ignoraba y el módulo no aparecía aunque tuviera full control).
+    if (appRole) {
+      const roleLvl = (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
+      return explicit ? maxLevel(roleLvl, explicit) : roleLvl;
+    }
+    return explicit ?? defaultLevel(moduleKey);
   };
   const canSee = (moduleKey: string) => moduleLevel(moduleKey) !== 'none';
 

@@ -58,3 +58,7 @@ const ORDER: PermLevel[] = ['none', 'lectura', 'escritura', 'full'];
 export function levelMeets(have: PermLevel, need: PermLevel): boolean {
   return ORDER.indexOf(have) >= ORDER.indexOf(need);
 }
+/** Devuelve el MAYOR de dos niveles (para combinar rol + permisos por módulo). */
+export function maxLevel(a: PermLevel, b: PermLevel): PermLevel {
+  return ORDER.indexOf(a) >= ORDER.indexOf(b) ? a : b;
+}

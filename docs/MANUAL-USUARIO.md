@@ -632,6 +632,12 @@ Un usuario con un rol **personalizado** ve **SOLO** los módulos de ese rol (no 
 en las pestañas de abajo verá **Inicio** y **Más** siempre, y **Control / Mapa / Catálogo**
 solo si su rol tiene ese módulo. (No puedes cambiar **tu propio** rol.)
 
+> **Permisos EXTRA por usuario:** aunque tenga un rol, en **Editar usuario → "Permisos por
+> módulo"** puedes **darle acceso adicional** a módulos que su rol no incluye (Lectura /
+> Escritura / Full control, o el atajo **"✅ Full a todo"**). El sistema toma **el MAYOR**
+> entre lo que da su rol y lo que le marcas aquí, así que ese permiso extra **SÍ** se aplica y
+> el módulo le aparece. (Antes se ignoraba: podías darle full control y no le salía.)
+
 **Catálogo de roles:** el administrador **crea, EDITA (✏️) y borra** roles FIJOS. Al
 crear/editar eliges el **TIPO**:
 - **📋 Módulos** — rol fijo que navega por la **app normal** (pestañas + Más) mostrando solo los
