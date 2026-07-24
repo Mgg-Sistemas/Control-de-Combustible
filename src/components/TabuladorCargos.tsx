@@ -114,6 +114,34 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     setNotice(`✅ ${n} empleado(s) con el cargo "${t.cargo}" quedaron con el sueldo del tabulador.`);
   };
 
+  // Sincroniza EN LOTE: aplica el tabulador a los empleados de TODOS los cargos.
+  const sincronizarTodo = async () => {
+    if (!canEdit) return;
+    const conEmp = tariffs.filter((t) => empCount(t.cargo) > 0);
+    const totalEmp = conEmp.reduce((s, t) => s + empCount(t.cargo), 0);
+    if (!conEmp.length) return setNotice('⚠️ Ningún cargo del tabulador tiene empleados asignados todavía.');
+    const ok = await askConfirm({
+      title: 'Sincronizar TODO el tabulador',
+      message: `Se aplicará el sueldo del tabulador a ${totalEmp} empleado(s) en ${conEmp.length} cargo(s). Cada empleado quedará con el sueldo de su cargo.\n\n¿Continuar?`,
+      confirmText: 'Sincronizar todo',
+    });
+    if (!ok) return;
+    setBusy(true);
+    let hechos = 0, errores = 0;
+    for (const t of conEmp) {
+      const { error } = await supabase.from('employees').update({
+        precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche,
+        precio_semana: t.precio_semana, precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
+      }).eq('cargo', t.cargo);
+      if (error) errores++; else hechos += empCount(t.cargo);
+    }
+    setBusy(false);
+    onSynced?.();
+    setNotice(errores
+      ? `⚠️ Sincronización con ${errores} error(es); ${hechos} empleado(s) actualizados.`
+      : `✅ ${hechos} empleado(s) en ${conEmp.length} cargo(s) quedaron con el sueldo del tabulador.`);
+  };
+
   const eliminar = async (t: StaffCargoTariff) => {
     if (!canEdit) return;
     const ok = await askConfirm({ title: 'Eliminar del tabulador', message: `¿Quitar "${t.cargo}" del tabulador? (No cambia el sueldo ya puesto a los empleados.)`, confirmText: 'Eliminar', danger: true });
@@ -180,6 +208,12 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
               </TouchableOpacity>
             ) : null}
           </View>
+
+          {canEdit ? (
+            <TouchableOpacity onPress={sincronizarTodo} disabled={busy} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm, opacity: busy ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{busy ? 'Sincronizando…' : '🔄 Sincronizar TODO (por lote)'}</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <ScrollView>
             {shownTariffs.length === 0 && shownSinTab.length === 0 ? (
