@@ -84,7 +84,10 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
+  // El personal es de la organización dueña: SOS LA GUAIRA. Sin empresa-contratista
+  // (company_id null) = SOS LA GUAIRA (el empleador). Si a alguien se le asigna un
+  // contratista, se muestra ese, pero por defecto todos son SOS LA GUAIRA.
+  const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'SOS LA GUAIRA');
   // Etiqueta del cargo UNIFICADA y en MAYÚSCULA (junta variantes: plurales, typos…).
   const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
 
@@ -138,7 +141,7 @@ export default function EmpleadosScreen({ navigation }: any) {
       g.items.push(e);
       map.set(k, g);
     });
-    return Array.from(map.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
+    return Array.from(map.values()).sort((a, b) => a.name === 'SOS LA GUAIRA' ? -1 : b.name === 'SOS LA GUAIRA' ? 1 : cmpText(a.name, b.name));
   }, [shown, companies]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
