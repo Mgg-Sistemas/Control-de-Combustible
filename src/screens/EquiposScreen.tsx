@@ -683,32 +683,23 @@ export default function EquiposScreen({ navigation, route }: any) {
   };
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
-  // Agrupa el alcance por TIPO (código) → total + empresas (con sus equipos). Aplica el
-  // filtro de tipos tildados (vacío = todos). Solo conteo + detalle (sin horas ni precio).
-  const buildTipoGroups = (scope: string, sel: Set<string>) => {
+  // Datos del reporte: total GENERAL, conteo POR EMPRESA y DETALLE por empresa (cada
+  // equipo = tipo + serial + estado). Aplica el filtro de tipos tildados (vacío = todos).
+  const buildReportData = (scope: string, sel: Set<string>) => {
     const src = sel.size === 0 ? scopedMachines(scope) : scopedMachines(scope).filter((m) => sel.has(repTipoKey(m)));
-    const m = new Map<string, { key: string; label: string; total: number; byCo: Map<string, { name: string; items: Machinery[] }> }>();
+    const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
-      const k = repTipoKey(it);
-      if (!k) return;
-      let g = m.get(k);
-      if (!g) { g = { key: k, label: repTipoLabel(it), total: 0, byCo: new Map() }; m.set(k, g); }
-      g.total += 1;
-      const coName = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
-      const co = g.byCo.get(coName) ?? { name: coName, items: [] };
-      co.items.push(it);
-      g.byCo.set(coName, co);
+      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      const g = byCo.get(name) ?? { name, items: [] };
+      g.items.push(it);
+      byCo.set(name, g);
     });
-    return Array.from(m.values())
-      .map((g) => ({
-        key: g.key, label: g.label, total: g.total,
-        empresas: Array.from(g.byCo.values())
-          .map((c) => ({ name: c.name, items: c.items.sort((a, b) => cmpText(a.identifier, b.identifier) || cmpText(a.code, b.code) || cmpText(a.serial, b.serial)) }))
-          .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name))),
-      }))
-      .sort((a, b) => cmpText(a.label, b.label));
+    const empresas = Array.from(byCo.values())
+      .map((g) => ({ name: g.name, items: g.items.slice().sort((a, b) => cmpText(repTipoLabel(a), repTipoLabel(b)) || cmpText(a.serial, b.serial)) }))
+      .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)));
+    return { total: src.length, empresas };
   };
-  const reportByTipo = useMemo(() => buildTipoGroups(reportCompany, reportTypes), [reportCompany, reportTypes, machinery.data, companyName]);
+  const reportData = useMemo(() => buildReportData(reportCompany, reportTypes), [reportCompany, reportTypes, machinery.data, companyName]);
   // Opciones del checklist: tipos (código, unificados) del alcance con su cantidad.
   const reportTypeOptions = useMemo(() => {
     const m = new Map<string, { key: string; tipo: string; count: number }>();
@@ -721,55 +712,55 @@ export default function EquiposScreen({ navigation, route }: any) {
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
   }, [reportCompany, machinery.data]);
-  const reportTotal = reportByTipo.reduce((s, g) => s + g.total, 0);
+  const reportTotal = reportData.total;
   const titleForScope = (scope: string) =>
     scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
   const reportTitle = titleForScope(reportCompany);
+  const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
+  const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
 
-  // PDF: SOLO conteo + detalle. Por TIPO → TOTAL, y bajo cada tipo, los equipos por empresa.
+  // PDF: Total general → Por empresa (resumen) → Detalle por empresa (Equipo · Serial · Estado).
   const buildReportHtml = (scope: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const groups = buildTipoGroups(scope, reportTypes);
-    const total = groups.reduce((s, g) => s + g.total, 0);
-    const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
-    const estadoColor = (m: Machinery) => (m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C');
-    const sections = groups
-      .map((g) => {
-        const empBlocks = g.empresas
-          .map((c) => {
-            const rows = c.items
-              .map((m, i) => `<tr>
-                  <td style="text-align:center">${i + 1}</td>
-                  <td>${esc(m.identifier || '—')}</td>
-                  <td>${esc(m.plate || '—')}</td>
-                  <td>${esc(m.serial || '—')}</td>
-                  <td>${esc(m.encargado || '—')}</td>
-                  <td style="color:${estadoColor(m)}">${estadoTxt(m)}</td>
-                </tr>`)
-              .join('');
-            return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
-              <table><thead><tr><th>#</th><th>ID</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Estado</th></tr></thead>
-              <tbody>${rows}</tbody></table>`;
-          })
+    const { total, empresas } = buildReportData(scope, reportTypes);
+    const estColor = (m: Machinery) => (m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C');
+    const resumenRows = empresas
+      .map((c) => `<tr><td>${esc(c.name)}</td><td style="text-align:right;font-weight:700">${c.items.length}</td></tr>`)
+      .join('');
+    const detalle = empresas
+      .map((c) => {
+        const rows = c.items
+          .map((m, i) => `<tr>
+              <td style="text-align:center">${i + 1}</td>
+              <td>${esc(repTipoLabel(m))}</td>
+              <td>${esc(m.serial || m.plate || '—')}</td>
+              <td style="color:${estColor(m)}">${esc(estadoTxt(m))}</td>
+            </tr>`)
           .join('');
-        return `<h2>${esc(g.label)} — TOTAL ${g.total}</h2>${empBlocks}`;
+        return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
+          <table><thead><tr><th style="width:34px">#</th><th>Equipo</th><th>Serial</th><th>Estado</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
       })
       .join('');
-    const filtroNote = reportTypes.size > 0 ? ` · Tipos: ${groups.map((g) => g.label).join(', ')}` : '';
     return pdfDocument({
       title: titleForScope(scope),
-      subtitle: `Total de equipos: ${total}${filtroNote}`,
+      subtitle: `Total general de equipos: ${total}${reportTypes.size > 0 ? ' · filtro de tipos aplicado' : ''}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
         table{width:100%;border-collapse:collapse;margin-top:2px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
-        h2{font-size:15px;color:#1E3A5F;margin:18px 0 4px;text-transform:uppercase}
-        .emp{font-size:12.5px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:10px 0 2px}
-        .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
+        h2{font-size:15px;color:#1E3A5F;margin:18px 0 6px;text-transform:uppercase;border-bottom:2px solid #E5E7EB;padding-bottom:3px}
+        .emp{font-size:12.5px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:12px 0 2px}
+        .grand{margin:4px 0 8px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:15px;border-radius:6px;text-align:right}`,
       body:
-        (sections || '<p class="muted">Sin equipos para este filtro.</p>') +
-        `<div class="grand">Total de equipos: ${total}${reportTypes.size > 0 ? ` · ${groups.length} tipo(s)` : ''}</div>`,
+        `<div class="grand">Total general de equipos: ${total}</div>` +
+        `<h2>Por empresa</h2>
+         <table><thead><tr><th>Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
+         <tbody>${resumenRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
+         <h2 style="margin-top:18px">Detalle por empresa</h2>
+         ${detalle || '<p class="muted">Sin equipos para este filtro.</p>'}`,
     });
   };
   const downloadReportPdf = async (scope: string = reportCompany) => {
@@ -1580,39 +1571,35 @@ export default function EquiposScreen({ navigation, route }: any) {
               <EmptyState title="Sin equipos" subtitle="No hay equipos para este alcance/filtro." />
             ) : (
               <>
-                {reportByTipo.map((g) => (
-                  <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                      {g.label} — TOTAL {g.total}
-                    </Text>
-                    {g.empresas.map((c) => (
-                      <View key={c.name} style={{ marginTop: 4, marginLeft: spacing.xs }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>🏢 {c.name} ({c.items.length})</Text>
-                        {c.items.map((m, i) => (
-                          <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 4, paddingLeft: spacing.sm }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
-                                <Text style={{ color: colors.muted }}>{i + 1}. </Text>
-                                {m.identifier ? `${m.identifier} · ` : ''}{m.code}
-                              </Text>
-                              <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 11 }}>
-                                {m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}
-                              </Text>
-                            </View>
-                            <Text style={{ color: colors.muted, fontSize: 11 }}>
-                              {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`].filter(Boolean).join('  ·  ') || '—'}
-                            </Text>
-                          </View>
-                        ))}
+                {/* 1) Total general */}
+                <View style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'right' }}>Total general de equipos: {reportTotal}</Text>
+                </View>
+
+                {/* 2) Por empresa (resumen) */}
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>Por empresa</Text>
+                {reportData.empresas.map((c) => (
+                  <View key={`res-${c.name}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontSize: 13 }}>🏢 {c.name}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{c.items.length}</Text>
+                  </View>
+                ))}
+
+                {/* 3) Detalle por empresa: Equipo · Serial · Estado */}
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.md, marginBottom: 2 }}>Detalle por empresa</Text>
+                {reportData.empresas.map((c) => (
+                  <View key={`det-${c.name}`} style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>🏢 {c.name} — {c.items.length}</Text>
+                    {c.items.map((m, i) => (
+                      <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 4, paddingLeft: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 11, width: 22 }}>{i + 1}.</Text>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>{repTipoLabel(m)}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>{m.serial || m.plate || '—'}</Text>
+                        <Text style={{ color: estadoColor(m), fontSize: 11, fontWeight: '700' }}>{estadoTxt(m)}</Text>
                       </View>
                     ))}
                   </View>
                 ))}
-                <View style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14, textAlign: 'right' }}>
-                    Total de equipos: {reportTotal}
-                  </Text>
-                </View>
               </>
             )}
           </ScrollView>

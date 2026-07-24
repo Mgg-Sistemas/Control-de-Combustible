@@ -7,9 +7,9 @@ import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { onlyDecimal, norm } from '../lib/text';
+import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
-import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
+import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine, StaffCargoTariff } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { TabuladorCargos } from '../components/TabuladorCargos';
 import { PagoPorPersona } from '../components/PagoPorPersona';
@@ -99,6 +99,20 @@ export default function PagoPersonalScreen() {
   // Sin empresa (id null) = personal de la organización → se rotula SOS LA GUAIRA.
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : EMPLEADOR);
 
+  // Departamento por CARGO (del Tabulador): mapa norm(cargo) → DEPARTAMENTO, para
+  // filtrar/agrupar la nómina por departamento.
+  const { data: tariffs } = useTable<StaffCargoTariff>('staff_cargo_tariffs', { orderBy: 'cargo' });
+  const deptoByCargo = useMemo(() => {
+    const m: Record<string, string> = {};
+    tariffs.forEach((t) => { if (t.cargo) m[norm(t.cargo)] = (t.departamento || '').trim().toUpperCase() || 'SIN DEPARTAMENTO'; });
+    return m;
+  }, [tariffs]);
+  const deptoOf = (cargo?: string | null) => deptoByCargo[norm(cargo ?? '')] || 'SIN DEPARTAMENTO';
+  // Filtro por departamento (lista desplegable con checks). Vacío = todos.
+  const [deptoSel, setDeptoSel] = useState<Set<string>>(new Set());
+  const [deptoOpen, setDeptoOpen] = useState(false);
+  const toggleDepto = (d: string) => setDeptoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
   const [cCompany, setCCompany] = useState('');
@@ -178,7 +192,7 @@ export default function PagoPersonalScreen() {
     setPays((pp ?? []) as StaffPayPayment[]);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setDeptoSel(new Set()); setDeptoOpen(false); loadDetail(p); };
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));
@@ -436,7 +450,9 @@ export default function PagoPersonalScreen() {
   // ── PDF: reporte del período ────────────────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
-    const rows = items.map((it) => {
+    // Personal del reporte, respetando el filtro por departamento (vacío = todos).
+    const base = deptoSel.size ? items.filter((it) => deptoSel.has(deptoOf(it.cargo))) : items;
+    const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
       const precioCell = sel.mode === 'dia'
         ? `☀️ ${usd(Number(it.precio_dia) || 0)}<br/>🌙 ${usd(nightPrice(it))}`
@@ -453,22 +469,39 @@ export default function PagoPersonalScreen() {
         `<td style="text-align:right;font-weight:800">${usd(it.total)}</td>` +
         `<td style="text-align:right;color:#087443">${usd(pagado)}</td>` +
         `<td style="text-align:right;font-weight:700">${usd(saldo)}</td></tr>`;
+    };
+    // Agrupa por DEPARTAMENTO (del Tabulador). Cada depto: sus personas + subtotal.
+    const byDepto = new Map<string, StaffPayItem[]>();
+    base.forEach((it) => { const d = deptoOf(it.cargo); if (!byDepto.has(d)) byDepto.set(d, []); byDepto.get(d)!.push(it); });
+    const deptos = [...byDepto.keys()].sort((a, b) => cmpText(a, b));
+    const secciones = deptos.map((d) => {
+      const list = byDepto.get(d)!.slice().sort((a, b) => cmpText(a.person_name, b.person_name));
+      const sub = round2(list.reduce((s, it) => s + Number(it.total), 0));
+      const subPag = round2(list.reduce((s, it) => s + paidOf(it.id), 0));
+      const subSal = round2(list.reduce((s, it) => s + saldoOf(it), 0));
+      return `<tr class="depto"><td colspan="10">🏢 ${d} — ${list.length} persona(s)</td></tr>
+        ${list.map(rowFor).join('')}
+        <tr class="sub"><td colspan="7" style="text-align:right">Subtotal ${d}</td>
+          <td style="text-align:right">${usd(sub)}</td><td style="text-align:right">${usd(subPag)}</td><td style="text-align:right">${usd(subSal)}</td></tr>`;
     }).join('');
-    const total = round2(items.reduce((s, it) => s + Number(it.total), 0));
-    const pagadoT = round2(items.reduce((s, it) => s + paidOf(it.id), 0));
-    const saldoT = round2(items.reduce((s, it) => s + saldoOf(it), 0));
+    const total = round2(base.reduce((s, it) => s + Number(it.total), 0));
+    const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
+    const saldoT = round2(base.reduce((s, it) => s + saldoOf(it), 0));
+    const filtroNote = deptoSel.size ? ` · Departamento(s): ${[...deptoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
     const html = pdfDocument({
       title: 'Control de pago a personal',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
-        tfoot td{background:#EEF2F7;font-weight:800}`,
+        tr.depto td{background:#1E3A5F;color:#fff;font-weight:800;text-transform:uppercase}
+        tr.sub td{background:#EEF2F7;font-weight:700}
+        tfoot td{background:#DDE6F0;font-weight:800}`,
       body: `
         <table><thead><tr><th>Persona</th><th>Cargo</th><th style="text-align:right">Precio</th><th style="text-align:center">Cant.</th>
           <th style="text-align:right">Devengado</th><th style="text-align:right">Bonos</th><th style="text-align:right">Deducc.</th>
           <th style="text-align:right">Total</th><th style="text-align:right">Pagado</th><th style="text-align:right">Saldo</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="10" style="text-align:center">Sin personal</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${items.length} persona(s))</td>
+        <tbody>${secciones || '<tr><td colspan="10" style="text-align:center">Sin personal</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${base.length} persona(s))</td>
           <td style="text-align:right">${usd(total)}</td><td style="text-align:right">${usd(pagadoT)}</td><td style="text-align:right">${usd(saldoT)}</td></tr></tfoot></table>`,
     });
     await exportPdf(html, `Pago personal - ${sel.name}`);
@@ -488,6 +521,14 @@ export default function PagoPersonalScreen() {
 
   const totalPagado = useMemo(() => (sel ? round2(items.reduce((s, it) => s + paidOf(it.id), 0)) : 0), [items, pays, sel]);
   const totalSaldo = useMemo(() => (sel ? round2(items.reduce((s, it) => s + saldoOf(it), 0)) : 0), [items, pays, sel]);
+
+  // Departamentos presentes en el período (para el filtro) y personal ya filtrado.
+  const deptosDisponibles = useMemo(() => {
+    const m = new Map<string, number>();
+    items.forEach((it) => { const d = deptoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
+    return [...m.entries()].map(([depto, count]) => ({ depto, count })).sort((a, b) => cmpText(a.depto, b.depto));
+  }, [items, deptoByCargo]);
+  const itemsShown = useMemo(() => (deptoSel.size ? items.filter((it) => deptoSel.has(deptoOf(it.cargo))) : items), [items, deptoSel, deptoByCargo]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -708,12 +749,51 @@ export default function PagoPersonalScreen() {
                 </TouchableOpacity>
               </View>
 
+              {/* Filtro por DEPARTAMENTO (del Tabulador): lista desplegable con checks.
+                  Afecta la lista de abajo Y el reporte PDF. Vacío = todos. */}
+              {deptosDisponibles.length > 1 ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <TouchableOpacity
+                    onPress={() => setDeptoOpen((v) => !v)}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                      🏢 Filtrar por departamento{deptoSel.size > 0 ? ` (${deptoSel.size})` : ' (todos)'}
+                    </Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800' }}>{deptoOpen ? '▲' : '▼'}</Text>
+                  </TouchableOpacity>
+                  {deptoOpen ? (
+                    <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                      {deptoSel.size > 0 ? (
+                        <TouchableOpacity onPress={() => setDeptoSel(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({deptoSel.size})</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {deptosDisponibles.map((d) => {
+                        const on = deptoSel.has(d.depto);
+                        return (
+                          <TouchableOpacity key={d.depto} onPress={() => toggleDepto(d.depto)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                              {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                            </View>
+                            <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{d.depto}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{d.count}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
               {itemsLoading ? (
                 <Loading />
               ) : items.length === 0 ? (
                 <EmptyState title="Sin personal" subtitle="No hay empleados activos en esta empresa. Agrégalos en Empleados y usa “Personal faltante”." />
+              ) : itemsShown.length === 0 ? (
+                <EmptyState title="Sin personal en ese departamento" subtitle="Ningún empleado del período pertenece al departamento filtrado." />
               ) : (
-                items.map((it) => {
+                itemsShown.map((it) => {
                   const pagado = paidOf(it.id); const saldo = saldoOf(it);
                   const abonos = pays.filter((p) => p.item_id === it.id);
                   return (
