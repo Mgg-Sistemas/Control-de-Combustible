@@ -177,11 +177,15 @@ const SECTIONS: Sec[] = [
     icon: '🗂️',
     title: 'Organigrama (dentro de Nómina)',
     blocks: [
-      { t: 'p', text: 'Muestra la estructura de la empresa POR CARGOS (no por nombres). Está dentro de Nómina: abre 🗂️ Organigrama.' },
+      { t: 'p', text: 'Muestra la estructura de la empresa POR CARGOS (no por nombres), con diseño corporativo en dos columnas: azul = Administración, servicios y soporte; naranja = Operaciones y mantenimiento de maquinaria. Arriba van Director General y Coordinador General. La estructura es FIJA y cubre todos los cargos. Está dentro de Nómina: abre 🗂️ Organigrama.' },
       { t: 'steps', items: [
         'Toca "👁️ Vista previa" para ver el organigrama con el logo de la empresa; desde ahí lo guardas o imprimes como PDF.',
         'Toca "🖼️ Descargar imagen (PNG)" para bajarlo como imagen.',
-        'Se SINCRONIZA con la nómina: si en Empleados hay cargos que todavía no están ubicados en el organigrama, aparecen en una caja "🆕 Otros cargos (por ubicar)" para que no se pierdan. Dile al administrador del sistema bajo qué jefatura va cada uno y se agregan a la estructura.',
+      ] },
+      { t: 'p', text: '📋 Manual de cargos (en el mismo panel): descarga las FUNCIONES de cada cargo, de quién depende (reporta a) y qué personal tiene a su cargo (subordinados).' },
+      { t: 'steps', items: [
+        'Toca "PDF general — todos los cargos" para un solo documento con todos los cargos, agrupados por área.',
+        'O toca un cargo de la lista para descargar solo SU ficha (funciones + jefe + subordinados).',
       ] },
     ],
   },

@@ -5,7 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { exportPdf, exportCardImage, pdfDocument } from '../lib/pdf';
-import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, cargosPorUbicar } from '../lib/organigrama';
+import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, fichasHtml, fichaCargoHtml, listaCargos } from '../lib/organigrama';
 import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -60,20 +60,18 @@ export default function NominaScreen({ navigation }: any) {
 
   const readOnly = sel?.status !== 'borrador';
 
-  // ── Organigrama (por cargos) — se sincroniza con los cargos de la nómina ──────
+  // ── Organigrama corporativo (estructura fija por cargos) ──────────────────────
   const [orgOpen, setOrgOpen] = useState(false);
-  const [cargos, setCargos] = useState<string[]>([]);
-  useEffect(() => {
-    supabase.from('employees').select('cargo').then(({ data }) => {
-      setCargos(Array.from(new Set(((data ?? []) as any[]).map((r) => String(r.cargo ?? '').trim()).filter(Boolean))));
-    });
-  }, []);
-  const otros = useMemo(() => cargosPorUbicar(cargos), [cargos]);
-  const verOrganigrama = () => { exportPdf(organigramaHtml(otros), 'Organigrama SOS La Guaira'); };
+  const verOrganigrama = () => { exportPdf(organigramaHtml(), 'Organigrama SOS La Guaira'); };
   const descargarOrgPng = async () => {
     if (Platform.OS !== 'web') return verOrganigrama(); // en móvil se comparte el PDF
-    await exportCardImage({ styles: ORG_STYLES, card: organigramaCard(otros), mmW: ORG_SHEET_MM.w, mmH: ORG_SHEET_MM.h, dpi: 150, fileName: 'Organigrama SOS La Guaira', htmlForFallback: organigramaHtml(otros) });
+    await exportCardImage({ styles: ORG_STYLES, card: organigramaCard(), mmW: ORG_SHEET_MM.w, mmH: ORG_SHEET_MM.h, dpi: 150, fileName: 'Organigrama SOS La Guaira', htmlForFallback: organigramaHtml() });
   };
+  // Manual de cargos (funciones + subordinados): general y por cargo.
+  const cargosLista = useMemo(() => listaCargos(), []);
+  const [cargoSel, setCargoSel] = useState<string>('');
+  const verFichasGeneral = () => { exportPdf(fichasHtml(), 'Manual de cargos SOS La Guaira'); };
+  const verFichaCargo = (title: string) => { exportPdf(fichaCargoHtml(title), `Ficha - ${title}`); };
 
   const loadItems = async (pid: string) => {
     setItemsLoading(true);
@@ -342,8 +340,8 @@ export default function NominaScreen({ navigation }: any) {
       >
         <Text style={{ fontSize: 20 }}>🗂️</Text>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Organigrama</Text>
-          <Text style={{ color: colors.muted, fontSize: 11 }}>Estructura por cargos (vista previa y descarga PDF/imagen){otros.length ? ` · ${otros.length} cargo(s) por ubicar` : ''}</Text>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Organigrama y manual de cargos</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Estructura corporativa por cargos + funciones y subordinados (PDF/imagen)</Text>
         </View>
         <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
@@ -414,19 +412,9 @@ export default function NominaScreen({ navigation }: any) {
       {/* Modal: Organigrama (vista previa + descarga) */}
       <Modal visible={orgOpen} transparent animationType="slide" onRequestClose={() => setOrgOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
+          <ScrollView style={{ maxHeight: '88%' }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🗂️ Organigrama</Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Estructura de la empresa por cargos. Se sincroniza con la nómina: los cargos que existan en Empleados y aún no tengan lugar aparecen como “Otros cargos (por ubicar)”.</Text>
-
-            {otros.length ? (
-              <View style={{ marginTop: spacing.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
-                <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12, marginBottom: 4 }}>🆕 {otros.length} cargo(s) por ubicar</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{otros.join(' · ')}</Text>
-                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Dime bajo qué jefatura va cada uno y lo agrego a la estructura.</Text>
-              </View>
-            ) : (
-              <Text style={{ color: colors.success, fontSize: 12, marginTop: spacing.md, fontWeight: '700' }}>✓ Todos los cargos de la nómina están ubicados en el organigrama.</Text>
-            )}
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Estructura corporativa de la empresa por cargos (fija y completa): Dirección arriba y dos áreas — azul (Administración, servicios y soporte) y naranja (Operaciones y mantenimiento de maquinaria).</Text>
 
             <TouchableOpacity onPress={verOrganigrama} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
               <EyeIcon size={20} color={colors.primaryContrast} open />
@@ -435,10 +423,30 @@ export default function NominaScreen({ navigation }: any) {
             <TouchableOpacity onPress={descargarOrgPng} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.primary, fontWeight: '800' }}>🖼️ Descargar imagen (PNG)</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setOrgOpen(false)} style={{ marginTop: spacing.sm, paddingVertical: spacing.md, alignItems: 'center' }}>
+
+            {/* Manual de cargos: funciones + de quién depende + a quién manda. */}
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.md }} />
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📋 Manual de cargos</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>Funciones de cada cargo, de quién depende y qué personal tiene a su cargo.</Text>
+            <TouchableOpacity onPress={verFichasGeneral} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+              <EyeIcon size={20} color={colors.primaryContrast} open />
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>PDF general — todos los cargos</Text>
+            </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>…o toca un cargo para ver su ficha:</Text>
+            <ScrollView style={{ maxHeight: 170 }} showsVerticalScrollIndicator>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingBottom: 4 }}>
+                {cargosLista.map((c) => (
+                  <TouchableOpacity key={c.title} onPress={() => { setCargoSel(c.title); verFichaCargo(c.title); }} style={{ borderWidth: 1, borderColor: cargoSel === c.title ? colors.primary : colors.border, backgroundColor: cargoSel === c.title ? colors.primary : colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: cargoSel === c.title ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity onPress={() => setOrgOpen(false)} style={{ marginTop: spacing.md, paddingVertical: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
 
