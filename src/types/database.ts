@@ -432,10 +432,14 @@ export interface StaffPersonPayment {
   cargo: string | null;         // snapshot del cargo
   fecha: string;                // fecha del pago (AAAA-MM-DD)
   frecuencia: 'diario' | 'semanal' | 'quincenal' | 'mensual';
-  jornada: 'dia' | 'noche' | null; // solo aplica a "diario"
-  cantidad: number;             // nº de jornadas/semanas/quincenas/meses
-  precio_unit: number;          // precio unitario (snapshot de la tarifa)
-  monto: number;                // total pagado = cantidad × precio_unit (editable)
+  jornada: 'dia' | 'noche' | null; // (heredado) jornada única; en "diario" ahora se usan los campos día+noche
+  cantidad: number;             // nº de jornadas/semanas/quincenas/meses (en diario = día + noche)
+  precio_unit: number;          // precio unitario (semanal/quincenal/mensual)
+  cantidad_dia: number;         // "diario": nº de jornadas de DÍA
+  cantidad_noche: number;       // "diario": nº de jornadas de NOCHE
+  precio_dia: number;           // "diario": precio por jornada de DÍA (snapshot)
+  precio_noche: number;         // "diario": precio por jornada de NOCHE (snapshot)
+  monto: number;                // total pagado (editable). Diario = día×p_día + noche×p_noche
   metodo: string | null;        // efectivo / transferencia / pago móvil / otro
   banco: string | null;         // snapshot bancario
   cuenta: string | null;

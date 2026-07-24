@@ -203,9 +203,11 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 
 > **👤 Por persona (vista principal):** un **listado de empleados**. Abre a una persona y verás
 > sus **datos personales**, sus **datos bancarios** y sus **tarifas**. Con **"➕ Generar pago"**
-> registras un pago indicando la **frecuencia** — **Diario (☀️ día / 🌙 noche)**, **Semanal**,
-> **Quincenal** o **Mensual** —, la cantidad y el **monto** (se sugiere solo desde su tarifa y es
-> editable), el método, concepto y nota. De cada pago sacas su **📄 Recibo**. Abajo está el
+> registras un pago por **frecuencia** — **Diario**, **Semanal**, **Quincenal** o **Mensual**. En
+> **Diario** puedes cargar jornadas de **☀️ día y 🌙 noche JUNTAS** en el mismo pago (cada una con
+> su cantidad y su precio); el **monto** se sugiere = (días × precio día) + (noches × precio noche)
+> y es editable. Esas cantidades **quedan guardadas** y se **precargan** en el próximo pago de esa
+> persona. De cada pago sacas su **📄 Recibo**. Abajo está el
 > **historial** de esa persona con el total, se puede **🖨️ Imprimir** (histórico por persona) y
 > cada movimiento se puede **✏️ Editar** o **🗑️ Borrar**. Las tarifas **Quincena** y **Mes** se
 > definen en el **🏷️ Tabulador** (igual que día/noche/semana) y se sincronizan a los empleados.
