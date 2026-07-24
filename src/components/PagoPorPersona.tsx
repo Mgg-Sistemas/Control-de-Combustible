@@ -116,6 +116,41 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const recalcSimple = (cant: string, precio: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(cant) * parseNum(precio)))); };
   const recalcDiario = (dc: string, dp: string, nc: string, np: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); };
 
+  // Nº de días que abarca el rango Desde→Hasta (inclusive). En "diario", día+noche
+  // no puede pasar de este total (7 jornadas si el rango es de 7 días).
+  const diasRango = useMemo(() => {
+    const a = new Date(`${fFecha}T12:00:00`).getTime();
+    const b = new Date(`${fHasta}T12:00:00`).getTime();
+    if (!isFinite(a) || !isFinite(b) || b < a) return 1;
+    return Math.round((b - a) / 86400000) + 1;
+  }, [fFecha, fHasta]);
+  // Fija la cantidad de día/noche respetando el tope (día+noche ≤ díasRango).
+  const setDiaCant = (raw: string) => {
+    const otras = parseNum(fNocheCant);
+    let v = parseNum(onlyDecimal(raw));
+    const max = Math.max(0, diasRango - otras);
+    if (v > max) v = max;
+    const s = String(v); setFDiaCant(s); recalcDiario(s, fDiaPrecio, fNocheCant, fNochePrecio);
+  };
+  const setNocheCant = (raw: string) => {
+    const otras = parseNum(fDiaCant);
+    let v = parseNum(onlyDecimal(raw));
+    const max = Math.max(0, diasRango - otras);
+    if (v > max) v = max;
+    const s = String(v); setFNocheCant(s); recalcDiario(fDiaCant, fDiaPrecio, s, fNochePrecio);
+  };
+  // Aplica un rango Desde→Hasta y recorta día/noche para que no pasen del total de días.
+  const aplicarRango = (desde: string, hasta: string) => {
+    setFFecha(desde); setFHasta(hasta);
+    const a = new Date(`${desde}T12:00:00`).getTime(), b = new Date(`${hasta}T12:00:00`).getTime();
+    const nd = (!isFinite(a) || !isFinite(b) || b < a) ? 1 : Math.round((b - a) / 86400000) + 1;
+    let d = parseNum(fDiaCant), n = parseNum(fNocheCant);
+    if (d > nd) d = nd;
+    if (d + n > nd) n = Math.max(0, nd - d);
+    setFDiaCant(String(d)); setFNocheCant(String(n));
+    if (!montoTocado) setFMonto(String(round2(d * parseNum(fDiaPrecio) + n * parseNum(fNochePrecio))));
+  };
+
   const abrirNuevo = () => {
     if (!sel) return;
     // Recuerda las cantidades día/noche del ÚLTIMO pago diario de la persona.
@@ -138,7 +173,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   };
   const cambiarFrec = (frec: Frecuencia) => {
     setFFrec(frec);
-    setFHasta(addDaysISO(fFecha, spanDias(frec))); // sugiere el "Hasta" según la frecuencia
+    aplicarRango(fFecha, addDaysISO(fFecha, spanDias(frec))); // sugiere el "Hasta" y recorta jornadas
     if (!sel) return;
     if (frec === 'diario') {
       const dp = String(sel.precio_dia || 0), np = String(sel.precio_noche || 0);
@@ -348,11 +383,11 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
-                    <DateField value={fFecha} onChange={(v) => { setFFecha(v); setFHasta(addDaysISO(v, spanDias(fFrec))); }} />
+                    <DateField value={fFecha} onChange={(v) => aplicarRango(v, addDaysISO(v, Math.max(0, diasRango - 1)))} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
-                    <DateField value={fHasta} onChange={setFHasta} />
+                    <DateField value={fHasta} onChange={(v) => aplicarRango(fFecha, v)} />
                   </View>
                 </View>
 
@@ -374,17 +409,20 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
                     <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>☀️ Días</Text>
-                        <TextInput value={fDiaCant} onChangeText={(t) => { const v = onlyDecimal(t); setFDiaCant(v); recalcDiario(v, fDiaPrecio, fNocheCant, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
+                        <TextInput value={fDiaCant} onChangeText={setDiaCant} keyboardType="decimal-pad" style={input} />
                         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 2 }}>Precio día</Text>
                         <TextInput value={fDiaPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFDiaPrecio(v); recalcDiario(fDiaCant, v, fNocheCant, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>🌙 Noches</Text>
-                        <TextInput value={fNocheCant} onChangeText={(t) => { const v = onlyDecimal(t); setFNocheCant(v); recalcDiario(fDiaCant, fDiaPrecio, v, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
+                        <TextInput value={fNocheCant} onChangeText={setNocheCant} keyboardType="decimal-pad" style={input} />
                         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 2 }}>Precio noche</Text>
                         <TextInput value={fNochePrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFNochePrecio(v); recalcDiario(fDiaCant, fDiaPrecio, fNocheCant, v); }} keyboardType="decimal-pad" style={input} />
                       </View>
                     </View>
+                    <Text style={{ color: (parseNum(fDiaCant) + parseNum(fNocheCant)) >= diasRango ? colors.warning : colors.muted, fontSize: 11, marginTop: 4, fontWeight: '700' }}>
+                      El rango Desde→Hasta cubre {diasRango} día(s). Días + noches = {parseNum(fDiaCant) + parseNum(fNocheCant)} / {diasRango} (no puede pasar del total).
+                    </Text>
                     <View style={{ marginTop: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
                       <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
