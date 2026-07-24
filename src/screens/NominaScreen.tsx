@@ -9,7 +9,7 @@ import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, fichasHtml,
 import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
-import { onlyDecimal, cmpText } from '../lib/text';
+import { onlyDecimal, cmpText, norm } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
@@ -70,6 +70,11 @@ export default function NominaScreen({ navigation }: any) {
   // Manual de cargos (funciones + subordinados): general y por cargo.
   const cargosLista = useMemo(() => listaCargos(), []);
   const [cargoSel, setCargoSel] = useState<string>('');
+  const [fichaQ, setFichaQ] = useState('');
+  const cargosFiltrados = useMemo(() => {
+    const nq = norm(fichaQ.trim());
+    return nq ? cargosLista.filter((c) => norm(c.title).includes(nq) || norm(c.area).includes(nq)) : cargosLista;
+  }, [cargosLista, fichaQ]);
   const verFichasGeneral = () => { exportPdf(fichasHtml(), 'Manual de cargos SOS La Guaira'); };
   const verFichaCargo = (title: string) => { exportPdf(fichaCargoHtml(title), `Ficha - ${title}`); };
 
@@ -432,15 +437,17 @@ export default function NominaScreen({ navigation }: any) {
               <EyeIcon size={20} color={colors.primaryContrast} open />
               <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>PDF general — todos los cargos</Text>
             </TouchableOpacity>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>…o toca un cargo para ver su ficha:</Text>
-            <ScrollView style={{ maxHeight: 170 }} showsVerticalScrollIndicator>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingBottom: 4 }}>
-                {cargosLista.map((c) => (
-                  <TouchableOpacity key={c.title} onPress={() => { setCargoSel(c.title); verFichaCargo(c.title); }} style={{ borderWidth: 1, borderColor: cargoSel === c.title ? colors.primary : colors.border, backgroundColor: cargoSel === c.title ? colors.primary : colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: cargoSel === c.title ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.title.toUpperCase()}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>…o busca un cargo y toca para ver su ficha:</Text>
+            <TextInput value={fichaQ} onChangeText={setFichaQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={input} />
+            <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+              {cargosFiltrados.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', padding: spacing.md }}>Sin cargos que coincidan.</Text>
+              ) : cargosFiltrados.map((c) => (
+                <TouchableOpacity key={c.title} onPress={() => { setCargoSel(c.title); verFichaCargo(c.title); }} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: cargoSel === c.title ? colors.surfaceAlt : 'transparent' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{c.title.toUpperCase()}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{c.area}</Text>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
 
             <TouchableOpacity onPress={() => setOrgOpen(false)} style={{ marginTop: spacing.md, paddingVertical: spacing.md, alignItems: 'center' }}>
