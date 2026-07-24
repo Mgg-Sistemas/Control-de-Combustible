@@ -238,6 +238,8 @@ export interface Employee {
   precio_dia: number | null;     // pago a personal: precio por jornada de DÍA
   precio_noche: number | null;   // pago a personal: precio por jornada de NOCHE
   precio_semana: number | null;  // pago a personal: precio por semana
+  precio_quincena: number | null;// pago a personal: precio por quincena
+  precio_mes: number | null;     // pago a personal: precio por mes
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -414,6 +416,33 @@ export interface StaffCargoTariff {
   precio_dia: number;    // precio por jornada de DÍA (operadores)
   precio_noche: number;  // precio por jornada de NOCHE (operadores)
   precio_semana: number; // sueldo semanal (resto del personal)
+  precio_quincena: number; // sueldo quincenal
+  precio_mes: number;      // sueldo mensual
+  updated_at: string;
+}
+
+/** Movimiento de pago POR PERSONA (ledger independiente de los períodos). Cada
+ *  fila es un pago hecho a un empleado, con frecuencia diaria (día/noche), semanal,
+ *  quincenal o mensual, su recibo y su historial. */
+export interface StaffPersonPayment {
+  id: string;
+  employee_id: string | null;
+  cedula: string | null;
+  person_name: string;          // snapshot del nombre
+  cargo: string | null;         // snapshot del cargo
+  fecha: string;                // fecha del pago (AAAA-MM-DD)
+  frecuencia: 'diario' | 'semanal' | 'quincenal' | 'mensual';
+  jornada: 'dia' | 'noche' | null; // solo aplica a "diario"
+  cantidad: number;             // nº de jornadas/semanas/quincenas/meses
+  precio_unit: number;          // precio unitario (snapshot de la tarifa)
+  monto: number;                // total pagado = cantidad × precio_unit (editable)
+  metodo: string | null;        // efectivo / transferencia / pago móvil / otro
+  banco: string | null;         // snapshot bancario
+  cuenta: string | null;
+  concepto: string | null;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
   updated_at: string;
 }
 

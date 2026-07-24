@@ -1,0 +1,406 @@
+import React, { useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { Card, EmptyState, Loading } from './ui';
+import { DateField } from './DateField';
+import { supabase } from '../lib/supabase';
+import { exportPdf, pdfDocument } from '../lib/pdf';
+import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ConfirmProvider';
+import { onlyDecimal, norm, cmpText } from '../lib/text';
+import { canonicalCargo } from '../lib/cargos';
+import { useTable } from '../hooks/useTable';
+import { Employee, StaffPersonPayment } from '../types/database';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
+
+// ── Utilidades ────────────────────────────────────────────────────────────────
+const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
+const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
+
+type Frecuencia = StaffPersonPayment['frecuencia'];
+type Jornada = 'dia' | 'noche';
+const FRECS: { key: Frecuencia; label: string }[] = [
+  { key: 'diario', label: 'Diario' }, { key: 'semanal', label: 'Semanal' },
+  { key: 'quincenal', label: 'Quincenal' }, { key: 'mensual', label: 'Mensual' },
+];
+const FREC_LABEL: Record<Frecuencia, string> = { diario: 'Diario', semanal: 'Semanal', quincenal: 'Quincenal', mensual: 'Mensual' };
+const METODOS = ['efectivo', 'pago móvil', 'transferencia', 'otro'];
+
+/** Tarifa unitaria del empleado según la frecuencia (y jornada, si es diario). */
+function tarifaFor(e: Employee, frec: Frecuencia, jornada: Jornada): number {
+  if (frec === 'diario') return Number(jornada === 'noche' ? e.precio_noche : e.precio_dia) || 0;
+  if (frec === 'semanal') return Number(e.precio_semana) || 0;
+  if (frec === 'quincenal') return Number(e.precio_quincena) || 0;
+  return Number(e.precio_mes) || 0; // mensual
+}
+/** Texto legible de un movimiento: "Diario ☀️ · 2 × $45" o "Semanal · 1 × $200". */
+function detalle(p: StaffPersonPayment): string {
+  const jr = p.frecuencia === 'diario' ? (p.jornada === 'noche' ? ' 🌙' : ' ☀️') : '';
+  return `${FREC_LABEL[p.frecuencia]}${jr} · ${Number(p.cantidad) || 0} × ${usd(p.precio_unit)}`;
+}
+
+export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
+  const { colors } = useTheme();
+  const { session } = useAuth();
+  const confirm = useConfirm();
+  const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+
+  const { data: employees, loading: empLoading } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: pays, loading: payLoading, refetch: refetchPays } = useTable<StaffPersonPayment>('staff_payments', { orderBy: 'fecha', ascending: false });
+
+  const [q, setQ] = useState('');
+  const [soloActivos, setSoloActivos] = useState(true);
+
+  // Empleados filtrados por búsqueda + estado, ordenados A→Z.
+  const shown = useMemo(() => {
+    const nq = norm(q);
+    return employees
+      .filter((e) => (!soloActivos || e.status === 'activo'))
+      .filter((e) => !nq || norm(fullName(e)).includes(nq) || norm(e.cedula).includes(nq) || norm(e.cargo).includes(nq) || norm(e.ficha_number).includes(nq))
+      .sort((a, b) => cmpText(fullName(a), fullName(b)));
+  }, [employees, q, soloActivos]);
+
+  // Movimientos por empleado (por id; respaldo por cédula).
+  const paysOf = (e: Employee) => pays.filter((p) => (p.employee_id ? p.employee_id === e.id : norm(p.cedula) === norm(e.cedula)));
+  const totalOf = (e: Employee) => round2(paysOf(e).reduce((s, p) => s + (Number(p.monto) || 0), 0));
+
+  // ── Ficha de persona ─────────────────────────────────────────────────────────
+  const [sel, setSel] = useState<Employee | null>(null);
+  const selPays = sel ? paysOf(sel).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0)) : [];
+  const selTotal = round2(selPays.reduce((s, p) => s + (Number(p.monto) || 0), 0));
+
+  // ── Generar / editar movimiento ────────────────────────────────────────────
+  const [payOpen, setPayOpen] = useState(false);
+  const [editing, setEditing] = useState<StaffPersonPayment | null>(null);
+  const [fFecha, setFFecha] = useState(todayISO());
+  const [fFrec, setFFrec] = useState<Frecuencia>('diario');
+  const [fJornada, setFJornada] = useState<Jornada>('dia');
+  const [fCant, setFCant] = useState('1');
+  const [fPrecio, setFPrecio] = useState('0');
+  const [fMonto, setFMonto] = useState('0');
+  const [montoTocado, setMontoTocado] = useState(false);
+  const [fMetodo, setFMetodo] = useState('efectivo');
+  const [fConcepto, setFConcepto] = useState('');
+  const [fNota, setFNota] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const recalcMonto = (cant: string, precio: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(cant) * parseNum(precio)))); };
+
+  const abrirNuevo = () => {
+    if (!sel) return;
+    const pr = tarifaFor(sel, 'diario', 'dia');
+    setEditing(null); setFFecha(todayISO()); setFFrec('diario'); setFJornada('dia');
+    setFCant('1'); setFPrecio(String(pr)); setFMonto(String(round2(pr))); setMontoTocado(false);
+    setFMetodo('efectivo'); setFConcepto(''); setFNota(''); setPayOpen(true);
+  };
+  const abrirEditar = (p: StaffPersonPayment) => {
+    setEditing(p); setFFecha(p.fecha); setFFrec(p.frecuencia); setFJornada((p.jornada as Jornada) || 'dia');
+    setFCant(String(p.cantidad)); setFPrecio(String(p.precio_unit)); setFMonto(String(p.monto)); setMontoTocado(true);
+    setFMetodo(p.metodo || 'efectivo'); setFConcepto(p.concepto || ''); setFNota(p.nota || ''); setPayOpen(true);
+  };
+  const cambiarFrec = (frec: Frecuencia) => {
+    setFFrec(frec);
+    if (sel) { const pr = tarifaFor(sel, frec, fJornada); setFPrecio(String(pr)); if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr))); }
+  };
+  const cambiarJornada = (j: Jornada) => {
+    setFJornada(j);
+    if (sel && fFrec === 'diario') { const pr = tarifaFor(sel, 'diario', j); setFPrecio(String(pr)); if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr))); }
+  };
+
+  const guardar = async () => {
+    if (!sel) return;
+    const monto = parseNum(fMonto);
+    if (monto <= 0) { Alert.alert('Monto', 'Indica un monto mayor a 0.'); return; }
+    setSaving(true);
+    const row = {
+      employee_id: sel.id, cedula: sel.cedula, person_name: fullName(sel), cargo: sel.cargo ? canonicalCargo(sel.cargo) : null,
+      fecha: fFecha, frecuencia: fFrec, jornada: fFrec === 'diario' ? fJornada : null,
+      cantidad: parseNum(fCant) || 1, precio_unit: parseNum(fPrecio), monto,
+      metodo: fMetodo, banco: sel.bank_name, cuenta: sel.bank_account,
+      concepto: fConcepto.trim() || null, nota: fNota.trim() || null, updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (editing) ({ error } = await supabase.from('staff_payments').update(row).eq('id', editing.id));
+    else ({ error } = await supabase.from('staff_payments').insert({ ...row, created_by: session?.user?.id ?? null }));
+    setSaving(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setPayOpen(false); await refetchPays();
+  };
+
+  const borrar = async (p: StaffPersonPayment) => {
+    const ok = await confirm({ title: 'Borrar pago', message: `¿Borrar el pago de ${fmtDMY(p.fecha)} por ${usd(p.monto)}? No se puede deshacer.`, confirmText: 'Borrar', danger: true });
+    if (!ok) return;
+    const { error } = await supabase.from('staff_payments').delete().eq('id', p.id);
+    if (error) { Alert.alert('Error', error.message); return; }
+    await refetchPays();
+  };
+
+  // ── Recibo (por movimiento) e Histórico (por persona) ──────────────────────
+  const datosPersona = (e: Employee) => `
+    <table class="kv"><tbody>
+      <tr><td class="k">Nombre</td><td>${fullName(e) || '—'}</td><td class="k">Cédula</td><td>${e.cedula || '—'}</td></tr>
+      <tr><td class="k">Ficha</td><td>${e.ficha_number || '—'}</td><td class="k">Cargo</td><td>${e.cargo ? canonicalCargo(e.cargo) : '—'}</td></tr>
+      <tr><td class="k">Teléfono</td><td>${e.phone || '—'}</td><td class="k">Estado</td><td>${e.status || '—'}</td></tr>
+    </tbody></table>`;
+  const datosBanco = (e: Employee) => `
+    <table class="kv"><tbody>
+      <tr><td class="k">Banco</td><td>${e.bank_name || '—'}</td><td class="k">Cuenta</td><td>${e.bank_account || '—'}</td></tr>
+      <tr><td class="k">Titular</td><td>${e.bank_holder || fullName(e) || '—'}</td><td class="k">C.I. titular</td><td>${e.bank_cedula || e.cedula || '—'}</td></tr>
+    </tbody></table>`;
+
+  const recibo = (e: Employee, p: StaffPersonPayment) => {
+    const body = `
+      <h3 class="sec">Datos del trabajador</h3>${datosPersona(e)}
+      <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
+      <h3 class="sec">Detalle del pago</h3>
+      <table class="kv"><tbody>
+        <tr><td class="k">Fecha</td><td>${fmtDMY(p.fecha)}</td><td class="k">Frecuencia</td><td>${detalle(p)}</td></tr>
+        <tr><td class="k">Método</td><td>${p.metodo || '—'}</td><td class="k">Concepto</td><td>${p.concepto || '—'}</td></tr>
+      </tbody></table>
+      <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b></div>
+      ${p.nota ? `<div class="nota"><b>Nota:</b> ${p.nota}</div>` : ''}
+      <div class="firmas"><div class="firma">Recibí conforme<br/>${fullName(e)}</div><div class="firma">Entregó<br/>SOS LA GUAIRA</div></div>`;
+    exportPdf(pdfDocument({ title: 'Recibo de pago', subtitle: `${fullName(e)} · ${fmtDMY(p.fecha)}`, body, extraCss: RECIBO_CSS }), `Recibo - ${fullName(e)} - ${p.fecha}`);
+  };
+
+  const historico = (e: Employee) => {
+    const list = paysOf(e).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+    const total = round2(list.reduce((s, p) => s + (Number(p.monto) || 0), 0));
+    const rows = list.map((p, i) => `<tr>
+      <td class="c">${i + 1}</td><td class="c">${fmtDMY(p.fecha)}</td><td>${detalle(p)}</td>
+      <td>${p.metodo || '—'}</td><td>${p.concepto || '—'}</td><td class="r">${usd(p.monto)}</td></tr>`).join('');
+    const body = `
+      <h3 class="sec">Datos del trabajador</h3>${datosPersona(e)}
+      <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
+      <h3 class="sec">Historial de pagos</h3>
+      <table class="hist"><thead><tr><th class="c">#</th><th class="c">Fecha</th><th>Detalle</th><th>Método</th><th>Concepto</th><th class="r">Monto</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6">Sin pagos registrados</td></tr>'}</tbody>
+        <tfoot><tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${usd(total)}</b></td></tr></tfoot></table>`;
+    exportPdf(pdfDocument({ title: 'Histórico de pagos', subtitle: `${fullName(e)} · ${list.length} pago(s)`, body, extraCss: HIST_CSS }), `Histórico - ${fullName(e)}`);
+  };
+
+  // ── UI ─────────────────────────────────────────────────────────────────────
+  if ((empLoading || payLoading) && employees.length === 0) return <Loading />;
+
+  return (
+    <View>
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, cédula, ficha o cargo…" placeholderTextColor={colors.muted} style={input} />
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+        {[{ k: true, t: 'Solo activos' }, { k: false, t: 'Todos' }].map((o) => (
+          <TouchableOpacity key={String(o.k)} onPress={() => setSoloActivos(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: soloActivos === o.k ? colors.primary : colors.border, backgroundColor: soloActivos === o.k ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: soloActivos === o.k ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.t}</Text>
+          </TouchableOpacity>
+        ))}
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: colors.muted, fontSize: 12, alignSelf: 'center' }}>{shown.length} persona(s)</Text>
+      </View>
+
+      {shown.length === 0 ? (
+        <EmptyState title="Sin personal" subtitle="No hay empleados que coincidan con la búsqueda." />
+      ) : shown.map((e) => {
+        const n = paysOf(e).length;
+        return (
+          <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => setSel(e)}>
+            <Card>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>{usd(totalOf(e))}</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cedula, e.cargo ? canonicalCargo(e.cargo) : ''].filter(Boolean).join(' · ') || '—'}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{n} pago(s)</Text>
+              </View>
+            </Card>
+          </TouchableOpacity>
+        );
+      })}
+
+      {/* Ficha de persona */}
+      <Modal visible={!!sel} animationType="slide" onRequestClose={() => setSel(null)}>
+        {sel ? (
+          <ScrollView style={{ flex: 1, backgroundColor: colors.background }} contentContainerStyle={{ padding: spacing.lg }}>
+            <TouchableOpacity onPress={() => setSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            </TouchableOpacity>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{fullName(sel)}</Text>
+
+            <Card>
+              <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>🪪 Datos personales</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Cédula: {sel.cedula || '—'}   ·   Ficha: {sel.ficha_number || '—'}</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Cargo: {sel.cargo ? canonicalCargo(sel.cargo) : '—'}</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Teléfono: {sel.phone || '—'}   ·   Estado: {sel.status || '—'}</Text>
+            </Card>
+            <Card>
+              <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>🏦 Datos bancarios</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Banco: {sel.bank_name || '—'}</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Cuenta: {sel.bank_account || '—'}</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Titular: {sel.bank_holder || fullName(sel)}   ·   C.I.: {sel.bank_cedula || sel.cedula || '—'}</Text>
+            </Card>
+            <Card>
+              <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>💲 Tarifas</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>☀️ Día {usd(sel.precio_dia || 0)}   ·   🌙 Noche {usd(sel.precio_noche || 0)}</Text>
+              <Text style={{ color: colors.text, fontSize: 13 }}>Semana {usd(sel.precio_semana || 0)}   ·   Quincena {usd(sel.precio_quincena || 0)}   ·   Mes {usd(sel.precio_mes || 0)}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Los precios se definen en el "🏷️ Tabulador" por cargo.</Text>
+            </Card>
+
+            {canEdit ? (
+              <TouchableOpacity onPress={abrirNuevo} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', marginTop: spacing.xs }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>➕ Generar pago</Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.lg }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>Historial · {usd(selTotal)}</Text>
+              {selPays.length ? (
+                <TouchableOpacity onPress={() => historico(sel)} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🖨️ Imprimir histórico</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {selPays.length === 0 ? (
+              <EmptyState title="Sin pagos" subtitle={canEdit ? 'Toca “➕ Generar pago” para registrar el primero.' : 'Aún no hay pagos registrados.'} />
+            ) : selPays.map((p) => (
+              <Card key={p.id}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{fmtDMY(p.fecha)}</Text>
+                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.monto)}</Text>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{detalle(p)} · {p.metodo || '—'}{p.concepto ? ` · ${p.concepto}` : ''}</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                  <TouchableOpacity onPress={() => recibo(sel, p)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 Recibo</Text>
+                  </TouchableOpacity>
+                  {canEdit ? (
+                    <>
+                      <TouchableOpacity onPress={() => abrirEditar(p)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>✏️ Editar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => borrar(p)} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: '#DC2626', fontWeight: '800', fontSize: 12 }}>🗑️ Borrar</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
+                </View>
+              </Card>
+            ))}
+            <View style={{ height: spacing.xl }} />
+          </ScrollView>
+        ) : null}
+
+        {/* Generar / editar pago */}
+        <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, maxHeight: '92%' }}>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.sm }}>{editing ? 'Editar pago' : 'Generar pago'}{sel ? ` · ${fullName(sel)}` : ''}</Text>
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Fecha</Text>
+                <DateField value={fFecha} onChange={setFFecha} />
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Frecuencia</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {FRECS.map((f) => {
+                    const on = fFrec === f.key;
+                    return (
+                      <TouchableOpacity key={f.key} onPress={() => cambiarFrec(f.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {fFrec === 'diario' ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Jornada</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      {([['dia', '☀️ Día'], ['noche', '🌙 Noche']] as [Jornada, string][]).map(([k, t]) => {
+                        const on = fJornada === k;
+                        return (
+                          <TouchableOpacity key={k} onPress={() => cambiarJornada(k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Cantidad</Text>
+                    <TextInput value={fCant} onChangeText={(t) => { const v = onlyDecimal(t); setFCant(v); recalcMonto(v, fPrecio); }} keyboardType="decimal-pad" style={input} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Precio unit.</Text>
+                    <TextInput value={fPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFPrecio(v); recalcMonto(fCant, v); }} keyboardType="decimal-pad" style={input} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
+                    <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
+                  </View>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El monto se sugiere solo (cantidad × precio); puedes cambiarlo a mano.</Text>
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Método</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {METODOS.map((m) => {
+                    const on = fMetodo === m;
+                    return (
+                      <TouchableOpacity key={m} onPress={() => setFMetodo(m)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{m}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Concepto (opcional)</Text>
+                <TextInput value={fConcepto} onChangeText={setFConcepto} placeholder="Ej. Pago jornada, adelanto…" placeholderTextColor={colors.muted} style={input} />
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Nota (opcional)</Text>
+                <TextInput value={fNota} onChangeText={setFNota} placeholder="Observaciones" placeholderTextColor={colors.muted} style={input} />
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPayOpen(false)}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Registrar pago'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ height: spacing.lg }} />
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </Modal>
+    </View>
+  );
+}
+
+const RECIBO_CSS = `
+  .sec{font-size:13px;color:#1E3A5F;margin:14px 0 6px;border-bottom:1px solid #E5E7EB;padding-bottom:3px}
+  table.kv{width:100%;border-collapse:collapse;font-size:12px}
+  table.kv td{padding:5px 8px;border:1px solid #E5E7EB;vertical-align:top}
+  table.kv td.k{background:#F3F4F6;color:#374151;font-weight:700;width:16%;white-space:nowrap}
+  .monto{margin:16px 0 6px;padding:12px 16px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:8px;font-size:16px;color:#065F46;text-align:right}
+  .monto b{font-size:22px}
+  .nota{font-size:12px;color:#374151;margin-top:4px}
+  .firmas{display:flex;gap:40px;margin-top:46px}
+  .firma{flex:1;text-align:center;border-top:1px solid #9CA3AF;padding-top:6px;font-size:12px;color:#374151}
+`;
+const HIST_CSS = `
+  .sec{font-size:13px;color:#1E3A5F;margin:14px 0 6px;border-bottom:1px solid #E5E7EB;padding-bottom:3px}
+  table.kv{width:100%;border-collapse:collapse;font-size:12px}
+  table.kv td{padding:5px 8px;border:1px solid #E5E7EB}
+  table.kv td.k{background:#F3F4F6;color:#374151;font-weight:700;width:16%;white-space:nowrap}
+  table.hist{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
+  table.hist th,table.hist td{padding:6px 8px;border:1px solid #E5E7EB}
+  table.hist thead th{background:#1E3A5F;color:#fff;text-align:left}
+  table.hist .c{text-align:center}table.hist .r{text-align:right}
+  table.hist tfoot td{background:#F3F4F6}
+`;

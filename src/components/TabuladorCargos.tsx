@@ -11,8 +11,8 @@ import { useTheme } from '../theme/ThemeContext';
 const usd = (n: any) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 
-type Draft = { hora: string; dia: string; noche: string; semana: string; depto: string };
-const emptyDraft: Draft = { hora: '', dia: '', noche: '', semana: '', depto: '' };
+type Draft = { hora: string; dia: string; noche: string; semana: string; quincena: string; mes: string; depto: string };
+const emptyDraft: Draft = { hora: '', dia: '', noche: '', semana: '', quincena: '', mes: '', depto: '' };
 
 /**
  * Tabulador de sueldos por CARGO. Lista desplegable: al tocar un cargo se abre su
@@ -65,7 +65,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   const openCargo = (t: StaffCargoTariff) => {
     if (openId === t.id) { setOpenId(null); return; }
     setOpenId(t.id);
-    setDraft({ hora: String(t.precio_hora ?? 0), dia: String(t.precio_dia ?? 0), noche: String(t.precio_noche ?? 0), semana: String(t.precio_semana ?? 0), depto: t.departamento ?? '' });
+    setDraft({ hora: String(t.precio_hora ?? 0), dia: String(t.precio_dia ?? 0), noche: String(t.precio_noche ?? 0), semana: String(t.precio_semana ?? 0), quincena: String(t.precio_quincena ?? 0), mes: String(t.precio_mes ?? 0), depto: t.departamento ?? '' });
   };
 
   const guardar = async (t: StaffCargoTariff) => {
@@ -73,7 +73,8 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     setBusy(true);
     const { error } = await supabase.from('staff_cargo_tariffs').update({
       precio_hora: parseNum(draft.hora), precio_dia: parseNum(draft.dia), precio_noche: parseNum(draft.noche),
-      precio_semana: parseNum(draft.semana), departamento: draft.depto.trim() || null, updated_at: new Date().toISOString(),
+      precio_semana: parseNum(draft.semana), precio_quincena: parseNum(draft.quincena), precio_mes: parseNum(draft.mes),
+      departamento: draft.depto.trim() || null, updated_at: new Date().toISOString(),
     }).eq('id', t.id);
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
@@ -88,13 +89,14 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     if (n === 0) return Alert.alert('Aviso', `No hay empleados con el cargo "${t.cargo}". Asígnales ese cargo en Empleados y vuelve a sincronizar.`);
     const ok = await confirm({
       title: 'Sincronizar sueldos',
-      message: `Se pondrá el sueldo del tabulador a ${n} empleado(s) con el cargo "${t.cargo}":\n\n☀️ Día ${usd(t.precio_dia)} · 🌙 Noche ${usd(t.precio_noche)} · Semana ${usd(t.precio_semana)} · Hora ${usd(t.precio_hora)}.\n\n¿Continuar?`,
+      message: `Se pondrá el sueldo del tabulador a ${n} empleado(s) con el cargo "${t.cargo}":\n\n☀️ Día ${usd(t.precio_dia)} · 🌙 Noche ${usd(t.precio_noche)} · Semana ${usd(t.precio_semana)} · Quincena ${usd(t.precio_quincena)} · Mes ${usd(t.precio_mes)} · Hora ${usd(t.precio_hora)}.\n\n¿Continuar?`,
       confirmText: 'Sincronizar', cancelText: 'Cancelar',
     });
     if (!ok) return;
     setBusy(true);
     const { error } = await supabase.from('employees').update({
       precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche, precio_semana: t.precio_semana,
+      precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
     }).eq('cargo', t.cargo);
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
@@ -122,6 +124,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     const { error } = await supabase.from('staff_cargo_tariffs').insert({
       cargo, departamento: nDraft.depto.trim() || null, precio_hora: parseNum(nDraft.hora),
       precio_dia: parseNum(nDraft.dia), precio_noche: parseNum(nDraft.noche), precio_semana: parseNum(nDraft.semana),
+      precio_quincena: parseNum(nDraft.quincena), precio_mes: parseNum(nDraft.mes),
     });
     setBusy(false);
     if (error) return Alert.alert('Aviso', /duplicate|unique/i.test(error.message) ? 'Ya existe ese cargo.' : error.message);
@@ -131,7 +134,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
 
   const priceRow = (d: Draft, set: (d: Draft) => void) => (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
-      {([['semana', 'Sueldo semana ($)'], ['dia', '☀️ Precio día ($)'], ['noche', '🌙 Precio noche ($)'], ['hora', 'Precio hora ($)']] as const).map(([k, label]) => (
+      {([['semana', 'Sueldo semana ($)'], ['quincena', 'Sueldo quincena ($)'], ['mes', 'Sueldo mes ($)'], ['dia', '☀️ Precio día ($)'], ['noche', '🌙 Precio noche ($)'], ['hora', 'Precio hora ($)']] as const).map(([k, label]) => (
         <View key={k} style={{ flexGrow: 1, flexBasis: '47%' }}>
           <Text style={{ color: colors.muted, fontSize: 11 }}>{label}</Text>
           <TextInput value={(d as any)[k]} onChangeText={(t) => set({ ...d, [k]: onlyDecimal(t) })} keyboardType="numeric" editable={canEdit} placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, opacity: canEdit ? 1 : 0.6 }} />
@@ -174,7 +177,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{t.cargo}</Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>
-                        {t.departamento ? `${t.departamento} · ` : ''}Semana {usd(t.precio_semana)} · ☀️ {usd(t.precio_dia)} · 🌙 {usd(t.precio_noche)} · {n} empleado(s)
+                        {t.departamento ? `${t.departamento} · ` : ''}Sem {usd(t.precio_semana)} · Qna {usd(t.precio_quincena)} · Mes {usd(t.precio_mes)} · ☀️ {usd(t.precio_dia)} · 🌙 {usd(t.precio_noche)} · {n} empleado(s)
                       </Text>
                     </View>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 16 }}>{on ? '▲' : '▼'}</Text>

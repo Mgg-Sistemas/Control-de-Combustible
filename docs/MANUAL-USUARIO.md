@@ -198,8 +198,20 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
   el precio del tabulador.
 
 ### 4.6b. Control de pago a personal (dentro de Nómina)
-Calcula y paga al **personal** por **PRECIO por hora, día o semana**, definido **por
-trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
+Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
+principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
+
+> **👤 Por persona (vista principal):** un **listado de empleados**. Abre a una persona y verás
+> sus **datos personales**, sus **datos bancarios** y sus **tarifas**. Con **"➕ Generar pago"**
+> registras un pago indicando la **frecuencia** — **Diario (☀️ día / 🌙 noche)**, **Semanal**,
+> **Quincenal** o **Mensual** —, la cantidad y el **monto** (se sugiere solo desde su tarifa y es
+> editable), el método, concepto y nota. De cada pago sacas su **📄 Recibo**. Abajo está el
+> **historial** de esa persona con el total, se puede **🖨️ Imprimir** (histórico por persona) y
+> cada movimiento se puede **✏️ Editar** o **🗑️ Borrar**. Las tarifas **Quincena** y **Mes** se
+> definen en el **🏷️ Tabulador** (igual que día/noche/semana) y se sincronizan a los empleados.
+
+**📅 Por período (nóminas):** calcula y paga por **PRECIO por hora, día o semana**, definido **por
+trabajador**.
 
 > El personal se paga **siempre por la organización (SOS LA GUAIRA)**, no por contratista.
 > Al crear un período **no se elige empresa**: se carga a **TODO el personal activo** y todo
