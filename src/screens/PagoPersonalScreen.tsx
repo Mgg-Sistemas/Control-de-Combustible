@@ -59,10 +59,10 @@ const METODOS = ['efectivo', 'pago móvil', 'transferencia', 'otro'];
 const EMPLEADOR = 'SOS LA GUAIRA';
 
 type Mode = StaffPayPeriod['mode'];
-// Regla: SOLO los operadores cobran por día. Un período "Por día" precarga/agrega
-// únicamente empleados con cargo operador (los demás se pagan por hora/semana).
+// TODO el personal activo se precarga en CUALQUIER modo (incluido "Por día").
+// Los operadores traen sus jornadas de día/noche solas; al resto se le ajusta a mano.
 const esOperador = (cargo?: string | null) => norm(cargo ?? '').includes('operador');
-const soloOperadoresSi = (mode: Mode) => mode === 'dia';
+const soloOperadoresSi = (_mode: Mode) => false;
 const qtyOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.horas : mode === 'semana' ? it.semanas : it.dias) || 0;
 const priceOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.precio_hora : mode === 'semana' ? it.precio_semana : it.precio_dia) || 0;
 // Jornadas de NOCHE y su precio (solo aplica al modo "Por día").
@@ -554,7 +554,7 @@ export default function PagoPersonalScreen() {
         <>
           <Text style={{ color: colors.muted, fontSize: 12 }}>💡 El sueldo se define en el "🏷️ Tabulador" por cargo y se sincroniza a los empleados (no uno por uno).</Text>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-            Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano. Los períodos "Por día" incluyen SOLO a los operadores.
+            Paga por precio por hora, día o semana, definido por trabajador. Se precarga a TODO el personal activo; los operadores cargan sus jornadas solos y al resto se le ajusta a mano.
           </Text>
 
           {loading && periods.length === 0 ? (
@@ -625,8 +625,8 @@ export default function PagoPersonalScreen() {
                 ))}
               </View>
               {cMode === 'dia' ? (
-                <Text style={{ color: colors.warning, fontSize: 11, marginTop: 4, fontWeight: '700' }}>
-                  ⚠️ "Por día" precarga SOLO a los operadores. Al resto se le paga por hora o semana.
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, fontWeight: '700' }}>
+                  ℹ️ Se precarga a TODO el personal activo. Los operadores traen sus jornadas de día/noche solas; al resto se le ajusta a mano.
                 </Text>
               ) : null}
 
