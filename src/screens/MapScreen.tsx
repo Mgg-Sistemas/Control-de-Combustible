@@ -163,29 +163,32 @@ export default function MapScreen({ navigation, route }: any) {
     );
   }, []);
 
-  // Reporte "Referencias por sector": agrupa las máquinas UBICADAS por su SECTOR
-  // geográfico (macro ESTE / OESTE y su sub-sector), listando por cada una su
-  // REFERENCIA de ubicación (edificio, residencia, plaza, calle), el inspector
-  // asignado y la empresa. El sector sale del GPS de la máquina.
+  // Reporte "Máquinas por sector": agrupa las máquinas UBICADAS por su SECTOR
+  // geográfico (macro ESTE / OESTE y su sub-sector, según el GPS), con su inspector
+  // asignado y empresa. Las que NO están en el mapa se listan aparte como
+  // "SIN UBICACIÓN (faltan por ubicar)" con su placa/serial.
   const referenciasPdf = async () => {
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     setRefBusy(true);
     try {
       const inspectors = await latestInspectorByMachine(); // machinery_id → inspector del último check-in
-      // Relevantes: ubicadas (con GPS) o con referencia escrita.
-      const relevant = allMachines
-        .filter((m) => m.located || (m.referencia ?? '').trim())
-        .map((m) => { const sec = sectorOf(m.lat, m.lng); return { ...m, macro: sectorMacro(sec), sub: sectorLabel(sec) }; });
+      // Máquinas UBICADAS → agrupadas por sector geográfico (Este/Oeste). Las que
+      // NO están en el mapa se listan aparte como "SIN UBICACIÓN" (con placa/serial).
+      const relevant = allMachines.map((m) => {
+        const sec = m.located ? sectorOf(m.lat, m.lng) : null;
+        return { ...m, macro: m.located ? sectorMacro(sec) : null, sub: m.located ? sectorLabel(sec) : 'SIN UBICACIÓN' };
+      });
       if (relevant.length === 0) {
-        Alert.alert('Referencias', 'Todavía no hay máquinas ubicadas ni referencias. La referencia (edificio/residencia) y el sector se registran al marcar la ubicación de la máquina en el mapa.');
+        Alert.alert('Máquinas por sector', 'No hay máquinas registradas.');
         return;
       }
-      const macros: { key: 'ESTE' | 'OESTE' | 'SIN'; title: string; emoji: string }[] = [
+      const macros: { key: 'ESTE' | 'OESTE' | 'SINZONA' | 'SINUBIC'; title: string; emoji: string }[] = [
         { key: 'ESTE', title: 'SECTOR ESTE', emoji: '🟢' },
         { key: 'OESTE', title: 'SECTOR OESTE', emoji: '🟠' },
-        { key: 'SIN', title: 'SIN ZONA (sin ubicación GPS)', emoji: '⚪' },
+        { key: 'SINZONA', title: 'UBICADAS SIN SECTOR', emoji: '⚪' },
+        { key: 'SINUBIC', title: 'SIN UBICACIÓN (faltan por ubicar)', emoji: '⛔' },
       ];
-      const macroKey = (m: typeof relevant[number]) => (m.macro === 'ESTE' ? 'ESTE' : m.macro === 'OESTE' ? 'OESTE' : 'SIN');
+      const macroKey = (m: typeof relevant[number]) => (!m.located ? 'SINUBIC' : m.macro === 'ESTE' ? 'ESTE' : m.macro === 'OESTE' ? 'OESTE' : 'SINZONA');
       const body = macros.map((mac) => {
         const list = relevant.filter((m) => macroKey(m) === mac.key);
         if (!list.length) return '';
@@ -193,18 +196,20 @@ export default function MapScreen({ navigation, route }: any) {
         const blocks = subs.map((sub) => {
           const items = list.filter((m) => m.sub === sub).sort((a, b) => cmpText(a.code, b.code));
           const rows = items.map((m, i) =>
-            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc((m.referencia ?? '').trim() || '—')}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
           ).join('');
           return `<h4 class="sub2">📍 ${esc(sub)} <span>· ${items.length} máquina(s)</span></h4>
-            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
         }).join('');
         return `<h3 class="sect">${mac.emoji} ${mac.title} <span class="sub">· ${list.length} máquina(s)</span></h3>${blocks}`;
       }).join('');
       const este = relevant.filter((m) => m.macro === 'ESTE').length;
       const oeste = relevant.filter((m) => m.macro === 'OESTE').length;
+      const ubic = relevant.filter((m) => m.located).length;
+      const sinUbic = relevant.length - ubic;
       const html = pdfDocument({
-        title: 'Referencias por sector',
-        subtitle: `Máquinas por sector · 🟢 Este ${este} · 🟠 Oeste ${oeste} · ${relevant.length} máquina(s)`,
+        title: 'Máquinas por sector',
+        subtitle: `🟢 Este ${este} · 🟠 Oeste ${oeste} · 📍 Ubicadas ${ubic} · ⛔ Sin ubicación ${sinUbic} · ${relevant.length} en total`,
         extraCss: `h3.sect{margin:18px 0 6px;font-size:15px;color:#fff;background:#1E3A5F;padding:7px 12px;border-radius:6px} h3.sect .sub{font-weight:400;color:#cfe0f2;font-size:11px}
           h4.sub2{margin:12px 0 3px;font-size:12.5px;color:#1E3A5F} h4.sub2 span{font-weight:400;color:#555;font-size:11px}
           table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
@@ -212,7 +217,7 @@ export default function MapScreen({ navigation, route }: any) {
           td.c,th.c{text-align:center;width:26px} tbody tr:nth-child(even) td{background:#F3F4F6}`,
         body,
       });
-      await exportPdf(html, 'Referencias por sector');
+      await exportPdf(html, 'Máquinas por sector');
     } finally {
       setRefBusy(false);
     }
@@ -449,8 +454,8 @@ export default function MapScreen({ navigation, route }: any) {
       <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1, paddingRight: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias por sector (Este / Oeste)</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con su referencia (edificio, residencia, plaza, calle), inspector y empresa</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Máquinas por sector (Este / Oeste)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con inspector y empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
           </View>
           <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
         </Card>
