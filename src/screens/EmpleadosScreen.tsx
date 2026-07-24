@@ -6,6 +6,7 @@ import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
+import { canonicalCargo } from '../lib/cargos';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
@@ -83,8 +84,8 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [busy, setBusy] = useState<string | null>(null);
 
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
-  // Etiqueta del cargo, normalizada para agrupar (mayúsculas, sin espacios extra).
-  const cargoLabel = (e: Employee) => (e.cargo || '').trim().toUpperCase() || 'SIN CARGO';
+  // Etiqueta del cargo UNIFICADA y en MAYÚSCULA (junta variantes: plurales, typos…).
+  const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
 
   const q = norm(query.trim());
   // ¿El empleado está activo? (todo lo que no sea "activo" cuenta como inactivo, incl. suspendido).
@@ -209,7 +210,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         <td>${esc(fullName(e))}</td>
         <td class="c">${esc(e.cedula ?? '—')}</td>
         <td class="c">${esc(e.ficha_number ?? '—')}</td>
-        <td>${esc(e.cargo ?? '—')}</td>
+        <td>${esc(e.cargo ? canonicalCargo(e.cargo) : '—')}</td>
         <td>${esc(companyName(e.company_id))}</td>
         <td class="c">${esc(e.status ?? '—')}</td>
         <td>${esc(e.phone ?? '—')}</td>
@@ -379,7 +380,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
                           <Text style={{ color: STATUS_COLOR[e.status] ?? colors.muted, fontWeight: '700', fontSize: 11 }}>● {e.status}</Text>
                         </View>
-                        <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo, e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo ? canonicalCargo(e.cargo) : '', e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
                       </View>
                     </View>
                   }

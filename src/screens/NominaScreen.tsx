@@ -437,7 +437,7 @@ export default function NominaScreen({ navigation }: any) {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingBottom: 4 }}>
                 {cargosLista.map((c) => (
                   <TouchableOpacity key={c.title} onPress={() => { setCargoSel(c.title); verFichaCargo(c.title); }} style={{ borderWidth: 1, borderColor: cargoSel === c.title ? colors.primary : colors.border, backgroundColor: cargoSel === c.title ? colors.primary : colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: cargoSel === c.title ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.title}</Text>
+                    <Text style={{ color: cargoSel === c.title ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.title.toUpperCase()}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
