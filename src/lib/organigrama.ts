@@ -347,6 +347,8 @@ export function cargosPorUbicar(cargos: string[]): string[] {
 
 // ── Render: utilidades ───────────────────────────────────────────────────────
 const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Todos los CARGOS se muestran en MAYÚSCULA en el organigrama y las fichas. */
+const up = (t: any) => esc(String(t ?? '').toUpperCase());
 
 // ── Render: DIAGRAMA (dos columnas, estilo corporativo) ──────────────────────
 export const ORG_STYLES = `
@@ -392,11 +394,11 @@ function leafHtml(node: OrgNode, color: string): string {
   const kids = node.children ?? [];
   if (kids.length) {
     return `<div class="leaf grp" style="border-left-color:${color}">
-      <div class="glab">${esc(node.title)}</div>
-      <div class="chips">${kids.map((k) => `<span class="chip">${esc(k.title)}</span>`).join('')}</div>
+      <div class="glab">${up(node.title)}</div>
+      <div class="chips">${kids.map((k) => `<span class="chip">${up(k.title)}</span>`).join('')}</div>
     </div>`;
   }
-  return `<div class="leaf" style="border-left-color:${color}">${esc(node.title)}</div>`;
+  return `<div class="leaf" style="border-left-color:${color}">${up(node.title)}</div>`;
 }
 
 /** Una sección (hijo directo de una columna) = tarjeta con encabezado de color. */
@@ -485,11 +487,11 @@ function fichaHtml(title: string): string {
     ? `<ul>${m.funciones.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>`
     : `<div class="none">—</div>`;
   const subsHtml = subs.length
-    ? `<div class="subs">${subs.map((s) => `<span class="chip">${esc(s)}</span>`).join('')}</div>`
+    ? `<div class="subs">${subs.map((s) => `<span class="chip">${up(s)}</span>`).join('')}</div>`
     : `<div class="none">No tiene personal a su cargo.</div>`;
   return `<div class="ficha" style="border-left-color:${m.color}">
-    <div class="fh"><span class="fic">${icon}</span><span class="ft">${esc(title)}</span></div>
-    <div class="fmeta"><b>Reporta a:</b> ${esc(m.boss)} &nbsp;·&nbsp; <b>Área:</b> ${esc(m.area)} &nbsp;·&nbsp; <b>Personal a cargo:</b> ${subs.length}</div>
+    <div class="fh"><span class="fic">${icon}</span><span class="ft">${up(title)}</span></div>
+    <div class="fmeta"><b>Reporta a:</b> ${up(m.boss)} &nbsp;·&nbsp; <b>Área:</b> ${up(m.area)} &nbsp;·&nbsp; <b>Personal a cargo:</b> ${subs.length}</div>
     <div class="fbody">
       <div class="fcol"><div class="flab">Funciones</div>${fun}</div>
       <div class="fcol"><div class="flab">Tiene a su cargo</div>${subsHtml}</div>
@@ -530,8 +532,8 @@ export function fichasHtml(): string {
 /** Ficha INDIVIDUAL de un cargo. */
 export function fichaCargoHtml(title: string): string {
   const m = META.get(title);
-  if (!m) return pdfDoc('Ficha de cargo', title, `<div class="intro">No se encontró el cargo “${esc(title)}” en la estructura.</div>`);
-  return pdfDoc('Ficha de cargo', `${title} · ${m.area}`, fichaHtml(title));
+  if (!m) return pdfDoc('Ficha de cargo', title.toUpperCase(), `<div class="intro">No se encontró el cargo “${esc(title)}” en la estructura.</div>`);
+  return pdfDoc('Ficha de cargo', `${title.toUpperCase()} · ${m.area.toUpperCase()}`, fichaHtml(title));
 }
 
 // Membrete propio (para no acoplar organigrama.ts al módulo de pdf.ts).
