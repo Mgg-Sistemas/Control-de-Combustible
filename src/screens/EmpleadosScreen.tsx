@@ -76,7 +76,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
   const [sortDir, setSortDir] = useState<'az' | 'za'>('az'); // orden alfabético por nombre
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo'>('todos'); // estado del empleado
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo' | 'otro'>('todos'); // estado del empleado
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
   const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
@@ -93,12 +93,20 @@ export default function EmpleadosScreen({ navigation }: any) {
   const cargoLabel = (e: Employee) => canonicalCargo(e.cargo);
 
   const q = norm(query.trim());
-  // ¿El empleado está activo? (todo lo que no sea "activo" cuenta como inactivo, incl. suspendido).
-  const esActivo = (e: Employee) => (e.status || '').toLowerCase() === 'activo';
+  const estadoDe = (e: Employee) => (e.status || '').toLowerCase();
+  const esActivo = (e: Employee) => estadoDe(e) === 'activo';
+  const esOtro = (e: Employee) => estadoDe(e) === 'otro';
+  // ¿El empleado pasa el filtro de estado elegido? "Inactivos" = ni activo ni "otro"
+  // (inactivo/suspendido); "Otro" tiene su propio chip.
+  const pasaEstado = (e: Employee) =>
+    statusFilter === 'todos' ? true
+    : statusFilter === 'activo' ? esActivo(e)
+    : statusFilter === 'otro' ? esOtro(e)
+    : (!esActivo(e) && !esOtro(e)); // inactivo
   // Empleados que pasan la BÚSQUEDA de texto + FILTRO de estado (base para contar por cargo).
   const baseFiltered = useMemo(
     () => employees.filter((e) =>
-      (statusFilter === 'todos' || (statusFilter === 'activo' ? esActivo(e) : !esActivo(e))) &&
+      pasaEstado(e) &&
       (!q ||
         norm(fullName(e)).includes(q) ||
         norm(e.cedula).includes(q) ||
@@ -111,9 +119,9 @@ export default function EmpleadosScreen({ navigation }: any) {
 
   // Conteo total por estado (independiente del filtro, para las etiquetas de los chips).
   const statusCounts = useMemo(() => {
-    let act = 0;
-    employees.forEach((e) => { if (esActivo(e)) act++; });
-    return { activo: act, inactivo: employees.length - act, todos: employees.length };
+    let act = 0, otr = 0;
+    employees.forEach((e) => { if (esActivo(e)) act++; else if (esOtro(e)) otr++; });
+    return { activo: act, otro: otr, inactivo: employees.length - act - otr, todos: employees.length };
   }, [employees]);
 
   // Conteo por cargo (para los chips-filtro y el reporte): [cargo, cantidad], de mayor a menor.
@@ -198,7 +206,7 @@ export default function EmpleadosScreen({ navigation }: any) {
     setBusy('reporte-cargo');
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const list = shown; // ya respeta estado + cargos + búsqueda, y viene ordenado
-    const estadoTxt = statusFilter === 'todos' ? 'Todos' : statusFilter === 'activo' ? 'Activos' : 'Inactivos';
+    const estadoTxt = statusFilter === 'todos' ? 'Todos' : statusFilter === 'activo' ? 'Activos' : statusFilter === 'otro' ? 'Otro' : 'Inactivos';
     const cargoTxt = cargoSel.size === 0 ? 'Todos los cargos' : Array.from(cargoSel).sort().join(', ');
     const busqTxt = q ? ` · Búsqueda: "${esc(query.trim())}"` : '';
 
@@ -284,9 +292,9 @@ export default function EmpleadosScreen({ navigation }: any) {
       {/* Filtro por ESTADO (activos / inactivos) */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
-        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo]] as const).map(([key, label, n]) => {
+        {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
           const on = statusFilter === key;
-          const tint = key === 'activo' ? '#16A34A' : key === 'inactivo' ? '#DC2626' : colors.primary;
+          const tint = key === 'activo' ? '#16A34A' : key === 'inactivo' ? '#DC2626' : key === 'otro' ? '#6B7280' : colors.primary;
           return (
             <TouchableOpacity
               key={key}
