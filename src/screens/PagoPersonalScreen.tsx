@@ -8,6 +8,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm } from '../lib/text';
+import { levelMeets } from '../lib/permissions';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { TabuladorCargos } from '../components/TabuladorCargos';
@@ -86,9 +87,12 @@ type AutoAgg = { diaV: number; nocheV: number; diaAll: number; nocheAll: number;
 
 export default function PagoPersonalScreen() {
   const { colors } = useTheme();
-  const { session, role } = useAuth();
+  const { session, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
-  const puedeTarifa = role !== 'analista'; // analista NO modifica precios
+  // Puede generar pagos / editar precios = tiene ESCRITURA o FULL en el módulo Nómina.
+  // (Antes se calculaba con el rol base: un usuario con FULL CONTROL en Nómina pero rol
+  //  base "analista" quedaba bloqueado y no le salía el botón "Generar pago".)
+  const puedeTarifa = levelMeets(moduleLevel('nomina'), 'escritura');
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
