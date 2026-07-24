@@ -37,10 +37,24 @@ function tarifaFor(e: Employee, frec: Frecuencia, jornada: Jornada): number {
   if (frec === 'quincenal') return Number(e.precio_quincena) || 0;
   return Number(e.precio_mes) || 0; // mensual
 }
-/** Texto legible de un movimiento: "Diario ☀️ · 2 × $45" o "Semanal · 1 × $200". */
+/** Día/noche de un movimiento "diario" (con respaldo a los pagos viejos de jornada única). */
+function dayNight(p: StaffPersonPayment) {
+  const dc = Number(p.cantidad_dia) || (p.jornada !== 'noche' ? Number(p.cantidad) || 0 : 0);
+  const nc = Number(p.cantidad_noche) || (p.jornada === 'noche' ? Number(p.cantidad) || 0 : 0);
+  const dp = Number(p.precio_dia) || (p.jornada !== 'noche' ? Number(p.precio_unit) || 0 : 0);
+  const np = Number(p.precio_noche) || (p.jornada === 'noche' ? Number(p.precio_unit) || 0 : 0);
+  return { dc, nc, dp, np };
+}
+/** Texto legible: "Diario · ☀️ 3 × $45 · 🌙 2 × $50" o "Semanal · 1 × $200". */
 function detalle(p: StaffPersonPayment): string {
-  const jr = p.frecuencia === 'diario' ? (p.jornada === 'noche' ? ' 🌙' : ' ☀️') : '';
-  return `${FREC_LABEL[p.frecuencia]}${jr} · ${Number(p.cantidad) || 0} × ${usd(p.precio_unit)}`;
+  if (p.frecuencia === 'diario') {
+    const { dc, nc, dp, np } = dayNight(p);
+    const parts: string[] = [];
+    if (dc) parts.push(`☀️ ${dc} × ${usd(dp)}`);
+    if (nc) parts.push(`🌙 ${nc} × ${usd(np)}`);
+    return `Diario · ${parts.join(' · ') || '—'}`;
+  }
+  return `${FREC_LABEL[p.frecuencia]} · ${Number(p.cantidad) || 0} × ${usd(p.precio_unit)}`;
 }
 
 export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
@@ -78,7 +92,12 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const [editing, setEditing] = useState<StaffPersonPayment | null>(null);
   const [fFecha, setFFecha] = useState(todayISO());
   const [fFrec, setFFrec] = useState<Frecuencia>('diario');
-  const [fJornada, setFJornada] = useState<Jornada>('dia');
+  // "Diario": día y noche JUNTOS.
+  const [fDiaCant, setFDiaCant] = useState('1');
+  const [fDiaPrecio, setFDiaPrecio] = useState('0');
+  const [fNocheCant, setFNocheCant] = useState('0');
+  const [fNochePrecio, setFNochePrecio] = useState('0');
+  // Semanal/quincenal/mensual: cantidad × precio único.
   const [fCant, setFCant] = useState('1');
   const [fPrecio, setFPrecio] = useState('0');
   const [fMonto, setFMonto] = useState('0');
@@ -88,38 +107,56 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const [fNota, setFNota] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const recalcMonto = (cant: string, precio: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(cant) * parseNum(precio)))); };
+  const recalcSimple = (cant: string, precio: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(cant) * parseNum(precio)))); };
+  const recalcDiario = (dc: string, dp: string, nc: string, np: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); };
 
   const abrirNuevo = () => {
     if (!sel) return;
-    const pr = tarifaFor(sel, 'diario', 'dia');
-    setEditing(null); setFFecha(todayISO()); setFFrec('diario'); setFJornada('dia');
-    setFCant('1'); setFPrecio(String(pr)); setFMonto(String(round2(pr))); setMontoTocado(false);
+    // Recuerda las cantidades día/noche del ÚLTIMO pago diario de la persona.
+    const last = paysOf(sel).filter((p) => p.frecuencia === 'diario').sort((a, b) => (a.fecha < b.fecha ? 1 : -1))[0];
+    const dp = String(sel.precio_dia || 0), np = String(sel.precio_noche || 0);
+    const tieneUlt = last && (Number(last.cantidad_dia) || Number(last.cantidad_noche));
+    const dc = tieneUlt ? String(Number(last.cantidad_dia) || 0) : '1';
+    const nc = tieneUlt ? String(Number(last.cantidad_noche) || 0) : '0';
+    setEditing(null); setFFecha(todayISO()); setFFrec('diario');
+    setFDiaCant(dc); setFDiaPrecio(dp); setFNocheCant(nc); setFNochePrecio(np);
+    setFCant('1'); setFPrecio(dp); setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); setMontoTocado(false);
     setFMetodo('efectivo'); setFConcepto(''); setFNota(''); setPayOpen(true);
   };
   const abrirEditar = (p: StaffPersonPayment) => {
-    setEditing(p); setFFecha(p.fecha); setFFrec(p.frecuencia); setFJornada((p.jornada as Jornada) || 'dia');
+    setEditing(p); setFFecha(p.fecha); setFFrec(p.frecuencia);
+    const { dc, nc, dp, np } = dayNight(p);
+    setFDiaCant(String(dc)); setFDiaPrecio(String(dp || sel?.precio_dia || 0)); setFNocheCant(String(nc)); setFNochePrecio(String(np || sel?.precio_noche || 0));
     setFCant(String(p.cantidad)); setFPrecio(String(p.precio_unit)); setFMonto(String(p.monto)); setMontoTocado(true);
     setFMetodo(p.metodo || 'efectivo'); setFConcepto(p.concepto || ''); setFNota(p.nota || ''); setPayOpen(true);
   };
   const cambiarFrec = (frec: Frecuencia) => {
     setFFrec(frec);
-    if (sel) { const pr = tarifaFor(sel, frec, fJornada); setFPrecio(String(pr)); if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr))); }
-  };
-  const cambiarJornada = (j: Jornada) => {
-    setFJornada(j);
-    if (sel && fFrec === 'diario') { const pr = tarifaFor(sel, 'diario', j); setFPrecio(String(pr)); if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr))); }
+    if (!sel) return;
+    if (frec === 'diario') {
+      const dp = String(sel.precio_dia || 0), np = String(sel.precio_noche || 0);
+      setFDiaPrecio(dp); setFNochePrecio(np);
+      if (!montoTocado) setFMonto(String(round2(parseNum(fDiaCant) * parseNum(dp) + parseNum(fNocheCant) * parseNum(np))));
+    } else {
+      const pr = tarifaFor(sel, frec, 'dia'); setFPrecio(String(pr));
+      if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr)));
+    }
   };
 
   const guardar = async () => {
     if (!sel) return;
     const monto = parseNum(fMonto);
     if (monto <= 0) { Alert.alert('Monto', 'Indica un monto mayor a 0.'); return; }
+    const esDiario = fFrec === 'diario';
     setSaving(true);
     const row = {
       employee_id: sel.id, cedula: sel.cedula, person_name: fullName(sel), cargo: sel.cargo ? canonicalCargo(sel.cargo) : null,
-      fecha: fFecha, frecuencia: fFrec, jornada: fFrec === 'diario' ? fJornada : null,
-      cantidad: parseNum(fCant) || 1, precio_unit: parseNum(fPrecio), monto,
+      fecha: fFecha, frecuencia: fFrec, jornada: null,
+      cantidad: esDiario ? (parseNum(fDiaCant) + parseNum(fNocheCant)) : (parseNum(fCant) || 1),
+      precio_unit: esDiario ? 0 : parseNum(fPrecio),
+      cantidad_dia: esDiario ? parseNum(fDiaCant) : 0, cantidad_noche: esDiario ? parseNum(fNocheCant) : 0,
+      precio_dia: esDiario ? parseNum(fDiaPrecio) : 0, precio_noche: esDiario ? parseNum(fNochePrecio) : 0,
+      monto,
       metodo: fMetodo, banco: sel.bank_name, cuenta: sel.bank_account,
       concepto: fConcepto.trim() || null, nota: fNota.trim() || null, updated_at: new Date().toISOString(),
     };
@@ -317,35 +354,46 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
 
                 {fFrec === 'diario' ? (
                   <>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Jornada</Text>
-                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                      {([['dia', '☀️ Día'], ['noche', '🌙 Noche']] as [Jornada, string][]).map(([k, t]) => {
-                        const on = fJornada === k;
-                        return (
-                          <TouchableOpacity key={k} onPress={() => cambiarJornada(k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Jornadas de día y de noche (puedes cargar ambas juntas)</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>☀️ Días</Text>
+                        <TextInput value={fDiaCant} onChangeText={(t) => { const v = onlyDecimal(t); setFDiaCant(v); recalcDiario(v, fDiaPrecio, fNocheCant, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 2 }}>Precio día</Text>
+                        <TextInput value={fDiaPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFDiaPrecio(v); recalcDiario(fDiaCant, v, fNocheCant, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>🌙 Noches</Text>
+                        <TextInput value={fNocheCant} onChangeText={(t) => { const v = onlyDecimal(t); setFNocheCant(v); recalcDiario(fDiaCant, fDiaPrecio, v, fNochePrecio); }} keyboardType="decimal-pad" style={input} />
+                        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 2 }}>Precio noche</Text>
+                        <TextInput value={fNochePrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFNochePrecio(v); recalcDiario(fDiaCant, fDiaPrecio, fNocheCant, v); }} keyboardType="decimal-pad" style={input} />
+                      </View>
                     </View>
+                    <View style={{ marginTop: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
+                      <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Monto sugerido = (días × precio día) + (noches × precio noche). Editable. Las cantidades quedan guardadas para el próximo pago.</Text>
                   </>
-                ) : null}
-
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Cantidad</Text>
-                    <TextInput value={fCant} onChangeText={(t) => { const v = onlyDecimal(t); setFCant(v); recalcMonto(v, fPrecio); }} keyboardType="decimal-pad" style={input} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Precio unit.</Text>
-                    <TextInput value={fPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFPrecio(v); recalcMonto(fCant, v); }} keyboardType="decimal-pad" style={input} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
-                    <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
-                  </View>
-                </View>
-                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El monto se sugiere solo (cantidad × precio); puedes cambiarlo a mano.</Text>
+                ) : (
+                  <>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Cantidad</Text>
+                        <TextInput value={fCant} onChangeText={(t) => { const v = onlyDecimal(t); setFCant(v); recalcSimple(v, fPrecio); }} keyboardType="decimal-pad" style={input} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Precio unit.</Text>
+                        <TextInput value={fPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFPrecio(v); recalcSimple(fCant, v); }} keyboardType="decimal-pad" style={input} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
+                        <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
+                      </View>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El monto se sugiere solo (cantidad × precio); puedes cambiarlo a mano.</Text>
+                  </>
+                )}
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Método</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

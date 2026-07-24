@@ -39,3 +39,9 @@ create index if not exists idx_sp_fecha    on public.staff_payments(fecha);
 alter table public.staff_payments enable row level security;
 drop policy if exists sp_all on public.staff_payments;
 create policy sp_all on public.staff_payments for all to authenticated using (true) with check (true);
+
+-- 3) "Diario" con día Y noche juntos en un mismo pago.
+alter table public.staff_payments add column if not exists cantidad_dia   numeric(8,2)  not null default 0;
+alter table public.staff_payments add column if not exists cantidad_noche numeric(8,2)  not null default 0;
+alter table public.staff_payments add column if not exists precio_dia     numeric(14,2) not null default 0;
+alter table public.staff_payments add column if not exists precio_noche   numeric(14,2) not null default 0;
