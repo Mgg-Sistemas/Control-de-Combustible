@@ -591,11 +591,13 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   eliges una máquina (las que faltan por ubicar salen primero) y **tocas el mapa** en el punto
   donde está; queda ubicada al instante. **Solo los administradores** pueden reubicar máquinas
   y eliminar ubicaciones del mapa.
-- **📄 Referencias por inspector (reporte PDF):** hoja de **ruta de inspección**. Agrupa las
-  máquinas por su **inspector asignado** (quien hizo el último check-in, igual que en el catálogo)
-  y por cada inspector lista sus máquinas con **placa/serial**, la **referencia** de ubicación
-  (edificio, parque, plaza, calle) y la **empresa**. Las que tienen referencia pero aún sin
-  inspector salen en **"Sin inspector asignado"**.
+- **📄 Referencias por sector (Este / Oeste) (reporte PDF):** agrupa las máquinas **ubicadas** por
+  su **sector geográfico** (macro **🟢 Este / 🟠 Oeste** y su **sub-sector**, según el GPS de la
+  máquina). Por cada máquina muestra **placa/serial**, la **referencia** de ubicación (edificio,
+  residencia, plaza, calle), el **inspector** asignado y la **empresa**. Las que no tienen GPS
+  salen en **"Sin zona"**.
+- **🔎 Buscador del mapa:** la lupa de búsqueda está **limitada a La Guaira** — solo encuentra
+  calles, sectores y lugares de la franja costera de La Guaira; lo de otros estados no aparece.
 - **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,
   igual que Sectores) muestra **quién colocó** cada ubicación, con su **fecha y hora**. Toca una
   fila para ver esa máquina en el mapa. Sirve para **vigilar quién está haciendo las ubicaciones**.

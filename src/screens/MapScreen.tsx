@@ -10,6 +10,7 @@ import { equipCategory } from '../lib/equipos';
 import { cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
+import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -87,7 +88,7 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
   const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -131,11 +132,12 @@ export default function MapScreen({ navigation, route }: any) {
 
     // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
     // LISTAR las que faltan por ubicar con su placa/serial y empresa.
-    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, encargado, referencia, company:company_id(name)');
+    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude, encargado, referencia, company:company_id(name)');
     setAllMachines((every ?? []).map((m: any) => ({
       id: m.id, code: m.code ?? '', located: m.latitude != null,
       plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
       encargado: m.encargado ?? null, referencia: m.referencia ?? null,
+      lat: m.latitude != null ? Number(m.latitude) : null, lng: m.longitude != null ? Number(m.longitude) : null,
     })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
@@ -161,49 +163,56 @@ export default function MapScreen({ navigation, route }: any) {
     );
   }, []);
 
-  // Reporte "Referencias por inspector": agrupa las máquinas por su INSPECTOR
-  // ASIGNADO (= quien hizo el último check-in, igual que en el catálogo) y lista,
-  // por cada uno, sus máquinas con placa/serial y la REFERENCIA de ubicación
-  // (edificio, parque, plaza, calle). Sirve como hoja de RUTA DE INSPECCIÓN.
+  // Reporte "Referencias por sector": agrupa las máquinas UBICADAS por su SECTOR
+  // geográfico (macro ESTE / OESTE y su sub-sector), listando por cada una su
+  // REFERENCIA de ubicación (edificio, residencia, plaza, calle), el inspector
+  // asignado y la empresa. El sector sale del GPS de la máquina.
   const referenciasPdf = async () => {
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     setRefBusy(true);
     try {
       const inspectors = await latestInspectorByMachine(); // machinery_id → inspector del último check-in
-      // Relevantes: con inspector asignado o con referencia (para no perder ninguna).
-      const relevant = allMachines.filter((m) => inspectors[m.id]?.name?.trim() || (m.referencia ?? '').trim());
+      // Relevantes: ubicadas (con GPS) o con referencia escrita.
+      const relevant = allMachines
+        .filter((m) => m.located || (m.referencia ?? '').trim())
+        .map((m) => { const sec = sectorOf(m.lat, m.lng); return { ...m, macro: sectorMacro(sec), sub: sectorLabel(sec) }; });
       if (relevant.length === 0) {
-        Alert.alert('Referencias', 'Todavía no hay inspectores asignados ni referencias. El inspector asignado es quien hace el último check-in de la máquina; la referencia se coloca al marcar la ubicación.');
+        Alert.alert('Referencias', 'Todavía no hay máquinas ubicadas ni referencias. La referencia (edificio/residencia) y el sector se registran al marcar la ubicación de la máquina en el mapa.');
         return;
       }
-      const SIN = 'Sin inspector asignado';
-      const groups = new Map<string, typeof allMachines>();
-      relevant.forEach((m) => {
-        const key = inspectors[m.id]?.name?.trim() || SIN;
-        const arr = groups.get(key) ?? [];
-        arr.push(m); groups.set(key, arr);
-      });
-      // Inspectores A→Z; "Sin inspector asignado" al final.
-      const keys = Array.from(groups.keys()).sort((a, b) => (a === SIN ? 1 : b === SIN ? -1 : cmpText(a, b)));
-      const inspCount = keys.filter((k) => k !== SIN).length;
-      const body = keys.map((k) => {
-        const list = (groups.get(k) ?? []).slice().sort((a, b) => cmpText(a.code, b.code));
-        const rows = list.map((m, i) =>
-          `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc((m.referencia ?? '').trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
-        ).join('');
-        return `<h3 class="insp">🪖 ${esc(k)} <span class="sub">· ${list.length} máquina(s)</span></h3>
-          <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const macros: { key: 'ESTE' | 'OESTE' | 'SIN'; title: string; emoji: string }[] = [
+        { key: 'ESTE', title: 'SECTOR ESTE', emoji: '🟢' },
+        { key: 'OESTE', title: 'SECTOR OESTE', emoji: '🟠' },
+        { key: 'SIN', title: 'SIN ZONA (sin ubicación GPS)', emoji: '⚪' },
+      ];
+      const macroKey = (m: typeof relevant[number]) => (m.macro === 'ESTE' ? 'ESTE' : m.macro === 'OESTE' ? 'OESTE' : 'SIN');
+      const body = macros.map((mac) => {
+        const list = relevant.filter((m) => macroKey(m) === mac.key);
+        if (!list.length) return '';
+        const subs = Array.from(new Set(list.map((m) => m.sub))).sort(cmpText);
+        const blocks = subs.map((sub) => {
+          const items = list.filter((m) => m.sub === sub).sort((a, b) => cmpText(a.code, b.code));
+          const rows = items.map((m, i) =>
+            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc((m.referencia ?? '').trim() || '—')}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+          ).join('');
+          return `<h4 class="sub2">📍 ${esc(sub)} <span>· ${items.length} máquina(s)</span></h4>
+            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Referencia</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+        }).join('');
+        return `<h3 class="sect">${mac.emoji} ${mac.title} <span class="sub">· ${list.length} máquina(s)</span></h3>${blocks}`;
       }).join('');
+      const este = relevant.filter((m) => m.macro === 'ESTE').length;
+      const oeste = relevant.filter((m) => m.macro === 'OESTE').length;
       const html = pdfDocument({
-        title: 'Referencias por inspector',
-        subtitle: `Ruta de inspección · ${inspCount} inspector(es) · ${relevant.length} máquina(s)`,
-        extraCss: `h3.insp{margin:16px 0 4px;font-size:14px;color:#1E3A5F} h3.insp .sub{font-weight:400;color:#555;font-size:11px}
+        title: 'Referencias por sector',
+        subtitle: `Máquinas por sector · 🟢 Este ${este} · 🟠 Oeste ${oeste} · ${relevant.length} máquina(s)`,
+        extraCss: `h3.sect{margin:18px 0 6px;font-size:15px;color:#fff;background:#1E3A5F;padding:7px 12px;border-radius:6px} h3.sect .sub{font-weight:400;color:#cfe0f2;font-size:11px}
+          h4.sub2{margin:12px 0 3px;font-size:12.5px;color:#1E3A5F} h4.sub2 span{font-weight:400;color:#555;font-size:11px}
           table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px}
           th,td{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top} th{background:#1E3A5F;color:#fff}
           td.c,th.c{text-align:center;width:26px} tbody tr:nth-child(even) td{background:#F3F4F6}`,
         body,
       });
-      await exportPdf(html, 'Referencias por inspector');
+      await exportPdf(html, 'Referencias por sector');
     } finally {
       setRefBusy(false);
     }
@@ -440,8 +449,8 @@ export default function MapScreen({ navigation, route }: any) {
       <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1, paddingRight: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias por inspector</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Hoja de ruta: por cada inspector, sus máquinas asignadas con placa/serial y la referencia (edificio, parque, plaza, calle)</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Referencias por sector (Este / Oeste)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con su referencia (edificio, residencia, plaza, calle), inspector y empresa</Text>
           </View>
           <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
         </Card>
