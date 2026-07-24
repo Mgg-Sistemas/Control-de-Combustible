@@ -10,6 +10,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm } from '../lib/text';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
+import { TabuladorCargos } from '../components/TabuladorCargos';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -104,6 +105,9 @@ export default function PagoPersonalScreen() {
   const [cMode, setCMode] = useState<Mode>('dia');
   const [cValid, setCValid] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // Tabulador de sueldos por cargo (lista desplegable, editable, sincroniza a empleados)
+  const [tabOpen, setTabOpen] = useState(false);
 
   // Detalle
   const [sel, setSel] = useState<StaffPayPeriod | null>(null);
@@ -516,10 +520,17 @@ export default function PagoPersonalScreen() {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Pago a personal</SectionTitle>
-        <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <TouchableOpacity onPress={() => setTabOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>🏷️ Tabulador</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+      <TabuladorCargos visible={tabOpen} onClose={() => setTabOpen(false)} canEdit={puedeTarifa} onSynced={refetch} />
+      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>💡 El sueldo se define en el "🏷️ Tabulador" por cargo y se sincroniza a los empleados (no uno por uno).</Text>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
         Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano. Los períodos "Por día" incluyen SOLO a los operadores.
       </Text>

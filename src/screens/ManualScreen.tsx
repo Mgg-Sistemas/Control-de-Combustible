@@ -209,6 +209,7 @@ const SECTIONS: Sec[] = [
     blocks: [
       { t: 'p', text: 'Sirve para calcular y pagar al personal por PRECIO por hora, día o semana, definido POR TRABAJADOR. Está dentro de Nómina: abre 💵 Control de pago a personal.' },
       { t: 'note', text: 'El personal se paga SIEMPRE por la organización (SOS LA GUAIRA), no por contratista. Al crear un período NO se elige empresa: se carga a TODO el personal activo y todo queda bajo SOS LA GUAIRA. Así siempre hay a quién ponerle su precio.' },
+      { t: 'note', text: 'TABULADOR POR CARGO (🏷️ Tabulador, arriba): en vez de poner el sueldo uno por uno, defines el sueldo POR CARGO. Es una lista desplegable: toca un cargo y se abre su detalle (sueldo semana, ☀️ precio día, 🌙 precio noche, precio hora) — es editable. Con "+ Cargo" añades cargos nuevos y también aparecen los cargos de empleados que aún no tienen tabulador (toca para crearlo). Al tocar "🔄 Sincronizar" el sueldo de ese cargo se copia a TODOS los empleados que tengan ese cargo. Después, al crear el período, cada quien ya trae su sueldo.' },
       { t: 'p', text: 'Cómo se calcula:' },
       { t: 'bullets', items: [
         'Cada trabajador tiene su Precio por hora, ☀️ Precio por día, 🌙 Precio por noche y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',

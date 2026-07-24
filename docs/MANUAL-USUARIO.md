@@ -205,6 +205,12 @@ trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal*
 > Al crear un período **no se elige empresa**: se carga a **TODO el personal activo** y todo
 > queda bajo **SOS LA GUAIRA**. Así siempre hay a quién ponerle su precio.
 
+> **🏷️ Tabulador por cargo** (botón arriba): define el sueldo **por CARGO**, no uno por uno. Es
+> una **lista desplegable**: toca un cargo y se abre su **detalle** editable (sueldo semana,
+> ☀️ precio día, 🌙 precio noche, precio hora). Con **"+ Cargo"** añades cargos nuevos (y salen
+> los cargos de empleados que aún no tienen tabulador). Al tocar **"🔄 Sincronizar"** ese sueldo
+> se copia a **todos los empleados con ese cargo**. Luego, al crear el período, ya traen su sueldo.
+
 **Cómo se calcula:**
 - Cada trabajador tiene su **Precio por hora**, **☀️ Precio por día**, **🌙 Precio por noche** y
   **Precio por semana** (los cargas/editas en el renglón de la persona y quedan guardados en su
