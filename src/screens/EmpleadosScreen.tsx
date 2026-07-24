@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Image, Alert, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -78,6 +78,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const [statusFilter, setStatusFilter] = useState<'todos' | 'activo' | 'inactivo'>('todos'); // estado del empleado
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set()); // vacío = todos los cargos
   const [cargosOpen, setCargosOpen] = useState(false);
+  const [cargoQ, setCargoQ] = useState(''); // buscador dentro de la lista de cargos
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -327,28 +328,31 @@ export default function EmpleadosScreen({ navigation }: any) {
         </View>
         {cargosOpen ? (
           <View style={{ marginTop: spacing.sm }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-              <TouchableOpacity
-                onPress={() => setCargoSel(new Set())}
-                style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: cargoSel.size === 0 ? colors.primary : colors.border, backgroundColor: cargoSel.size === 0 ? colors.primary : colors.surface }}
-              >
-                <Text style={{ color: cargoSel.size === 0 ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
-              </TouchableOpacity>
-              {cargoCounts.map(([cargo, n]) => {
-                const on = cargoSel.has(cargo);
-                return (
-                  <TouchableOpacity
-                    key={cargo}
-                    onPress={() => setCargoSel((prev) => { const s = new Set(prev); if (s.has(cargo)) s.delete(cargo); else s.add(cargo); return s; })}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
-                  >
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{cargo} · {n}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <TextInput value={cargoQ} onChangeText={setCargoQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
+            <ScrollView style={{ maxHeight: 240 }} keyboardShouldPersistTaps="handled">
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setCargoSel(new Set())}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: cargoSel.size === 0 ? colors.primary : colors.border, backgroundColor: cargoSel.size === 0 ? colors.primary : colors.surface }}
+                >
+                  <Text style={{ color: cargoSel.size === 0 ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
+                </TouchableOpacity>
+                {cargoCounts.filter(([cargo]) => !cargoQ.trim() || norm(cargo).includes(norm(cargoQ))).map(([cargo, n]) => {
+                  const on = cargoSel.has(cargo);
+                  return (
+                    <TouchableOpacity
+                      key={cargo}
+                      onPress={() => setCargoSel((prev) => { const s = new Set(prev); if (s.has(cargo)) s.delete(cargo); else s.add(cargo); return s; })}
+                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                    >
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{cargo} · {n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>
-              Puedes marcar varios cargos (operadores, obreros…). El botón 📊 Reporte genera el listado de lo seleccionado + resumen por cargo.
+              Busca y marca varios cargos (operadores, obreros…). El botón 📊 Reporte genera el listado de lo seleccionado + resumen por cargo.
             </Text>
           </View>
         ) : (

@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTable } from '../hooks/useTable';
-import { useConfirm } from './ConfirmProvider';
 import { norm, cmpText, onlyDecimal } from '../lib/text';
 import { StaffCargoTariff } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -23,8 +22,19 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   visible: boolean; onClose: () => void; canEdit: boolean; onSynced?: () => void;
 }) {
   const { colors } = useTheme();
-  const confirm = useConfirm();
   const { data: tariffs, refetch } = useTable<StaffCargoTariff>('staff_cargo_tariffs', { orderBy: 'cargo' });
+
+  // Aviso y confirmación LOCALES (dentro de este modal). El diálogo global
+  // (ConfirmProvider) y Alert.alert NO funcionan bien encima de un Modal en web:
+  // quedan atrapados detrás. Por eso se usan estos, anidados como el alta de cargo.
+  const [notice, setNotice] = useState('');
+  const [confirmMsg, setConfirmMsg] = useState<{ title: string; message: string; confirmText: string; danger?: boolean } | null>(null);
+  const confirmResolver = useRef<((v: boolean) => void) | null>(null);
+  const askConfirm = (o: { title: string; message: string; confirmText: string; danger?: boolean }) => {
+    setNotice(''); setConfirmMsg(o);
+    return new Promise<boolean>((resolve) => { confirmResolver.current = resolve; });
+  };
+  const closeConfirm = (v: boolean) => { setConfirmMsg(null); confirmResolver.current?.(v); confirmResolver.current = null; };
 
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);   // tabulador expandido
@@ -77,20 +87,20 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
       departamento: draft.depto.trim() || null, updated_at: new Date().toISOString(),
     }).eq('id', t.id);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return setNotice(`⚠️ ${error.message}`);
     await refetch();
-    Alert.alert('Listo', `Tabulador de "${t.cargo}" guardado. Usa "🔄 Sincronizar" para aplicarlo a los empleados.`);
+    setNotice(`✅ Tabulador de "${t.cargo}" guardado. Usa "🔄 Sincronizar" para aplicarlo a los empleados.`);
   };
 
   // Escribe los precios del tabulador a TODOS los empleados con ese cargo.
   const sincronizar = async (t: StaffCargoTariff) => {
     if (!canEdit) return;
     const n = empCount(t.cargo);
-    if (n === 0) return Alert.alert('Aviso', `No hay empleados con el cargo "${t.cargo}". Asígnales ese cargo en Empleados y vuelve a sincronizar.`);
-    const ok = await confirm({
+    if (n === 0) return setNotice(`⚠️ No hay empleados con el cargo "${t.cargo}". Asígnales ese cargo en Empleados y vuelve a sincronizar.`);
+    const ok = await askConfirm({
       title: 'Sincronizar sueldos',
       message: `Se pondrá el sueldo del tabulador a ${n} empleado(s) con el cargo "${t.cargo}":\n\n☀️ Día ${usd(t.precio_dia)} · 🌙 Noche ${usd(t.precio_noche)} · Semana ${usd(t.precio_semana)} · Quincena ${usd(t.precio_quincena)} · Mes ${usd(t.precio_mes)} · Hora ${usd(t.precio_hora)}.\n\n¿Continuar?`,
-      confirmText: 'Sincronizar', cancelText: 'Cancelar',
+      confirmText: 'Sincronizar',
     });
     if (!ok) return;
     setBusy(true);
@@ -99,18 +109,19 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
       precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
     }).eq('cargo', t.cargo);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return setNotice(`⚠️ ${error.message}`);
     onSynced?.();
-    Alert.alert('Listo', `${n} empleado(s) con el cargo "${t.cargo}" quedaron con el sueldo del tabulador.`);
+    setNotice(`✅ ${n} empleado(s) con el cargo "${t.cargo}" quedaron con el sueldo del tabulador.`);
   };
 
   const eliminar = async (t: StaffCargoTariff) => {
     if (!canEdit) return;
-    const ok = await confirm({ title: 'Eliminar del tabulador', message: `¿Quitar "${t.cargo}" del tabulador? (No cambia el sueldo ya puesto a los empleados.)`, confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true });
+    const ok = await askConfirm({ title: 'Eliminar del tabulador', message: `¿Quitar "${t.cargo}" del tabulador? (No cambia el sueldo ya puesto a los empleados.)`, confirmText: 'Eliminar', danger: true });
     if (!ok) return;
     await supabase.from('staff_cargo_tariffs').delete().eq('id', t.id);
     if (openId === t.id) setOpenId(null);
     await refetch();
+    setNotice(`🗑️ "${t.cargo}" se quitó del tabulador.`);
   };
 
   // Alta de cargo (opcionalmente precargando el nombre desde un cargo sin tabulador).
@@ -118,8 +129,8 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   const crearCargo = async () => {
     if (!canEdit) return;
     const cargo = nCargo.trim().toUpperCase();
-    if (!cargo) return Alert.alert('Aviso', 'Escribe el nombre del cargo.');
-    if (tariffs.some((t) => norm(t.cargo) === norm(cargo))) return Alert.alert('Aviso', 'Ya existe un cargo con ese nombre en el tabulador.');
+    if (!cargo) return setNotice('⚠️ Escribe el nombre del cargo.');
+    if (tariffs.some((t) => norm(t.cargo) === norm(cargo))) return setNotice('⚠️ Ya existe un cargo con ese nombre en el tabulador.');
     setBusy(true);
     const { error } = await supabase.from('staff_cargo_tariffs').insert({
       cargo, departamento: nDraft.depto.trim() || null, precio_hora: parseNum(nDraft.hora),
@@ -127,9 +138,10 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
       precio_quincena: parseNum(nDraft.quincena), precio_mes: parseNum(nDraft.mes),
     });
     setBusy(false);
-    if (error) return Alert.alert('Aviso', /duplicate|unique/i.test(error.message) ? 'Ya existe ese cargo.' : error.message);
+    if (error) return setNotice(`⚠️ ${/duplicate|unique/i.test(error.message) ? 'Ya existe ese cargo.' : error.message}`);
     setAddOpen(false); setNCargo(''); setNDraft(emptyDraft);
     await refetch();
+    setNotice(`✅ Cargo "${cargo}" agregado al tabulador.`);
   };
 
   const priceRow = (d: Draft, set: (d: Draft) => void) => (
@@ -152,6 +164,13 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
             <TouchableOpacity onPress={onClose}><Text style={{ color: colors.primary, fontWeight: '800' }}>Cerrar</Text></TouchableOpacity>
           </View>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Define el sueldo por CARGO y toca "🔄 Sincronizar" para aplicarlo a todos los empleados con ese cargo (así no lo pones uno por uno). Toca un cargo para ver/editar su detalle.</Text>
+
+          {notice ? (
+            <TouchableOpacity onPress={() => setNotice('')} activeOpacity={0.8} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontSize: 12 }}>{notice}</Text>
+              <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Toca para cerrar</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
             <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={{ ...input, flex: 1 }} />
@@ -239,6 +258,24 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
               </TouchableOpacity>
               <TouchableOpacity onPress={crearCargo} disabled={busy} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: busy ? 0.7 : 1 }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Crear cargo'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Confirmación LOCAL (anidada) — funciona encima del modal en web. */}
+      <Modal visible={!!confirmMsg} transparent animationType="fade" onRequestClose={() => closeConfirm(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: spacing.sm }}>{confirmMsg?.title}</Text>
+            <Text style={{ color: colors.text, fontSize: 14, marginBottom: spacing.lg }}>{confirmMsg?.message}</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+              <TouchableOpacity onPress={() => closeConfirm(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => closeConfirm(true)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: confirmMsg?.danger ? colors.danger : colors.primary }}>
+                <Text style={{ color: confirmMsg?.danger ? '#fff' : colors.primaryContrast, fontWeight: '800' }}>{confirmMsg?.confirmText}</Text>
               </TouchableOpacity>
             </View>
           </View>
