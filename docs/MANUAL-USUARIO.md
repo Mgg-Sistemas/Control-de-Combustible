@@ -379,6 +379,11 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 
 > El reporte respeta TODO lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.
 
+> **Estado del empleado — "Otro":** además de **Activo / Inactivo / Suspendido**, un empleado puede
+> quedar en estado **"Otro"**. Los empleados en **"Otro"** **NO entran al control de pago**: no se
+> precargan al crear una nómina/período y **no aparecen** en **Pago a personal → Por persona** (ni
+> siquiera en "Todos"). Úsalo para gente que no debe pagarse por este sistema.
+
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:

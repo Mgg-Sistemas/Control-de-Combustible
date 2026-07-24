@@ -91,6 +91,8 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const shown = useMemo(() => {
     const nq = norm(q);
     return employees
+      // Estado "otro" = NO entra al control de pago: se excluye siempre (aun en "Todos").
+      .filter((e) => (e.status || '').toLowerCase() !== 'otro')
       .filter((e) => (!soloActivos || e.status === 'activo'))
       .filter((e) => !nq || norm(fullName(e)).includes(nq) || norm(e.cedula).includes(nq) || norm(e.cargo).includes(nq) || norm(e.ficha_number).includes(nq))
       .sort((a, b) => cmpText(fullName(a), fullName(b)));

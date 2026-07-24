@@ -172,6 +172,7 @@ const SECTIONS: Sec[] = [
         'Toca "📊 Reporte": genera un PDF con el LISTADO de las personas seleccionadas (nombre, cédula, ficha, cargo, empresa, estado, teléfono) y un RESUMEN por cargo con el total.',
       ] },
       { t: 'note', text: 'El reporte respeta todo lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.' },
+      { t: 'note', text: 'Estado del empleado "Otro": además de Activo / Inactivo / Suspendido, un empleado puede quedar en estado "Otro". Los que están en "Otro" NO entran al control de pago: no se precargan al crear una nómina/período y no aparecen en Pago a personal → Por persona (ni en "Todos"). Úsalo para gente que no debe pagarse por este sistema.' },
       { t: 'note', text: 'Ficha del trabajador (toca 🪪 Ficha en un empleado, o escanea su carnet): abajo hay dos botones. 📄 Ficha completa (PDF) descarga TODOS los datos por secciones (identificación, datos laborales, contacto, emergencia, banco y tallas). 🖼️ Carnet (imagen) descarga el carnet 54×86 mm. Lo mismo aplica a los Aliados (su PDF es la ficha completa; la imagen es el carnet).' },
     ],
   },
