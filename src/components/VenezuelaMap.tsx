@@ -73,8 +73,11 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true, position: 'topleft' }).addTo(map);
 
   if (L.Control && L.Control.Geocoder) {
-    var geocoder = L.Control.Geocoder.nominatim({ geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8 } });
-    L.Control.geocoder({ geocoder: geocoder, defaultMarkGeocode: true, collapsed: true, position: 'topleft', placeholder: 'Buscar estado, municipio, parroquia, calle…', errorMessage: 'No se encontró el lugar' }).addTo(map);
+    // Búsqueda LIMITADA a La Guaira (franja costera Catia La Mar → Naiguatá).
+    // viewbox = lon_oeste,lat_norte,lon_este,lat_sur ; bounded:1 descarta lo de afuera.
+    var LG_VIEWBOX = '-67.15,10.70,-66.72,10.52';
+    var geocoder = L.Control.Geocoder.nominatim({ geocodingQueryParams: { countrycodes: 've', 'accept-language': 'es', addressdetails: 1, limit: 8, viewbox: LG_VIEWBOX, bounded: 1 } });
+    L.Control.geocoder({ geocoder: geocoder, defaultMarkGeocode: true, collapsed: true, position: 'topleft', placeholder: 'Buscar en La Guaira (calle, sector, plaza…)', errorMessage: 'No se encontró el lugar en La Guaira' }).addTo(map);
   }
   function pin(color){return L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,28],popupAnchor:[0,-26],
     html:'<svg width="28" height="28" viewBox="0 0 24 24"><path fill="'+color+'" stroke="white" stroke-width="1.2" d="M12 2C8 2 5 5 5 9c0 5 7 13 7 13s7-8 7-13c0-4-3-7-7-7z"/><circle cx="12" cy="9" r="2.6" fill="white"/></svg>'});}
