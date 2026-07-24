@@ -16,7 +16,20 @@ import { useTheme } from '../theme/ThemeContext';
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+// Convierte texto a número aceptando AMBOS formatos: "199.99" (punto decimal, como
+// lo genera el monto sugerido) y "28,57" o "19.999,00" (coma decimal estilo VE). Toma
+// el ÚLTIMO separador (. o ,) como decimal y el resto como miles. Antes borraba todos
+// los puntos y "199.99" se guardaba como 19999 (monto ×100 mal).
+const parseNum = (t: string): number => {
+  const s = String(t ?? '').trim().replace(/[^0-9.,\-]/g, '');
+  if (!s) return 0;
+  const dec = Math.max(s.lastIndexOf(','), s.lastIndexOf('.'));
+  if (dec === -1) { const n = Number(s); return isFinite(n) ? n : 0; }
+  const intPart = s.slice(0, dec).replace(/[.,]/g, '');
+  const fracPart = s.slice(dec + 1).replace(/[.,]/g, '');
+  const n = Number(`${intPart}.${fracPart}`);
+  return isFinite(n) ? n : 0;
+};
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
 const addDaysISO = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
