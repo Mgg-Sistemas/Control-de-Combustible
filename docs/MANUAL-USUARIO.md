@@ -206,11 +206,13 @@ trabajador**. Está dentro de **Nómina** → **💵 Control de pago a personal*
 > queda bajo **SOS LA GUAIRA**. Así siempre hay a quién ponerle su precio.
 
 **Cómo se calcula:**
-- Cada trabajador tiene su **Precio por hora**, **Precio por día** y **Precio por semana**
-  (los cargas/editas en el renglón de la persona y quedan guardados en su **ficha** para el
-  próximo período).
+- Cada trabajador tiene su **Precio por hora**, **☀️ Precio por día**, **🌙 Precio por noche** y
+  **Precio por semana** (los cargas/editas en el renglón de la persona y quedan guardados en su
+  **ficha** para el próximo período).
 - Cada período elige **"Pago por"**: **Por hora**, **Por día** o **Por semana**. El
-  **devengado = precio del modo × cantidad** (horas, días o semanas trabajadas).
+  **devengado = precio del modo × cantidad**. En **"Por día"** el pago **separa día y noche**:
+  **devengado = (jornadas ☀️ día × precio día) + (jornadas 🌙 noche × precio noche)**. El sistema
+  cuenta solo las jornadas de día/noche del operador según el **turno** de cada una.
 - **Regla del "Por día": SOLO los operadores cobran por día.** Un período con "Pago por = Por
   día" precarga (y en "Personal faltante" agrega) **únicamente** empleados con cargo
   **operador**. Al resto del personal se le paga en períodos **Por hora** o **Por semana**.

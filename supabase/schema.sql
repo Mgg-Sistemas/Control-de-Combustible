@@ -1319,7 +1319,8 @@ alter table public.employees add column if not exists talla_pantalon text;
 alter table public.employees add column if not exists talla_zapatos text;
 -- Pago a personal: precios por trabajador (por hora / día / semana).
 alter table public.employees add column if not exists precio_hora numeric;
-alter table public.employees add column if not exists precio_dia numeric;
+alter table public.employees add column if not exists precio_dia numeric;   -- precio por jornada de DÍA
+alter table public.employees add column if not exists precio_noche numeric; -- precio por jornada de NOCHE
 alter table public.employees add column if not exists precio_semana numeric;
 -- Cédula y número de ficha únicos (cuando no están vacíos).
 create unique index if not exists uq_employees_cedula on public.employees (lower(btrim(cedula))) where cedula is not null and btrim(cedula) <> '';
@@ -1730,7 +1731,9 @@ create table if not exists public.staff_pay_items (
 );
 -- Migración de columnas para tablas ya creadas.
 alter table public.staff_pay_items add column if not exists precio_hora numeric(14,2) not null default 0;
-alter table public.staff_pay_items add column if not exists precio_dia numeric(14,2) not null default 0;
+alter table public.staff_pay_items add column if not exists precio_dia numeric(14,2) not null default 0;   -- precio jornada DÍA
+alter table public.staff_pay_items add column if not exists precio_noche numeric(14,2) not null default 0; -- precio jornada NOCHE
+alter table public.staff_pay_items add column if not exists dias_noche numeric(8,2) not null default 0;    -- jornadas de NOCHE
 alter table public.staff_pay_items add column if not exists precio_semana numeric(14,2) not null default 0;
 alter table public.staff_pay_items add column if not exists semanas numeric(8,2) not null default 0;
 create index if not exists idx_spi_period on public.staff_pay_items(period_id);

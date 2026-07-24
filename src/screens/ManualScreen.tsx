@@ -211,8 +211,8 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'El personal se paga SIEMPRE por la organización (SOS LA GUAIRA), no por contratista. Al crear un período NO se elige empresa: se carga a TODO el personal activo y todo queda bajo SOS LA GUAIRA. Así siempre hay a quién ponerle su precio.' },
       { t: 'p', text: 'Cómo se calcula:' },
       { t: 'bullets', items: [
-        'Cada trabajador tiene su Precio por hora, Precio por día y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',
-        'Cada período elige "Pago por": Por hora, Por día o Por semana. El devengado = precio del modo × cantidad (horas, días o semanas trabajadas).',
+        'Cada trabajador tiene su Precio por hora, ☀️ Precio por día, 🌙 Precio por noche y Precio por semana (los cargas/editas en el renglón de la persona y quedan guardados en su ficha para el próximo período).',
+        'Cada período elige "Pago por": Por hora, Por día o Por semana. El devengado = precio del modo × cantidad. En "Por día" el pago separa las jornadas de DÍA y de NOCHE: devengado = (jornadas ☀️ día × precio día) + (jornadas 🌙 noche × precio noche). El sistema cuenta solas las jornadas de día/noche del operador según el turno de cada una.',
         'REGLA del "Por día": SOLO los operadores cobran por día. Un período "Pago por = Por día" precarga (y en "Personal faltante" agrega) únicamente empleados con cargo operador. Al resto se le paga en períodos Por hora o Por semana.',
         'El Período (rango de fechas) puede ser Día, Semana (dom→sáb) o Quincena (1–15 / 16–fin de mes). Las fechas se ajustan solas y también se editan a mano.',
         'Total a pagar = devengado + bonos − deducciones.',

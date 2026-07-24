@@ -63,10 +63,24 @@ const esOperador = (cargo?: string | null) => norm(cargo ?? '').includes('operad
 const soloOperadoresSi = (mode: Mode) => mode === 'dia';
 const qtyOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.horas : mode === 'semana' ? it.semanas : it.dias) || 0;
 const priceOf = (it: StaffPayItem, mode: Mode) => Number(mode === 'hora' ? it.precio_hora : mode === 'semana' ? it.precio_semana : it.precio_dia) || 0;
-const devengadoOf = (it: StaffPayItem, mode: Mode) => round2(qtyOf(it, mode) * priceOf(it, mode));
+// Jornadas de NOCHE y su precio (solo aplica al modo "Por día").
+const nightQty = (it: StaffPayItem) => Number(it.dias_noche) || 0;
+const nightPrice = (it: StaffPayItem) => Number(it.precio_noche) || 0;
+// Devengado: en "Por día" = (jornadas de DÍA × precio día) + (jornadas de NOCHE × precio noche).
+// En "Por hora"/"Por semana" = cantidad × precio (un solo precio).
+const devengadoOf = (it: StaffPayItem, mode: Mode) =>
+  mode === 'dia'
+    ? round2((Number(it.dias) || 0) * (Number(it.precio_dia) || 0) + nightQty(it) * nightPrice(it))
+    : round2(qtyOf(it, mode) * priceOf(it, mode));
 const totalOf = (it: StaffPayItem, mode: Mode) => round2(devengadoOf(it, mode) + sumLines(it.bonos) - sumLines(it.deducciones));
+// Desglose legible del devengado: en "Por día" separa ☀️ día y 🌙 noche; si no, cantidad × precio.
+const devDesc = (it: StaffPayItem, mode: Mode): string =>
+  mode === 'dia'
+    ? `☀️ ${Number(it.dias) || 0} × ${usd(Number(it.precio_dia) || 0)} · 🌙 ${nightQty(it)} × ${usd(nightPrice(it))}`
+    : `${qtyOf(it, mode)} ${UNIT[mode]} × ${usd(priceOf(it, mode))}`;
 
-type AutoAgg = { diasV: number; horasV: number; diasAll: number; horasAll: number; val: number; pend: number; weeksV: Set<string>; weeksAll: Set<string> };
+// Agregación de jornadas por cédula: DÍA/NOCHE separadas (validadas y todas), horas y semanas.
+type AutoAgg = { diaV: number; nocheV: number; diaAll: number; nocheAll: number; horasV: number; horasAll: number; val: number; pend: number; weeksV: Set<string>; weeksAll: Set<string> };
 
 export default function PagoPersonalScreen() {
   const { colors } = useTheme();
@@ -103,8 +117,10 @@ export default function PagoPersonalScreen() {
   const [editItem, setEditItem] = useState<StaffPayItem | null>(null);
   const [ePHora, setEPHora] = useState('');
   const [ePDia, setEPDia] = useState('');
+  const [ePNoche, setEPNoche] = useState('');   // precio por jornada de NOCHE
   const [ePSemana, setEPSemana] = useState('');
   const [eDias, setEDias] = useState('');
+  const [eDiasNoche, setEDiasNoche] = useState(''); // jornadas de NOCHE
   const [eHoras, setEHoras] = useState('');
   const [eSemanas, setESemanas] = useState('');
   const [eBonos, setEBonos] = useState<StaffPayLine[]>([]);
@@ -122,18 +138,20 @@ export default function PagoPersonalScreen() {
   // ── Carga de jornadas automáticas (operadores) para un rango ────────────────
   const buildAuto = async (from: string, to: string) => {
     const [{ data: asg }, { data: vis }] = await Promise.all([
-      supabase.from('operator_assignments').select('cedula, machinery_id, work_date, worked_hours').gte('work_date', from).lte('work_date', to),
+      supabase.from('operator_assignments').select('cedula, machinery_id, work_date, worked_hours, shift').gte('work_date', from).lte('work_date', to),
       supabase.from('supervisor_visits').select('machinery_id, visit_date, status').gte('visit_date', from).lte('visit_date', to),
     ]);
     const valid = new Set((vis ?? []).filter((v: any) => v.status === 'trabajando').map((v: any) => `${v.machinery_id}|${v.visit_date}`));
     const byCed = new Map<string, AutoAgg>();
     (asg ?? []).forEach((r: any) => {
-      const g = byCed.get(r.cedula) ?? { diasV: 0, horasV: 0, diasAll: 0, horasAll: 0, val: 0, pend: 0, weeksV: new Set<string>(), weeksAll: new Set<string>() };
+      const g = byCed.get(r.cedula) ?? { diaV: 0, nocheV: 0, diaAll: 0, nocheAll: 0, horasV: 0, horasAll: 0, val: 0, pend: 0, weeksV: new Set<string>(), weeksAll: new Set<string>() };
       const h = Number(r.worked_hours) || 0;
       const wk = weekKey(r.work_date);
       const isVal = valid.has(`${r.machinery_id}|${r.work_date}`);
-      g.diasAll += 1; g.horasAll += h; g.weeksAll.add(wk);
-      if (isVal) { g.diasV += 1; g.horasV += h; g.val += 1; g.weeksV.add(wk); } else g.pend += 1;
+      const isNight = String(r.shift) === 'night'; // sin turno definido → cuenta como DÍA
+      g.horasAll += h; g.weeksAll.add(wk);
+      if (isNight) g.nocheAll += 1; else g.diaAll += 1;
+      if (isVal) { g.horasV += h; g.val += 1; g.weeksV.add(wk); if (isNight) g.nocheV += 1; else g.diaV += 1; } else g.pend += 1;
       byCed.set(r.cedula, g);
     });
     return byCed;
@@ -162,22 +180,24 @@ export default function PagoPersonalScreen() {
   const rowFor = (e: any, pid: string, g: AutoAgg | undefined, onlyValidated: boolean, mode: Mode) => {
     const precio_hora = Number(e.precio_hora) || 0;
     const precio_dia = Number(e.precio_dia) || 0;
+    const precio_noche = Number(e.precio_noche) || 0;
     const precio_semana = Number(e.precio_semana) || 0;
     const source = g ? 'auto' : 'manual';
-    const dias = g ? (onlyValidated ? g.diasV : g.diasAll) : 0;
+    const dias = g ? (onlyValidated ? g.diaV : g.diaAll) : 0;        // jornadas de DÍA
+    const dias_noche = g ? (onlyValidated ? g.nocheV : g.nocheAll) : 0; // jornadas de NOCHE
     const horas = g ? (onlyValidated ? g.horasV : g.horasAll) : 0;
     const semanas = g ? (onlyValidated ? g.weeksV.size : g.weeksAll.size) : 0;
-    const base = { precio_hora, precio_dia, precio_semana, dias, horas, semanas } as StaffPayItem;
+    const base = { precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas } as StaffPayItem;
     const dev = devengadoOf(base, mode);
     return {
       period_id: pid, employee_id: e.id, cedula: e.cedula, person_name: `${e.first_name} ${e.last_name}`.trim(),
-      cargo: e.cargo ?? null, source, precio_hora, precio_dia, precio_semana, dias, horas, semanas,
+      cargo: e.cargo ?? null, source, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas,
       jornadas_validadas: g ? g.val : 0, jornadas_pendientes: g ? g.pend : 0, overridden: false,
       devengado: dev, bonos: [], deducciones: [], total: dev, nota: null,
     };
   };
 
-  const EMP_COLS = 'id, first_name, last_name, cedula, cargo, precio_hora, precio_dia, precio_semana';
+  const EMP_COLS = 'id, first_name, last_name, cedula, cargo, precio_hora, precio_dia, precio_noche, precio_semana';
 
   // ── Crear período: precarga TODOS los empleados activos con sus precios ──────
   const crearPeriodo = async () => {
@@ -214,15 +234,16 @@ export default function PagoPersonalScreen() {
     for (const it of items) {
       if (it.source === 'auto' && !it.overridden) {
         const g = byCed.get(it.cedula ?? '');
-        const dias = g ? (sel.only_validated ? g.diasV : g.diasAll) : 0;
+        const dias = g ? (sel.only_validated ? g.diaV : g.diaAll) : 0;
+        const dias_noche = g ? (sel.only_validated ? g.nocheV : g.nocheAll) : 0;
         const horas = g ? (sel.only_validated ? g.horasV : g.horasAll) : 0;
         const semanas = g ? (sel.only_validated ? g.weeksV.size : g.weeksAll.size) : 0;
-        const merged = { ...it, dias, horas, semanas, jornadas_validadas: g ? g.val : 0, jornadas_pendientes: g ? g.pend : 0 };
+        const merged = { ...it, dias, dias_noche, horas, semanas, jornadas_validadas: g ? g.val : 0, jornadas_pendientes: g ? g.pend : 0 };
         const dev = devengadoOf(merged, sel.mode);
         const tot = totalOf(merged, sel.mode);
         const row = { ...merged, devengado: dev, total: tot };
         await supabase.from('staff_pay_items').update({
-          dias, horas, semanas, jornadas_validadas: row.jornadas_validadas, jornadas_pendientes: row.jornadas_pendientes,
+          dias, dias_noche, horas, semanas, jornadas_validadas: row.jornadas_validadas, jornadas_pendientes: row.jornadas_pendientes,
           devengado: dev, total: tot,
         }).eq('id', it.id);
         updated.push(row);
@@ -257,8 +278,10 @@ export default function PagoPersonalScreen() {
     setEditItem(it);
     setEPHora(String(it.precio_hora ?? 0));
     setEPDia(String(it.precio_dia ?? 0));
+    setEPNoche(String(it.precio_noche ?? 0));
     setEPSemana(String(it.precio_semana ?? 0));
     setEDias(String(it.dias ?? 0));
+    setEDiasNoche(String(it.dias_noche ?? 0));
     setEHoras(String(it.horas ?? 0));
     setESemanas(String(it.semanas ?? 0));
     setEBonos(Array.isArray(it.bonos) ? it.bonos : []);
@@ -269,22 +292,23 @@ export default function PagoPersonalScreen() {
     if (!editItem || !sel) return;
     const precio_hora = puedeTarifa ? parseNum(ePHora) : Number(editItem.precio_hora) || 0;
     const precio_dia = puedeTarifa ? parseNum(ePDia) : Number(editItem.precio_dia) || 0;
+    const precio_noche = puedeTarifa ? parseNum(ePNoche) : Number(editItem.precio_noche) || 0;
     const precio_semana = puedeTarifa ? parseNum(ePSemana) : Number(editItem.precio_semana) || 0;
-    const dias = parseNum(eDias); const horas = parseNum(eHoras); const semanas = parseNum(eSemanas);
+    const dias = parseNum(eDias); const dias_noche = parseNum(eDiasNoche); const horas = parseNum(eHoras); const semanas = parseNum(eSemanas);
     const bonos = eBonos.filter((l) => l.label?.trim() || l.amount);
     const ded = eDed.filter((l) => l.label?.trim() || l.amount);
-    const overridden = editItem.overridden || dias !== Number(editItem.dias) || horas !== Number(editItem.horas) || semanas !== Number(editItem.semanas);
-    const merged: StaffPayItem = { ...editItem, precio_hora, precio_dia, precio_semana, dias, horas, semanas, bonos, deducciones: ded };
+    const overridden = editItem.overridden || dias !== Number(editItem.dias) || dias_noche !== Number(editItem.dias_noche) || horas !== Number(editItem.horas) || semanas !== Number(editItem.semanas);
+    const merged: StaffPayItem = { ...editItem, precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, bonos, deducciones: ded };
     const dev = devengadoOf(merged, sel.mode);
     const tot = totalOf(merged, sel.mode);
     const { error } = await supabase.from('staff_pay_items').update({
-      precio_hora, precio_dia, precio_semana, dias, horas, semanas, overridden,
+      precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, overridden,
       bonos, deducciones: ded, devengado: dev, total: tot, nota: eNote.trim() || null,
     }).eq('id', editItem.id);
     if (error) return Alert.alert('Aviso', error.message);
     // Los precios se guardan también en la ficha del trabajador (persisten para el próximo período).
     if (puedeTarifa && editItem.employee_id) {
-      await supabase.from('employees').update({ precio_hora, precio_dia, precio_semana }).eq('id', editItem.employee_id);
+      await supabase.from('employees').update({ precio_hora, precio_dia, precio_noche, precio_semana }).eq('id', editItem.employee_id);
     }
     const newItems = items.map((it) => (it.id === editItem.id ? { ...merged, overridden, devengado: dev, total: tot, nota: eNote.trim() || null } : it));
     setItems(newItems);
@@ -372,13 +396,16 @@ export default function PagoPersonalScreen() {
           <tr><td>Empresa</td><td style="text-align:right">${companyName(sel.company_id)}</td></tr>
           <tr><td>Período</td><td style="text-align:right">${TYPE_LABEL[sel.period_type]} · ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)}</td></tr>
           <tr><td>Pago</td><td style="text-align:right">${MODE_LABEL[sel.mode]}</td></tr>
-          <tr><td>Precio (${MODE_LABEL[sel.mode].toLowerCase()})</td><td style="text-align:right">${usd(priceOf(it, sel.mode))}</td></tr>
-          <tr><td>Cantidad</td><td style="text-align:right">${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}</td></tr>
+          ${sel.mode === 'dia'
+            ? `<tr><td>Precio ☀️ día / 🌙 noche</td><td style="text-align:right">${usd(Number(it.precio_dia) || 0)} / ${usd(nightPrice(it))}</td></tr>
+               <tr><td>Jornadas ☀️ día / 🌙 noche</td><td style="text-align:right">${Number(it.dias) || 0} / ${nightQty(it)}</td></tr>`
+            : `<tr><td>Precio (${MODE_LABEL[sel.mode].toLowerCase()})</td><td style="text-align:right">${usd(priceOf(it, sel.mode))}</td></tr>
+               <tr><td>Cantidad</td><td style="text-align:right">${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}</td></tr>`}
           ${it.source === 'auto' ? `<tr><td>Jornadas validadas / pendientes</td><td style="text-align:right">${it.jornadas_validadas} / ${it.jornadas_pendientes}</td></tr>` : ''}
         </tbody></table>
         <table><thead><tr><th>Concepto</th><th style="text-align:right">Monto</th></tr></thead>
         <tbody>
-          <tr><td>Devengado (${qtyOf(it, sel.mode)} ${UNIT[sel.mode]} × ${usd(priceOf(it, sel.mode))})</td><td style="text-align:right">${usd(dev)}</td></tr>
+          <tr><td>Devengado (${devDesc(it, sel.mode)})</td><td style="text-align:right">${usd(dev)}</td></tr>
           ${(it.bonos || []).map((l) => `<tr><td>+ Bono: ${l.label || '—'}</td><td style="text-align:right">${usd(l.amount)}</td></tr>`).join('')}
           ${(it.deducciones || []).map((l) => `<tr><td>− Deducción: ${l.label || '—'}</td><td style="text-align:right">−${usd(l.amount)}</td></tr>`).join('')}
           <tr class="tot"><td>Total a pagar</td><td style="text-align:right">${usd(it.total)}</td></tr>
@@ -400,9 +427,15 @@ export default function PagoPersonalScreen() {
     if (!sel) return;
     const rows = items.map((it) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
+      const precioCell = sel.mode === 'dia'
+        ? `☀️ ${usd(Number(it.precio_dia) || 0)}<br/>🌙 ${usd(nightPrice(it))}`
+        : usd(priceOf(it, sel.mode));
+      const cantCell = sel.mode === 'dia'
+        ? `☀️ ${Number(it.dias) || 0}<br/>🌙 ${nightQty(it)}`
+        : `${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}`;
       return `<tr><td>${it.person_name}</td><td>${it.cargo ?? '—'}</td>` +
-        `<td style="text-align:right">${usd(priceOf(it, sel.mode))}</td>` +
-        `<td style="text-align:center">${qtyOf(it, sel.mode)} ${UNIT[sel.mode]}</td>` +
+        `<td style="text-align:right">${precioCell}</td>` +
+        `<td style="text-align:center">${cantCell}</td>` +
         `<td style="text-align:right">${usd(devengadoOf(it, sel.mode))}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.bonos))}</td>` +
         `<td style="text-align:right">${usd(sumLines(it.deducciones))}</td>` +
@@ -473,8 +506,9 @@ export default function PagoPersonalScreen() {
     ...editItem,
     precio_hora: puedeTarifa ? parseNum(ePHora) : editItem.precio_hora,
     precio_dia: puedeTarifa ? parseNum(ePDia) : editItem.precio_dia,
+    precio_noche: puedeTarifa ? parseNum(ePNoche) : editItem.precio_noche,
     precio_semana: puedeTarifa ? parseNum(ePSemana) : editItem.precio_semana,
-    dias: parseNum(eDias), horas: parseNum(eHoras), semanas: parseNum(eSemanas), bonos: eBonos, deducciones: eDed,
+    dias: parseNum(eDias), dias_noche: parseNum(eDiasNoche), horas: parseNum(eHoras), semanas: parseNum(eSemanas), bonos: eBonos, deducciones: eDed,
   } : null;
 
   return (
@@ -652,7 +686,7 @@ export default function PagoPersonalScreen() {
                             {[it.cargo, it.source === 'auto' ? '⚙️ operador (auto)' : '✍️ manual'].filter(Boolean).join(' · ')}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                            {qtyOf(it, sel.mode)} {UNIT[sel.mode]} × {usd(priceOf(it, sel.mode))} = {usd(devengadoOf(it, sel.mode))}
+                            {devDesc(it, sel.mode)} = {usd(devengadoOf(it, sel.mode))}
                             {sumLines(it.bonos) ? ` · +${usd(sumLines(it.bonos))}` : ''}{sumLines(it.deducciones) ? ` · −${usd(sumLines(it.deducciones))}` : ''}
                           </Text>
                           {it.source === 'auto' && it.jornadas_pendientes > 0 ? (
@@ -717,36 +751,44 @@ export default function PagoPersonalScreen() {
                   {[editItem.cargo, editItem.source === 'auto' ? 'operador (auto)' : 'manual'].filter(Boolean).join(' · ')}
                 </Text>
 
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Precios del trabajador{!puedeTarifa ? ' — solo lectura' : ''}</Text>
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-                  <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Precios del trabajador{!puedeTarifa ? ' — solo lectura' : ''}{sel.mode === 'dia' ? ' · en "Por día" se usan precio DÍA y precio NOCHE' : ''}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Precio hora ($){sel.mode === 'hora' ? ' ✓' : ''}</Text>
                     <TextInput value={ePHora} onChangeText={(t) => setEPHora(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Precio día ($){sel.mode === 'dia' ? ' ✓' : ''}</Text>
-                    <TextInput value={ePDia} onChangeText={(t) => setEPDia(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
-                  </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Precio semana ($){sel.mode === 'semana' ? ' ✓' : ''}</Text>
                     <TextInput value={ePSemana} onChangeText={(t) => setEPSemana(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
+                  </View>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>☀️ Precio día ($){sel.mode === 'dia' ? ' ✓' : ''}</Text>
+                    <TextInput value={ePDia} onChangeText={(t) => setEPDia(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
+                  </View>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>🌙 Precio noche ($){sel.mode === 'dia' ? ' ✓' : ''}</Text>
+                    <TextInput value={ePNoche} onChangeText={(t) => setEPNoche(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly && puedeTarifa} style={{ ...input, opacity: puedeTarifa ? 1 : 0.6 }} />
                   </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Los precios se guardan en la ficha del trabajador para el próximo período.</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Cantidad trabajada</Text>
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-                  <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Horas{sel.mode === 'hora' ? ' ✓' : ''}</Text>
                     <TextInput value={eHoras} onChangeText={(t) => setEHoras(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Días{sel.mode === 'dia' ? ' ✓' : ''}</Text>
-                    <TextInput value={eDias} onChangeText={(t) => setEDias(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
-                  </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Semanas{sel.mode === 'semana' ? ' ✓' : ''}</Text>
                     <TextInput value={eSemanas} onChangeText={(t) => setESemanas(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
+                  </View>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>☀️ Jornadas día{sel.mode === 'dia' ? ' ✓' : ''}</Text>
+                    <TextInput value={eDias} onChangeText={(t) => setEDias(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
+                  </View>
+                  <View style={{ flexGrow: 1, flexBasis: '47%' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>🌙 Jornadas noche{sel.mode === 'dia' ? ' ✓' : ''}</Text>
+                    <TextInput value={eDiasNoche} onChangeText={(t) => setEDiasNoche(onlyDecimal(t))} keyboardType="numeric" editable={!readOnly} style={input} />
                   </View>
                 </View>
                 {editItem.source === 'auto' ? (
@@ -761,7 +803,7 @@ export default function PagoPersonalScreen() {
 
                 <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>Devengado: {qtyOf(previewItem, sel.mode)} {UNIT[sel.mode]} × {usd(priceOf(previewItem, sel.mode))}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>Devengado: {devDesc(previewItem, sel.mode)}</Text>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{usd(devengadoOf(previewItem, sel.mode))}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
