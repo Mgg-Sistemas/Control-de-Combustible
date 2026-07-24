@@ -494,25 +494,39 @@ export default function ReportsScreen({ route }: any) {
       .map(([tipo, count]) => ({ tipo, count }))
       .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : cmpText(a.tipo, b.tipo)));
   }, [fleetItems]);
-  // Búsqueda BUSCABLE por TIPO de equipo: cuenta cuántas unidades coinciden (por
-  // nombre/código, marca-modelo o clasificación) y las agrupa por empresa. Cada
-  // palabra debe aparecer, así "volqueta toronto" halla los camiones volqueta
-  // Toronto de TODAS las empresas y da el total (solo número) + desglose.
+  // Buscador CON CHECKS por tipo de equipo (en el reporte "Conteo de equipos"). Cada tipo
+  // (código/modelo del equipo, p. ej. "CAMIÓN VOLTEO TORONTO") es una casilla con su
+  // cantidad total; el buscador filtra la lista. Al tildar uno o varios se ve el reporte
+  // correspondiente: total (solo número) + cantidad por empresa, con PDF.
   const [tipoQ, setTipoQ] = useState('');
+  const [tiposSel, setTiposSel] = useState<Set<string>>(new Set());
+  const toggleTipo = (name: string) =>
+    setTiposSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  // Al reabrir el conteo se limpia la selección/búsqueda del buscador por tipo.
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); } }, [conteoPreview]);
+  // Opciones (tipos de equipo) con su cantidad total, filtradas por el buscador.
+  const tipoOpciones = useMemo(() => {
+    const src = conteo?.machinesAll ?? [];
+    const m = new Map<string, { count: number; clas: string }>();
+    src.forEach((it) => { const e = m.get(it.code) ?? { count: 0, clas: it.clas }; e.count += 1; m.set(it.code, e); });
+    const nq = norm(tipoQ.trim());
+    return [...m.entries()]
+      .map(([name, v]) => ({ name, count: v.count, clas: v.clas }))
+      .filter((o) => !nq || norm(`${o.name} ${o.clas}`).includes(nq))
+      .sort((a, b) => cmpText(a.name, b.name));
+  }, [conteo, tipoQ]);
+  // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z).
   const tipoResultado = useMemo(() => {
-    const words = norm(tipoQ.trim()).split(/\s+/).filter(Boolean);
-    if (!words.length) return null;
-    const match = fleetItems.filter((it) => {
-      const hay = norm(`${it.name} ${it.marcaModelo} ${it.tipo}`);
-      return words.every((w) => hay.includes(w));
-    });
+    if (!tiposSel.size) return null;
+    const src = conteo?.machinesAll ?? [];
+    const match = src.filter((it) => tiposSel.has(it.code));
     const byCo = new Map<string, number>();
     match.forEach((it) => byCo.set(it.company, (byCo.get(it.company) ?? 0) + 1));
     const empresas = [...byCo.entries()]
       .map(([company, count]) => ({ company, count }))
       .sort((a, b) => cmpText(a.company, b.company));
     return { total: match.length, empresas };
-  }, [tipoQ, fleetItems]);
+  }, [tiposSel, conteo]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -1477,26 +1491,35 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), onlyCompany ? `Reportes - Cantidad ${onlyCompany}` : 'Reportes - Cantidad de equipos');
   };
 
-  // PDF de la BÚSQUEDA por tipo de equipo: total (solo número) + cantidad por empresa.
+  // PDF del conteo por tipo TILDADO: total (solo número) + cantidad por tipo y por empresa.
   const downloadTipoCountPdf = async () => {
     if (!tipoResultado) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const { total, empresas } = tipoResultado;
-    const q = tipoQ.trim();
-    const rows = empresas
+    const src = conteo?.machinesAll ?? [];
+    const sel = [...tiposSel].sort((a, b) => cmpText(a, b));
+    const tipoRows = sel
+      .map((n) => `<tr><td>${esc(n)}</td><td style="text-align:right;font-weight:700">${src.filter((it) => it.code === n).length}</td></tr>`)
+      .join('');
+    const coRows = empresas
       .map((e) => `<tr><td>${esc(e.company)}${companyRif[e.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[e.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${e.count}</td></tr>`)
       .join('');
     const body = `
-      <div class="muted">Filtro: "${esc(q)}" · todas las empresas del alcance actual · del ${esc(from)} al ${esc(to)}</div>
+      <div class="muted">Tipos seleccionados: ${sel.map(esc).join(', ')}</div>
       <div class="summary">
-        <div><span class="k">Total de unidades</span><b>${total}</b></div>
+        <div><span class="k">Total de equipos</span><b>${total}</b></div>
+        <div><span class="k">Tipos</span><b>${sel.length}</b></div>
         <div><span class="k">Empresas</span><b>${empresas.length}</b></div>
       </div>
-      <h2>Cantidad por empresa</h2>
+      <h2>Cantidad por tipo de equipo</h2>
+      <table><thead><tr><th style="text-align:left">Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${tipoRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
+      <h2 style="margin-top:16px">Cantidad por empresa</h2>
       <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="2" style="text-align:center">Sin coincidencias</td></tr>'}</tbody>
+      <tbody>${coRows || '<tr><td colspan="2" style="text-align:center">Sin coincidencias</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>`;
-    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `Filtro: ${q}`, body), `Reportes - Cantidad ${q}`);
+    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `${sel.length} tipo(s) seleccionado(s)`, body), 'Reportes - Cantidad por tipo');
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -1832,6 +1855,66 @@ export default function ReportsScreen({ route }: any) {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Buscador CON CHECKS por tipo de equipo: tilda uno o varios tipos y ve el
+                  reporte correspondiente (total + cantidad por empresa) con su PDF. */}
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🔎 Buscar por tipo de equipo</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  Busca (ej. “volqueta toronto”) y TILDA los tipos para ver el total y la cantidad por empresa.
+                </Text>
+                <TextInput
+                  value={tipoQ}
+                  onChangeText={setTipoQ}
+                  placeholder="Ej. volqueta toronto…"
+                  placeholderTextColor={colors.muted}
+                  autoCapitalize="characters"
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
+                />
+                {tiposSel.size > 0 ? (
+                  <TouchableOpacity onPress={() => setTiposSel(new Set())} style={{ alignSelf: 'flex-start', marginTop: spacing.xs }}>
+                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar selección ({tiposSel.size})</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs }} nestedScrollEnabled>
+                  {tipoOpciones.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
+                  ) : (
+                    tipoOpciones.map((o) => {
+                      const on = tiposSel.has(o.name);
+                      return (
+                        <TouchableOpacity key={o.name} onPress={() => toggleTipo(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                          </View>
+                          <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{o.count}</Text>
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                </ScrollView>
+                {tipoResultado ? (
+                  <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                      <Text style={{ color: colors.primary, fontSize: 40, fontWeight: '800' }}>{tipoResultado.total}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
+                    </View>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Cantidad por empresa</Text>
+                    {tipoResultado.empresas.map((e) => (
+                      <View key={e.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontSize: 13 }}>{e.company}</Text>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{e.count}</Text>
+                      </View>
+                    ))}
+                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Tilda al menos un tipo para ver el reporte.</Text>
+                )}
+              </Card>
 
               {/* Filtro por ZONA GEOGRÁFICA (sector del mapa, según GPS). Cada chip muestra
                   cuántas máquinas hay ubicadas en esa zona; "Sin zona" = sin ubicación GPS.
@@ -2549,48 +2632,6 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
             </View>
-          ) : null}
-
-          {/* Buscador por TIPO de equipo: cuenta total (solo número) + por empresa. */}
-          {fleetItems.length > 0 ? (
-            <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🔎 Buscar por tipo de equipo</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                Escribe el tipo (ej. “volqueta toronto”) para ver cuántas unidades hay en total y por empresa.
-              </Text>
-              <TextInput
-                value={tipoQ}
-                onChangeText={setTipoQ}
-                placeholder="Ej. volqueta toronto…"
-                placeholderTextColor={colors.muted}
-                autoCapitalize="none"
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
-              />
-              {tipoResultado ? (
-                <View style={{ marginTop: spacing.sm }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                    <Text style={{ color: colors.primary, fontSize: 40, fontWeight: '800' }}>{tipoResultado.total}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 13 }}>unidad(es) · {tipoResultado.empresas.length} empresa(s)</Text>
-                  </View>
-                  {tipoResultado.total > 0 ? (
-                    <>
-                      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Cantidad por empresa</Text>
-                      {tipoResultado.empresas.map((e) => (
-                        <View key={e.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                          <Text style={{ color: colors.text, fontSize: 13 }}>{e.company}</Text>
-                          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{e.count}</Text>
-                        </View>
-                      ))}
-                      <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
-                        <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.xs }}>Sin coincidencias para “{tipoQ.trim()}”. Prueba con menos palabras.</Text>
-                  )}
-                </View>
-              ) : null}
-            </Card>
           ) : null}
 
           {/* Reporte general: total por tipo de maquinaria + totales de equipos por empresa. */}
