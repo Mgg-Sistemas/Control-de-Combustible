@@ -299,14 +299,20 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportWithPrices, setReportWithPrices] = useState(true); // con $ / sin $
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
-  const [reportDim] = useState<GroupDim>('clasificacion'); // el reporte se agrupa siempre por Clasificación
+  // El reporte se agrupa/filtra por Clasificación (las 4 grandes) o por Modelo (tipo
+  // específico, p. ej. "CAMIÓN VOLTEO TORONTO"). El Modelo trae muchos valores → el
+  // filtro es buscable.
+  const [reportDim, setReportDim] = useState<GroupDim>('clasificacion');
   const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // valores seleccionados (vacío = todos)
+  const [reportTypeQ, setReportTypeQ] = useState(''); // buscador del filtro de tipos
   const toggleReportType = (t: string) =>
     setReportTypes((prev) => {
       const n = new Set(prev);
       n.has(t) ? n.delete(t) : n.add(t);
       return n;
     });
+  // Cambiar la dimensión limpia la selección y la búsqueda (los valores ya no aplican).
+  const cambiarReportDim = (d: GroupDim) => { setReportDim(d); setReportTypes(new Set()); setReportTypeQ(''); };
 
   // Horas trabajadas por máquina HASTA el 05/07/2026 (para el reporte de maquinaria).
   // Se carga una vez; horas = (día + noche) − parada + extras, dedupe por máquina+día.
@@ -1544,8 +1550,24 @@ export default function EquiposScreen({ navigation, route }: any) {
               })}
           </View>
 
-          {/* El reporte se agrupa siempre por Clasificación. */}
-          {/* Checklist de clasificaciones (multi-selección). Vacío = todos. */}
+          {/* Agrupar / filtrar por Clasificación (4 grandes) o por Modelo (tipo específico). */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Agrupar y filtrar por</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {(['clasificacion', 'modelo'] as GroupDim[]).map((d) => {
+              const on = reportDim === d;
+              return (
+                <TouchableOpacity
+                  key={d}
+                  onPress={() => cambiarReportDim(d)}
+                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                >
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{d === 'clasificacion' ? '🗃️ Clasificación' : '🚜 Modelo (tipo)'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Checklist buscable de la dimensión activa (multi-selección). Vacío = todos. */}
           {reportTypeOptions.length > 0 ? (
             <View style={{ marginBottom: spacing.sm }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
@@ -1556,22 +1578,38 @@ export default function EquiposScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {reportTypeOptions.map((o) => {
-                  const on = reportTypes.has(o.tipo);
-                  return (
-                    <TouchableOpacity
-                      key={o.tipo}
-                      onPress={() => toggleReportType(o.tipo)}
-                      style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                    >
-                      <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.tipo}</Text>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              <TextInput
+                value={reportTypeQ}
+                onChangeText={setReportTypeQ}
+                placeholder={`🔎 Buscar ${DIM_LABEL[reportDim].toLowerCase()}…`}
+                placeholderTextColor={colors.muted}
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
+              />
+              {(() => {
+                const nq = norm(reportTypeQ.trim());
+                const shown = nq ? reportTypeOptions.filter((o) => norm(o.tipo).includes(nq)) : reportTypeOptions;
+                if (shown.length === 0) return <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.xs }}>Sin coincidencias.</Text>;
+                return (
+                  <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {shown.map((o) => {
+                        const on = reportTypes.has(o.tipo);
+                        return (
+                          <TouchableOpacity
+                            key={o.tipo}
+                            onPress={() => toggleReportType(o.tipo)}
+                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                          >
+                            <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.tipo}</Text>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                );
+              })()}
             </View>
           ) : null}
 
