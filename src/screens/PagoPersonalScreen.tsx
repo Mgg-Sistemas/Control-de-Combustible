@@ -11,6 +11,7 @@ import { onlyDecimal, norm } from '../lib/text';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { TabuladorCargos } from '../components/TabuladorCargos';
+import { PagoPorPersona } from '../components/PagoPorPersona';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -108,6 +109,8 @@ export default function PagoPersonalScreen() {
 
   // Tabulador de sueldos por cargo (lista desplegable, editable, sincroniza a empleados)
   const [tabOpen, setTabOpen] = useState(false);
+  // Vista principal: "Por persona" (ledger por empleado) o "Por período" (nóminas).
+  const [vista, setVista] = useState<'persona' | 'periodo'>('persona');
 
   // Detalle
   const [sel, setSel] = useState<StaffPayPeriod | null>(null);
@@ -524,44 +527,65 @@ export default function PagoPersonalScreen() {
           <TouchableOpacity onPress={() => setTabOpen(true)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.primary, fontWeight: '800' }}>🏷️ Tabulador</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
-          </TouchableOpacity>
+          {vista === 'periodo' ? (
+            <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
       <TabuladorCargos visible={tabOpen} onClose={() => setTabOpen(false)} canEdit={puedeTarifa} onSynced={refetch} />
-      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>💡 El sueldo se define en el "🏷️ Tabulador" por cargo y se sincroniza a los empleados (no uno por uno).</Text>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano. Los períodos "Por día" incluyen SOLO a los operadores.
-      </Text>
 
-      {loading && periods.length === 0 ? (
-        <Loading />
-      ) : periods.length === 0 ? (
-        <EmptyState title="Sin períodos" subtitle="Toca “+ Nuevo” para crear el primer pago a personal." />
+      {/* Cambio de vista: Por persona (ledger) / Por período (nóminas). */}
+      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, marginBottom: spacing.sm }}>
+        {([['persona', '👤 Por persona'], ['periodo', '📅 Por período']] as const).map(([k, t]) => {
+          const on = vista === k;
+          return (
+            <TouchableOpacity key={k} onPress={() => setVista(k)} style={{ flex: 1, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{t}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {vista === 'persona' ? (
+        <PagoPorPersona canEdit={puedeTarifa} />
       ) : (
-        byCompany.map((g) => (
-          <View key={g.key} style={{ marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
-            {g.items.map((p) => {
-              const st = STATUS_META[p.status] ?? STATUS_META.borrador;
-              return (
-                <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
-                  <Card>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{p.name}</Text>
-                      <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
-                    </View>
-                  </Card>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))
+        <>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>💡 El sueldo se define en el "🏷️ Tabulador" por cargo y se sincroniza a los empleados (no uno por uno).</Text>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+            Paga por precio por hora, día o semana, definido por trabajador. Los operadores cargan sus jornadas solos; el resto se ajusta a mano. Los períodos "Por día" incluyen SOLO a los operadores.
+          </Text>
+
+          {loading && periods.length === 0 ? (
+            <Loading />
+          ) : periods.length === 0 ? (
+            <EmptyState title="Sin períodos" subtitle="Toca “+ Nuevo” para crear el primer pago a personal." />
+          ) : (
+            byCompany.map((g) => (
+              <View key={g.key} style={{ marginBottom: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
+                {g.items.map((p) => {
+                  const st = STATUS_META[p.status] ?? STATUS_META.borrador;
+                  return (
+                    <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
+                      <Card>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{p.name}</Text>
+                          <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
+                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
+                        </View>
+                      </Card>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))
+          )}
+        </>
       )}
 
       {/* Modal: crear período */}
