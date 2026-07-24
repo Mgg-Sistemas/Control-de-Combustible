@@ -1764,6 +1764,23 @@ create policy spi_all on public.staff_pay_items for all to authenticated using (
 drop policy if exists spp2_all on public.staff_pay_payments;
 create policy spp2_all on public.staff_pay_payments for all to authenticated using (true) with check (true);
 
+-- Tabulador de sueldos por CARGO: se define el precio por cargo y se SINCRONIZA a
+-- todos los empleados con ese cargo (así el sueldo no se pone uno por uno).
+create table if not exists public.staff_cargo_tariffs (
+  id uuid primary key default gen_random_uuid(),
+  cargo text not null,
+  departamento text,
+  precio_hora numeric(14,2) not null default 0,
+  precio_dia numeric(14,2) not null default 0,     -- jornada de DÍA (operadores)
+  precio_noche numeric(14,2) not null default 0,   -- jornada de NOCHE (operadores)
+  precio_semana numeric(14,2) not null default 0,  -- sueldo semanal (resto del personal)
+  updated_at timestamptz not null default now(),
+  unique (cargo)
+);
+alter table public.staff_cargo_tariffs enable row level security;
+drop policy if exists sct_all on public.staff_cargo_tariffs;
+create policy sct_all on public.staff_cargo_tariffs for all to authenticated using (true) with check (true);
+
 -- ============================================================================
 -- TIEMPO REAL (Realtime): tablas cuyas pantallas se refrescan solas al cambiar.
 -- Sin estar en la publicación `supabase_realtime`, el cliente se suscribe pero la

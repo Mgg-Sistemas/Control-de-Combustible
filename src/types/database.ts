@@ -404,6 +404,19 @@ export interface StaffPayItem {
   created_at: string;
 }
 
+/** Tabulador de sueldos por CARGO: precios que se sincronizan a los empleados
+ *  con ese cargo (así el sueldo se define por cargo, no uno por uno). */
+export interface StaffCargoTariff {
+  id: string;
+  cargo: string;
+  departamento: string | null;
+  precio_hora: number;
+  precio_dia: number;    // precio por jornada de DÍA (operadores)
+  precio_noche: number;  // precio por jornada de NOCHE (operadores)
+  precio_semana: number; // sueldo semanal (resto del personal)
+  updated_at: string;
+}
+
 /** Abono (pago parcial) de una línea de persona. */
 export interface StaffPayPayment {
   id: string;
