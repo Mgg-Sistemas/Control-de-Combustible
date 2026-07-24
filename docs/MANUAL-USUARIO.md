@@ -166,6 +166,12 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   los **JUMBO** juntos, todos los **CAMIÓN DE SERVICIO** juntos…) mostrando la **cantidad** y las
   horas sumadas, no una fila por unidad (Marca/Clasificación salen como el valor común o
   **"Varios"**). Todo **A→Z**.
+- **🔎 Buscar por tipo de equipo (solo cantidad):** dentro de la vista previa del reporte
+  **Maquinaria/Vehículo** hay un buscador. Escribe el tipo —por ejemplo **"volqueta toronto"**—
+  y te muestra un **número grande** con el **total de unidades** que coinciden en **todas las
+  empresas**, y debajo el **desglose por empresa**. Busca por **nombre/código, marca-modelo y
+  clasificación** a la vez (cada palabra debe aparecer), así "volqueta toronto" halla los
+  camiones volqueta Toronto de toda la flota. Botón **"⬇️ PDF de este conteo"** para imprimirlo.
 
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.

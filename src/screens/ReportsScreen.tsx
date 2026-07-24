@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Modal,
   ScrollView,
@@ -493,6 +494,25 @@ export default function ReportsScreen({ route }: any) {
       .map(([tipo, count]) => ({ tipo, count }))
       .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : cmpText(a.tipo, b.tipo)));
   }, [fleetItems]);
+  // Búsqueda BUSCABLE por TIPO de equipo: cuenta cuántas unidades coinciden (por
+  // nombre/código, marca-modelo o clasificación) y las agrupa por empresa. Cada
+  // palabra debe aparecer, así "volqueta toronto" halla los camiones volqueta
+  // Toronto de TODAS las empresas y da el total (solo número) + desglose.
+  const [tipoQ, setTipoQ] = useState('');
+  const tipoResultado = useMemo(() => {
+    const words = norm(tipoQ.trim()).split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    const match = fleetItems.filter((it) => {
+      const hay = norm(`${it.name} ${it.marcaModelo} ${it.tipo}`);
+      return words.every((w) => hay.includes(w));
+    });
+    const byCo = new Map<string, number>();
+    match.forEach((it) => byCo.set(it.company, (byCo.get(it.company) ?? 0) + 1));
+    const empresas = [...byCo.entries()]
+      .map(([company, count]) => ({ company, count }))
+      .sort((a, b) => cmpText(a.company, b.company));
+    return { total: match.length, empresas };
+  }, [tipoQ, fleetItems]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -1455,6 +1475,28 @@ export default function ReportsScreen({ route }: any) {
       <h2 style="margin-top:16px">Detalle de equipos por empresa (A→Z)</h2>
       ${detailBlocks || '<span class="muted">Sin datos</span>'}`;
     await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), onlyCompany ? `Reportes - Cantidad ${onlyCompany}` : 'Reportes - Cantidad de equipos');
+  };
+
+  // PDF de la BÚSQUEDA por tipo de equipo: total (solo número) + cantidad por empresa.
+  const downloadTipoCountPdf = async () => {
+    if (!tipoResultado) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const { total, empresas } = tipoResultado;
+    const q = tipoQ.trim();
+    const rows = empresas
+      .map((e) => `<tr><td>${esc(e.company)}${companyRif[e.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[e.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${e.count}</td></tr>`)
+      .join('');
+    const body = `
+      <div class="muted">Filtro: "${esc(q)}" · todas las empresas del alcance actual · del ${esc(from)} al ${esc(to)}</div>
+      <div class="summary">
+        <div><span class="k">Total de unidades</span><b>${total}</b></div>
+        <div><span class="k">Empresas</span><b>${empresas.length}</b></div>
+      </div>
+      <h2>Cantidad por empresa</h2>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="2" style="text-align:center">Sin coincidencias</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>`;
+    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `Filtro: ${q}`, body), `Reportes - Cantidad ${q}`);
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -2507,6 +2549,48 @@ export default function ReportsScreen({ route }: any) {
                 ))}
               </View>
             </View>
+          ) : null}
+
+          {/* Buscador por TIPO de equipo: cuenta total (solo número) + por empresa. */}
+          {fleetItems.length > 0 ? (
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🔎 Buscar por tipo de equipo</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Escribe el tipo (ej. “volqueta toronto”) para ver cuántas unidades hay en total y por empresa.
+              </Text>
+              <TextInput
+                value={tipoQ}
+                onChangeText={setTipoQ}
+                placeholder="Ej. volqueta toronto…"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
+              />
+              {tipoResultado ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
+                    <Text style={{ color: colors.primary, fontSize: 40, fontWeight: '800' }}>{tipoResultado.total}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>unidad(es) · {tipoResultado.empresas.length} empresa(s)</Text>
+                  </View>
+                  {tipoResultado.total > 0 ? (
+                    <>
+                      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Cantidad por empresa</Text>
+                      {tipoResultado.empresas.map((e) => (
+                        <View key={e.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontSize: 13 }}>{e.company}</Text>
+                          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{e.count}</Text>
+                        </View>
+                      ))}
+                      <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
+                        <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.xs }}>Sin coincidencias para “{tipoQ.trim()}”. Prueba con menos palabras.</Text>
+                  )}
+                </View>
+              ) : null}
+            </Card>
           ) : null}
 
           {/* Reporte general: total por tipo de maquinaria + totales de equipos por empresa. */}
