@@ -500,26 +500,39 @@ export default function ReportsScreen({ route }: any) {
   // correspondiente: total (solo número) + cantidad por empresa, con PDF.
   const [tipoQ, setTipoQ] = useState('');
   const [tiposSel, setTiposSel] = useState<Set<string>>(new Set());
-  const toggleTipo = (name: string) =>
-    setTiposSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const toggleTipo = (key: string) =>
+    setTiposSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   // Al reabrir el conteo se limpia la selección/búsqueda del buscador por tipo.
   useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); } }, [conteoPreview]);
-  // Opciones (tipos de equipo) con su cantidad total, filtradas por el buscador.
-  const tipoOpciones = useMemo(() => {
+  // Mapa de TIPOS unificados: la clave normaliza el código (mayúsculas, sin acentos y
+  // con los espacios colapsados) para que "CAMION VOLTEO TORONTO" y "CAMION  VOLTEO
+  // TORONTO " cuenten como UN solo tipo. El nombre visible se muestra limpio.
+  const tipoMap = useMemo(() => {
     const src = conteo?.machinesAll ?? [];
-    const m = new Map<string, { count: number; clas: string }>();
-    src.forEach((it) => { const e = m.get(it.code) ?? { count: 0, clas: it.clas }; e.count += 1; m.set(it.code, e); });
+    const m = new Map<string, { name: string; count: number; clas: string }>();
+    src.forEach((it) => {
+      const key = norm(it.code).replace(/\s+/g, ' ').trim();
+      if (!key) return;
+      const e = m.get(key) ?? { name: String(it.code || '').replace(/\s+/g, ' ').trim().toUpperCase(), count: 0, clas: it.clas };
+      e.count += 1;
+      m.set(key, e);
+    });
+    return m;
+  }, [conteo]);
+  const tipoKey = (code: string) => norm(code).replace(/\s+/g, ' ').trim();
+  // Opciones (tipos de equipo unificados) con su cantidad total, filtradas por el buscador.
+  const tipoOpciones = useMemo(() => {
     const nq = norm(tipoQ.trim());
-    return [...m.entries()]
-      .map(([name, v]) => ({ name, count: v.count, clas: v.clas }))
+    return [...tipoMap.entries()]
+      .map(([key, v]) => ({ key, name: v.name, count: v.count, clas: v.clas }))
       .filter((o) => !nq || norm(`${o.name} ${o.clas}`).includes(nq))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [conteo, tipoQ]);
+  }, [tipoMap, tipoQ]);
   // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z).
   const tipoResultado = useMemo(() => {
     if (!tiposSel.size) return null;
     const src = conteo?.machinesAll ?? [];
-    const match = src.filter((it) => tiposSel.has(it.code));
+    const match = src.filter((it) => tiposSel.has(tipoKey(it.code)));
     const byCo = new Map<string, number>();
     match.forEach((it) => byCo.set(it.company, (byCo.get(it.company) ?? 0) + 1));
     const empresas = [...byCo.entries()]
@@ -1496,16 +1509,17 @@ export default function ReportsScreen({ route }: any) {
     if (!tipoResultado) return;
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const { total, empresas } = tipoResultado;
-    const src = conteo?.machinesAll ?? [];
-    const sel = [...tiposSel].sort((a, b) => cmpText(a, b));
+    const sel = [...tiposSel]
+      .map((k) => ({ k, name: tipoMap.get(k)?.name ?? k, count: tipoMap.get(k)?.count ?? 0 }))
+      .sort((a, b) => cmpText(a.name, b.name));
     const tipoRows = sel
-      .map((n) => `<tr><td>${esc(n)}</td><td style="text-align:right;font-weight:700">${src.filter((it) => it.code === n).length}</td></tr>`)
+      .map((t) => `<tr><td>${esc(t.name)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
       .join('');
     const coRows = empresas
       .map((e) => `<tr><td>${esc(e.company)}${companyRif[e.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[e.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${e.count}</td></tr>`)
       .join('');
     const body = `
-      <div class="muted">Tipos seleccionados: ${sel.map(esc).join(', ')}</div>
+      <div class="muted">Tipos seleccionados: ${sel.map((t) => esc(t.name)).join(', ')}</div>
       <div class="summary">
         <div><span class="k">Total de equipos</span><b>${total}</b></div>
         <div><span class="k">Tipos</span><b>${sel.length}</b></div>
@@ -1881,9 +1895,9 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
                   ) : (
                     tipoOpciones.map((o) => {
-                      const on = tiposSel.has(o.name);
+                      const on = tiposSel.has(o.key);
                       return (
-                        <TouchableOpacity key={o.name} onPress={() => toggleTipo(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <TouchableOpacity key={o.key} onPress={() => toggleTipo(o.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                           <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                             {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                           </View>
