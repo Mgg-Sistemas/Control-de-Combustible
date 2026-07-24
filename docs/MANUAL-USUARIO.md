@@ -113,9 +113,11 @@ Otras cosas que puedes hacer en cada máquina:
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
 **📄 Reporte de CONTEO de equipos (desde el Catálogo):** es **solo conteo + detalle, sin horas
-ni precios**. Agrupa por **TIPO de equipo** (el nombre del equipo, p. ej. *"CAMIÓN VOLTEO
-TORONTO"*) mostrando **"TIPO — TOTAL n"** y, bajo cada tipo, los equipos **por empresa** (con
-ID, placa, serial, encargado y estado).
+ni precios**. Muestra, en este orden:
+1. **Total general** de equipos.
+2. **Por empresa** — cuántos equipos tiene cada empresa.
+3. **Detalle por empresa** — bajo cada empresa, cada equipo sale como **Equipo (tipo) · Serial ·
+   Estado** (p. ej. *CAMIÓN VOLTEO TORONTO · A25BE0M · Operativa*).
 - **Alcance:** elige **General (todas)** o una **empresa**.
 - **Filtro por tipo — lista desplegable con casillas:** toca **"🔎 Filtrar por tipo de equipo"**
   para abrir la lista, **escribe** (ej. *"volteo toronto"*) y **tilda ☑** uno o varios tipos
@@ -269,6 +271,11 @@ trabajador**.
 - **Abonos:** con el período aprobado, **💵 Abonar** registra pagos parciales o totales
   (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
+- **🏢 Filtrar por departamento:** dentro del período hay una **lista desplegable con casillas**
+  ("🏢 Filtrar por departamento"). Tildas uno o varios **departamentos** (los del **Tabulador**,
+  campo *Depto* de cada cargo) y la **lista de personas** y el **⬇️ Reporte PDF** salen **solo de
+  esos departamentos**, además **agrupados por departamento** con su **subtotal**. Sin tildar
+  nada = todos. (Para que un cargo tenga departamento, ponle el *Depto* en el 🏷️ Tabulador.)
 
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
