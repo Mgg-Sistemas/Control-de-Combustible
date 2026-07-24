@@ -112,15 +112,14 @@ Otras cosas que puedes hacer en cada máquina:
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
-**📄 Reportes de maquinaria (desde el Catálogo):** genera el listado de equipos **agrupado
-por empresa → tipo, con totales y el detalle** de cada máquina (serial, encargado, estado).
+**📄 Reporte de CONTEO de equipos (desde el Catálogo):** es **solo conteo + detalle, sin horas
+ni precios**. Agrupa por **TIPO de equipo** (el nombre del equipo, p. ej. *"CAMIÓN VOLTEO
+TORONTO"*) mostrando **"TIPO — TOTAL n"** y, bajo cada tipo, los equipos **por empresa** (con
+ID, placa, serial, encargado y estado).
 - **Alcance:** elige **General (todas)** o una **empresa**.
-- **Agrupar y filtrar por:** **🗃️ Clasificación** (las 4 grandes: manejo de carga, remoción…)
-  o **🚜 Modelo (tipo)** (el tipo específico, p. ej. *"CAMIÓN VOLTEO TORONTO"*).
-- **Filtro buscable con casillas:** hay un **buscador** y cada valor es una **casilla ☑** —
-  marca uno o varios para ver solo esos (útil sobre todo en **Modelo**, que trae muchos tipos).
-- **💲 Con precios / Sin precios:** en **"Sin precios"** el reporte queda **sin montos**
-  (equipos, totales por tipo y detalle, sin horas ni dinero). Botón **⬇️ Descargar PDF**.
+- **Filtro por tipo — lista desplegable con casillas:** toca **"🔎 Filtrar por tipo de equipo"**
+  para abrir la lista, **escribe** (ej. *"volteo toronto"*) y **tilda ☑** uno o varios tipos
+  para ver solo esos. Botón **⬇️ Descargar PDF (conteo)**.
 
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.

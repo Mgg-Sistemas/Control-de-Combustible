@@ -295,24 +295,31 @@ export default function EquiposScreen({ navigation, route }: any) {
   const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'inactive' ? inactiveMachines : detailStatus === 'espera' ? esperaMachines : [];
   const detailTitle = detailStatus === 'inactive' ? '⛔ Maquinaria inactiva' : detailStatus === 'espera' ? '🕓 Maquinaria en espera' : '✅ Maquinaria activa';
 
-  // Reportes de maquinaria (por empresa o general) con vista previa.
+  // Reporte de CONTEO de equipos (por empresa o general) con vista previa. Solo conteo
+  // + detalle: agrupa por TIPO de equipo (= código, lo que se lee "CAMION VOLTEO
+  // TORONTO") y bajo cada tipo lista los equipos por empresa. Sin horas ni precios.
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportWithPrices, setReportWithPrices] = useState(true); // con $ / sin $
   const [reportCompany, setReportCompany] = useState<string>('__all__'); // '__all__' | '__none__' | company id
-  // El reporte se agrupa/filtra por Clasificación (las 4 grandes) o por Modelo (tipo
-  // específico, p. ej. "CAMIÓN VOLTEO TORONTO"). El Modelo trae muchos valores → el
-  // filtro es buscable.
-  const [reportDim, setReportDim] = useState<GroupDim>('clasificacion');
-  const [reportTypes, setReportTypes] = useState<Set<string>>(new Set()); // valores seleccionados (vacío = todos)
+  // Filtro por TIPO (código, unificado por texto normalizado). Vacío = todos.
+  const [reportTypes, setReportTypes] = useState<Set<string>>(new Set());
   const [reportTypeQ, setReportTypeQ] = useState(''); // buscador del filtro de tipos
+  const [reportFilterOpen, setReportFilterOpen] = useState(false); // lista desplegable del filtro
   const toggleReportType = (t: string) =>
     setReportTypes((prev) => {
       const n = new Set(prev);
       n.has(t) ? n.delete(t) : n.add(t);
       return n;
     });
-  // Cambiar la dimensión limpia la selección y la búsqueda (los valores ya no aplican).
-  const cambiarReportDim = (d: GroupDim) => { setReportDim(d); setReportTypes(new Set()); setReportTypeQ(''); };
+  // TIPO del reporte: el CÓDIGO del equipo. La clave normaliza (mayúsculas, sin acentos,
+  // espacios colapsados) para que variantes escritas distinto cuenten como un mismo tipo.
+  const repTipoKey = (m: Machinery) => norm(m.code || '').replace(/\s+/g, ' ').trim();
+  const repTipoLabel = (m: Machinery) => (String(m.code || '').replace(/\s+/g, ' ').trim().toUpperCase() || 'SIN TIPO');
+  const scopedMachines = (scope: string) =>
+    scope === '__all__'
+      ? machinery.data
+      : scope === '__none__'
+      ? machinery.data.filter((m) => !m.company_id)
+      : machinery.data.filter((m) => m.company_id === scope);
 
   // Horas trabajadas por máquina HASTA el 05/07/2026 (para el reporte de maquinaria).
   // Se carga una vez; horas = (día + noche) − parada + extras, dedupe por máquina+día.
@@ -676,148 +683,97 @@ export default function EquiposScreen({ navigation, route }: any) {
   };
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
-  // Grupos para el REPORTE (por EMPRESA) según el alcance elegido.
-  const groupsForScope = (scope: string) => {
-    const srcAll =
-      scope === '__all__'
-        ? machinery.data
-        : scope === '__none__'
-        ? machinery.data.filter((m) => !m.company_id)
-        : machinery.data.filter((m) => m.company_id === scope);
-    // Filtro por valores seleccionados de la dimensión activa (vacío = todos).
-    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
-    const src = reportTypes.size === 0
-      ? srcAll
-      : srcAll.filter((m) => reportTypes.has(canonDim(m, reportDim) || sinLabel));
-    const m = new Map<string, { key: string; name: string; items: Machinery[] }>();
+  // Agrupa el alcance por TIPO (código) → total + empresas (con sus equipos). Aplica el
+  // filtro de tipos tildados (vacío = todos). Solo conteo + detalle (sin horas ni precio).
+  const buildTipoGroups = (scope: string, sel: Set<string>) => {
+    const src = sel.size === 0 ? scopedMachines(scope) : scopedMachines(scope).filter((m) => sel.has(repTipoKey(m)));
+    const m = new Map<string, { key: string; label: string; total: number; byCo: Map<string, { name: string; items: Machinery[] }> }>();
     src.forEach((it) => {
-      const k = it.company_id ?? '__none__';
-      const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
-      const g = m.get(k) ?? { key: k, name, items: [] };
-      g.items.push(it);
-      m.set(k, g);
+      const k = repTipoKey(it);
+      if (!k) return;
+      let g = m.get(k);
+      if (!g) { g = { key: k, label: repTipoLabel(it), total: 0, byCo: new Map() }; m.set(k, g); }
+      g.total += 1;
+      const coName = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
+      const co = g.byCo.get(coName) ?? { name: coName, items: [] };
+      co.items.push(it);
+      g.byCo.set(coName, co);
     });
-    const groups = Array.from(m.values());
-    // Alfabético por nombre de máquina (antes por identificador), acentos/mayúsculas indiferentes.
-    groups.forEach((g) =>
-      g.items.sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial, b.serial))
-    );
-    return groups.sort((a, b) =>
-      a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)
-    );
+    return Array.from(m.values())
+      .map((g) => ({
+        key: g.key, label: g.label, total: g.total,
+        empresas: Array.from(g.byCo.values())
+          .map((c) => ({ name: c.name, items: c.items.sort((a, b) => cmpText(a.identifier, b.identifier) || cmpText(a.code, b.code) || cmpText(a.serial, b.serial)) }))
+          .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name))),
+      }))
+      .sort((a, b) => cmpText(a.label, b.label));
   };
-  const reportGroups = useMemo(() => groupsForScope(reportCompany), [reportCompany, reportTypes, reportDim, machinery.data, companyName]);
-  // Valores disponibles de la dimensión activa en el alcance elegido (con conteo), para el checklist.
+  const reportByTipo = useMemo(() => buildTipoGroups(reportCompany, reportTypes), [reportCompany, reportTypes, machinery.data, companyName]);
+  // Opciones del checklist: tipos (código, unificados) del alcance con su cantidad.
   const reportTypeOptions = useMemo(() => {
-    const srcAll =
-      reportCompany === '__all__'
-        ? machinery.data
-        : reportCompany === '__none__'
-        ? machinery.data.filter((m) => !m.company_id)
-        : machinery.data.filter((m) => m.company_id === reportCompany);
-    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
-    const c = new Map<string, number>();
-    srcAll.forEach((m) => {
-      const t = canonDim(m, reportDim) || sinLabel;
-      c.set(t, (c.get(t) ?? 0) + 1);
+    const m = new Map<string, { key: string; tipo: string; count: number }>();
+    scopedMachines(reportCompany).forEach((it) => {
+      const k = repTipoKey(it);
+      if (!k) return;
+      const e = m.get(k) ?? { key: k, tipo: repTipoLabel(it), count: 0 };
+      e.count += 1;
+      m.set(k, e);
     });
-    return Array.from(c.entries())
-      .map(([tipo, count]) => ({ tipo, count }))
-      .sort((a, b) => (a.tipo === sinLabel ? 1 : b.tipo === sinLabel ? -1 : cmpText(a.tipo, b.tipo)));
-  }, [reportCompany, reportDim, machinery.data]);
-  // Subgrupos por la dimensión activa dentro de un conjunto, con "Sin …" al final.
-  const tiposOf = (items: Machinery[]): [string, Machinery[]][] => {
-    const sinLabel = `Sin ${DIM_LABEL[reportDim].toLowerCase()}`;
-    const c = new Map<string, Machinery[]>();
-    items.forEach((it) => {
-      const t = canonDim(it, reportDim) || sinLabel;
-      if (!c.has(t)) c.set(t, []);
-      c.get(t)!.push(it);
-    });
-    return Array.from(c.entries()).sort((a, b) =>
-      a[0] === sinLabel ? 1 : b[0] === sinLabel ? -1 : cmpText(a[0], b[0])
-    );
-  };
-  const reportTotal = reportGroups.reduce((s, g) => s + g.items.length, 0);
+    return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
+  }, [reportCompany, machinery.data]);
+  const reportTotal = reportByTipo.reduce((s, g) => s + g.total, 0);
   const titleForScope = (scope: string) =>
-    scope === '__all__' ? 'Reporte general de maquinaria' : `Reporte de maquinaria — ${companyName(scope) || 'Sin empresa'}`;
+    scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
   const reportTitle = titleForScope(reportCompany);
 
-  const buildReportHtml = (scope: string, withPrices: boolean = true) => {
+  // PDF: SOLO conteo + detalle. Por TIPO → TOTAL, y bajo cada tipo, los equipos por empresa.
+  const buildReportHtml = (scope: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const groups = groupsForScope(scope);
-    const total = groups.reduce((s, g) => s + g.items.length, 0);
-    let item = 0; // contador continuo de ítems (1..N) en todo el reporte
-    let grandHours = 0;
-    let grandAmount = 0;
-    const workedOf = (m: Machinery) => hoursByMachine[m.id] ?? 0;
-    const amountOf = (m: Machinery) => (workedOf(m) / 12) * (m.price_per_hour != null ? Number(m.price_per_hour) : 0);
+    const groups = buildTipoGroups(scope, reportTypes);
+    const total = groups.reduce((s, g) => s + g.total, 0);
+    const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
+    const estadoColor = (m: Machinery) => (m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C');
     const sections = groups
       .map((g) => {
-        let gHours = 0;
-        let gAmount = 0;
-        const tipoBlocks = tiposOf(g.items)
-          .map(([tipo, items]) => {
-            let tHours = 0;
-            let tAmount = 0;
-            const rows = items
-              .map((m) => {
-                item += 1;
-                const worked = workedOf(m);
-                const amount = amountOf(m);
-                tHours += worked; tAmount += amount;
-                const gd = guards[m.id];
-                const guardTxt = gd ? `${gd.rank ? gd.rank + ' ' : ''}${gd.guard_name}` : '—';
-                return `<tr>
-                  <td style="text-align:center;font-weight:700">${item}</td>
+        const empBlocks = g.empresas
+          .map((c) => {
+            const rows = c.items
+              .map((m, i) => `<tr>
+                  <td style="text-align:center">${i + 1}</td>
                   <td>${esc(m.identifier || '—')}</td>
-                  <td>${esc(m.code)}</td>
                   <td>${esc(m.plate || '—')}</td>
                   <td>${esc(m.serial || '—')}</td>
-                  <td>${esc((m as any).referencia || '—')}</td>
                   <td>${esc(m.encargado || '—')}</td>
-                  <td>🪖 ${esc(guardTxt)}</td>
-                  <td>${esc(m.grupo || '—')}</td>
-                  <td style="color:${m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C'}">${m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}</td>
-                  <td style="text-align:center;font-weight:700">${worked} h</td>
-                  ${withPrices ? `<td style="text-align:right;font-weight:700">${amount ? '$' + money(amount) : '—'}</td>` : ''}
-                </tr>`;
-              })
+                  <td style="color:${estadoColor(m)}">${estadoTxt(m)}</td>
+                </tr>`)
               .join('');
-            gHours += tHours; gAmount += tAmount;
-            return `<h3 class="tipo">${esc(tipo.toUpperCase())} — TOTAL ${items.length}</h3>
-              <table><thead><tr><th>Ítem</th><th>ID</th><th>Máquina</th><th>Placa</th><th>Serial</th><th>Referencia</th><th>Encargado</th><th>Guardia</th><th>Grupo</th><th>Estado</th><th>Horas ≤05/07</th>${withPrices ? '<th>Total $</th>' : ''}</tr></thead>
-              <tbody>${rows}</tbody>
-              <tfoot><tr><td colspan="10" style="text-align:right;font-weight:800">Subtotal ${esc(tipo.toUpperCase())}</td><td style="text-align:center;font-weight:800">${tHours} h</td>${withPrices ? `<td style="text-align:right;font-weight:800">$${money(tAmount)}</td>` : ''}</tr></tfoot></table>`;
+            return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
+              <table><thead><tr><th>#</th><th>ID</th><th>Placa</th><th>Serial</th><th>Encargado</th><th>Estado</th></tr></thead>
+              <tbody>${rows}</tbody></table>`;
           })
           .join('');
-        grandHours += gHours; grandAmount += gAmount;
-        return `<h2>🏢 ${esc(g.name.toUpperCase())} <span style="color:#666;font-weight:400">(${g.items.length} máquina${g.items.length === 1 ? '' : 's'})</span></h2>
-          ${tipoBlocks}
-          <div class="subtotal">Total ${esc(g.name)}: ${g.items.length} máquina(s) · ${gHours} h${withPrices ? ` · $${money(gAmount)}` : ''}</div>`;
+        return `<h2>${esc(g.label)} — TOTAL ${g.total}</h2>${empBlocks}`;
       })
       .join('');
-    const tipoFilterNote = ` · Agrupado por ${DIM_LABEL[reportDim]}` + (reportTypes.size > 0 ? ` (${Array.from(reportTypes).join(', ')})` : '');
+    const filtroNote = reportTypes.size > 0 ? ` · Tipos: ${groups.map((g) => g.label).join(', ')}` : '';
     return pdfDocument({
       title: titleForScope(scope),
-      subtitle: `Total de máquinas: ${total}${tipoFilterNote}`,
+      subtitle: `Total de equipos: ${total}${filtroNote}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
         table{width:100%;border-collapse:collapse;margin-top:2px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         h2{font-size:15px;color:#1E3A5F;margin:18px 0 4px;text-transform:uppercase}
-        .tipo{font-size:13px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:12px 0 2px}
-        .subtotal{margin:6px 0 2px;text-align:right;font-weight:700;color:#1E3A5F}
+        .emp{font-size:12.5px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:10px 0 2px}
         .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right}`,
       body:
-        (sections || '<p class="muted">Sin maquinaria para este filtro.</p>') +
-        `<div class="grand">Total de máquinas: ${total} · Horas trabajadas (≤ 05/07/2026): ${grandHours} h${withPrices ? ` · Total a pagar: $${money(grandAmount)}` : ''}</div>
-         <p class="muted" style="margin-top:6px">Horas = (día + noche) − parada + extras, acumuladas hasta el 05/07/2026${withPrices ? ' · Total $ = horas trabajadas × precio por hora (precio jornada ÷ 12).' : '.'}</p>`,
+        (sections || '<p class="muted">Sin equipos para este filtro.</p>') +
+        `<div class="grand">Total de equipos: ${total}${reportTypes.size > 0 ? ` · ${groups.length} tipo(s)` : ''}</div>`,
     });
   };
-  const downloadReportPdf = async (scope: string = reportCompany, withPrices: boolean = true) => {
-    await exportPdf(buildReportHtml(scope, withPrices), `Catálogo - Reporte${withPrices ? '' : ' (sin $)'}`);
+  const downloadReportPdf = async (scope: string = reportCompany) => {
+    await exportPdf(buildReportHtml(scope), 'Catálogo - Conteo de equipos');
   };
 
   const renderMachineCard = (m: Machinery) => {
@@ -1540,7 +1496,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 return (
                   <TouchableOpacity
                     key={o.value}
-                    onPress={() => { setReportCompany(o.value); downloadReportPdf(o.value, reportWithPrices); }}
+                    onPress={() => setReportCompany(o.value)}
                     style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                   >
                     <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
@@ -1550,148 +1506,114 @@ export default function EquiposScreen({ navigation, route }: any) {
               })}
           </View>
 
-          {/* Agrupar / filtrar por Clasificación (4 grandes) o por Modelo (tipo específico). */}
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Agrupar y filtrar por</Text>
-          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-            {(['clasificacion', 'modelo'] as GroupDim[]).map((d) => {
-              const on = reportDim === d;
-              return (
-                <TouchableOpacity
-                  key={d}
-                  onPress={() => cambiarReportDim(d)}
-                  style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
-                >
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{d === 'clasificacion' ? '🗃️ Clasificación' : '🚜 Modelo (tipo)'}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Checklist buscable de la dimensión activa (multi-selección). Vacío = todos. */}
+          {/* Filtro por TIPO de equipo: LISTA DESPLEGABLE con buscador y casillas. */}
           {reportTypeOptions.length > 0 ? (
             <View style={{ marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Filtrar por {DIM_LABEL[reportDim].toLowerCase()} (marca varios)</Text>
-                {reportTypes.size > 0 ? (
-                  <TouchableOpacity onPress={() => setReportTypes(new Set())}>
-                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({reportTypes.size})</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              <TextInput
-                value={reportTypeQ}
-                onChangeText={setReportTypeQ}
-                placeholder={`🔎 Buscar ${DIM_LABEL[reportDim].toLowerCase()}…`}
-                placeholderTextColor={colors.muted}
-                style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
-              />
-              {(() => {
-                const nq = norm(reportTypeQ.trim());
-                const shown = nq ? reportTypeOptions.filter((o) => norm(o.tipo).includes(nq)) : reportTypeOptions;
-                if (shown.length === 0) return <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.xs }}>Sin coincidencias.</Text>;
-                return (
-                  <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                      {shown.map((o) => {
-                        const on = reportTypes.has(o.tipo);
-                        return (
-                          <TouchableOpacity
-                            key={o.tipo}
-                            onPress={() => toggleReportType(o.tipo)}
-                            style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                          >
-                            <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
-                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.tipo}</Text>
-                            <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                );
-              })()}
+              <TouchableOpacity
+                onPress={() => setReportFilterOpen((v) => !v)}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+              >
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                  🔎 Filtrar por tipo de equipo{reportTypes.size > 0 ? ` (${reportTypes.size})` : ' (todos)'}
+                </Text>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>{reportFilterOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {reportFilterOpen ? (
+                <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+                  <TextInput
+                    value={reportTypeQ}
+                    onChangeText={setReportTypeQ}
+                    placeholder="🔎 Buscar tipo (ej. volteo toronto)…"
+                    placeholderTextColor={colors.muted}
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
+                  />
+                  {reportTypes.size > 0 ? (
+                    <TouchableOpacity onPress={() => setReportTypes(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar selección ({reportTypes.size})</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {(() => {
+                    const nq = norm(reportTypeQ.trim());
+                    const shown = nq ? reportTypeOptions.filter((o) => norm(o.tipo).includes(nq)) : reportTypeOptions;
+                    if (shown.length === 0) return <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.xs }}>Sin coincidencias.</Text>;
+                    return (
+                      <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
+                        {shown.map((o) => {
+                          const on = reportTypes.has(o.key);
+                          return (
+                            <TouchableOpacity
+                              key={o.key}
+                              onPress={() => toggleReportType(o.key)}
+                              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                            >
+                              <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                              </View>
+                              <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{o.tipo}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{o.count}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    );
+                  })()}
+                </View>
+              ) : null}
             </View>
           ) : null}
 
-          {/* Con precios ($) / sin precios */}
-          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-            <TouchableOpacity
-              onPress={() => setReportWithPrices(true)}
-              style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: reportWithPrices ? colors.primary : colors.border, backgroundColor: reportWithPrices ? colors.primary : colors.surfaceAlt }}
-            >
-              <Text style={{ color: reportWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setReportWithPrices(false)}
-              style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: !reportWithPrices ? colors.primary : colors.border, backgroundColor: !reportWithPrices ? colors.primary : colors.surfaceAlt }}
-            >
-              <Text style={{ color: !reportWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
-            </TouchableOpacity>
-          </View>
-
           <TouchableOpacity
             style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
-            onPress={() => downloadReportPdf(reportCompany, reportWithPrices)}
+            onPress={() => downloadReportPdf(reportCompany)}
             disabled={reportTotal === 0}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF {reportWithPrices ? '(con $)' : '(sin $)'}</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF (conteo)</Text>
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{reportTitle}</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>{reportTotal} máquina(s)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>{reportTotal} equipo(s)</Text>
           </View>
 
           <ScrollView style={{ flex: 1 }}>
             {reportTotal === 0 ? (
-              <EmptyState title="Sin maquinaria" subtitle="No hay máquinas para este alcance." />
+              <EmptyState title="Sin equipos" subtitle="No hay equipos para este alcance/filtro." />
             ) : (
-              (() => {
-                let item = 0; // contador continuo (1..N) para el ítem
-                return (
-                  <>
-                    {reportGroups.map((g) => (
-                      <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
-                          🏢 {g.name} ({g.items.length} máquina{g.items.length === 1 ? '' : 's'})
-                        </Text>
-                        {tiposOf(g.items).map(([tipo, items]) => (
-                          <View key={tipo} style={{ marginBottom: spacing.xs }}>
-                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
-                              {tipo.toUpperCase()} — TOTAL {items.length}
+              <>
+                {reportByTipo.map((g) => (
+                  <View key={g.key} style={{ marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      {g.label} — TOTAL {g.total}
+                    </Text>
+                    {g.empresas.map((c) => (
+                      <View key={c.name} style={{ marginTop: 4, marginLeft: spacing.xs }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, textTransform: 'uppercase' }}>🏢 {c.name} ({c.items.length})</Text>
+                        {c.items.map((m, i) => (
+                          <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 4, paddingLeft: spacing.sm }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                                <Text style={{ color: colors.muted }}>{i + 1}. </Text>
+                                {m.identifier ? `${m.identifier} · ` : ''}{m.code}
+                              </Text>
+                              <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 11 }}>
+                                {m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}
+                              </Text>
+                            </View>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>
+                              {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, m.encargado && `👤 ${m.encargado}`].filter(Boolean).join('  ·  ') || '—'}
                             </Text>
-                            {items.map((m) => {
-                              item += 1;
-                              const n = item;
-                              return (
-                                <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 5, paddingLeft: spacing.sm }}>
-                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
-                                      <Text style={{ color: colors.muted }}>{n}. </Text>
-                                      {m.identifier ? `${m.identifier} · ` : ''}{m.code}
-                                    </Text>
-                                    <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>
-                                      {m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa'}
-                                    </Text>
-                                  </View>
-                                  <Text style={{ color: colors.muted, fontSize: 11 }}>
-                                    {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`, (m as any).referencia && `📍 ${(m as any).referencia}`, m.encargado && `👤 ${m.encargado}`, m.grupo && `🗂️ ${m.grupo}`].filter(Boolean).join('  ·  ') || '—'}
-                                  </Text>
-                                </View>
-                              );
-                            })}
                           </View>
                         ))}
                       </View>
                     ))}
-                    <View style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14, textAlign: 'right' }}>
-                        Total de máquinas: {reportTotal}
-                      </Text>
-                    </View>
-                  </>
-                );
-              })()
+                  </View>
+                ))}
+                <View style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
+                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14, textAlign: 'right' }}>
+                    Total de equipos: {reportTotal}
+                  </Text>
+                </View>
+              </>
             )}
           </ScrollView>
 
