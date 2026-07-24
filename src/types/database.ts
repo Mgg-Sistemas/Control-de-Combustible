@@ -235,7 +235,8 @@ export interface Employee {
   talla_pantalon: string | null; // talla de pantalón (uniforme)
   talla_zapatos: string | null;  // talla de zapatos (uniforme)
   precio_hora: number | null;    // pago a personal: precio por hora
-  precio_dia: number | null;     // pago a personal: precio por día
+  precio_dia: number | null;     // pago a personal: precio por jornada de DÍA
+  precio_noche: number | null;   // pago a personal: precio por jornada de NOCHE
   precio_semana: number | null;  // pago a personal: precio por semana
   notes: string | null;
   created_by: string | null;
@@ -385,9 +386,11 @@ export interface StaffPayItem {
   cargo: string | null;
   source: 'auto' | 'manual';   // auto = jornadas de operador; manual = a mano
   precio_hora: number;         // precios snapshot del trabajador
-  precio_dia: number;
+  precio_dia: number;          // precio por jornada de DÍA
+  precio_noche: number;        // precio por jornada de NOCHE
   precio_semana: number;
-  dias: number;                // cantidades del período
+  dias: number;                // jornadas de DÍA (modo "Por día")
+  dias_noche: number;          // jornadas de NOCHE (modo "Por día")
   horas: number;
   semanas: number;
   jornadas_validadas: number;
