@@ -19,7 +19,12 @@ const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, 
 const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
+const addDaysISO = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
 const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
+/** Rango de días que abarca por defecto cada frecuencia (para sugerir el "Hasta"). */
+const spanDias = (f: Frecuencia) => (f === 'semanal' ? 6 : f === 'quincenal' ? 14 : f === 'mensual' ? 29 : 0);
+/** Texto del rango de fechas de un pago: "11/07 → 17/07" (o solo la fecha si no hay rango). */
+const rangoFecha = (p: StaffPersonPayment) => (p.fecha_hasta && p.fecha_hasta !== p.fecha ? `${fmtDMY(p.fecha)} → ${fmtDMY(p.fecha_hasta)}` : fmtDMY(p.fecha));
 
 type Frecuencia = StaffPersonPayment['frecuencia'];
 type Jornada = 'dia' | 'noche';
@@ -90,7 +95,8 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   // ── Generar / editar movimiento ────────────────────────────────────────────
   const [payOpen, setPayOpen] = useState(false);
   const [editing, setEditing] = useState<StaffPersonPayment | null>(null);
-  const [fFecha, setFFecha] = useState(todayISO());
+  const [fFecha, setFFecha] = useState(todayISO());   // Desde / fecha del pago
+  const [fHasta, setFHasta] = useState(todayISO());   // Hasta (fin del período que cubre)
   const [fFrec, setFFrec] = useState<Frecuencia>('diario');
   // "Diario": día y noche JUNTOS.
   const [fDiaCant, setFDiaCant] = useState('1');
@@ -118,13 +124,13 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const tieneUlt = last && (Number(last.cantidad_dia) || Number(last.cantidad_noche));
     const dc = tieneUlt ? String(Number(last.cantidad_dia) || 0) : '1';
     const nc = tieneUlt ? String(Number(last.cantidad_noche) || 0) : '0';
-    setEditing(null); setFFecha(todayISO()); setFFrec('diario');
+    setEditing(null); setFFecha(todayISO()); setFHasta(todayISO()); setFFrec('diario');
     setFDiaCant(dc); setFDiaPrecio(dp); setFNocheCant(nc); setFNochePrecio(np);
     setFCant('1'); setFPrecio(dp); setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); setMontoTocado(false);
     setFMetodo('efectivo'); setFConcepto(''); setFNota(''); setPayOpen(true);
   };
   const abrirEditar = (p: StaffPersonPayment) => {
-    setEditing(p); setFFecha(p.fecha); setFFrec(p.frecuencia);
+    setEditing(p); setFFecha(p.fecha); setFHasta(p.fecha_hasta || p.fecha); setFFrec(p.frecuencia);
     const { dc, nc, dp, np } = dayNight(p);
     setFDiaCant(String(dc)); setFDiaPrecio(String(dp || sel?.precio_dia || 0)); setFNocheCant(String(nc)); setFNochePrecio(String(np || sel?.precio_noche || 0));
     setFCant(String(p.cantidad)); setFPrecio(String(p.precio_unit)); setFMonto(String(p.monto)); setMontoTocado(true);
@@ -132,6 +138,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   };
   const cambiarFrec = (frec: Frecuencia) => {
     setFFrec(frec);
+    setFHasta(addDaysISO(fFecha, spanDias(frec))); // sugiere el "Hasta" según la frecuencia
     if (!sel) return;
     if (frec === 'diario') {
       const dp = String(sel.precio_dia || 0), np = String(sel.precio_noche || 0);
@@ -151,7 +158,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     setSaving(true);
     const row = {
       employee_id: sel.id, cedula: sel.cedula, person_name: fullName(sel), cargo: sel.cargo ? canonicalCargo(sel.cargo) : null,
-      fecha: fFecha, frecuencia: fFrec, jornada: null,
+      fecha: fFecha, fecha_hasta: fHasta && fHasta !== fFecha ? fHasta : null, frecuencia: fFrec, jornada: null,
       cantidad: esDiario ? (parseNum(fDiaCant) + parseNum(fNocheCant)) : (parseNum(fCant) || 1),
       precio_unit: esDiario ? 0 : parseNum(fPrecio),
       cantidad_dia: esDiario ? parseNum(fDiaCant) : 0, cantidad_noche: esDiario ? parseNum(fNocheCant) : 0,
@@ -195,7 +202,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
       <h3 class="sec">Detalle del pago</h3>
       <table class="kv"><tbody>
-        <tr><td class="k">Fecha</td><td>${fmtDMY(p.fecha)}</td><td class="k">Frecuencia</td><td>${detalle(p)}</td></tr>
+        <tr><td class="k">Período</td><td>${rangoFecha(p)}</td><td class="k">Frecuencia</td><td>${detalle(p)}</td></tr>
         <tr><td class="k">Método</td><td>${p.metodo || '—'}</td><td class="k">Concepto</td><td>${p.concepto || '—'}</td></tr>
       </tbody></table>
       <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b></div>
@@ -208,13 +215,13 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const list = paysOf(e).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
     const total = round2(list.reduce((s, p) => s + (Number(p.monto) || 0), 0));
     const rows = list.map((p, i) => `<tr>
-      <td class="c">${i + 1}</td><td class="c">${fmtDMY(p.fecha)}</td><td>${detalle(p)}</td>
+      <td class="c">${i + 1}</td><td class="c">${rangoFecha(p)}</td><td>${detalle(p)}</td>
       <td>${p.metodo || '—'}</td><td>${p.concepto || '—'}</td><td class="r">${usd(p.monto)}</td></tr>`).join('');
     const body = `
       <h3 class="sec">Datos del trabajador</h3>${datosPersona(e)}
       <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
       <h3 class="sec">Historial de pagos</h3>
-      <table class="hist"><thead><tr><th class="c">#</th><th class="c">Fecha</th><th>Detalle</th><th>Método</th><th>Concepto</th><th class="r">Monto</th></tr></thead>
+      <table class="hist"><thead><tr><th class="c">#</th><th class="c">Período</th><th>Detalle</th><th>Método</th><th>Concepto</th><th class="r">Monto</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6">Sin pagos registrados</td></tr>'}</tbody>
         <tfoot><tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${usd(total)}</b></td></tr></tfoot></table>`;
     exportPdf(pdfDocument({ title: 'Histórico de pagos', subtitle: `${fullName(e)} · ${list.length} pago(s)`, body, extraCss: HIST_CSS }), `Histórico - ${fullName(e)}`);
@@ -305,7 +312,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
             ) : selPays.map((p) => (
               <Card key={p.id}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{fmtDMY(p.fecha)}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{rangoFecha(p)}</Text>
                   <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.monto)}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{detalle(p)} · {p.metodo || '—'}{p.concepto ? ` · ${p.concepto}` : ''}</Text>
@@ -337,8 +344,17 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
               <ScrollView keyboardShouldPersistTaps="handled">
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.sm }}>{editing ? 'Editar pago' : 'Generar pago'}{sel ? ` · ${fullName(sel)}` : ''}</Text>
 
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Fecha</Text>
-                <DateField value={fFecha} onChange={setFFecha} />
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Período que cubre el pago (rango de fechas)</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+                    <DateField value={fFecha} onChange={(v) => { setFFecha(v); setFHasta(addDaysISO(v, spanDias(fFrec))); }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+                    <DateField value={fHasta} onChange={setFHasta} />
+                  </View>
+                </View>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Frecuencia</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>

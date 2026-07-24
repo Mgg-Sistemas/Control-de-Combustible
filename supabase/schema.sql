@@ -1821,6 +1821,8 @@ alter table public.staff_payments add column if not exists cantidad_dia   numeri
 alter table public.staff_payments add column if not exists cantidad_noche numeric(8,2)  not null default 0;
 alter table public.staff_payments add column if not exists precio_dia     numeric(14,2) not null default 0;
 alter table public.staff_payments add column if not exists precio_noche   numeric(14,2) not null default 0;
+-- Rango de fechas que cubre el pago (fecha = desde; fecha_hasta = hasta).
+alter table public.staff_payments add column if not exists fecha_hasta date;
 -- Empleados: sueldo quincenal/mensual propio.
 alter table public.employees add column if not exists precio_quincena numeric;
 alter table public.employees add column if not exists precio_mes numeric;
