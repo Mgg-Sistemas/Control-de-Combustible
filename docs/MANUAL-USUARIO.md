@@ -642,6 +642,11 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 **empresa**. Al generarlos se abre una **ventana con la vista previa** y los botones
 **🖨️ Imprimir** y **Cancelar**.
 
+> **Resumen del corte (arriba del Informe por jornada):** en la parte superior del PDF salen
+> cuatro recuadros con el **Total de horas por corte**, el **Total $**, el **Total abonado**
+> (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
+> empresa/máquina y el total general siguen igual, más abajo.
+
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
