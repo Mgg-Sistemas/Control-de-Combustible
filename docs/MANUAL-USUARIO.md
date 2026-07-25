@@ -271,11 +271,10 @@ trabajador**.
 - **Abonos:** con el período aprobado, **💵 Abonar** registra pagos parciales o totales
   (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
-- **🏢 Filtrar por departamento:** dentro del período hay una **lista desplegable con casillas**
-  ("🏢 Filtrar por departamento"). Tildas uno o varios **departamentos** (los del **Tabulador**,
-  campo *Depto* de cada cargo) y la **lista de personas** y el **⬇️ Reporte PDF** salen **solo de
-  esos departamentos**, además **agrupados por departamento** con su **subtotal**. Sin tildar
-  nada = todos. (Para que un cargo tenga departamento, ponle el *Depto* en el 🏷️ Tabulador.)
+- **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
+  ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
+  **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
+  **subtotal**. Sin tildar nada = todos.
 
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
