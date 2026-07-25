@@ -1564,13 +1564,19 @@ export default function ReportsScreen({ route }: any) {
       visibles.forEach((c: any) => { if (c.rif) rif[c.name] = c.rif; });
       setCompanyRif(rif);
     });
-    // Lista de CLASIFICACIONES (canónicas) para el filtro del reporte de maquinaria.
+  }, []);
+
+  // Lista de CLASIFICACIONES para el filtro del reporte de maquinaria. Se carga DIFERIDO
+  // (solo al entrar a ese reporte), no al abrir el módulo: paginar TODAS las máquinas al
+  // abrir hacía lento el arranque de Reportes.
+  useEffect(() => {
+    if (mode !== 'fleet' || typeList.length > 0) return;
     selectAllRows('machinery', 'clasificacion').then((rows) => {
       const set = new Set<string>();
       (rows ?? []).forEach((m: any) => { const t = canonTipo(m.clasificacion); if (t) set.add(t); });
       setTypeList(Array.from(set).sort((a, b) => cmpText(a, b)));
     });
-  }, []);
+  }, [mode, typeList.length]);
 
   // Camiones E/S EN LÍNEA: mientras la vista previa esté abierta, refresca la lista de
   // camiones al instante si cambian las máquinas (nueva, editada o eliminada).
