@@ -621,9 +621,10 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   Usa **"Mostrar todas" / "Ocultar todas"**, o toca un tipo para ver sus máquinas y
   elegir una por una.
 - **📍 Ubicar manualmente (solo administradores):** en el panel **"Ubicar manualmente (admin)"**
-  eliges una máquina (las que faltan por ubicar salen primero) y **tocas el mapa** en el punto
-  donde está; queda ubicada al instante. **Solo los administradores** pueden reubicar máquinas
-  y eliminar ubicaciones del mapa.
+  eliges una máquina (las que faltan por ubicar salen primero; cada una muestra su **placa/serial**
+  y su **empresa** para no confundirlas) y **tocas el mapa** en el punto donde está; queda ubicada
+  al instante. Al elegirla, el panel muestra la **placa/serial** y la **empresa** de la máquina.
+  **Solo los administradores** pueden reubicar máquinas y eliminar ubicaciones del mapa.
 - **📄 Máquinas por sector (Este / Oeste) (reporte PDF):** agrupa las máquinas **ubicadas** por
   su **sector geográfico** (macro **🟢 Este / 🟠 Oeste** y su **sub-sector**, según el GPS de la
   máquina), con su **placa/serial**, el **inspector** asignado y la **empresa**. Las que **no están
