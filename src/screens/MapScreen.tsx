@@ -91,7 +91,7 @@ export default function MapScreen({ navigation, route }: any) {
   // de las capas y para el selector de la ubicación manual (solo admin).
   const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
-  const [locateFor, setLocateFor] = useState<{ id: string; code: string } | null>(null);
+  const [locateFor, setLocateFor] = useState<{ id: string; code: string; plate: string | null; serial: string | null; company: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -617,6 +617,9 @@ export default function MapScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Elige una máquina y toca el mapa donde está. Solo administradores pueden reubicar.</Text>
               <TouchableOpacity onPress={() => setPickerOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: locateFor ? colors.text : colors.muted, fontWeight: '700' }}>{locateFor ? `🎯 ${locateFor.code}` : 'Elegir máquina…'}</Text>
+                {locateFor ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{[placaSerial(locateFor.plate, locateFor.serial), `🏢 ${locateFor.company}`].filter(Boolean).join('  ·  ')}</Text>
+                ) : null}
               </TouchableOpacity>
               {locateFor ? (
                 <Text style={{ color: '#D97706', fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
@@ -838,10 +841,13 @@ export default function MapScreen({ navigation, route }: any) {
               ) : pickerList.map((a) => (
                 <TouchableOpacity
                   key={a.id}
-                  onPress={() => { setLocateFor({ id: a.id, code: a.code }); setPickerOpen(false); setPickerQuery(''); setNotice(null); }}
-                  style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                  onPress={() => { setLocateFor({ id: a.id, code: a.code, plate: a.plate, serial: a.serial, company: a.company }); setPickerOpen(false); setPickerQuery(''); setNotice(null); }}
+                  style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}
                 >
-                  <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }} numberOfLines={1}>{a.code || '—'}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>{a.code || '—'}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>{[placaSerial(a.plate, a.serial), `🏢 ${a.company}`].filter(Boolean).join('  ·  ')}</Text>
+                  </View>
                   <Text style={{ color: a.located ? colors.success : colors.danger, fontSize: 12, fontWeight: '700' }}>{a.located ? '📍 Ubicada' : '⬜ Sin ubicar'}</Text>
                 </TouchableOpacity>
               ))}

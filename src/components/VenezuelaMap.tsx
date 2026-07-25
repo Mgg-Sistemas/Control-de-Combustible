@@ -180,10 +180,14 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     h += '</div>';
     return h;
   }
+  var firstFix = true;
   map.on('locationfound', function(e){
     var html = nearbyHtml(e.latlng.lat, e.latlng.lng);
     if (userMarker){ userMarker.setLatLng(e.latlng); userMarker.setPopupContent(html); } else { userMarker = L.marker(e.latlng, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup(html, { maxWidth:260 }); }
     if (userCircle){ userCircle.setLatLng(e.latlng).setRadius(e.accuracy); } else { userCircle = L.circle(e.latlng, { radius:e.accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); }
+    // Al ABRIR el mapa: en cuanto llega la primera ubicación, se centra en el usuario
+    // (una sola vez) para que "salga su ubicación". Después solo se actualiza el punto.
+    if (firstFix){ firstFix = false; map.setView(e.latlng, 14); }
   });
   map.on('locationerror', function(){ /* sin permiso o no disponible: se ignora en silencio */ });
   // Rastrea la posición sin cambiar la vista (para no tapar las máquinas al abrir).
