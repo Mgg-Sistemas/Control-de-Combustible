@@ -1444,6 +1444,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           const isOpen = cardOpen[m.id] ?? false;
           const machFletes = fletesByMachine[m.id] ?? [];
           const fletesUSD = machFletes.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
+          // Total $ de la máquina en el rango de fechas seleccionado (jornadas × precio/12).
+          const wPrice = m.price_per_hour != null ? Number(m.price_per_hour) : null;
+          const weekAmount = wPrice != null ? (weekWorked / 12) * wPrice : null;
+          const usdMach = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
           return (
             <Card key={m.id}>
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
@@ -1485,7 +1489,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ color: m.entry_at && !m.exit_at ? colors.success : colors.muted, fontSize: 12, fontWeight: '700' }}>
                     {m.entry_at && !m.exit_at ? '▶ En obra' : '⏹ Sin entrada activa'}
                   </Text>
-                  <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 14 }}>{weekWorked} h</Text>
+                  <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 14 }}>
+                    {weekWorked} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ''}
+                  </Text>
                 </View>
               ) : null}
 
@@ -1540,6 +1546,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   ➕ Flete / viaje{machFletes.length ? ` · ${machFletes.length} en el bloque = $${fletesUSD.toLocaleString()}` : ''}
                 </Text>
               </TouchableOpacity>
+
+              {/* Total de la máquina en el rango de fechas seleccionado: horas + $. */}
+              <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>📊 Total del rango</Text>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
+                  {weekWorked} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ' · sin precio'}
+                </Text>
+              </View>
 
               {/* Manda la máquina a "En espera por recepción": sale del control activo. */}
               <TouchableOpacity
