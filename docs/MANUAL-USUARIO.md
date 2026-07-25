@@ -605,6 +605,12 @@ automáticamente.
 
 ### 4.11. Mapa
 Muestra **en un mapa** dónde está cada máquina (según su última ubicación GPS).
+- **📍 Tu ubicación + máquinas cercanas:** el mapa muestra **tu ubicación** (punto azul, si le
+  das permiso de GPS al navegador) y con el botón **📍** dentro del mapa te **centra** en ella y
+  lista las **máquinas más cercanas** (≤20 km) con su distancia. Además, al **tocar cualquier
+  punto del mapa** aparece un globo con las **máquinas cercanas a ese punto**.
+- **🧭 Mostrar / Ocultar rutas:** las **rutas** (recorrido de cada máquina) vienen **ocultas**;
+  con el botón **"🧭 Mostrar rutas"** (arriba del mapa) las prendes y apagas cuando quieras.
 - Con el panel **🗺️ Sectores (zonas)** ves u ocultas las **zonas de La Guaira** (Sector Oeste
   y Sector Este). Cada zona tiene su **color** y sus **límites** (Oeste/Este). El **nombre** de
   la zona aparece al **pasar el cursor** por encima (computadora) o al **tocar** la zona (teléfono).

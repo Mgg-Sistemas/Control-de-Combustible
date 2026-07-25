@@ -85,6 +85,7 @@ export default function MapScreen({ navigation, route }: any) {
   // Reubicación de SECTORES (solo admin): desfase guardado por sector + modo arrastrar.
   const [zoneOffsets, setZoneOffsets] = useState<Record<string, { d_lat: number; d_lng: number }>>({});
   const [zoneEdit, setZoneEdit] = useState(false);
+  const [showRoutes, setShowRoutes] = useState(false); // rutas OCULTAS por defecto (se prenden desde fuera del mapa)
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
@@ -641,7 +642,17 @@ export default function MapScreen({ navigation, route }: any) {
             </Card>
           ) : null}
 
-          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} />
+          {/* Rutas: mostrar/ocultar desde FUERA del mapa (por defecto OCULTAS). */}
+          <TouchableOpacity
+            onPress={() => setShowRoutes((v) => !v)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: showRoutes ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: showRoutes ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
+          >
+            <Text style={{ color: showRoutes ? colors.primaryContrast : colors.text, fontWeight: '800' }}>
+              {showRoutes ? '🧭 Ocultar rutas' : '🧭 Mostrar rutas'}
+            </Text>
+          </TouchableOpacity>
+
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} />
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (
@@ -800,6 +811,7 @@ export default function MapScreen({ navigation, route }: any) {
               canEdit={isAdmin}
               zoneOffsets={zoneOffsets}
               zoneEdit={isAdmin && zoneEdit}
+              showRoutes={showRoutes}
             />
           </View>
         </View>
