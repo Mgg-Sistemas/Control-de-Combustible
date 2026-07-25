@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { norm } from './text';
 import { equipCategory } from './equipos';
 import type { InspectionItem } from '../types/database';
@@ -84,28 +84,41 @@ function downloadWorkbook(wb: XLSX.WorkBook, fileName: string): boolean {
   return true;
 }
 
+/** Estilo del encabezado: azul oscuro con letras blancas (como el sistema/inventario). */
+const HEADER_STYLE = {
+  fill: { patternType: 'solid', fgColor: { rgb: '1E3A5F' } },
+  font: { color: { rgb: 'FFFFFF' }, bold: true, sz: 11 },
+  alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+} as const;
+
+/** Pinta la primera fila (encabezado) de una hoja con el estilo azul/blanco. */
+function styleHeaderRow(ws: XLSX.WorkSheet, ncols: number) {
+  for (let c = 0; c < ncols; c++) {
+    const ref = XLSX.utils.encode_cell({ r: 0, c });
+    const cell = (ws as any)[ref];
+    if (cell) (cell as any).s = HEADER_STYLE;
+  }
+  (ws as any)['!rows'] = [{ hpt: 26 }];
+}
+
 /**
- * Genera y descarga la PLANTILLA de carga masiva. Trae:
- *  - Hoja "Inspecciones": encabezados + 2 filas de ejemplo (misma máquina = 1 inspección con 2 ítems).
+ * Genera y descarga la PLANTILLA de carga masiva (VACÍA, solo encabezados).
+ *  - Hoja "Inspecciones": encabezados en azul oscuro con letras blancas, sin filas de ejemplo.
  *  - Hoja "Máquinas (referencia)": lista de códigos/serial/placa/tipo válidos para copiar.
  */
 export function downloadInspeccionTemplate(machines: MachineRef[]): boolean {
   const wb = XLSX.utils.book_new();
 
-  const ejemploMaq = machines[0]?.code || 'CÓDIGO-EQUIPO';
-  const rows: (string | number)[][] = [
-    [...COLS],
-    [ejemploMaq, '2026-07-25', '08:00', 'Juan Pérez', 'Pedro Gómez', 'Equipo operativo, sin novedades', 'Extintor 10 lb', 1, 'Unid.', 'EXT-001', 'Operativo', 'Bien'],
-    [ejemploMaq, '', '', '', '', '', 'Llave de rueda', 1, 'Unid.', '', 'Verificado', 'Bien'],
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const ws = XLSX.utils.aoa_to_sheet([[...COLS]]);
   ws['!cols'] = [{ wch: 22 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 26 }, { wch: 26 }, { wch: 9 }, { wch: 8 }, { wch: 20 }, { wch: 16 }, { wch: 18 }];
+  styleHeaderRow(ws, COLS.length);
   XLSX.utils.book_append_sheet(wb, ws, 'Inspecciones');
 
   const refRows: (string)[][] = [['Código', 'Serial', 'Placa', 'Tipo']];
   machines.forEach((m) => refRows.push([m.code, m.serial || '', m.plate || '', (m.tipo && m.tipo.trim()) || equipCategory(m.code) || m.code]));
   const refWs = XLSX.utils.aoa_to_sheet(refRows);
   refWs['!cols'] = [{ wch: 24 }, { wch: 20 }, { wch: 16 }, { wch: 28 }];
+  styleHeaderRow(refWs, 4);
   XLSX.utils.book_append_sheet(wb, refWs, 'Máquinas (referencia)');
 
   return downloadWorkbook(wb, 'Plantilla - Carga masiva de inspecciones');
