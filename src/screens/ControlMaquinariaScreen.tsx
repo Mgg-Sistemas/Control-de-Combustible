@@ -1463,6 +1463,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 );
               })() : null}
+              {/* Total de la EMPRESA en el rango de fechas seleccionado: horas + $ (suma de sus máquinas). */}
+              {open ? (() => {
+                const compTot = g.items.reduce((acc, m) => {
+                  const h = weekDays.reduce((s, d) => {
+                    const b = rounds[rkey(m.id, d)];
+                    return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
+                  }, 0);
+                  const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+                  acc.hours += h;
+                  acc.amount += price > 0 ? (h / 12) * price : 0;
+                  return acc;
+                }, { hours: 0, amount: 0 });
+                return (
+                  <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }}>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>📊 Total del rango (empresa)</Text>
+                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>
+                      {Number(compTot.hours.toFixed(2)).toLocaleString()} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                );
+              })() : null}
               {open ? g.items.map((m) => {
           const weekWorked = weekDays.reduce((s, d) => {
             const b = rounds[rkey(m.id, d)];
