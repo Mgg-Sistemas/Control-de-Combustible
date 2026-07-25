@@ -784,6 +784,9 @@ export default function ReportsScreen({ route }: any) {
     const grandUSD = roundGroups.reduce((s, g) => s + g.totalUSD, 0) + grandViajes;
     const grandH = roundGroups.reduce((s, g) => s + g.totalH, 0);
     const grandMachines = roundGroups.reduce((s, g) => s + g.machines.length, 0);
+    // Abonos del rango (por empresa) y pendiente del corte = total $ − abonado.
+    const grandAbonado = roundGroups.reduce((s, g) => s + (Number(g.abonado) || 0), 0);
+    const grandPendiente = Math.max(0, grandUSD - grandAbonado);
     // ── Reporte general (mismo bloque que el reporte de maquinaria): resumen de
     // equipos por CLASIFICACIÓN y por EMPRESA (horas × precio). No incluye fletes.
     const phStr = (amount: number, worked: number) => (worked > 0 ? usd(amount / worked) : '—');
@@ -819,8 +822,22 @@ export default function ReportsScreen({ route }: any) {
       <tbody>${empRows || '<tr><td colspan="6" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${genEquipos}</td><td style="text-align:right">${nH(genWorked)}</td><td style="text-align:right">${usd(genAmount)}</td><td style="text-align:right">${genFletes > 0 ? usd(genFletes) : '—'}</td><td style="text-align:right;font-weight:800">${usd(genAmount + genFletes)}</td></tr></tfoot></table>
       <p class="muted" style="margin-top:6px">El "Total a pagar" por empresa incluye los fletes/viajes del rango. La tabla por clasificación es solo equipos (un flete no pertenece a una clasificación).</p>`;
+    // Resumen del CORTE (arriba de todo): horas, total $, abonado y pendiente.
+    const resumenCard = (label: string, value: string, color: string, bg: string) =>
+      `<td style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;background:${bg};vertical-align:top;width:25%">
+        <div style="font-size:10px;color:#555;text-transform:uppercase;font-weight:700;letter-spacing:.3px">${label}</div>
+        <div style="font-size:19px;font-weight:800;color:${color};margin-top:3px">${value}</div>
+      </td>`;
+    const resumenTop = `
+      <table style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:8px 0 12px"><tbody><tr>
+        ${resumenCard('Total de horas por corte', nH(grandH), '#1E3A5F', '#F3F6FB')}
+        ${resumenCard('Total $', usd(grandUSD), '#1E3A5F', '#EEF3FB')}
+        ${resumenCard('Total abonado', usd(grandAbonado), '#15803D', '#EAF6EE')}
+        ${resumenCard('TOTAL PENDIENTE', usd(grandPendiente), '#B91C1C', '#FBEEEE')}
+      </tr></tbody></table>`;
     const content = `
       <div class="muted">Informe por jornada · del ${fmtDMY(from)} al ${fmtDMY(to)}${roundsCompany ? ` · Empresa: ${roundsCompany}` : ''}</div>
+      ${resumenTop}
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
