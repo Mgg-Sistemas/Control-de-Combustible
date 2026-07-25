@@ -135,7 +135,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
   });
 
   var currentCompany = null;
-  var routesOn = true;
+  var routesOn = false; // las RUTAS vienen OCULTAS por defecto (se prenden desde fuera del mapa).
   function refresh(){
     var bounds = [];
     allMarkers.forEach(function(o){
@@ -148,22 +148,8 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     if (bounds.length) map.fitBounds(bounds, {padding:[40,40], maxZoom:13});
   }
 
-  // Botón VER / OCULTAR RUTA (ojo).
-  var EYE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1E3A5F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
-  var EYE_OFF = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-  var RouteToggle = L.Control.extend({
-    options: { position: 'topleft' },
-    onAdd: function(){
-      var c = L.DomUtil.create('div', 'leaflet-bar');
-      var a = L.DomUtil.create('a', '', c);
-      a.href = '#'; a.title = 'Ver / ocultar ruta';
-      a.style.cssText = 'width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff';
-      a.innerHTML = EYE;
-      L.DomEvent.on(a, 'click', function(e){ L.DomEvent.stop(e); routesOn = !routesOn; a.innerHTML = routesOn ? EYE : EYE_OFF; a.title = routesOn ? 'Ocultar ruta' : 'Ver ruta'; refresh(); });
-      return c;
-    }
-  });
-  map.addControl(new RouteToggle());
+  // Las RUTAS se prenden/apagan desde FUERA del mapa (botón en la app), no con un
+  // control dentro del mapa. Por defecto vienen ocultas (routesOn = false).
 
   // ── Ubicación del USUARIO logueado (se muestra CADA VEZ que se abre el mapa) ──
   var userMarker = null, userCircle = null;
@@ -176,11 +162,12 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     return 2*R*Math.asin(Math.sqrt(s)); }
   function fmtD(m){ return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(1)+' km'; }
   // Popup de MI ubicación: lista las máquinas más cercanas (≤20 km) con su distancia.
-  function nearbyHtml(lat,lng){
-    if(!pins.length) return '<b>📍 Tu ubicación</b><br/><span style="color:#777">No hay máquinas en el mapa.</span>';
+  function nearbyHtml(lat,lng,title){
+    var t = title || '📍 Tu ubicación';
+    if(!pins.length) return '<b>'+t+'</b><br/><span style="color:#777">No hay máquinas en el mapa.</span>';
     var arr = pins.map(function(p){ return { p:p, d:distM(lat,lng,p.lat,p.lng) }; }).sort(function(a,b){ return a.d-b.d; });
     var near = arr.filter(function(x){ return x.d<=20000; }).slice(0,8);
-    var h = '<b>📍 Tu ubicación</b><br/><span style="color:#555;font-size:12px">Máquinas cercanas (≤20 km):</span>';
+    var h = '<b>'+t+'</b><br/><span style="color:#555;font-size:12px">Máquinas cercanas (≤20 km):</span>';
     if(!near.length){ var c=arr[0]; return h + '<br/><span style="color:#777;font-size:12px">Ninguna a menos de 20 km. La más cercana: <b>'+esc(c.p.name)+'</b> a '+fmtD(c.d)+'.</span>'; }
     h += '<div style="margin-top:4px;max-height:170px;overflow:auto">';
     near.forEach(function(x){
@@ -311,9 +298,13 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     else if (d.type === 'map-zone-offsets'){ ZONE_OFF = d.offsets || {}; applyOffsets(); }
   });
 
-  // Ubicación MANUAL (solo admin): al tocar el mapa en modo ubicar, avisa el punto.
+  // Al TOCAR el mapa:
+  //  · en modo ubicar (admin): avisa el punto para reubicar la máquina.
+  //  · normal: muestra un popup con las MÁQUINAS CERCANAS a ese punto (≤20 km).
   map.on('click', function(e){
-    if (locateMode){ try { parent.postMessage({ type:'map-picked', lat: e.latlng.lat, lng: e.latlng.lng }, '*'); } catch(err){} }
+    if (locateMode){ try { parent.postMessage({ type:'map-picked', lat: e.latlng.lat, lng: e.latlng.lng }, '*'); } catch(err){} return; }
+    if (zoneEditMode) return;
+    L.popup({ maxWidth: 260 }).setLatLng(e.latlng).setContent(nearbyHtml(e.latlng.lat, e.latlng.lng, '📍 Aquí')).openOn(map);
   });
 
   refresh();
@@ -324,7 +315,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
 </script></body></html>`;
 }
 
-export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false }: {
+export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, streets, canEdit = true, locateMode = false, zoneOffsets, zoneEdit = false, showRoutes = false }: {
   pins: MapPin[];
   onDelete?: (id: string, name?: string) => void;
   selectedCompany?: string | null;
@@ -335,6 +326,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   locateMode?: boolean; // admin en modo "tocar el mapa para ubicar"
   zoneOffsets?: Record<string, { d_lat: number; d_lng: number }>; // desfase guardado por sector
   zoneEdit?: boolean;  // admin en modo "arrastrar sectores"
+  showRoutes?: boolean; // mostrar las rutas (por defecto ocultas), se controla desde fuera
 }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
@@ -345,6 +337,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
   useEffect(() => { post({ type: 'map-zones', on: zones ? Array.from(zones) : [] }); }, [zones]);
   useEffect(() => { post({ type: 'map-locate-mode', on: locateMode }); }, [locateMode]);
   useEffect(() => { post({ type: 'map-zone-edit', on: zoneEdit }); }, [zoneEdit]);
+  useEffect(() => { post({ type: 'map-routes', on: showRoutes }); }, [showRoutes]);
   // Los desfases de sectores van por mensaje (NO incrustados en el HTML): así al
   // guardar uno no se recarga el mapa (antes el sector "se quitaba" al soltarlo).
   useEffect(() => { post({ type: 'map-zone-offsets', offsets: zoneOffsets ?? {} }); }, [zoneOffsets]);
@@ -357,6 +350,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
     post({ type: 'map-zones', on: zones ? Array.from(zones) : [] });
     post({ type: 'map-locate-mode', on: locateMode });
     post({ type: 'map-zone-edit', on: zoneEdit });
+    post({ type: 'map-routes', on: showRoutes });
   };
   const onLoad = () => pushState();
   useEffect(() => {
