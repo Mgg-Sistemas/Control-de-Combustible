@@ -13,7 +13,7 @@ import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/super
 import QrScanner from '../components/QrScanner';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
-import { startJornada, isOperatorCargo } from '../lib/jornada';
+import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -109,6 +109,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [opHoro, setOpHoro] = useState('');
   const [opHoroPhoto, setOpHoroPhoto] = useState<string | null>(null);
   const [opHoroUploading, setOpHoroUploading] = useState(false);
+  // Turno elegido a mano (sol/luna). Arranca en el turno según la hora actual.
+  const [opShift, setOpShift] = useState<'day' | 'night'>(shiftOf(caracasParts(new Date()).hour).key);
   const [opBusy, setOpBusy] = useState(false);
 
   useEffect(() => { warmLocation(); }, []);
@@ -275,6 +277,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     if (!(emp.cedula || '').trim()) { setOpEmp(null); setNotice(`❌ ${nombre} no tiene CÉDULA en nómina. Pídele al administrador que la agregue.`); return; }
     setOpEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim() });
     setOpConfirmCedula('');
+    setOpShift(shiftOf(caracasParts(new Date()).hour).key); // sugiere el turno según la hora; el inspector puede cambiarlo
+    setOpHoro(''); setOpHoroPhoto(null);
     setNotice(`📇 Carnet de ${nombre} leído. Coteja su cédula e ingresa el horómetro para iniciar la jornada.`);
   };
 
@@ -291,7 +295,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     const res = await startJornada({
       machineId: ci.id, companyName: ci.companyName ?? null,
       first: opEmp.first, last: opEmp.last, cedula: opEmp.cedula, horometroInicial: hi,
-      horometroPhoto: opHoroPhoto,
+      horometroPhoto: opHoroPhoto, shift: opShift,
       createdBy: uid || null, recordedBy: uid || null, startCoords: gps,
     });
     setOpBusy(false);
@@ -495,6 +499,25 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📇 {opEmp.name}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{opEmp.cargo || 'Sin cargo'}</Text>
                     </View>
+
+                    {/* Turno de la jornada: sol (día) / luna (noche) */}
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Turno de la jornada</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                      {([['day', '☀️', 'Día', '#EA6A1F'], ['night', '🌙', 'Noche', '#3B5BA5']] as const).map(([key, icon, label, tint]) => {
+                        const on = opShift === key;
+                        return (
+                          <TouchableOpacity
+                            key={key}
+                            onPress={() => setOpShift(key)}
+                            style={{ flex: 1, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? tint : colors.border, backgroundColor: on ? tint + '22' : colors.surface, alignItems: 'center' }}
+                          >
+                            <Text style={{ fontSize: 26 }}>{icon}</Text>
+                            <Text style={{ color: on ? tint : colors.text, fontWeight: '800', fontSize: 13, marginTop: 2 }}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Coteja la cédula del operador</Text>
                     <TextInput value={opConfirmCedula} onChangeText={(t) => setOpConfirmCedula(t.replace(/\D/g, ''))} keyboardType="number-pad" inputMode="numeric" placeholder="Cédula del operador" placeholderTextColor={colors.muted} style={input} />
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Horómetro inicial</Text>
