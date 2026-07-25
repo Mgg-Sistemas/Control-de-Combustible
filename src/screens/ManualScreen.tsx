@@ -238,7 +238,7 @@ const SECTIONS: Sec[] = [
         'Bonos y Deducciones: por persona, agregas líneas de concepto y monto (ej. Bono producción, Adelanto, Préstamo).',
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
         'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF.',
-        '🏢 Filtrar por departamento: dentro del período hay una lista desplegable con casillas ("🏢 Filtrar por departamento"). Tildas uno o varios departamentos (los del Tabulador, campo Depto de cada cargo) y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por departamento con su subtotal. Sin tildar nada = todos.',
+        '💼 Filtrar por cargo: dentro del período hay una lista desplegable con casillas ("💼 Filtrar por cargo"). Tildas uno o varios cargos y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por cargo con su subtotal. Sin tildar nada = todos.',
       ] },
       { t: 'note', text: 'Las analistas pueden cargar cantidades, bonos y deducciones, pero NO pueden cambiar los precios (hora/día/semana) del trabajador.' },
     ],

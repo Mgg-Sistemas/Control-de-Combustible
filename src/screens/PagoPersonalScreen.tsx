@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
-import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine, StaffCargoTariff } from '../types/database';
+import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { TabuladorCargos } from '../components/TabuladorCargos';
 import { PagoPorPersona } from '../components/PagoPorPersona';
@@ -99,19 +99,12 @@ export default function PagoPersonalScreen() {
   // Sin empresa (id null) = personal de la organización → se rotula SOS LA GUAIRA.
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : EMPLEADOR);
 
-  // Departamento por CARGO (del Tabulador): mapa norm(cargo) → DEPARTAMENTO, para
-  // filtrar/agrupar la nómina por departamento.
-  const { data: tariffs } = useTable<StaffCargoTariff>('staff_cargo_tariffs', { orderBy: 'cargo' });
-  const deptoByCargo = useMemo(() => {
-    const m: Record<string, string> = {};
-    tariffs.forEach((t) => { if (t.cargo) m[norm(t.cargo)] = (t.departamento || '').trim().toUpperCase() || 'SIN DEPARTAMENTO'; });
-    return m;
-  }, [tariffs]);
-  const deptoOf = (cargo?: string | null) => deptoByCargo[norm(cargo ?? '')] || 'SIN DEPARTAMENTO';
-  // Filtro por departamento (lista desplegable con checks). Vacío = todos.
-  const [deptoSel, setDeptoSel] = useState<Set<string>>(new Set());
-  const [deptoOpen, setDeptoOpen] = useState(false);
-  const toggleDepto = (d: string) => setDeptoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  // Filtro/agrupado por CARGO (el cargo está en cada empleado). Normaliza a MAYÚSCULAS.
+  const cargoOf = (cargo?: string | null) => (cargo ?? '').trim().toUpperCase() || 'SIN CARGO';
+  // Filtro por cargo (lista desplegable con checks). Vacío = todos.
+  const [cargoSel, setCargoSel] = useState<Set<string>>(new Set());
+  const [cargoOpen, setCargoOpen] = useState(false);
+  const toggleCargo = (d: string) => setCargoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
 
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
@@ -192,7 +185,7 @@ export default function PagoPersonalScreen() {
     setPays((pp ?? []) as StaffPayPayment[]);
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setDeptoSel(new Set()); setDeptoOpen(false); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setCargoSel(new Set()); setCargoOpen(false); loadDetail(p); };
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));
@@ -450,8 +443,8 @@ export default function PagoPersonalScreen() {
   // ── PDF: reporte del período ────────────────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
-    // Personal del reporte, respetando el filtro por departamento (vacío = todos).
-    const base = deptoSel.size ? items.filter((it) => deptoSel.has(deptoOf(it.cargo))) : items;
+    // Personal del reporte, respetando el filtro por cargo (vacío = todos).
+    const base = cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
     const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
       const precioCell = sel.mode === 'dia'
@@ -470,16 +463,16 @@ export default function PagoPersonalScreen() {
         `<td style="text-align:right;color:#087443">${usd(pagado)}</td>` +
         `<td style="text-align:right;font-weight:700">${usd(saldo)}</td></tr>`;
     };
-    // Agrupa por DEPARTAMENTO (del Tabulador). Cada depto: sus personas + subtotal.
-    const byDepto = new Map<string, StaffPayItem[]>();
-    base.forEach((it) => { const d = deptoOf(it.cargo); if (!byDepto.has(d)) byDepto.set(d, []); byDepto.get(d)!.push(it); });
-    const deptos = [...byDepto.keys()].sort((a, b) => cmpText(a, b));
-    const secciones = deptos.map((d) => {
-      const list = byDepto.get(d)!.slice().sort((a, b) => cmpText(a.person_name, b.person_name));
+    // Agrupa por CARGO. Cada cargo: sus personas + subtotal.
+    const byCargo = new Map<string, StaffPayItem[]>();
+    base.forEach((it) => { const d = cargoOf(it.cargo); if (!byCargo.has(d)) byCargo.set(d, []); byCargo.get(d)!.push(it); });
+    const cargos = [...byCargo.keys()].sort((a, b) => cmpText(a, b));
+    const secciones = cargos.map((d) => {
+      const list = byCargo.get(d)!.slice().sort((a, b) => cmpText(a.person_name, b.person_name));
       const sub = round2(list.reduce((s, it) => s + Number(it.total), 0));
       const subPag = round2(list.reduce((s, it) => s + paidOf(it.id), 0));
       const subSal = round2(list.reduce((s, it) => s + saldoOf(it), 0));
-      return `<tr class="depto"><td colspan="10">🏢 ${d} — ${list.length} persona(s)</td></tr>
+      return `<tr class="depto"><td colspan="10">💼 ${d} — ${list.length} persona(s)</td></tr>
         ${list.map(rowFor).join('')}
         <tr class="sub"><td colspan="7" style="text-align:right">Subtotal ${d}</td>
           <td style="text-align:right">${usd(sub)}</td><td style="text-align:right">${usd(subPag)}</td><td style="text-align:right">${usd(subSal)}</td></tr>`;
@@ -487,7 +480,7 @@ export default function PagoPersonalScreen() {
     const total = round2(base.reduce((s, it) => s + Number(it.total), 0));
     const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
     const saldoT = round2(base.reduce((s, it) => s + saldoOf(it), 0));
-    const filtroNote = deptoSel.size ? ` · Departamento(s): ${[...deptoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
+    const filtroNote = cargoSel.size ? ` · Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
     const html = pdfDocument({
       title: 'Control de pago a personal',
       subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
@@ -522,13 +515,13 @@ export default function PagoPersonalScreen() {
   const totalPagado = useMemo(() => (sel ? round2(items.reduce((s, it) => s + paidOf(it.id), 0)) : 0), [items, pays, sel]);
   const totalSaldo = useMemo(() => (sel ? round2(items.reduce((s, it) => s + saldoOf(it), 0)) : 0), [items, pays, sel]);
 
-  // Departamentos presentes en el período (para el filtro) y personal ya filtrado.
-  const deptosDisponibles = useMemo(() => {
+  // Cargos presentes en el período (para el filtro) y personal ya filtrado.
+  const cargosDisponibles = useMemo(() => {
     const m = new Map<string, number>();
-    items.forEach((it) => { const d = deptoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
-    return [...m.entries()].map(([depto, count]) => ({ depto, count })).sort((a, b) => cmpText(a.depto, b.depto));
-  }, [items, deptoByCargo]);
-  const itemsShown = useMemo(() => (deptoSel.size ? items.filter((it) => deptoSel.has(deptoOf(it.cargo))) : items), [items, deptoSel, deptoByCargo]);
+    items.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
+    return [...m.entries()].map(([cargo, count]) => ({ cargo, count })).sort((a, b) => cmpText(a.cargo, b.cargo));
+  }, [items]);
+  const itemsShown = useMemo(() => (cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items), [items, cargoSel]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -749,34 +742,34 @@ export default function PagoPersonalScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* Filtro por DEPARTAMENTO (del Tabulador): lista desplegable con checks.
+              {/* Filtro por CARGO: lista desplegable con checks.
                   Afecta la lista de abajo Y el reporte PDF. Vacío = todos. */}
-              {deptosDisponibles.length > 1 ? (
+              {cargosDisponibles.length > 1 ? (
                 <View style={{ marginBottom: spacing.sm }}>
                   <TouchableOpacity
-                    onPress={() => setDeptoOpen((v) => !v)}
+                    onPress={() => setCargoOpen((v) => !v)}
                     style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
                   >
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
-                      🏢 Filtrar por departamento{deptoSel.size > 0 ? ` (${deptoSel.size})` : ' (todos)'}
+                      💼 Filtrar por cargo{cargoSel.size > 0 ? ` (${cargoSel.size})` : ' (todos)'}
                     </Text>
-                    <Text style={{ color: colors.primary, fontWeight: '800' }}>{deptoOpen ? '▲' : '▼'}</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800' }}>{cargoOpen ? '▲' : '▼'}</Text>
                   </TouchableOpacity>
-                  {deptoOpen ? (
+                  {cargoOpen ? (
                     <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-                      {deptoSel.size > 0 ? (
-                        <TouchableOpacity onPress={() => setDeptoSel(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
-                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({deptoSel.size})</Text>
+                      {cargoSel.size > 0 ? (
+                        <TouchableOpacity onPress={() => setCargoSel(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({cargoSel.size})</Text>
                         </TouchableOpacity>
                       ) : null}
-                      {deptosDisponibles.map((d) => {
-                        const on = deptoSel.has(d.depto);
+                      {cargosDisponibles.map((d) => {
+                        const on = cargoSel.has(d.cargo);
                         return (
-                          <TouchableOpacity key={d.depto} onPress={() => toggleDepto(d.depto)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <TouchableOpacity key={d.cargo} onPress={() => toggleCargo(d.cargo)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                             <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                               {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                             </View>
-                            <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{d.depto}</Text>
+                            <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{d.cargo}</Text>
                             <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{d.count}</Text>
                           </TouchableOpacity>
                         );
@@ -791,7 +784,7 @@ export default function PagoPersonalScreen() {
               ) : items.length === 0 ? (
                 <EmptyState title="Sin personal" subtitle="No hay empleados activos en esta empresa. Agrégalos en Empleados y usa “Personal faltante”." />
               ) : itemsShown.length === 0 ? (
-                <EmptyState title="Sin personal en ese departamento" subtitle="Ningún empleado del período pertenece al departamento filtrado." />
+                <EmptyState title="Sin personal en ese cargo" subtitle="Ningún empleado del período tiene el cargo filtrado." />
               ) : (
                 itemsShown.map((it) => {
                   const pagado = paidOf(it.id); const saldo = saldoOf(it);
