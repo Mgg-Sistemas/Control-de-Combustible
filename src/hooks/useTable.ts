@@ -49,21 +49,37 @@ export function useTable<T = any>(
 
   // Sincronización en tiempo real (multiusuario): al recibir cualquier cambio en
   // las tablas fuente, se vuelve a leer (con un pequeño debounce para agrupar ráfagas).
+  // Refuerzos: resincroniza al RECONECTAR el canal, al VOLVER a la pestaña y al
+  // recuperar INTERNET; y OPTIMIZA saltándose refrescos mientras la pestaña está oculta.
   const sourcesKey = Array.isArray(realtimeFrom) ? realtimeFrom.join(',') : realtimeFrom ?? table;
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const sources = sourcesKey.split(',');
+    const g: any = globalThis as any;
+    const doc = g.document;
+    const hidden = () => !!doc && doc.visibilityState === 'hidden';
     let timer: any;
     const bump = () => {
+      if (hidden()) return; // pestaña oculta: no gastamos en refrescar; al volver se resincroniza
       clearTimeout(timer);
       timer = setTimeout(() => fetch(true), 400); // refresco SILENCIOSO (sin spinner)
     };
     const ch = supabase.channel(`rt-${table}-${sourcesKey}-${instanceId.current}`);
     sources.forEach((src) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: src }, bump));
-    ch.subscribe();
+    // Al (re)suscribir el canal (reconexión por señal intermitente), resincroniza por si
+    // se perdieron cambios mientras estuvo caído. La PRIMERA suscripción no refetchea
+    // (la carga inicial ya corrió).
+    let joined = false;
+    ch.subscribe((status: string) => { if (status === 'SUBSCRIBED') { if (joined) bump(); joined = true; } });
+    // Web: al volver a la pestaña / recuperar internet, resincroniza en silencio.
+    const onWake = () => bump();
+    if (g.addEventListener) { g.addEventListener('online', onWake); g.addEventListener('focus', onWake); }
+    if (doc && doc.addEventListener) doc.addEventListener('visibilitychange', onWake);
     return () => {
       clearTimeout(timer);
       supabase.removeChannel(ch);
+      if (g.removeEventListener) { g.removeEventListener('online', onWake); g.removeEventListener('focus', onWake); }
+      if (doc && doc.removeEventListener) doc.removeEventListener('visibilitychange', onWake);
     };
   }, [table, sourcesKey, fetch]);
 

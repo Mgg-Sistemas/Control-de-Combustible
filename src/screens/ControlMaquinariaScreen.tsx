@@ -285,7 +285,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     ['machine_rounds', 'machinery', 'machine_guards', 'fletes'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
-    ch.subscribe();
+    // Resync al (re)conectar el canal (señal intermitente): recupera cambios perdidos.
+    let joined = false;
+    ch.subscribe((status: string) => { if (status === 'SUBSCRIBED') { if (joined) bump(); joined = true; } });
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
   }, [load]);
 
