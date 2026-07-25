@@ -560,18 +560,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   //    el cierre del histórico. Al terminar de corregir, se vuelve a cerrar (y se
   //    congela el precio de nuevo). Es lo más seguro: reusa toda la lógica existente.
   const [reabriendo, setReabriendo] = useState<string | null>(null);
+  // Confirmación EN LÍNEA (no un Modal anidado): en web un Modal sobre el modal de
+  // cierre queda tapado, por eso la confirmación se muestra dentro del mismo modal.
+  const [confirmReabrir, setConfirmReabrir] = useState(false);
+  // Al abrir/cerrar un cierre, arranca sin la confirmación desplegada.
+  useEffect(() => { setConfirmReabrir(false); }, [closureSel]);
   const reabrirCierre = async (c: ControlClosure) => {
     const from = c.detail?.dateFrom ?? c.closure_date;
     const to = c.detail?.dateTo ?? c.closure_date;
     const rangeTxt = from === to ? `del ${fmtDMY(from)}` : `del ${fmtDMY(from)} al ${fmtDMY(to)}`;
-    const ok = await confirm({
-      title: 'Reabrir cierre',
-      message: `¿Reabrir el cierre ${rangeTxt}? Sus registros vuelven al control activo para editarlos y el cierre sale del histórico. Cuando termines, vuelve a cerrar el control.`,
-      confirmText: 'Reabrir',
-      cancelText: 'Cancelar',
-      danger: true,
-    });
-    if (!ok) return;
+    setConfirmReabrir(false);
     setReabriendo(c.id);
     // Pares exactos (máquina, fecha) del snapshot → solo reabrimos esas rondas cerradas.
     const byDate = new Map<string, Set<string>>();
@@ -2011,16 +2009,41 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 {(() => { const mm = (closureSel.detail?.machines ?? []).filter((x) => !closureCompany || (x.company || 'Sin empresa') === closureCompany); return `${new Set(mm.map((x) => x.machineId || x.serial || x.code)).size} máquina(s) · ${mm.length} registro(s)`; })()}
               </Text>
-              <TouchableOpacity
-                disabled={reabriendo === closureSel.id}
-                style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
-                onPress={() => reabrirCierre(closureSel)}
-              >
-                <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
-              </TouchableOpacity>
-              <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginBottom: spacing.sm }}>
-                Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
-              </Text>
+              {confirmReabrir ? (
+                <View style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22' }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm }}>
+                    ¿Reabrir este cierre? Sus registros vuelven al control activo para editarlos y el cierre sale del histórico.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    <TouchableOpacity
+                      style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+                      onPress={() => setConfirmReabrir(false)}
+                    >
+                      <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={reabriendo === closureSel.id}
+                      style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning ?? '#F59E0B', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                      onPress={() => reabrirCierre(closureSel)}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : 'Sí, reabrir'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    disabled={reabriendo === closureSel.id}
+                    style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                    onPress={() => setConfirmReabrir(true)}
+                  >
+                    <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginBottom: spacing.sm }}>
+                    Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
+                  </Text>
+                </>
+              )}
               <TextInput
                 value={closureSearch}
                 onChangeText={setClosureSearch}
