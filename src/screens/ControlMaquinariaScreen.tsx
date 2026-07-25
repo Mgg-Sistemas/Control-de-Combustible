@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView, Switch } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
@@ -219,6 +219,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   const rkey = (mId: string, d: string) => `${mId}|${d}`;
 
+  // Anti "cache vieja": guarda las rondas editadas HACE POCO (rkey → vence en). Un refetch
+  // silencioso (realtime/foco) puede leer datos que aún no reflejan tu cambio; durante esta
+  // ventana NO se pisa la edición local, así al quitar/poner horas no se revierte sola.
+  const recentEdits = useRef<Map<string, number>>(new Map());
+  const EDIT_GUARD_MS = 5000;
+  const markEdited = (key: string) => recentEdits.current.set(key, Date.now() + EDIT_GUARD_MS);
+
   // Refresca el guardia/militar actual de una sola máquina tras asignar/cambiar.
   const refreshGuard = useCallback(async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
@@ -265,9 +272,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       // queda archivado en el histórico PERO también se ve aquí y se puede seguir
       // editando (p. ej. agregar días que faltaron). Cada ronda conserva su marca
       // `closed` y su precio congelado (`frozen_price`) al editarse.
-      const map: Record<string, MachineRound> = {};
-      (r ?? []).forEach((row: any) => { map[rkey(row.machinery_id, row.round_date)] = row; });
-      setRounds(map);
+      const fetched: Record<string, MachineRound> = {};
+      (r ?? []).forEach((row: any) => { fetched[rkey(row.machinery_id, row.round_date)] = row; });
+      setRounds((prev) => {
+        // Conserva las ediciones locales muy recientes (aún dentro de su ventana): si el
+        // refetch trae datos viejos que no reflejan tu cambio, NO los pisamos.
+        const now = Date.now();
+        recentEdits.current.forEach((exp, k) => {
+          if (exp > now) { if (prev[k]) fetched[k] = prev[k]; }
+          else recentEdits.current.delete(k);
+        });
+        return fetched;
+      });
       if (!silent) { setHoursInput({}); setOvertimeInput({}); }
     } catch (e: any) {
       if (!silent) Alert.alert('Aviso', 'No se pudo cargar el control. Revisa tu conexión e inténtalo de nuevo.');
@@ -298,7 +314,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Guarda/actualiza el registro base (round_no=1) de una máquina en un día concreto,
   // conservando lo demás. Todo el control es por (máquina, fecha).
   const upsertRound = async (m: Machinery, dISO: string, patch: Record<string, any>) => {
-    const ex = rounds[rkey(m.id, dISO)];
+    const key = rkey(m.id, dISO);
+    markEdited(key); // protege la edición mientras se escribe (evita que un refetch la pise)
+    const ex = rounds[key];
     const payload: any = {
       machinery_id: m.id,
       round_date: dISO,
@@ -319,8 +337,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       .upsert(payload, { onConflict: 'machinery_id,round_date,round_no' })
       .select()
       .single();
-    if (error) { Alert.alert('Aviso', error.message); return; }
-    setRounds((p) => ({ ...p, [rkey(m.id, dISO)]: data as MachineRound }));
+    if (error) { recentEdits.current.delete(key); Alert.alert('Aviso', error.message); return; }
+    markEdited(key); // refresca la ventana tras confirmar el guardado
+    setRounds((p) => ({ ...p, [key]: data as MachineRound }));
     // Si la ronda editada YA estaba cerrada, sincroniza el histórico en el acto
     // (para que el reporte cerrado refleje el cambio sin tener que reabrir el cierre).
     if ((data as any)?.closed) syncClosedRound(m, dISO, data as MachineRound);
