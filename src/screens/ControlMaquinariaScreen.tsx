@@ -273,7 +273,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       // editando (p. ej. agregar días que faltaron). Cada ronda conserva su marca
       // `closed` y su precio congelado (`frozen_price`) al editarse.
       const fetched: Record<string, MachineRound> = {};
-      (r ?? []).forEach((row: any) => { fetched[rkey(row.machinery_id, row.round_date)] = row; });
+      (r ?? []).forEach((row: any) => {
+        const k = rkey(row.machinery_id, row.round_date);
+        const cur = fetched[k] as any;
+        // El control edita SIEMPRE el registro base round_no=1; si por datos viejos hubiera
+        // varias filas para la misma máquina/fecha, se PRIORIZA round_no=1 (o el menor) para
+        // que "mostrar" y "editar" sean la MISMA fila (si no, parecía que "no tomaba" el cambio).
+        if (!cur || Number(row.round_no ?? 1) < Number(cur.round_no ?? 1)) fetched[k] = row;
+      });
       setRounds((prev) => {
         // Conserva las ediciones locales muy recientes (aún dentro de su ventana): si el
         // refetch trae datos viejos que no reflejan tu cambio, NO los pisamos.
@@ -296,7 +303,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     load();
     // Sincronización multiusuario: refresca (silencioso) al cambiar turnos/máquinas.
     let timer: any;
-    const bump = () => { clearTimeout(timer); timer = setTimeout(() => load(true), 300); };
+    const bump = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        // No refresques mientras haya ediciones locales recientes: se pospone hasta que
+        // la ventana expire, así un refetch nunca pisa lo que acabas de cambiar.
+        const now = Date.now();
+        let editing = false;
+        recentEdits.current.forEach((exp) => { if (exp > now) editing = true; });
+        if (editing) { bump(); return; }
+        load(true);
+      }, 300);
+    };
     const ch = supabase.channel('rt-control-maquinaria');
     ['machine_rounds', 'machinery', 'machine_guards', 'fletes'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
@@ -337,7 +355,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       .upsert(payload, { onConflict: 'machinery_id,round_date,round_no' })
       .select()
       .single();
-    if (error) { recentEdits.current.delete(key); Alert.alert('Aviso', error.message); return; }
+    // OJO: Alert.alert NO se muestra en web; usamos el banner (setNotice) para que un
+    // error de guardado SÍ se vea (si no, parecería que "no toma" las horas sin avisar).
+    if (error) { recentEdits.current.delete(key); setNotice(`❌ No se pudo guardar: ${error.message}`); return; }
     markEdited(key); // refresca la ventana tras confirmar el guardado
     setRounds((p) => ({ ...p, [key]: data as MachineRound }));
     // Si la ronda editada YA estaba cerrada, sincroniza el histórico en el acto
