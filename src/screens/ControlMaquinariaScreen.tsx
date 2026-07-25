@@ -2011,6 +2011,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 {(() => { const mm = (closureSel.detail?.machines ?? []).filter((x) => !closureCompany || (x.company || 'Sin empresa') === closureCompany); return `${new Set(mm.map((x) => x.machineId || x.serial || x.code)).size} máquina(s) · ${mm.length} registro(s)`; })()}
               </Text>
+              <TouchableOpacity
+                disabled={reabriendo === closureSel.id}
+                style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                onPress={() => reabrirCierre(closureSel)}
+              >
+                <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginBottom: spacing.sm }}>
+                Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
+              </Text>
               <TextInput
                 value={closureSearch}
                 onChangeText={setClosureSearch}
@@ -2103,16 +2113,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => downloadClosurePdf(closureSel)}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                disabled={reabriendo === closureSel.id}
-                style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
-                onPress={() => reabrirCierre(closureSel)}
-              >
-                <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
-              </TouchableOpacity>
-              <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
-                Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
-              </Text>
               <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setClosureSel(null)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
