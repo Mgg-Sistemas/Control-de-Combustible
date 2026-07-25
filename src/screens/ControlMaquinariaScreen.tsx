@@ -541,12 +541,30 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // un precio por rango de fechas para ese corte, se respeta y NO se pisa.
     const priceByMachine = new Map<string, number>();
     snapshot.forEach((s) => { if (s.machineId) priceByMachine.set(s.machineId, Number(s.price) || 0); });
+    // OPTIMIZACIÓN: antes se hacía 1 consulta POR máquina EN SECUENCIA → con muchas
+    // máquinas el "Cerrar control" tardaba mucho. Ahora se AGRUPA por precio (las
+    // máquinas con el mismo precio se congelan en una sola consulta con .in(...)) y
+    // todas las consultas corren EN PARALELO. Los ids se trocean para no pasar del
+    // límite de longitud de URL. Mismo resultado, mucho más rápido.
+    const idsByPrice = new Map<number, string[]>();
     for (const [mid, price] of priceByMachine) {
       if (!(price > 0)) continue;
-      await supabase.from('machine_rounds').update({ frozen_price: price })
-        .eq('machinery_id', mid).gte('round_date', from).lte('round_date', to)
-        .or('frozen_price.is.null,frozen_price.eq.0');
+      const arr = idsByPrice.get(price) ?? [];
+      arr.push(mid);
+      idsByPrice.set(price, arr);
     }
+    const chunk = (arr: string[], n: number) => { const o: string[][] = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
+    const freezeJobs: PromiseLike<any>[] = [];
+    for (const [price, ids] of idsByPrice) {
+      for (const part of chunk(ids, 100)) {
+        freezeJobs.push(
+          supabase.from('machine_rounds').update({ frozen_price: price })
+            .in('machinery_id', part).gte('round_date', from).lte('round_date', to)
+            .or('frozen_price.is.null,frozen_price.eq.0')
+        );
+      }
+    }
+    await Promise.all(freezeJobs);
     setClosing(false);
     setNotice(`✅ Control ${rangeTxt} cerrado y guardado en el histórico. El control activo quedó limpio.`);
     load(true);
@@ -582,16 +600,23 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       }
     });
     try {
+      // OPTIMIZACIÓN: antes se hacía 1 consulta POR FECHA en SECUENCIA → reabrir un
+      // rango de varios días tardaba mucho. Ahora todas las consultas (por fecha,
+      // troceadas por ids) corren EN PARALELO. closed=false + limpia el precio
+      // congelado (se vuelve a congelar al re-cerrar).
+      const chunk = (arr: string[], n: number) => { const o: string[][] = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
+      const jobs: PromiseLike<any>[] = [];
       for (const [d, ids] of byDate) {
-        // closed=false + limpia el precio congelado (se vuelve a congelar al re-cerrar).
-        const { error } = await supabase
-          .from('machine_rounds')
-          .update({ closed: false, frozen_price: null })
-          .eq('round_date', d)
-          .in('machinery_id', Array.from(ids))
-          .eq('closed', true);
-        if (error) throw error;
+        for (const part of chunk(Array.from(ids), 100)) {
+          jobs.push(
+            supabase.from('machine_rounds')
+              .update({ closed: false, frozen_price: null })
+              .eq('round_date', d).in('machinery_id', part).eq('closed', true)
+              .then(({ error }: any) => { if (error) throw error; })
+          );
+        }
       }
+      await Promise.all(jobs);
       const { error: delErr } = await supabase.from('control_closures').delete().eq('id', c.id);
       if (delErr) throw delErr;
     } catch (e: any) {
