@@ -14,6 +14,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { levelMeets } from '../lib/permissions';
 import { spacing, radius } from '../theme';
 import type { MachineInspection, InspectionItem, InspectionNote } from '../types/database';
+import { downloadInspeccionTemplate, pickWorkbookFile, parseInspeccionWorkbook, groupSummary, type BulkParse } from '../lib/inspeccionBulk';
+import { Platform } from 'react-native';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -81,6 +83,10 @@ export default function InspeccionesScreen() {
   const [inspector, setInspector] = useState('');
   const [operador, setOperador] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Carga masiva por Excel.
+  const [bulkParse, setBulkParse] = useState<BulkParse | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const loadMachines = React.useCallback(async () => {
     const { data } = await supabase
@@ -238,6 +244,50 @@ export default function InspeccionesScreen() {
     try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return iso; }
   };
 
+  // ── Carga masiva por Excel ─────────────────────────────────────────────────
+  const descargarPlantilla = () => {
+    if (Platform.OS !== 'web') return Alert.alert('Aviso', 'La plantilla se descarga desde el navegador (versión web).');
+    const ok = downloadInspeccionTemplate((machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
+    if (!ok) Alert.alert('Aviso', 'No se pudo generar la plantilla.');
+  };
+
+  const cargarPlantilla = async () => {
+    if (Platform.OS !== 'web') return Alert.alert('Aviso', 'La carga masiva se hace desde el navegador (versión web).');
+    const buf = await pickWorkbookFile();
+    if (!buf) return;
+    const parsed = parseInspeccionWorkbook(buf, (machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
+    if (parsed.fatal) return Alert.alert('Plantilla con error', parsed.fatal);
+    setBulkParse(parsed);
+  };
+
+  const confirmarCargaMasiva = async () => {
+    if (!bulkParse) return;
+    const listos = bulkParse.groups.filter((g) => g.ok);
+    if (listos.length === 0) return Alert.alert('Aviso', 'No hay ninguna máquina válida para cargar. Corrige los errores marcados.');
+    setBulkBusy(true);
+    const nowT = caracasNowTime();
+    const filas = listos.map((g) => {
+      const m = g.machine!;
+      const fecha = g.fecha || caracasToday();
+      const hora = g.hora || nowT;
+      return {
+        machinery_id: m.id, machine_code: m.code, machine_type: g.tipo || m.code,
+        machine_plate: m.plate, machine_serial: m.serial,
+        inspected_at: `${fecha}T${hora || '00:00'}:00-04:00`,
+        inspector_name: g.inspector.trim() || null, operator_name: g.operador.trim() || null,
+        condicion_general: g.condicion.trim() || null, observaciones: [], items: g.items,
+        created_by: session?.user?.id ?? null,
+      };
+    });
+    const { error } = await supabase.from('machine_inspections').insert(filas);
+    setBulkBusy(false);
+    if (error) return Alert.alert('Aviso', error.message);
+    const affected = new Set(listos.map((g) => g.machine!.id));
+    setBulkParse(null);
+    if (selected && affected.has(selected.id)) loadHistory(selected.id);
+    Alert.alert('Listo', `Se cargaron ${listos.length} inspección(es) (${listos.reduce((a, g) => a + g.items.length, 0)} ítem(s)).`);
+  };
+
   return (
     <Screen>
       <ConfigBanner />
@@ -251,6 +301,18 @@ export default function InspeccionesScreen() {
         placeholder="🔎 Buscar por placa, serial o nombre…" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
       />
+
+      {/* Carga masiva por Excel (solo web y con permiso de escritura) */}
+      {canWrite && Platform.OS === 'web' ? (
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <TouchableOpacity onPress={descargarPlantilla} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>⬇️ Plantilla Excel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={cargarPlantilla} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>⬆️ Carga masiva</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {machines === null ? (
         <Loading />
@@ -436,6 +498,69 @@ export default function InspeccionesScreen() {
               </TouchableOpacity>
               <View style={{ height: spacing.lg }} />
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Vista previa de la CARGA MASIVA por Excel */}
+      <Modal visible={!!bulkParse} animationType="slide" transparent onRequestClose={() => setBulkParse(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>Carga masiva · vista previa</Text>
+              <TouchableOpacity onPress={() => setBulkParse(null)}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+            </View>
+
+            {bulkParse ? (
+              <>
+                <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    {bulkParse.groups.length} máquina(s) · {bulkParse.totalItems} ítem(s) ·{' '}
+                    <Text style={{ color: '#15803D', fontWeight: '800' }}>{bulkParse.okCount} lista(s)</Text>
+                    {bulkParse.errorCount ? <Text style={{ color: '#DC2626', fontWeight: '800' }}>{`  ·  ${bulkParse.errorCount} con error`}</Text> : null}
+                  </Text>
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.sm }}>
+                  {bulkParse.groups.map((g, i) => (
+                    <View key={i} style={{ borderWidth: 1, borderColor: g.ok ? '#15803D' : '#DC2626', borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }}>
+                          {g.machine ? g.machine.code : g.input}
+                        </Text>
+                        <Text style={{ color: g.ok ? '#15803D' : '#DC2626', fontWeight: '800', fontSize: 12 }}>{g.ok ? '✓ lista' : '✕ error'}</Text>
+                      </View>
+                      {g.machine ? (
+                        <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>🏷️ {g.tipo}{g.machine.serial ? ` · Serial: ${g.machine.serial}` : ''}</Text>
+                      ) : null}
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                        📦 {groupSummary(g)}{g.fecha ? ` · 🗓️ ${dmy(g.fecha)}` : ''}{g.inspector ? ` · Inspector: ${g.inspector}` : ''}
+                      </Text>
+                      {g.errors.map((e, k) => (
+                        <Text key={k} style={{ color: '#DC2626', fontSize: 11, marginTop: 2 }}>⚠️ {e}</Text>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
+
+                <View style={{ padding: spacing.lg, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <TouchableOpacity
+                    onPress={confirmarCargaMasiva}
+                    disabled={bulkBusy || bulkParse.okCount === 0}
+                    style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: bulkBusy || bulkParse.okCount === 0 ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>
+                      {bulkBusy ? 'Cargando…' : `💾 Cargar ${bulkParse.okCount} inspección(es)`}
+                    </Text>
+                  </TouchableOpacity>
+                  {bulkParse.errorCount ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 6 }}>
+                      Las {bulkParse.errorCount} con error se omiten. Corrige la plantilla y vuelve a subirla para cargarlas.
+                    </Text>
+                  ) : null}
+                </View>
+              </>
+            ) : null}
           </View>
         </View>
       </Modal>
