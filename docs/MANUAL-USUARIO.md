@@ -749,6 +749,17 @@ Módulo para inspeccionar **cada equipo**: qué herramientas/accesorios tiene y 
 
 > **Control por equipo:** al hacer una inspección **nueva** se **precargan los ítems de la última**, así solo ajustas cantidades y estados sin reteclear todo.
 
+### Carga masiva por Excel (versión web)
+
+Arriba, junto al buscador, hay dos botones:
+
+- **⬇️ Plantilla Excel:** descarga una plantilla con los encabezados y una hoja **"Máquinas (referencia)"** con los códigos/serial válidos para copiar.
+- **⬆️ Carga masiva:** sube la plantilla llena para crear **muchas inspecciones de una vez**.
+
+En la plantilla, **1 fila = 1 ítem** del inventario. En cada fila escribe el **código o serial de la máquina** y su ítem (descripción, cantidad, unidad, serial, estado y **nivel**: *bien / regular / falla*). Varias filas con la **misma máquina** se agrupan en **una sola inspección**; la fecha, hora, inspector, operador y condición general se toman de la **primera fila** de esa máquina.
+
+Al subir el Excel, el sistema muestra una **vista previa por máquina** con su **tipo** y el inventario detectado (nº de ítems y semáforo), marcando **✓ lista** o **✕ error** (por ejemplo, si el código no existe o la máquina no trae ítems). Solo se cargan las **✓ listas**; las que tienen error se **omiten** (corrige la plantilla y vuelve a subirla). Toca **"💾 Cargar N inspección(es)"** para guardarlas todas.
+
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones

@@ -401,6 +401,8 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Los equipos que aparecen son los mismos del CATÁLOGO (todas las máquinas), en orden A→Z natural.' },
       { t: 'note', text: 'Editar / eliminar una inspección: en cada inspección del historial hay botones "📄 PDF" (reimprimir), "✏️ Editar" (reabre el formulario con todos sus datos para corregir y volver a generar el PDF) y "🗑️ Eliminar" (con confirmación). Disponible para quien tenga escritura en el módulo.' },
       { t: 'note', text: 'Control por equipo: al hacer una NUEVA inspección se PRECARGAN los ítems de la última inspección de ese equipo, así solo ajustas cantidades y estados sin reteclear todo.' },
+      { t: 'note', text: 'Carga masiva por Excel (versión web): arriba, junto al buscador, hay dos botones. "⬇️ Plantilla Excel" descarga una plantilla con los encabezados y una hoja "Máquinas (referencia)" con los códigos/serial válidos. En la plantilla, 1 FILA = 1 ÍTEM del inventario; escribe en cada fila el CÓDIGO o SERIAL de la máquina y su ítem (descripción, cantidad, unidad, serial, estado y nivel: bien/regular/falla). Varias filas con la misma máquina se agrupan en UNA sola inspección; la fecha, hora, inspector, operador y condición general se toman de la primera fila de esa máquina.' },
+      { t: 'note', text: 'Al tocar "⬆️ Carga masiva" y elegir el Excel, el sistema muestra una VISTA PREVIA por máquina con su TIPO y el inventario detectado (nº de ítems y semáforo), marcando ✓ lista o ✕ error (por ejemplo, si el código no existe o la máquina no trae ítems). Solo se cargan las que están ✓ listas; las que tienen error se omiten (corrige la plantilla y vuelve a subirla). Toca "💾 Cargar N inspección(es)" para guardarlas todas de una vez.' },
     ],
   },
   {
