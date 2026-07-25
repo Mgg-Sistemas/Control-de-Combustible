@@ -25,6 +25,13 @@ export function shiftOf(hour: number): { key: 'day' | 'night'; label: string } {
     : { key: 'night', label: '🌙 Jornada de noche' };
 }
 
+/** Turno con su etiqueta a partir de la clave elegida a mano (sol/luna). */
+export function shiftFromKey(key: 'day' | 'night'): { key: 'day' | 'night'; label: string } {
+  return key === 'day'
+    ? { key: 'day', label: '☀️ Jornada de día' }
+    : { key: 'night', label: '🌙 Jornada de noche' };
+}
+
 // Solo estos cargos (en nómina) pueden iniciar jornada en una máquina.
 export const OPERATOR_CARGOS = ['operador', 'chofer', 'servicios generales', 'obrero'];
 export const isOperatorCargo = (cargo?: string | null): boolean => {
@@ -43,6 +50,7 @@ export type StartJornadaInput = {
   createdBy: string | null;        // profiles.id de quien registra (operador anónimo → null)
   recordedBy?: string | null;      // uid para la ronda (machine_rounds.recorded_by)
   startCoords?: { lat: number; lng: number } | null;
+  shift?: 'day' | 'night';         // turno ELEGIDO a mano (sol/luna); si falta, se deriva de la hora.
 };
 
 export type StartJornadaResult =
@@ -84,7 +92,8 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
 
   const now = new Date();
   const { iso, hour } = caracasParts(now);
-  const sh = shiftOf(hour);
+  // Turno: el elegido a mano (sol/luna) tiene prioridad; si no, se deriva de la hora.
+  const sh = inp.shift ? shiftFromKey(inp.shift) : shiftOf(hour);
 
   // Regla: un operador (cédula) no puede tener OTRA máquina el mismo día.
   const { data: dup } = await supabase

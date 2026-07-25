@@ -427,8 +427,10 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 máquina, el inspector puede arrancar la jornada del operador con **su** teléfono:
 1. Toca **"📷 Escanear carnet del operador"** y lee el **QR del carnet** del operador.
 2. El sistema valida que sea **operador/chofer/servicios generales/obrero** de la nómina y que tenga cédula.
-3. El inspector **coteja la cédula** (debe coincidir con el carnet) e ingresa el **horómetro inicial**.
-4. Toca **"🟢 Iniciar jornada del operador"**. Queda registrada la jornada en esa máquina (con las
+3. Elige el **turno** con los botones **☀️ Día / 🌙 Noche** (viene sugerido según la hora, pero el
+   inspector puede cambiarlo). El turno elegido define si la jornada cuenta como de día o de noche para el pago.
+4. El inspector **coteja la cédula** (debe coincidir con el carnet) e ingresa el **horómetro inicial**.
+5. Toca **"🟢 Iniciar jornada del operador"**. Queda registrada la jornada en esa máquina (con las
    mismas reglas: 1 máquina por operador al día y máximo 2 operadores por turno) y la marca de
    quién la registró (el inspector). La ubicación del inspector queda como punto de inicio.
 
