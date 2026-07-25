@@ -152,6 +152,11 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - Ese monto se **suma al TOTAL POR PAGAR** de la empresa **en la semana de esa fecha** (sale en el reporte).
 - Puedes registrar **varios** fletes y borrar los que no van con **🗑**.
 
+> **📊 Total del rango por máquina:** justo **debajo del botón de flete**, cada máquina muestra su
+> **total de horas** y su **total en $** del **rango de fechas seleccionado** (horas × precio/hora).
+> El mismo total (**horas · $**) también sale en el resumen compacto cuando la tarjeta está cerrada.
+> Si la máquina no tiene precio, dice *"sin precio"*.
+
 **Precio por RANGO de fechas (lo nuevo):**
 - En el Control, toca el **nombre de una máquina** para abrir su precio. Ahí eliges el
   **rango de fechas** (desde/hasta; por defecto el corte que estás viendo) y ese precio
