@@ -62,6 +62,15 @@ const CURRENCIES = [
   { label: 'Pesos (COP)', value: 'COP' },
 ];
 
+// Método con el que se PAGA el abono. El ledger siempre guarda el monto en $ (USD);
+// si es en Bs, se calcula con la tasa del día (monto_bs ÷ tasa).
+const METODOS = [
+  { value: 'efectivo', label: '💵 Efectivo ($)' },
+  { value: 'usdt', label: '₮ USDT' },
+  { value: 'bs', label: '🇻🇪 Bs (al cambio)' },
+];
+const metodoLabel = (m?: string | null) => METODOS.find((x) => x.value === m)?.label ?? (m ? String(m) : '💵 Efectivo ($)');
+
 type DayInfo = { stopped: number; overtime: number; day: number; night: number };
 type MachineAgg = {
   machine: string;        // etiqueta visible (nombre · serial/placa)
@@ -102,6 +111,7 @@ type Group = {
   paidAmount: number;       // suma de abonos
   saldo: number;            // total − abonado (nunca negativo)
   fullyPaid: boolean;       // saldado por completo
+  fletesUSD: number;        // fletes/viajes de la semana (se suman al total a cobrar)
 };
 
 /**
@@ -128,6 +138,7 @@ function recomputeGroup(g: Group): void {
     hoursWorked += hrs;
     if (eff == null && hrs > 0) noPrice = true;
   });
+  total += Number(g.fletesUSD) || 0; // los fletes/viajes de la semana se cobran también
   g.total = round2(total);
   g.hoursWorked = hoursWorked;
   g.noPrice = noPrice;
@@ -156,6 +167,10 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [payFor, setPayFor] = useState<Group | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [payCurrency, setPayCurrency] = useState('USD');
+  // Método de pago: efectivo ($) / usdt / bs. Para Bs se captura monto en Bs + tasa del día.
+  const [payMetodo, setPayMetodo] = useState('efectivo');
+  const [payMontoBs, setPayMontoBs] = useState('');
+  const [payTasa, setPayTasa] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Histórico y detalle de un pago
@@ -191,7 +206,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const load = async () => {
     setLoading(true);
-    const [rounds, { data: pays }, { data: prs }, { data: closs }] = await Promise.all([
+    const [rounds, { data: pays }, { data: prs }, { data: closs }, fletesRows] = await Promise.all([
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
@@ -200,7 +215,17 @@ export default function ControlPagosScreen({ navigation }: any) {
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
       supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
       supabase.from('control_closures').select('detail'),
+      selectAllRows('fletes', 'viajes, precio, flete_date, company:company_id(name)'),
     ]);
+
+    // Fletes/viajes por empresa+semana → se suman al total a cobrar de esa semana.
+    const fletesWk = new Map<string, number>();
+    (fletesRows ?? []).forEach((f: any) => {
+      const co = f.company?.name ?? 'Sin empresa';
+      const ws = weekStartISO(f.flete_date);
+      const monto = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
+      fletesWk.set(`${co}|${ws}`, (fletesWk.get(`${co}|${ws}`) ?? 0) + monto);
+    });
 
     // Precio CONGELADO por (máquina, semana) tomado de los cierres: permite ver
     // el monto "del cierre" aunque el precio actual haya cambiado.
@@ -238,7 +263,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       const k = `${company}|${weekStart}`;
       const g =
         map.get(k) ??
-        ({ key: k, company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual' } as Group);
+        ({ key: k, company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual', fletesUSD: 0 } as Group);
       const priceFrozen = frozen.has(`${machineId}|${weekStart}`) ? Number(frozen.get(`${machineId}|${weekStart}`)) : null;
       if (priceFrozen != null) g.hasFrozen = true;
       const ma = g.machines[machineId] ?? { machine: label, serial, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
@@ -268,6 +293,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       // Semana cerrada con precio congelado → por defecto muestra "del cierre"
       // (inmutable); si no hay cierre, usa el precio actual (sincronizado / por rango).
       g.priceMode = g.hasFrozen ? 'cierre' : 'actual';
+      g.fletesUSD = fletesWk.get(`${g.company}|${g.weekStart}`) ?? 0; // fletes de la semana
       recomputeGroup(g);
     });
 
@@ -335,7 +361,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
     const ch = supabase.channel('rt-control-pagos');
-    ['machine_rounds', 'company_payments', 'machinery'].forEach((t) =>
+    ['machine_rounds', 'company_payments', 'machinery', 'fletes'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
@@ -570,11 +596,20 @@ export default function ControlPagosScreen({ navigation }: any) {
     // Por defecto el abono cubre el saldo pendiente (paga todo lo que resta).
     setPayAmount(g.saldo ? String(g.saldo) : '');
     setPayCurrency('USD');
+    setPayMetodo('efectivo'); setPayMontoBs(''); setPayTasa('');
   };
 
   const confirmPay = async () => {
     if (!payFor) return;
-    const amount = Number(payAmount.replace(',', '.')) || 0;
+    const isBs = payMetodo === 'bs';
+    const tasa = Number(payTasa.replace(',', '.')) || 0;
+    const montoBs = Number(payMontoBs.replace(',', '.')) || 0;
+    // El ledger siempre en $. En Bs: monto en $ = monto Bs ÷ tasa del día.
+    const amount = isBs ? (tasa > 0 ? round2(montoBs / tasa) : 0) : (Number(payAmount.replace(',', '.')) || 0);
+    if (isBs && (montoBs <= 0 || tasa <= 0)) {
+      await confirm({ title: 'Datos en Bs incompletos', message: 'Para pago en Bs ingresa el monto en Bs y la tasa (Bs/$) del día.', confirmText: 'Entendido', cancelText: ' ' });
+      return;
+    }
     if (amount <= 0) {
       await confirm({ title: 'Monto inválido', message: 'Ingresa un monto mayor a 0 para el abono.', confirmText: 'Entendido', cancelText: ' ' });
       return;
@@ -600,12 +635,12 @@ export default function ControlPagosScreen({ navigation }: any) {
       if (remaining <= 0) break;
       const alloc = round2(Math.min(remaining, g.saldo));
       if (alloc <= 0) continue;
-      rows.push({ company_id: g.companyId, company_name: g.company, period_start: g.weekStart, period_end: g.weekEnd, amount: alloc, currency: payCurrency, detail: detailOf(g), created_by: uid });
+      rows.push({ company_id: g.companyId, company_name: g.company, period_start: g.weekStart, period_end: g.weekEnd, amount: alloc, currency: isBs ? 'Bs' : 'USD', metodo: payMetodo, monto_bs: isBs ? round2(alloc * tasa) : null, tasa_bs: isBs ? tasa : null, detail: detailOf(g), created_by: uid });
       remaining = round2(remaining - alloc);
     }
     // Excedente sin semana pendiente donde aplicar → saldo a favor (prepago).
     if (remaining > 0) {
-      rows.push({ company_id: payFor.companyId, company_name: payFor.company, period_start: payFor.weekStart, period_end: payFor.weekEnd, amount: round2(remaining), currency: payCurrency, detail: { ...detailOf(payFor), credit: true } as any, created_by: uid });
+      rows.push({ company_id: payFor.companyId, company_name: payFor.company, period_start: payFor.weekStart, period_end: payFor.weekEnd, amount: round2(remaining), currency: isBs ? 'Bs' : 'USD', metodo: payMetodo, monto_bs: isBs ? round2(remaining * tasa) : null, tasa_bs: isBs ? tasa : null, detail: { ...detailOf(payFor), credit: true } as any, created_by: uid });
     }
 
     setSaving(true);
@@ -1183,9 +1218,12 @@ export default function ControlPagosScreen({ navigation }: any) {
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '700' }}>
-                            🟢 Abono {i + 1} · {p.currency} {money(Number(p.amount))}
+                            🟢 Abono {i + 1} · ${money(Number(p.amount))}
                           </Text>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>{p.paid_at?.slice(0, 10)}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            {p.paid_at?.slice(0, 10)} · {metodoLabel((p as any).metodo)}
+                            {(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))} @ ${money(Number((p as any).tasa_bs || 0))}` : ''}
+                          </Text>
                         </View>
                         <TouchableOpacity onPress={() => deleteAbono(p)} style={{ padding: spacing.xs }}>
                           <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
@@ -1223,14 +1261,14 @@ export default function ControlPagosScreen({ navigation }: any) {
               </>
             ) : null}
 
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo de moneda</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Método de pago</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: 4, marginBottom: spacing.sm }}>
-              {CURRENCIES.map((c) => {
-                const active = payCurrency === c.value;
+              {METODOS.map((c) => {
+                const active = payMetodo === c.value;
                 return (
                   <TouchableOpacity
                     key={c.value}
-                    onPress={() => setPayCurrency(c.value)}
+                    onPress={() => setPayMetodo(c.value)}
                     style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}
                   >
                     <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
@@ -1239,16 +1277,38 @@ export default function ControlPagosScreen({ navigation }: any) {
               })}
             </View>
 
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Monto</Text>
-            <TextInput
-              value={payAmount}
-              onChangeText={(t) => setPayAmount(onlyDecimal(t))}
-              keyboardType="numeric"
-              inputMode="decimal"
-              placeholder="0.00"
-              placeholderTextColor={colors.muted}
-              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
-            />
+            {payMetodo === 'bs' ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto en Bs</Text>
+                <TextInput
+                  value={payMontoBs} onChangeText={(t) => setPayMontoBs(onlyDecimal(t))}
+                  keyboardType="numeric" inputMode="decimal" placeholder="0,00" placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4, marginBottom: spacing.sm }}
+                />
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Tasa del día (Bs por $)</Text>
+                <TextInput
+                  value={payTasa} onChangeText={(t) => setPayTasa(onlyDecimal(t))}
+                  keyboardType="numeric" inputMode="decimal" placeholder="Ej. 40,00" placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
+                />
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800', marginTop: 6 }}>
+                  ≈ ${money(((Number(payMontoBs.replace(',', '.')) || 0) && (Number(payTasa.replace(',', '.')) || 0)) ? round2((Number(payMontoBs.replace(',', '.')) || 0) / (Number(payTasa.replace(',', '.')) || 1)) : 0)} en dólares
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto ($)</Text>
+                <TextInput
+                  value={payAmount}
+                  onChangeText={(t) => setPayAmount(onlyDecimal(t))}
+                  keyboardType="numeric"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  placeholderTextColor={colors.muted}
+                  style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
+                />
+              </>
+            )}
 
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPayFor(null)}>
