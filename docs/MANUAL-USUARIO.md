@@ -416,7 +416,9 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
-  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende.
+  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. Al reportar por QR,
+  además de los materiales predeterminados (**🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto**) hay
+  un botón **✏️ Otro** para **describir a mano** una falla distinta (ej. “no arranca”, “fuga de aceite”).
 - **🔧 En reparación:** máquinas que salieron a reparación.
 - **✓ Historial:** reparaciones ya cerradas.
 

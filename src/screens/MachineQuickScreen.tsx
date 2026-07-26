@@ -63,11 +63,14 @@ const isOperatorCargo = (cargo?: string | null): boolean => {
   return !!n && OPERATOR_CARGOS.some((k) => n.includes(k));
 };
 
-const MATERIALS: { key: MaintenanceMaterial; label: string; icon: string }[] = [
+// "otro" = falla distinta a las predeterminadas; el operador describe la avería a mano.
+type MaintKey = MaintenanceMaterial | 'otro';
+const MATERIALS: { key: MaintKey; label: string; icon: string }[] = [
   { key: 'caucho', label: 'Caucho', icon: '🛞' },
   { key: 'aceite', label: 'Aceite', icon: '🛢️' },
   { key: 'filtro', label: 'Filtro', icon: '🧴' },
   { key: 'repuesto', label: 'Repuesto', icon: '🔩' },
+  { key: 'otro', label: 'Otro', icon: '✏️' },
 ];
 
 /**
@@ -126,7 +129,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   const [gateScanOpen, setGateScanOpen] = useState(false);
 
   // Mantenimiento
-  const [material, setMaterial] = useState<MaintenanceMaterial | null>(null);
+  const [material, setMaterial] = useState<MaintKey | null>(null);
   const [qty, setQty] = useState('');
   const [maintNote, setMaintNote] = useState('');
   const [maintPhoto, setMaintPhoto] = useState<string | null>(null);
@@ -293,12 +296,14 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
 
   const registrarMantenimiento = async () => {
     if (!machine || !material) return;
+    // "Otro" exige describir la falla (no hay material predeterminado que la explique).
+    if (material === 'otro' && !maintNote.trim()) { setNotice('❌ Describe la falla para registrar "Otro".'); return; }
     setSavingMaint(true);
     setNotice(null);
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: machine.id,
       material,
-      quantity: numOrNull(qty),
+      quantity: material === 'otro' ? null : numOrNull(qty),
       notes: maintNote.trim() || null,
       status: 'pendiente',
       requested_by: authorId,
@@ -801,10 +806,19 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
 
           {material ? (
             <View style={{ marginTop: spacing.md }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad de {MATERIALS.find((x) => x.key === material)?.label.toLowerCase()} a cambiar</Text>
-              <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
-              <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+              {material === 'otro' ? (
+                <>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>¿Qué falla presenta? (describe la avería)</Text>
+                  <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Ej. no arranca, fuga de aceite, luz de motor encendida…" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 64 }} />
+                </>
+              ) : (
+                <>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad de {MATERIALS.find((x) => x.key === material)?.label.toLowerCase()} a cambiar</Text>
+                  <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
+                  <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+                </>
+              )}
               <TouchableOpacity onPress={subirFotoMantenimiento} disabled={maintPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: maintPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: maintPhoto ? colors.success : colors.text, fontWeight: '700', fontSize: 13 }}>{maintPhotoUp ? 'Subiendo…' : maintPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
               </TouchableOpacity>
