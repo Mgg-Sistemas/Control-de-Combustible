@@ -3,6 +3,9 @@ import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Imag
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
+import QrScanner from '../components/QrScanner';
+import { parseMachineId } from './ScanQrScreen';
+import { captureAndUploadPhoto } from '../lib/photo';
 import { supabase } from '../lib/supabase';
 import { norm, onlyDecimal } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
@@ -10,8 +13,17 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-const MAT_ICON: Record<string, string> = { caucho: '🛞', aceite: '🛢️', filtro: '🧴', repuesto: '🔩' };
+const MAT_ICON: Record<string, string> = { caucho: '🛞', aceite: '🛢️', filtro: '🧴', repuesto: '🔩', otro: '✏️' };
 const matLabel = (m: string) => (m ? m.charAt(0).toUpperCase() + m.slice(1) : '—');
+// Materiales de avería para reportar al escanear (incluye "Otro" = falla libre).
+const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
+  { key: 'caucho', label: 'Caucho', icon: '🛞' },
+  { key: 'aceite', label: 'Aceite', icon: '🛢️' },
+  { key: 'filtro', label: 'Filtro', icon: '🧴' },
+  { key: 'repuesto', label: 'Repuesto', icon: '🔩' },
+  { key: 'otro', label: 'Otro', icon: '✏️' },
+];
+const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 const todayISO = () => { const d = new Date(); const p = (n: number) => `${n}`.padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 const fmtDMY = (iso?: string | null) => { if (!iso) return '—'; const [y, m, d] = String(iso).split('T')[0].split('-'); return y && m && d ? `${d}/${m}/${y}` : String(iso); };
 function fmtDT(iso: string | null): string {
@@ -68,6 +80,20 @@ export default function MantenimientoMaquinariaScreen() {
   // Detalle de una avería (datos de la máquina + la falla + foto de referencia)
   const [detailReq, setDetailReq] = useState<Req | null>(null);
 
+  // Escanear una máquina para REPORTAR una avería (desde la vista de admin).
+  const [scanOpen, setScanOpen] = useState(false);
+  const [avMachine, setAvMachine] = useState<{ id: string; code: string; plate: string | null } | null>(null);
+  const [avMaterial, setAvMaterial] = useState<string | null>(null);
+  const [avQty, setAvQty] = useState('');
+  const [avNote, setAvNote] = useState('');
+  const [avPhoto, setAvPhoto] = useState<string | null>(null);
+  const [avPhotoUp, setAvPhotoUp] = useState(false);
+  const [avBusy, setAvBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Grupos de empresa colapsados en la pestaña Averías (empresa → abierto/cerrado).
+  const [avOpen, setAvOpen] = useState<Record<string, boolean>>({});
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const load = async () => {
@@ -99,6 +125,45 @@ export default function MantenimientoMaquinariaScreen() {
     setBusy(null);
     if (error) return Alert.alert('Aviso', error.message);
     setReqs((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: 'realizado' } : x)));
+  };
+
+  // ── Escanear una máquina para reportar una avería ───────────────────────────
+  const onScanDetected = async (text: string) => {
+    setScanOpen(false);
+    const id = parseMachineId(text);
+    if (!id) { setNotice('❌ QR no reconocido. Escanea el QR de una máquina.'); return; }
+    const { data } = await supabase.from('machinery').select('id, code, plate').eq('id', id).single();
+    if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
+    setAvMachine(data as any); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setNotice(null);
+  };
+  const subirFotoAveria = async () => {
+    if (!avMachine) return;
+    setAvPhotoUp(true);
+    const r = await captureAndUploadPhoto(avMachine.id, 'averias');
+    setAvPhotoUp(false);
+    if (r.ok && r.url) setAvPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
+  const registrarAveria = async () => {
+    if (!avMachine || !avMaterial) return;
+    if (avMaterial === 'otro' && !avNote.trim()) { setNotice('❌ Describe la falla para registrar "Otro".'); return; }
+    setAvBusy(true);
+    const { error } = await supabase.from('maintenance_requests').insert({
+      machinery_id: avMachine.id,
+      material: avMaterial,
+      quantity: avMaterial === 'otro' ? null : numOrNull(avQty),
+      notes: avNote.trim() || null,
+      status: 'pendiente',
+      requested_by: uid,
+      photo_url: avPhoto,
+    });
+    setAvBusy(false);
+    if (error) { setNotice('❌ ' + error.message); return; }
+    const code = avMachine.code;
+    setAvMachine(null); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null);
+    setNotice(`✅ Avería registrada · ${code}.`);
+    setTab('averias');
+    await load();
   };
 
   // ── Enviar a reparación ─────────────────────────────────────────────────────
@@ -189,9 +254,23 @@ export default function MantenimientoMaquinariaScreen() {
         })}
       </View>
 
-      <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
-        <Text style={{ color: '#fff', fontWeight: '800' }}>🔧 Enviar una máquina a reparación</Text>
-      </TouchableOpacity>
+      {notice ? (
+        <TouchableOpacity onPress={() => setNotice(null)} style={{ marginBottom: spacing.sm }}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: notice.startsWith('✅') ? colors.success : colors.danger, borderRadius: radius.md, padding: spacing.md }}>
+            <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>📷 Escanear · reportar avería</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: '#fff', fontWeight: '800' }}>🔧 Enviar a reparación</Text>
+        </TouchableOpacity>
+      </View>
 
       <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar empresa o máquina…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
 
@@ -201,13 +280,24 @@ export default function MantenimientoMaquinariaScreen() {
         averiaGroups.length === 0 ? (
           <EmptyState title="Sin averías pendientes" subtitle="Cuando un operador reporte una avería, aparecerá aquí por máquina." />
         ) : (
-          averiaGroups.map((g) => (
+          averiaGroups.map((g) => {
+            // Colapsable: cerrada por defecto; al buscar (nq) se abren todas para no ocultar resultados.
+            const open = !!avOpen[g.company] || !!nq;
+            const totalAverias = g.machines.reduce((s, mm) => s + mm.items.length, 0);
+            return (
             <View key={g.company}>
-              <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.company}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {g.machines.length} máquina(s) con avería</Text>
-              </Card>
-              {g.machines.map((mm) => {
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setAvOpen((p) => ({ ...p, [g.company]: !open }))}>
+                <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <Text style={{ color: colors.warning, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.company}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {g.machines.length} máquina(s) · 🛠️ {totalAverias} avería(s)</Text>
+                    </View>
+                  </View>
+                </Card>
+              </TouchableOpacity>
+              {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
                 const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, company: g.company, operational: true };
                 return (
@@ -240,9 +330,10 @@ export default function MantenimientoMaquinariaScreen() {
                     )}
                   </Card>
                 );
-              })}
+              }) : null}
             </View>
-          ))
+            );
+          })
         )
       ) : tab === 'reparacion' ? (
         enReparacion.length === 0 ? (
@@ -420,6 +511,69 @@ export default function MantenimientoMaquinariaScreen() {
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Escáner de máquina para reportar una avería */}
+      <Modal visible={scanOpen} animationType="slide" onRequestClose={() => setScanOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setScanOpen(false)} onDetected={onScanDetected} />
+        </View>
+      </Modal>
+
+      {/* Formulario de AVERÍA (máquina escaneada) */}
+      <Modal visible={!!avMachine} transparent animationType="fade" onRequestClose={() => setAvMachine(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%' }}>
+            {avMachine ? (
+              <ScrollView>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🛠️ Avería · {avMachine.code}</Text>
+                {avMachine.plate ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 2 }}>Placa: {avMachine.plate}</Text> : null}
+                <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>¿Qué necesita?</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                  {AV_MATERIALS.map((mt) => {
+                    const on = avMaterial === mt.key;
+                    return (
+                      <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text>{mt.icon}</Text>
+                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {avMaterial === 'otro' ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>¿Qué falla presenta? (describe la avería)</Text>
+                    <TextInput value={avNote} onChangeText={setAvNote} placeholder="Ej. no arranca, fuga de aceite…" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 64 }} />
+                  </>
+                ) : avMaterial ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
+                    <TextInput value={avQty} onChangeText={(t) => setAvQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Ej: 2" placeholderTextColor={colors.muted} style={input} />
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
+                    <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 60 }} />
+                  </>
+                ) : null}
+
+                {avMaterial ? (
+                  <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                    <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+                  <TouchableOpacity onPress={() => setAvMachine(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#B45309', opacity: (avBusy || !avMaterial) ? 0.5 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '900' }}>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ height: spacing.md }} />
               </ScrollView>
             ) : null}
           </View>
