@@ -1102,8 +1102,15 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleEmp}${detallePers}`,
         // Empresa REGISTRADA elegida para la salida; si no, la del producto.
         company_id: salidaCompanyId ?? c.company_id, created_by: session?.user?.id ?? null,
+        // Equipo destino: para el reporte de gasto por equipo (Mantenimiento).
+        machinery_id: machineryId || null,
       }));
-      const { error } = await supabase.from('inventory_movements').insert(rows);
+      let { error } = await supabase.from('inventory_movements').insert(rows);
+      // Si aún no se corrió la migración de machinery_id en movimientos, reintenta sin esa columna.
+      if (error && /machinery_id|column/i.test(error.message)) {
+        const rowsBasic = rows.map(({ machinery_id, ...r }) => r);
+        ({ error } = await supabase.from('inventory_movements').insert(rowsBasic));
+      }
       if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     }
     setBusy(false);
