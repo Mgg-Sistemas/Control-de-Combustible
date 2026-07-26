@@ -434,6 +434,11 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
   - El detalle también **cruza con la Inspección de Maquinaria**: muestra la **última inspección** del equipo
     (fecha, inspector, condición general) y los **puntos observados** (🔴/🟠) que detectó. En el ranking por
     equipo aparece un **🔍 N obs.** cuando la última inspección tiene puntos observados.
+  - El reporte contempla los **3 casos** y puedes **filtrar** por ellos (con su conteo): **🔧🔍 Avería +
+    inspección** (tiene averías y además fue inspeccionado), **🔧 Avería sin inspección** (tiene averías pero
+    nunca se le hizo inspección) e **🔍 Inspección sin avería** (fue inspeccionado —a veces con puntos
+    observados— pero aún no tiene averías reportadas). Cada equipo del ranking trae su **etiqueta de caso**, y
+    el PDF incluye una columna **Caso** con los totales por tipo.
 
 > **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
 > que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en

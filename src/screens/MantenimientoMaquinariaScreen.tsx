@@ -104,6 +104,7 @@ export default function MantenimientoMaquinariaScreen() {
   const [reportLoading, setReportLoading] = useState(false);
   const [repGroupBy, setRepGroupBy] = useState<'equipo' | 'empresa' | 'tipo'>('equipo');
   const [repClasFilter, setRepClasFilter] = useState<string>('__all__'); // filtro por clasificación (tipo de maquinaria)
+  const [repCaseFilter, setRepCaseFilter] = useState<'all' | 'con' | 'sin_insp' | 'sin_averia'>('all'); // avería+insp / avería sin insp / insp sin avería
   const [repDetailId, setRepDetailId] = useState<string | null>(null);   // máquina cuyo detalle se ve
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
@@ -227,30 +228,44 @@ export default function MantenimientoMaquinariaScreen() {
   // ── Exportar el reporte de averías a PDF (por empresa → equipo) ──────────────
   const exportReportePdf = async () => {
     if (!reportLoaded) await loadReportData();
-    // Agrupa por empresa → equipos, con total de averías, desglose por material y gasto.
-    const byCompany = new Map<string, typeof machineStats>();
-    machineStats.forEach((s) => { const arr = byCompany.get(s.company) ?? []; arr.push(s); byCompany.set(s.company, arr); });
+    // UNIVERSO: equipos con avería + equipos con inspección (aunque no tengan avería).
+    const statById = new Map(machineStats.map((s) => [s.id, s]));
+    const universe = machineStats.map((s) => ({ ...s }));
+    Object.keys(inspByMachine).forEach((id) => {
+      if (statById.has(id)) return;
+      const mac = machines.find((m) => m.id === id);
+      if (!mac) return;
+      universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> });
+    });
+    const flaggedOf = (id: string) => { const ins = inspByMachine[id] ?? []; return ins.length ? (ins[0].items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad').length : 0; };
+    const casoTxt = (id: string, total: number) => (total > 0 ? ((inspByMachine[id] ?? []).length ? `🔧🔍 Avería + insp. (${flaggedOf(id)} obs.)` : '🔧 Avería sin insp.') : `🔍 Insp. sin avería (${flaggedOf(id)} obs.)`);
+    // Agrupa por empresa → equipos.
+    const byCompany = new Map<string, typeof universe>();
+    universe.forEach((s) => { const arr = byCompany.get(s.company) ?? []; arr.push(s); byCompany.set(s.company, arr); });
     const companies = Array.from(byCompany.entries()).sort((a, b) => cmpText(a[0], b[0]));
     const mats = ['caucho', 'aceite', 'filtro', 'repuesto', 'otro'];
     const matHead = mats.map((m) => `<th>${matLabel(m)}</th>`).join('');
     let grandAv = 0, grandGasto = 0;
+    const cnt = { con: 0, sin_insp: 0, sin_averia: 0 };
     const sections = companies.map(([company, list]) => {
       list.sort((a, b) => b.total - a.total);
       let cAv = 0, cGasto = 0;
       const rows = list.map((s) => {
         const g = gastoByMachine[s.id] ?? 0; cAv += s.total; cGasto += g;
+        if (s.total > 0) { if ((inspByMachine[s.id] ?? []).length) cnt.con++; else cnt.sin_insp++; } else cnt.sin_averia++;
         const matCells = mats.map((m) => `<td style="text-align:center">${s.byMat[m] ?? 0}</td>`).join('');
         const ident = [s.plate, s.serial].filter(Boolean).join(' · ') || '—';
-        return `<tr><td>${s.code}</td><td style="color:#666">${ident}</td><td style="text-align:center;font-weight:700">${s.total}</td>${matCells}<td style="text-align:right;font-weight:700">${usd(g)}</td></tr>`;
+        return `<tr><td>${s.code}</td><td style="color:#666">${ident}</td><td style="text-align:center;font-weight:700">${s.total}</td>${matCells}<td style="text-align:right;font-weight:700">${usd(g)}</td><td style="font-size:11px">${casoTxt(s.id, s.total)}</td></tr>`;
       }).join('');
       grandAv += cAv; grandGasto += cGasto;
       return `<h3 style="margin:14px 0 4px">🏢 ${company} · ${list.length} equipo(s) · ${cAv} avería(s) · ${usd(cGasto)}</h3>
-        <table><thead><tr><th>Equipo</th><th>Placa / Serial</th><th>Averías</th>${matHead}<th>Gasto</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table><thead><tr><th>Equipo</th><th>Placa / Serial</th><th>Averías</th>${matHead}<th>Gasto</th><th>Caso</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
-    const body = `<div style="margin-bottom:8px;font-weight:700">TOTAL: ${grandAv} avería(s) · Gasto ${usd(grandGasto)}</div>${sections}
-      <p style="color:#888;font-size:11px;margin-top:10px">El gasto corresponde a los materiales que salieron del almacén para cada equipo (cantidad × costo).</p>`;
-    const html = pdfDocument({ title: 'Reporte de averías por equipo', subtitle: `${machineStats.length} equipo(s) con avería`, body });
-    await exportPdf(html, 'Reporte de averias');
+    const body = `<div style="margin-bottom:8px;font-weight:700">TOTAL: ${grandAv} avería(s) · Gasto ${usd(grandGasto)}</div>
+      <div style="margin-bottom:8px;font-size:12px">🔧🔍 Avería + inspección: ${cnt.con} &nbsp;·&nbsp; 🔧 Avería sin inspección: ${cnt.sin_insp} &nbsp;·&nbsp; 🔍 Inspección sin avería: ${cnt.sin_averia}</div>${sections}
+      <p style="color:#888;font-size:11px;margin-top:10px">El gasto corresponde a los materiales que salieron del almacén para cada equipo (cantidad × costo). La columna Caso cruza las averías con la última inspección del equipo.</p>`;
+    const html = pdfDocument({ title: 'Reporte de averías + inspección', subtitle: `${universe.length} equipo(s)`, body });
+    await exportPdf(html, 'Reporte de averias e inspeccion');
   };
 
   // ── Enviar a reparación ─────────────────────────────────────────────────────
@@ -461,21 +476,44 @@ export default function MantenimientoMaquinariaScreen() {
       ) : (
         // ── 📊 REPORTE / DASHBOARD ────────────────────────────────────────────
         (() => {
-          if (machineStats.length === 0) return <EmptyState title="Sin averías registradas" subtitle="Cuando se reporten averías podrás ver aquí el reporte y el dashboard." />;
-          // Filtro por clasificación (tipo de maquinaria).
-          const clasValues = Array.from(new Set(machineStats.map((s) => s.clasificacion || 'Sin clasificación'))).sort(cmpText);
-          const statsF = machineStats.filter((s) => repClasFilter === '__all__' || (s.clasificacion || 'Sin clasificación') === repClasFilter);
+          // UNIVERSO = equipos con avería (machineStats) + equipos con inspección (aunque no
+          // tengan avería). Así se cubren los 3 casos: avería+inspección, avería sin inspección,
+          // e inspección sin avería.
+          const statById = new Map(machineStats.map((s) => [s.id, s]));
+          const universe = machineStats.map((s) => ({ ...s }));
+          Object.keys(inspByMachine).forEach((id) => {
+            if (statById.has(id)) return;
+            const mac = machines.find((m) => m.id === id);
+            if (!mac) return; // inspección de un equipo ya inactivo/borrado
+            universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} });
+          });
+          if (universe.length === 0) return <EmptyState title="Sin averías ni inspecciones" subtitle="Cuando se reporten averías o inspecciones podrás ver aquí el reporte y el dashboard." />;
           const gastoOf = (id: string) => gastoByMachine[id] ?? 0;
+          const flaggedOf = (id: string) => { const ins = inspByMachine[id] ?? []; return ins.length ? (ins[0].items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad').length : 0; };
+          const hasInsp = (id: string) => (inspByMachine[id] ?? []).length > 0;
+          // Caso de cada equipo.
+          const casoOf = (id: string, total: number): 'con' | 'sin_insp' | 'sin_averia' => (total > 0 ? (hasInsp(id) ? 'con' : 'sin_insp') : 'sin_averia');
+          const CASO_BADGE: Record<string, { label: string; color: string }> = {
+            con: { label: '🔧🔍 Avería + inspección', color: '#B45309' },
+            sin_insp: { label: '🔧 Avería sin inspección', color: colors.danger },
+            sin_averia: { label: '🔍 Inspección sin avería', color: '#2563EB' },
+          };
+          // Conteo por caso (sobre el universo filtrado por clasificación).
+          const clasValues = Array.from(new Set(universe.map((s) => s.clasificacion || 'Sin clasificación'))).sort(cmpText);
+          const byClas = universe.filter((s) => repClasFilter === '__all__' || (s.clasificacion || 'Sin clasificación') === repClasFilter);
+          const casoCount = { con: 0, sin_insp: 0, sin_averia: 0 };
+          byClas.forEach((s) => { casoCount[casoOf(s.id, s.total)]++; });
+          // Aplica también el filtro por caso.
+          const statsF = byClas.filter((s) => repCaseFilter === 'all' || casoOf(s.id, s.total) === repCaseFilter);
           // Filas según el agrupador.
-          type Row = { key: string; title: string; sub: string; total: number; gasto: number; onPress?: () => void };
+          type Row = { key: string; title: string; sub: string; total: number; gasto: number; caso?: 'con' | 'sin_insp' | 'sin_averia'; onPress?: () => void };
           let rows: Row[] = [];
           if (repGroupBy === 'equipo') {
             rows = statsF.map((s) => {
-              const insps = inspByMachine[s.id] ?? [];
-              const flagged = insps.length ? (insps[0].items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad').length : 0;
-              const inspHint = insps.length ? ` · 🔍 ${flagged} obs.` : '';
+              const flagged = flaggedOf(s.id);
+              const inspHint = hasInsp(s.id) ? ` · 🔍 ${flagged} obs.` : '';
               const ident = [s.plate, s.serial].filter(Boolean).join(' · ');
-              return { key: s.id, title: s.code, sub: `🏢 ${s.company}${ident ? ` · ${ident}` : ''}${inspHint}`, total: s.total, gasto: gastoOf(s.id), onPress: () => setRepDetailId(s.id) };
+              return { key: s.id, title: s.code, sub: `🏢 ${s.company}${ident ? ` · ${ident}` : ''}${inspHint}`, total: s.total, gasto: gastoOf(s.id), caso: casoOf(s.id, s.total), onPress: () => setRepDetailId(s.id) };
             });
           } else {
             const agg = new Map<string, { total: number; gasto: number; machs: Set<string> }>();
@@ -494,13 +532,27 @@ export default function MantenimientoMaquinariaScreen() {
             <View>
               {/* Totales */}
               <Card style={{ backgroundColor: '#1E3A5F' }}>
-                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>📊 Reporte de averías</Text>
+                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>📊 Reporte de averías + inspección</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
                   <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Total averías</Text><Text style={{ color: '#fff', fontWeight: '900', fontSize: 18 }}>{grandAverias}</Text></View>
                   <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Gasto total</Text><Text style={{ color: '#7CF5B0', fontWeight: '900', fontSize: 18 }}>{usd(grandGasto)}</Text></View>
                 </View>
                 <Text style={{ color: '#9FB6D4', fontSize: 10, marginTop: 4 }}>El gasto = materiales que salieron del almacén para cada equipo × su costo.</Text>
               </Card>
+
+              {/* Filtro por CASO (los 3 estados) con su conteo */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.sm }}>
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  {([['all', `Todos (${byClas.length})`, colors.primary], ['con', `🔧🔍 Avería + insp. (${casoCount.con})`, '#B45309'], ['sin_insp', `🔧 Avería sin insp. (${casoCount.sin_insp})`, colors.danger], ['sin_averia', `🔍 Insp. sin avería (${casoCount.sin_averia})`, '#2563EB']] as const).map(([k, label, col]) => {
+                    const on = repCaseFilter === k;
+                    return (
+                      <TouchableOpacity key={k} onPress={() => setRepCaseFilter(k)} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? col : colors.border, backgroundColor: on ? col : colors.surfaceAlt }}>
+                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
 
               {/* Agrupador */}
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
@@ -539,8 +591,13 @@ export default function MantenimientoMaquinariaScreen() {
 
               {/* Gráfico de barras: quién genera más averías */}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: spacing.xs }}>Ranking por nº de averías{repGroupBy === 'equipo' ? ' · toca un equipo para ver el detalle' : ''}:</Text>
+              {rows.length === 0 ? (
+                <EmptyState title="Sin equipos en este filtro" subtitle="Prueba con otro caso o quita el filtro por tipo." />
+              ) : null}
               {rows.map((r, i) => {
                 const pct = Math.max(0.06, r.total / maxTotal);
+                const badge = r.caso ? CASO_BADGE[r.caso] : null;
+                const barColor = r.caso === 'sin_averia' ? '#2563EB' : colors.warning;
                 return (
                   <TouchableOpacity key={r.key} activeOpacity={r.onPress ? 0.7 : 1} onPress={r.onPress} style={{ marginBottom: spacing.sm }}>
                     <Card>
@@ -548,6 +605,7 @@ export default function MantenimientoMaquinariaScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{i + 1}. {r.title}{r.onPress ? '  ›' : ''}</Text>
                           <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.sub}</Text>
+                          {badge ? <Text style={{ color: badge.color, fontSize: 11, fontWeight: '800', marginTop: 2 }}>{badge.label}</Text> : null}
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{r.total}</Text>
@@ -555,7 +613,7 @@ export default function MantenimientoMaquinariaScreen() {
                         </View>
                       </View>
                       <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: 4, marginTop: spacing.xs, overflow: 'hidden' }}>
-                        <View style={{ width: `${pct * 100}%`, height: 8, backgroundColor: colors.warning, borderRadius: 4 }} />
+                        <View style={{ width: `${pct * 100}%`, height: 8, backgroundColor: barColor, borderRadius: 4 }} />
                       </View>
                     </Card>
                   </TouchableOpacity>
@@ -779,7 +837,10 @@ export default function MantenimientoMaquinariaScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%' }}>
             {repDetailId ? (() => {
-              const s = machineStats.find((x) => x.id === repDetailId);
+              // El equipo puede venir de las averías o SOLO de inspección (sin avería).
+              const sStat = machineStats.find((x) => x.id === repDetailId);
+              const mac = machines.find((m) => m.id === repDetailId);
+              const s = sStat ?? (mac ? { id: mac.id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> } : null);
               if (!s) return null;
               const list = reqs.filter((r) => r.machinery_id === repDetailId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
               const gasto = gastoByMachine[repDetailId] ?? 0;
@@ -805,17 +866,24 @@ export default function MantenimientoMaquinariaScreen() {
                     </View>
                   </View>
 
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Desglose por tipo</Text>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                    {matEntries.map(([mat, n]) => (
-                      <View key={mat} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text>{MAT_ICON[mat] ?? '🔧'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{matLabel(mat)}: {n}</Text>
+                  {matEntries.length ? (
+                    <>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Desglose por tipo</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                        {matEntries.map(([mat, n]) => (
+                          <View key={mat} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text>{MAT_ICON[mat] ?? '🔧'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{matLabel(mat)}: {n}</Text>
+                          </View>
+                        ))}
                       </View>
-                    ))}
-                  </View>
+                    </>
+                  ) : null}
 
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Averías (con fecha)</Text>
+                  {list.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Sin averías reportadas. Este equipo solo tiene inspección. 🔍</Text>
+                  ) : null}
                   {list.map((r) => (
                     <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
                       <Text style={{ fontSize: 20 }}>{MAT_ICON[r.material] ?? '🔧'}</Text>
