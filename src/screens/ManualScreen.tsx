@@ -422,6 +422,8 @@ const SECTIONS: Sec[] = [
     title: 'Mantenimiento de Maquinaria y roles de coordinador',
     blocks: [
       { t: 'p', text: 'Módulo para los coordinadores de mantenimiento. Tiene tres pestañas: ⏳ Averías (lo que reportan por QR, por empresa → máquina), 🔧 En reparación y ✓ Historial.' },
+      { t: 'note', text: 'Averías colapsables + buscables: cada empresa se muestra CERRADA (toca su encabezado para abrir/cerrar sus máquinas; el encabezado indica cuántas máquinas y cuántas averías lleva). Arriba puedes buscar por empresa o máquina; al buscar se abren todas para no ocultar resultados.' },
+      { t: 'note', text: '📷 Escanear · reportar avería: botón arriba del módulo. Escanea el QR de la máquina y registra la avería directo (material o ✏️ Otro, cantidad, nota y foto), igual que el operador pero desde la vista del administrador.' },
       { t: 'steps', items: [
         'Ver el detalle de una avería: TOCA la avería (donde dice el material y la fecha) y se abre una ficha con los DATOS de la máquina (empresa, tipo, placa, serial, último horómetro) y LA FALLA (qué necesita, nota y la FOTO de referencia si la subieron).',
         'Enviar a reparación: toca "🔧 Enviar una máquina a reparación" (o el botón en la tarjeta). Indica tipo (correctivo/preventivo), fecha de salida, días estimados y qué se le va a cambiar. La máquina queda NO OPERATIVA en todo el sistema.',

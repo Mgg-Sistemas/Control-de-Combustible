@@ -419,6 +419,11 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
   material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. Al reportar por QR,
   además de los materiales predeterminados (**🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto**) hay
   un botón **✏️ Otro** para **describir a mano** una falla distinta (ej. “no arranca”, “fuga de aceite”).
+  Cada **empresa se muestra colapsada** (toca su encabezado para abrir/cerrar sus máquinas) y arriba
+  puedes **buscar** por empresa o máquina; al buscar se abren todas para no ocultar resultados.
+- **📷 Escanear · reportar avería:** botón arriba del módulo. Escanea el **QR de la máquina** y
+  registra la avería directamente (material o **✏️ Otro**, cantidad, nota y foto). Es lo mismo que
+  reporta el operador, pero desde la vista del administrador.
 - **🔧 En reparación:** máquinas que salieron a reparación.
 - **✓ Historial:** reparaciones ya cerradas.
 
