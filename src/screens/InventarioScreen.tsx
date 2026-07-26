@@ -1337,6 +1337,34 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     refetch();
   };
 
+  // Revierte un requerimiento RECHAZADO de vuelta a PENDIENTE (p. ej. si el rechazo
+  // fue un error de dedo). Limpia la decisión y NOTIFICA a los admin (el trigger de
+  // la BD solo notifica al crear; al revertir insertamos la notificación a mano).
+  const revertirRechazo = async (r: InventoryRequirement) => {
+    const ok = await confirm({
+      title: 'Volver a pendiente',
+      message: `¿Devolver el requerimiento ${r.code ?? ''} a estado PENDIENTE? Se notificará a los administradores.`,
+      confirmText: 'Volver a pendiente', cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { data, error } = await supabase.from('inventory_requirements')
+      .update({ status: 'pendiente', decided_by: null, decided_by_name: null, decided_at: null })
+      .eq('id', r.id).select();
+    if (error) { await confirm({ title: 'No se pudo', message: error.message, confirmText: 'OK', cancelText: '' }); return; }
+    if (!data || data.length === 0) { await confirm({ title: 'No se pudo', message: 'No tienes permiso o el requerimiento ya no existe.', confirmText: 'OK', cancelText: '' }); return; }
+    // Notifica a los admin que el requerimiento volvió a PENDIENTE.
+    try {
+      await supabase.from('notifications').insert({
+        type: 'requerimiento',
+        title: 'Requerimiento de vuelta a pendiente',
+        body: [r.code, r.title].filter(Boolean).join(' · '),
+        target_role: 'admin', entity_type: 'inventory_requirement', entity_id: String(r.id),
+        created_by: uid, meta: { code: r.code, status: 'pendiente' },
+      });
+    } catch {}
+    refetch();
+  };
+
   // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
@@ -1466,6 +1494,12 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   {isAdmin && r.status === 'aprobado' ? (
                     <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: '#16A34A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Revertir un rechazo (error de dedo) → vuelve a PENDIENTE y notifica. */}
+                  {isAdmin && r.status === 'rechazado' ? (
+                    <TouchableOpacity onPress={() => revertirRechazo(r)} style={{ backgroundColor: '#D97706', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>↩ Volver a pendiente</Text>
                     </TouchableOpacity>
                   ) : null}
                   {/* Editar todo el requerimiento (no si ya se recibió en inventario). */}
