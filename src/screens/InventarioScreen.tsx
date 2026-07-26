@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -920,7 +921,19 @@ function MovimientosTab() {
   const itemUnit = (id: string) => items.find((i) => i.id === id)?.unit ?? '';
 
   const [filter, setFilter] = useState('');
-  const shown = filter ? movs.filter((m) => m.kind === filter) : movs;
+  const [qFree, setQFree] = useState('');          // búsqueda libre (producto / motivo / tipo)
+  const [fFrom, setFFrom] = useState('');          // rango de fechas (desde) por created_at
+  const [fTo, setFTo] = useState('');              // rango de fechas (hasta)
+  const nqf = norm(qFree.trim());
+  const shown = useMemo(() => movs.filter((m) => {
+    if (filter && m.kind !== filter) return false;
+    if (nqf && !norm([itemName(m.item_id), m.reason, m.kind].filter(Boolean).join(' ')).includes(nqf)) return false;
+    const d = String(m.created_at).slice(0, 10); // AAAA-MM-DD del movimiento
+    if (fFrom && d < fFrom) return false;
+    if (fTo && d > fTo) return false;
+    return true;
+  }), [movs, items, filter, nqf, fFrom, fTo]);
+  const hayFiltro = !!(qFree || fFrom || fTo);
 
   if (loading) return <Screen><Loading /></Screen>;
 
@@ -928,6 +941,29 @@ function MovimientosTab() {
     <Screen>
       <ConfigBanner />
       <SectionTitle>Movimientos (traza)</SectionTitle>
+
+      {/* Búsqueda libre + rango de fechas */}
+      <TextInput
+        value={qFree} onChangeText={setQFree}
+        placeholder="🔎 Buscar por producto o motivo…" placeholderTextColor={colors.muted}
+        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
+      />
+      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+          <DateField value={fFrom} onChange={(v) => setFFrom(v || '')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+          <DateField value={fTo} onChange={(v) => setFTo(v || '')} />
+        </View>
+        {hayFiltro ? (
+          <TouchableOpacity onPress={() => { setQFree(''); setFFrom(''); setFTo(''); }} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
         {[{ k: '', l: 'Todos' }, { k: 'entrada', l: '📥 Entradas' }, { k: 'salida', l: '📤 Salidas' }, { k: 'consumo', l: '🔥 Consumo' }, { k: 'ajuste', l: '🔧 Ajustes' }].map((f) => {
           const on = filter === f.k;
@@ -979,6 +1015,8 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
   const { data: machines } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
+  const companyNameById = (id: string | null) => (id ? (companies.find((c) => c.id === id)?.name ?? '') : '');
 
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
@@ -996,6 +1034,10 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   // NO se crean como empresa ni empleado, así que NO entran en la nómina.
   const [empresaLibre, setEmpresaLibre] = useState('');
   const [personaLibre, setPersonaLibre] = useState('');
+  // Empresa REGISTRADA a la que se carga la salida (se guarda en el movimiento).
+  const [salidaCompanyId, setSalidaCompanyId] = useState<string | null>(null);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [companyQuery, setCompanyQuery] = useState('');
 
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
@@ -1034,7 +1076,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       confirmado = await exportPdf(notaEntregaHtml({
         fecha: todayDMY(),
         destino: destino.trim() || null,
-        empresa: empresaLibre.trim() || null,
+        empresa: (companyNameById(salidaCompanyId) || empresaLibre.trim()) || null,
         maquina: machineryId ? machineName(machineryId) : null,
         empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
         items,
@@ -1051,18 +1093,21 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     // 2) CONFIRMADO: registra la salida de cada producto (descuenta del inventario).
     {
       const detalleMaq = machineryId ? ` · ${machineName(machineryId)}` : '';
-      const detalleEmp = empresaLibre.trim() ? ` · EMPRESA: ${empresaLibre.trim().toUpperCase()}` : '';
+      const empresaRegName = companyNameById(salidaCompanyId);
+      const empresaTxt = empresaRegName || empresaLibre.trim();
+      const detalleEmp = empresaTxt ? ` · EMPRESA: ${empresaTxt.toUpperCase()}` : '';
       const detallePers = personaLibre.trim() ? ` · RECIBE: ${personaLibre.trim().toUpperCase()}` : '';
       const rows = cart.map((c) => ({
         item_id: c.id, kind: 'salida' as const, qty: c.qty, unit_cost: c.avg_cost || null,
         reason: `NOTA DE SALIDA${destino.trim().toUpperCase() ? ` · ${destino.trim().toUpperCase()}` : ''}${detalleMaq}${detalleEmp}${detallePers}`,
-        company_id: c.company_id, created_by: session?.user?.id ?? null,
+        // Empresa REGISTRADA elegida para la salida; si no, la del producto.
+        company_id: salidaCompanyId ?? c.company_id, created_by: session?.user?.id ?? null,
       }));
       const { error } = await supabase.from('inventory_movements').insert(rows);
       if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
     }
     setBusy(false);
-    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre('');
+    setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
     refetch();
     Alert.alert('Listo', 'Nota generada. La salida se descontó del inventario.');
   };
@@ -1146,6 +1191,33 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
                       <TouchableOpacity key={(e as any).id} onPress={() => toggleEmp(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                         <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Empresa REGISTRADA: se guarda en el movimiento de salida (company_id). */}
+          <TouchableOpacity onPress={() => setCompanyOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>🏢 Empresa: <Text style={{ color: salidaCompanyId ? colors.primary : colors.muted }}>{salidaCompanyId ? companyNameById(salidaCompanyId) : 'elegir…'}</Text></Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{companyOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {companyOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+              <TextInput value={companyQuery} onChangeText={setCompanyQuery} placeholder="Filtrar empresa…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              {salidaCompanyId ? (
+                <TouchableOpacity onPress={() => setSalidaCompanyId(null)} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
+              ) : null}
+              <View style={{ maxHeight: 200 }}>
+                <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {companies.filter((c) => { const s = norm(companyQuery); return !s || norm(c.name).includes(s); }).map((c) => {
+                    const on = salidaCompanyId === c.id;
+                    return (
+                      <TouchableOpacity key={c.id} onPress={() => { setSalidaCompanyId(c.id); setCompanyOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{c.name}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -1658,6 +1730,12 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { data: transfers, refetch: refetchTr } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false });
 
   const [view, setView] = useState<'nuevo' | 'lista'>('nuevo'); // crear traslado | traslados realizados
+  // Filtro de la lista: todos | retornados al inventario | sin retornar (aún en destino).
+  const [trFilter, setTrFilter] = useState<'all' | 'returned' | 'pending'>('all');
+  const transfersShown = useMemo(
+    () => (trFilter === 'all' ? transfers : transfers.filter((t) => (trFilter === 'returned' ? !!t.returned : !t.returned))),
+    [transfers, trFilter],
+  );
   const [q, setQ] = useState('');
   const [cart, setCart] = useState<{ id: string; name: string; unit: string; qty: number; avg_cost: number; stock: number; company_id: string | null }[]>([]);
   const [motivo, setMotivo] = useState('');
@@ -1910,9 +1988,21 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       </View>
 
       {view === 'lista' ? (
-        transfers.length === 0 ? (
-          <EmptyState title="Sin traslados" subtitle="Los traslados que registres aparecerán aquí para poder retornarlos." />
-        ) : transfers.map((t) => (
+        <>
+        {/* Filtro: retornados / sin retornar al inventario */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+          {([['all', `Todos (${transfers.length})`], ['pending', `📦 Sin retornar (${transfers.filter((t) => !t.returned).length})`], ['returned', `↩️ Retornados (${transfers.filter((t) => !!t.returned).length})`]] as [typeof trFilter, string][]).map(([k, l]) => {
+            const on = trFilter === k;
+            return (
+              <TouchableOpacity key={k} onPress={() => setTrFilter(k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{l}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {transfersShown.length === 0 ? (
+          <EmptyState title="Sin traslados" subtitle={trFilter === 'all' ? 'Los traslados que registres aparecerán aquí para poder retornarlos.' : 'No hay traslados en este filtro.'} />
+        ) : transfersShown.map((t) => (
           <ExpandableCard
             key={t.id}
             summary={
@@ -1940,7 +2030,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
               </View>
             }
           />
-        ))
+        ))}
+        </>
       ) : (
       <>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
