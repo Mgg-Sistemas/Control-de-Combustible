@@ -431,6 +431,9 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
   (averías, desglose por material —cauchos, filtros…— y gasto).
   - En modo **Equipo**, toca una máquina para ver su **detalle**: empresa, placa/serial, total de averías,
     el **desglose por tipo** (cuántos cauchos, filtros, aceites, repuestos, otros) y **cada avería con su fecha**.
+  - El detalle también **cruza con la Inspección de Maquinaria**: muestra la **última inspección** del equipo
+    (fecha, inspector, condición general) y los **puntos observados** (🔴/🟠) que detectó. En el ranking por
+    equipo aparece un **🔍 N obs.** cuando la última inspección tiene puntos observados.
 
 > **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
 > que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en

@@ -98,6 +98,8 @@ export default function MantenimientoMaquinariaScreen() {
 
   // ── Reporte / Dashboard de averías ──────────────────────────────────────────
   const [gastoByMachine, setGastoByMachine] = useState<Record<string, number>>({});
+  // Inspecciones por máquina (para cruzar inspección ↔ avería en el detalle).
+  const [inspByMachine, setInspByMachine] = useState<Record<string, any[]>>({});
   const [reportLoaded, setReportLoaded] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [repGroupBy, setRepGroupBy] = useState<'equipo' | 'empresa' | 'tipo'>('equipo');
@@ -125,10 +127,15 @@ export default function MantenimientoMaquinariaScreen() {
   // se atribuye leyendo el CÓDIGO del equipo en el texto de la salida (reason).
   const loadReportData = async () => {
     setReportLoading(true);
-    const [{ data: mv }, { data: items }] = await Promise.all([
+    const [{ data: mv }, { data: items }, { data: insp }] = await Promise.all([
       supabase.from('inventory_movements').select('item_id, qty, unit_cost, machinery_id, reason, kind').in('kind', ['salida', 'consumo']),
       supabase.from('inventory_items').select('id, machinery_id, avg_cost'),
+      supabase.from('machine_inspections').select('id, machinery_id, inspected_at, inspector_name, condicion_general, items').order('inspected_at', { ascending: false }),
     ]);
+    // Inspecciones agrupadas por equipo (para cruzarlas con las averías en el detalle).
+    const inspMap: Record<string, any[]> = {};
+    (insp ?? []).forEach((r: any) => { if (r.machinery_id) (inspMap[r.machinery_id] ??= []).push(r); });
+    setInspByMachine(inspMap);
     const itemMap = new Map<string, { machinery_id: string | null; avg_cost: number }>();
     (items ?? []).forEach((it: any) => itemMap.set(it.id, { machinery_id: it.machinery_id ?? null, avg_cost: Number(it.avg_cost) || 0 }));
     // Códigos de más largo a más corto para que el match del texto sea el más específico.
@@ -463,7 +470,13 @@ export default function MantenimientoMaquinariaScreen() {
           type Row = { key: string; title: string; sub: string; total: number; gasto: number; onPress?: () => void };
           let rows: Row[] = [];
           if (repGroupBy === 'equipo') {
-            rows = statsF.map((s) => ({ key: s.id, title: s.code, sub: `🏢 ${s.company}${s.plate || s.serial ? ` · ${[s.plate, s.serial].filter(Boolean).join(' · ')}` : ''}`, total: s.total, gasto: gastoOf(s.id), onPress: () => setRepDetailId(s.id) }));
+            rows = statsF.map((s) => {
+              const insps = inspByMachine[s.id] ?? [];
+              const flagged = insps.length ? (insps[0].items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad').length : 0;
+              const inspHint = insps.length ? ` · 🔍 ${flagged} obs.` : '';
+              const ident = [s.plate, s.serial].filter(Boolean).join(' · ');
+              return { key: s.id, title: s.code, sub: `🏢 ${s.company}${ident ? ` · ${ident}` : ''}${inspHint}`, total: s.total, gasto: gastoOf(s.id), onPress: () => setRepDetailId(s.id) };
+            });
           } else {
             const agg = new Map<string, { total: number; gasto: number; machs: Set<string> }>();
             statsF.forEach((s) => {
@@ -813,6 +826,38 @@ export default function MantenimientoMaquinariaScreen() {
                       </View>
                     </View>
                   ))}
+
+                  {/* Cruce con INSPECCIÓN DE MAQUINARIA: qué observó la última inspección del equipo. */}
+                  {(() => {
+                    const insps = inspByMachine[repDetailId] ?? [];
+                    return (
+                      <>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>🔍 Inspección de maquinaria{insps.length ? ` (${insps.length})` : ''}</Text>
+                        {insps.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>Sin inspecciones registradas para este equipo.</Text>
+                        ) : (() => {
+                          const last = insps[0];
+                          const flagged = (last.items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad');
+                          return (
+                            <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 3 }}>
+                              <Text style={{ color: colors.muted, fontSize: 13 }}>📅 Última: <Text style={{ color: colors.text, fontWeight: '700' }}>{fmtDMY(last.inspected_at)}</Text>{last.inspector_name ? <Text style={{ color: colors.text }}>  ·  🪖 {last.inspector_name}</Text> : null}</Text>
+                              {last.condicion_general ? <Text style={{ color: colors.muted, fontSize: 13 }}>Condición general: <Text style={{ color: colors.text, fontWeight: '700' }}>{last.condicion_general}</Text></Text> : null}
+                              {flagged.length ? (
+                                <View style={{ marginTop: 2 }}>
+                                  <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>⚠️ Puntos observados en la inspección ({flagged.length}):</Text>
+                                  {flagged.map((it: any, i: number) => (
+                                    <Text key={i} style={{ color: colors.text, fontSize: 12, marginTop: 1 }}>{it.nivel === 'bad' ? '🔴' : '🟠'} {it.descripcion}{it.estado ? <Text style={{ color: colors.muted }}> · {it.estado}</Text> : null}</Text>
+                                  ))}
+                                </View>
+                              ) : (
+                                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700', marginTop: 2 }}>✓ Sin puntos observados en la última inspección.</Text>
+                              )}
+                            </View>
+                          );
+                        })()}
+                      </>
+                    );
+                  })()}
 
                   <TouchableOpacity onPress={() => setRepDetailId(null)} style={{ marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
