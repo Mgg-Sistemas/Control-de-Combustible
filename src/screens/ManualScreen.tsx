@@ -161,6 +161,8 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Si NO cambias el precio, se mantiene el de la semana anterior (arrastre automático): una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior de esa misma máquina. Solo tienes que tocar el precio cuando CAMBIA.' },
       { t: 'note', text: 'Para corregir un corte que salió con precio equivocado: ve a esa semana en el Control, toca la máquina, pon el precio correcto con el rango de esas fechas y Guarda. El reporte de ese corte se actualiza al instante y los demás cortes no se tocan. Funciona esté el corte abierto o cerrado.' },
       { t: 'note', text: 'Sobrepago que se abona a la siguiente: si una empresa debe 50.000 y pagas 100.000, el sistema cubre esa semana y ABONA el resto a las siguientes semanas pendientes de la misma empresa (la más vieja primero). Si aún sobra, queda como saldo a favor. Al registrar el pago te muestra un resumen de cómo se repartió.' },
+      { t: 'note', text: 'Los FLETES cuentan: el total a cobrar de cada empresa/semana ahora INCLUYE los fletes/viajes registrados en el Control para esa semana (no solo las horas de máquina).' },
+      { t: 'note', text: 'Método de pago del abono: al "＋ Registrar abono" eliges cómo se pagó — 💵 Efectivo ($) · ₮ USDT · 🇻🇪 Bs (al cambio). Si es en Bs, escribes el MONTO EN Bs y la TASA del día (Bs por $) y el sistema calcula el equivalente en $ (el saldo siempre se lleva en $). Cada abono muestra su método y, si fue en Bs, el monto en Bs y la tasa usada.' },
     ],
   },
   {
@@ -240,9 +242,10 @@ const SECTIONS: Sec[] = [
       { t: 'bullets', items: [
         'Bonos y Deducciones: por persona, agregas líneas de concepto y monto (ej. Bono producción, Adelanto, Préstamo).',
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
-        'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF.',
+        'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo a cancelar".',
         '💼 Filtrar por cargo: dentro del período hay una lista desplegable con casillas ("💼 Filtrar por cargo"). Tildas uno o varios cargos y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por cargo con su subtotal. Sin tildar nada = todos.',
       ] },
+      { t: 'note', text: 'Estados del período: Borrador → ✅ Aprobar → 💵 Marcar pagada (y ↩ Reabrir). En el encabezado del período se muestra "Pagada $X" (lo ya abonado); el saldo queda pequeño y solo si falta por pagar. Si Aprobar/Marcar pagada no cambia el estado, ahora SÍ te avisa el motivo (antes fallaba en silencio).' },
       { t: 'note', text: 'Las analistas pueden cargar cantidades, bonos y deducciones, pero NO pueden cambiar los precios (hora/día/semana) del trabajador.' },
     ],
   },
@@ -338,12 +341,14 @@ const SECTIONS: Sec[] = [
     blocks: [
       { t: 'p', text: 'Es el control de materiales y herramientas. El inventario es GENERAL (no se separa por empresa ni por máquina al crearlo). Cada material tiene su existencia (cuánto hay) y su costo promedio (PMP), que el sistema calcula solo con las entradas.' },
       { t: 'p', text: 'Tiene varias pestañas: Existencias, Salida, Nota de traslado, Gastos, Requerimiento y Movimientos.' },
+      { t: 'note', text: 'Movimientos (traza): además de filtrar por tipo (Entradas / Salidas / Consumo / Ajustes), tienes 🔎 búsqueda libre (por producto o motivo) y filtro por RANGO DE FECHAS (Desde / Hasta). "✕ Limpiar" quita los filtros.' },
       { t: 'p', text: 'Precios en $ y en Bs (tasa BCV): en Existencias, arriba, se muestra la tasa del BCV del día (Bs por US$). El sistema la baja automáticamente cada día; con 🔄 Actualizar la refrescas y los administradores pueden fijarla a mano (por si el servicio falla). Cada producto muestra su PMP y su valor en stock en $ y en Bs. Al cargar un costo puedes escribirlo en $ o en Bs (botón $↔Bs): el precio se guarda en US$ y se muestra el equivalente.' },
       { t: 'p', text: 'Salida — es el documento (nota de salida) que se hace cuando salen materiales:' },
       { t: 'steps', items: [
         'Ve a la pestaña "📤 Salida".',
         'Busca cada producto y agrégalo; indica la cantidad de cada uno.',
         'Elige la 🚜 máquina (lista desplegable y filtrable) y los 👷 empleados que reciben (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.',
+        'Elige la 🏢 EMPRESA registrada a la que se carga la salida (lista desplegable y filtrable): se guarda en el movimiento y sale en la nota. (Sigue estando el campo de empresa NO registrada, texto libre, para casos fuera del sistema.)',
         'Toca "🧾 Generar nota de salida (PDF)": se abre la VISTA PREVIA con logo, fecha, productos y la línea de firma autorizado.',
         'Toca 🖨️ Imprimir para guardar/imprimir. RECIÉN AHÍ se descuenta del inventario.',
       ] },
@@ -357,6 +362,7 @@ const SECTIONS: Sec[] = [
         'Al confirmar (Imprimir/Guardar) se descuenta del inventario y queda guardado el traslado, casado con la máquina y el empleado de cada lado.',
       ] },
       { t: 'p', text: 'Retornar al inventario: en la pestaña 🔁 Nota de traslado, toca "📋 Realizados" para ver los traslados hechos. En cada uno tocas "↩️ Retornar al inventario": indicas el estado con que vuelve (usado/dañado/lleno) y cuánto queda disponible, y esa cantidad REINGRESA al almacén (queda como entrada, sin cambiar el costo promedio).' },
+      { t: 'note', text: 'Filtro de traslados: en "📋 Realizados" hay chips para filtrar y saber si RETORNA o no al inventario: Todos · 📦 Sin retornar (aún en destino) · ↩️ Retornados. Así ves rápido cuáles faltan por reingresar.' },
       { t: 'note', text: 'Igual que la nota de entrega: si cancelas la vista previa NO se descuenta nada. La diferencia es que el traslado registra un ORIGEN y un DESTINO (de qué máquina/empleado sale y a cuál llega).' },
       { t: 'p', text: 'Gastos — cada material que SALE del almacén es un gasto. En la pestaña "💸 Gastos" ves el TOTAL GASTADO:' },
       { t: 'steps', items: [
@@ -375,6 +381,7 @@ const SECTIONS: Sec[] = [
         'Con 🧾 PDF imprimes el requerimiento para pasárselo al jefe.',
       ] },
       { t: 'note', text: 'Solo los ADMINISTRADORES aprueban, rechazan y reciben requerimientos. Cualquiera con acceso a Inventario puede crearlos.' },
+      { t: 'note', text: 'Revertir un rechazo (error de dedo): si un requerimiento quedó ❌ Rechazado por equivocación, el administrador toca "↩ Volver a pendiente": vuelve a estado Pendiente (se limpia el rechazo) y se NOTIFICA a los administradores que quedó pendiente otra vez.' },
       { t: 'note', text: 'Editar / eliminar un requerimiento: en cada requerimiento hay botones "✏️ Editar" (cambia título, nota y productos — no si ya fue recibido en inventario) y "🗑️ Eliminar" (borra TODO el requerimiento, con confirmación). Disponible para quien tenga escritura en Inventario.' },
       { t: 'p', text: 'Tipo de producto y filtro: al crear/editar un producto puedes ponerle un TIPO (bombona, silla, mecate…). Escríbelo o tócalo de las sugerencias. Arriba de la lista aparece "Filtrar por tipo" con un chip por cada tipo (y su cantidad): toca uno para ver solo esos productos. El tipo también sale en el reporte de productos.' },
       { t: 'p', text: 'Bombonas — carga (vacía / en uso / llena): en los productos tipo "bombona" aparecen botones para tildar su carga (🔴 vacía, 🟡 en uso, 🟢 llena) directo en la tarjeta (o en el editor). Vuelve a tocar el mismo para quitarlo. Arriba tienes "Filtrar por carga" para ver solo las llenas, en uso o vacías, y el botón "🛢️ Reporte de bombonas por carga" genera un PDF con cuántas hay en cada estado. IMPORTANTE: si una bombona sale en "Sin definir" es porque aún no le has tildado la carga (por eso los contadores 🟢🟡🔴 dan 0). Cada bombona registrada cuenta como 1 aunque su existencia esté en 0; si tiene cantidad mayor, se suma esa cantidad.' },

@@ -221,6 +221,14 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 - Los **cierres viejos no cambian** (quedan con el precio que tenían); los **nuevos** usan
   el precio del tabulador.
 
+> **Los fletes cuentan:** el **total a cobrar** de cada empresa/semana **incluye los fletes/viajes**
+> registrados en el Control para esa semana (no solo las horas de máquina).
+
+> **Método de pago del abono:** al **"＋ Registrar abono"** eliges cómo se pagó — **💵 Efectivo ($)
+> · ₮ USDT · 🇻🇪 Bs (al cambio)**. Si es en **Bs**, escribes el **monto en Bs** y la **tasa del día**
+> (Bs por $) y el sistema calcula el **equivalente en $** (el saldo siempre se lleva en $). Cada
+> abono muestra su **método** y, si fue en Bs, el **monto en Bs y la tasa** usada.
+
 ### 4.6b. Control de pago a personal (dentro de Nómina)
 Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
 principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
@@ -279,10 +287,16 @@ trabajador**.
 - **Abonos:** con el período aprobado, **💵 Abonar** registra pagos parciales o totales
   (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
+  El **recibo** muestra el **Total** y el **"Saldo a cancelar"**.
 - **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
   **subtotal**. Sin tildar nada = todos.
+
+> **Estados del período:** Borrador → **✅ Aprobar** → **💵 Marcar pagada** (y **↩ Reabrir**). En el
+> encabezado se muestra **"Pagada $X"** (lo ya abonado); el saldo queda pequeño y solo si falta por
+> pagar. Si **Aprobar / Marcar pagada** no cambia el estado, ahora **te avisa el motivo** (antes
+> fallaba en silencio).
 
 > Las **analistas** pueden cargar cantidades, bonos y deducciones, pero **no** pueden cambiar
 > los **precios** (hora/día/semana) del trabajador.
@@ -531,6 +545,10 @@ promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es au
 incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salida, Nota de
 traslado, Gastos, Requerimiento y Movimientos**.
 
+> **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
+> tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
+> **"✕ Limpiar"** quita los filtros.
+
 **💵 Precios en $ y en Bs (tasa BCV):** en **Existencias**, arriba, se muestra la **tasa del BCV
 del día** (Bs por US$). El sistema la **baja automáticamente** cada día; con **🔄 Actualizar** la
 refrescas y los **administradores** pueden **fijarla a mano** (por si el servicio falla). Cada
@@ -560,6 +578,9 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 2. Busca cada producto y agrégalo; indica la **cantidad** de cada uno.
 3. Elige la **🚜 máquina** (lista desplegable y filtrable) y los **👷 empleados** que reciben
    (lista de la nómina, filtrable, se pueden marcar varios). Escribe el destino/motivo si quiere.
+   Elige también la **🏢 empresa registrada** a la que se carga la salida (lista desplegable y
+   filtrable): **se guarda en el movimiento** y sale en la nota. (Sigue el campo de empresa **NO
+   registrada** en texto libre para casos fuera del sistema.)
 4. Toca **"🧾 Generar nota de salida (PDF)"**: se abre la **vista previa** con logo, fecha, productos y la
    línea de firma autorizado.
 5. Toca **🖨️ Imprimir** para guardar/imprimir. **Recién ahí se descuenta del inventario.**
@@ -590,6 +611,10 @@ Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y pro
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
 escritura en Inventario.
 
+> **Revertir un rechazo (error de dedo):** si un requerimiento quedó **❌ Rechazado** por
+> equivocación, el administrador toca **"↩ Volver a pendiente"**: vuelve a **Pendiente** (se limpia
+> el rechazo) y se **notifica a los administradores** que quedó pendiente otra vez.
+
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.
 - **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el
@@ -600,6 +625,8 @@ escritura en Inventario.
 - **Realizados:** ves la lista de traslados. En cada uno tocas **"↩️ Retornar al inventario"**:
   indicas el **estado** con que vuelve (usado/dañado/lleno/vacío) y **cuánto queda disponible**, y eso
   **reingresa la cantidad al almacén** (queda como entrada, sin cambiar el costo promedio).
+- **Filtro:** en **📋 Realizados** hay chips para saber si **retorna o no** al inventario:
+  **Todos · 📦 Sin retornar** (aún en destino) **· ↩️ Retornados**. Así ves rápido cuáles faltan por reingresar.
 - **📄 Reporte:** el botón **"📄 Reporte"** (arriba, visible en ambas vistas) genera un **PDF con
   todos los traslados** —de cualquier estatus— con fecha, origen → destino, lugar, estado, materiales
   y si ya se **retornaron** o siguen **en destino**.
