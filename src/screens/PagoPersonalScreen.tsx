@@ -372,9 +372,13 @@ export default function PagoPersonalScreen() {
   const setStatus = async (status: StaffPayPeriod['status']) => {
     if (!sel) return;
     setBusy(true);
-    const { error } = await supabase.from('staff_pay_periods').update({ status }).eq('id', sel.id);
+    // .select() para SABER si de verdad se actualizó (si RLS bloquea, no hay error pero
+    // tampoco filas → antes parecía que "Aprobar no hacía nada"). Alert.alert no se ve en
+    // web, así que los errores se muestran con confirm() (modal propio).
+    const { data, error } = await supabase.from('staff_pay_periods').update({ status }).eq('id', sel.id).select();
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) { await confirm({ title: 'No se pudo cambiar el estado', message: error.message, confirmText: 'OK', cancelText: '' }); return; }
+    if (!data || data.length === 0) { await confirm({ title: 'No se pudo cambiar el estado', message: 'No tienes permiso para cambiar el estado de este período (o ya no existe).', confirmText: 'OK', cancelText: '' }); return; }
     setSel({ ...sel, status });
     refetch();
   };
@@ -431,7 +435,8 @@ export default function PagoPersonalScreen() {
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
-        <div class="net">Saldo pendiente: ${usd(saldo)}</div>
+        <div class="net" style="color:#111827">Total: ${usd(it.total)}</div>
+        <div class="net">Saldo a cancelar: ${usd(saldo)}</div>
         <div class="firmas">
           <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
           <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>
