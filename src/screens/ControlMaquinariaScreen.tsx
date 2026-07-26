@@ -177,6 +177,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [fleteBusy, setFleteBusy] = useState(false);
   const [fleteDelConfirm, setFleteDelConfirm] = useState<string | null>(null); // id del flete pendiente de confirmar borrado
 
+  // Marcar equipo AVERIADO desde el control: empresa → máquina (serial/placa) → motivo.
+  // Deja la máquina No operativa y abre una traza de reparación para Mantenimiento.
+  const [averiaOpen, setAveriaOpen] = useState(false);
+  const [averiaCompany, setAveriaCompany] = useState<string | null>(null); // company_id | '__none__' | null
+  const [averiaCompanyOpen, setAveriaCompanyOpen] = useState(false);
+  const [averiaMachine, setAveriaMachine] = useState<Machinery | null>(null);
+  const [averiaMachineOpen, setAveriaMachineOpen] = useState(false);
+  const [averiaMachQ, setAveriaMachQ] = useState('');
+  const [averiaNota, setAveriaNota] = useState('');
+  const [averiaBusy, setAveriaBusy] = useState(false);
+
   // Operador por turno: máquina + fecha + turno (día/noche) que se está editando.
   const [opFor, setOpFor] = useState<{ m: Machinery; d: string; which: 'day' | 'night' } | null>(null);
   const [opFirst, setOpFirst] = useState('');
@@ -1101,6 +1112,41 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     else if (f.company_id) setFletesGeneral((p) => ({ ...p, [f.company_id]: (p[f.company_id] ?? []).filter((x) => x.id !== f.id) }));
   };
 
+  // ── Marcar equipo AVERIADO (desde el control) ───────────────────────────────
+  // Abre el flujo empresa → máquina → motivo. Al confirmar deja la máquina No
+  // operativa y crea la traza de reparación (correctivo) que Mantenimiento gestiona.
+  const openAveria = () => {
+    setAveriaCompany(companyFilter !== '__all__' ? companyFilter : null);
+    setAveriaCompanyOpen(companyFilter === '__all__');
+    setAveriaMachine(null); setAveriaMachineOpen(false); setAveriaMachQ(''); setAveriaNota('');
+    setAveriaOpen(true);
+  };
+  const closeAveria = () => {
+    setAveriaOpen(false); setAveriaCompany(null); setAveriaCompanyOpen(false);
+    setAveriaMachine(null); setAveriaMachineOpen(false); setAveriaMachQ(''); setAveriaNota('');
+  };
+  const marcarAveriada = async () => {
+    if (!averiaMachine) return;
+    setAveriaBusy(true);
+    const m = averiaMachine;
+    const nota = averiaNota.trim() || null;
+    // 1) Estado del sistema: No operativa (averiada). Esto es lo esencial.
+    const { error: eOp } = await supabase.from('machinery').update({ operational: false }).eq('id', m.id);
+    if (eOp) { setAveriaBusy(false); setNotice(`❌ No se pudo marcar averiada: ${eOp.message}`); return; }
+    // 2) Traza de reparación para que Mantenimiento la gestione (retorno operativo).
+    const { error: eRep } = await supabase.from('machinery_repairs').insert({
+      machinery_id: m.id, tipo: 'correctivo', out_at: todayISO(),
+      estimated_note: nota, status: 'en_reparacion', created_by: session?.user?.id ?? null,
+    });
+    setAveriaBusy(false);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, operational: false } as Machinery) : x)));
+    closeAveria();
+    setNotice(
+      `⚠️ ${m.code} quedó marcada como AVERIADA (No operativa).` +
+      (eRep ? ' No se pudo registrar la traza de reparación, pero el equipo ya salió del control.' : ' Gestiona su reparación en Mantenimiento de Maquinaria.')
+    );
+  };
+
   const openPrice = (m: Machinery) => {
     if (!puedeEditarPrecio) { setNotice('🔒 Tu rol (analista) no puede modificar precios. Solo puedes INGRESAR horas nuevas (no modificar las ya cargadas).'); return; }
     setPriceFor(m);
@@ -1236,6 +1282,30 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     return list;
   })();
 
+  // ── Datos para "Marcar equipo averiado" ─────────────────────────────────────
+  // Empresas con al menos una máquina operativa (candidatas a tener un equipo averiado).
+  const averiaCompanyOptions = (() => {
+    const opts = Object.entries(companies)
+      .map(([id, name]) => ({ value: id, name, count: machines.filter((m) => m.company_id === id && m.operational !== false).length }))
+      .filter((o) => o.count > 0)
+      .sort((a, b) => cmpText(a.name, b.name));
+    const sinEmpresa = machines.filter((m) => !m.company_id && m.operational !== false).length;
+    if (sinEmpresa > 0) opts.push({ value: '__none__', name: 'Sin empresa', count: sinEmpresa });
+    return opts;
+  })();
+  const averiaCompanyLabel = averiaCompany
+    ? (averiaCompany === '__none__' ? 'Sin empresa' : companies[averiaCompany] ?? 'Empresa')
+    : null;
+  // Máquinas operativas de la empresa elegida (candidatas a marcar averiadas), con búsqueda.
+  const averiaMachineList = (() => {
+    if (!averiaCompany) return [] as Machinery[];
+    const q = norm(averiaMachQ.trim());
+    return machines
+      .filter((m) => (averiaCompany === '__none__' ? !m.company_id : m.company_id === averiaCompany) && m.operational !== false)
+      .filter((m) => !q || norm(m.code).includes(q) || norm(m.serial).includes(q) || norm(m.plate).includes(q) || norm(m.tipo).includes(q))
+      .sort((a, b) => cmpText(a.code, b.code));
+  })();
+
   return (
     <Screen>
       <ConfigBanner />
@@ -1265,6 +1335,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           <Text style={{ color: colors.text, fontWeight: '700' }}>🗂️ Histórico</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Marcar un equipo AVERIADO: empresa → máquina (serial/placa) → queda No operativa. */}
+      <TouchableOpacity
+        onPress={openAveria}
+        style={{ paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }}
+      >
+        <Text style={{ color: colors.warning, fontWeight: '800' }}>⚠️ Marcar equipo averiado</Text>
+      </TouchableOpacity>
 
       <Card>
         <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 2 }}>Semana del control · elige cualquier día en el calendario</Text>
@@ -1782,6 +1860,132 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             </ScrollView>
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Modal: MARCAR EQUIPO AVERIADO (empresa → máquina → motivo) */}
+      <Modal visible={averiaOpen} transparent animationType="fade" onRequestClose={closeAveria}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '88%' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>⚠️ Marcar equipo averiado</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Elige la empresa y el equipo. Quedará como No operativa y saldrá del control.</Text>
+            <ScrollView>
+              {/* 1) Empresa */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>1️⃣ Empresa</Text>
+              <TouchableOpacity
+                onPress={() => setAveriaCompanyOpen((v) => !v)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+              >
+                <Text style={{ color: averiaCompanyLabel ? colors.text : colors.muted, fontWeight: '700' }}>🏢 {averiaCompanyLabel ?? 'Elige una empresa…'}</Text>
+                <Text style={{ color: colors.muted, fontSize: 16 }}>{averiaCompanyOpen ? '▴' : '▾'}</Text>
+              </TouchableOpacity>
+              {averiaCompanyOpen ? (
+                <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: spacing.xs, maxHeight: 200, overflow: 'hidden' }}>
+                  <ScrollView>
+                    {averiaCompanyOptions.length === 0 ? (
+                      <Text style={{ color: colors.muted, fontSize: 13, padding: spacing.md }}>No hay equipos operativos.</Text>
+                    ) : averiaCompanyOptions.map((o) => {
+                      const active = averiaCompany === o.value;
+                      return (
+                        <TouchableOpacity
+                          key={o.value}
+                          onPress={() => { setAveriaCompany(o.value); setAveriaCompanyOpen(false); setAveriaMachine(null); setAveriaMachQ(''); setAveriaMachineOpen(true); }}
+                          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: active ? colors.surfaceAlt : 'transparent', borderTopWidth: 1, borderTopColor: colors.border }}
+                        >
+                          <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.name}</Text>
+                          <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              {/* 2) Máquina (con serial / placa) */}
+              {averiaCompany ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>2️⃣ Equipo (nombre · serial / placa)</Text>
+                  <TouchableOpacity
+                    onPress={() => setAveriaMachineOpen((v) => !v)}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                  >
+                    <Text style={{ color: averiaMachine ? colors.text : colors.muted, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                      🚜 {averiaMachine ? averiaMachine.code : 'Elige el equipo…'}
+                    </Text>
+                    <Text style={{ color: colors.muted, fontSize: 16 }}>{averiaMachineOpen ? '▴' : '▾'}</Text>
+                  </TouchableOpacity>
+                  {averiaMachineOpen ? (
+                    <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: spacing.xs, overflow: 'hidden' }}>
+                      <TextInput
+                        value={averiaMachQ}
+                        onChangeText={setAveriaMachQ}
+                        placeholder="🔎 Buscar por nombre, serial o placa…"
+                        placeholderTextColor={colors.muted}
+                        style={{ backgroundColor: colors.surface, padding: spacing.sm, color: colors.text, borderBottomWidth: 1, borderBottomColor: colors.border }}
+                      />
+                      <ScrollView style={{ maxHeight: 220 }}>
+                        {averiaMachineList.length === 0 ? (
+                          <Text style={{ color: colors.muted, fontSize: 13, padding: spacing.md }}>Sin equipos operativos en esta empresa.</Text>
+                        ) : averiaMachineList.map((m) => {
+                          const active = averiaMachine?.id === m.id;
+                          const ident = [m.serial, m.plate].filter(Boolean).join(' · ');
+                          return (
+                            <TouchableOpacity
+                              key={m.id}
+                              onPress={() => { setAveriaMachine(m); setAveriaMachineOpen(false); }}
+                              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: active ? colors.surfaceAlt : 'transparent', borderTopWidth: 1, borderTopColor: colors.border }}
+                            >
+                              <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '600' }}>{m.code}{active ? '  ✓' : ''}</Text>
+                              <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>
+                                {ident ? `🔖 ${ident}` : 'Sin serial / placa'}{m.tipo ? `  ·  ${m.tipo}` : ''}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Resumen del equipo elegido + motivo */}
+              {averiaMachine ? (
+                <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: colors.warning, padding: spacing.md }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{averiaMachine.code}</Text>
+                  {[averiaMachine.serial, averiaMachine.plate].filter(Boolean).length ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔖 {[averiaMachine.serial, averiaMachine.plate].filter(Boolean).join(' · ')}</Text>
+                  ) : null}
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {averiaCompanyLabel}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Motivo de la avería (opcional)</Text>
+                  <TextInput
+                    value={averiaNota}
+                    onChangeText={setAveriaNota}
+                    placeholder="Ej. falla hidráulica, no arranca…"
+                    placeholderTextColor={colors.muted}
+                    multiline
+                    style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54 }}
+                  />
+                  <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Al confirmar, el equipo queda No operativa, sale del control y pasa a “En reparación” en Mantenimiento.</Text>
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+                <TouchableOpacity onPress={closeAveria} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={marcarAveriada}
+                  disabled={!averiaMachine || averiaBusy}
+                  style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning, opacity: (!averiaMachine || averiaBusy) ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>{averiaBusy ? 'Guardando…' : '⚠️ Marcar averiado'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ height: spacing.md }} />
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
 
       {/* Modal: registrar FLETE / VIAJE (por equipo o GENERAL de la empresa) */}

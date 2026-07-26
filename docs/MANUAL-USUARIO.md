@@ -140,6 +140,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > modificar** las ya cargadas. Cuando un valor ya está cargado aparece un **🔒** y no se puede
 > cambiar; si hay que corregirlo, lo hace un **administrador**. Tampoco cambia precios.
 
+**⚠️ Marcar un equipo averiado (rápido, desde el control):**
+- Arriba, toca **⚠️ Marcar equipo averiado**.
+- Elige de la **lista desplegable** la **🏢 empresa** y luego el **🚜 equipo** (se muestra con su
+  **serial / placa** para no confundirlo). Puedes escribir para buscarlo.
+- Escribe el **motivo** de la avería (opcional) y toca **⚠️ Marcar averiado**.
+- El equipo queda **No operativa**, **sale del control** y pasa a **"En reparación"** en el módulo
+  **Mantenimiento de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
+
 **Sección "En espera" (recibir máquinas):**
 - Arriba aparece **🕓 En espera** con las máquinas que **aún no se han recibido**.
 - Para recibir una: elige su **fecha de entrada** y toca **📥 Recibir**.

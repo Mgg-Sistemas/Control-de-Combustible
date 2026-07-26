@@ -125,6 +125,7 @@ const SECTIONS: Sec[] = [
         'Si te lo pide, escribe el operador de ese turno.',
         'Todo se guarda solo.',
       ] },
+      { t: 'note', text: '⚠️ Marcar equipo averiado (rápido, desde el control): arriba toca ⚠️ Marcar equipo averiado, elige de la lista desplegable la 🏢 empresa y luego el 🚜 equipo (se muestra con su serial / placa; puedes buscarlo). Escribe el motivo (opcional) y confirma. El equipo queda No operativa, sale del control y pasa a "En reparación" en Mantenimiento de Maquinaria, donde se registra su retorno operativo cuando quede lista.' },
       { t: 'p', text: 'Sección "🕓 En espera" (recibir máquinas): arriba salen las máquinas que aún no se han recibido. Para recibir una, elige su fecha de entrada y toca 📥 Recibir. Cada máquina puede tener su propia fecha.' },
       { t: 'p', text: 'Flete / viaje: dentro de cada máquina toca ➕ Flete / viaje para confirmar los viajes que hizo. Escribe la fecha, el nº de viajes y el precio por viaje; el sistema calcula el total. Ese monto se suma al TOTAL POR PAGAR de la empresa en la semana de esa fecha (aparece en el reporte). Puedes registrar varios y borrar los que no van con 🗑.' },
       { t: 'note', text: '📊 Total del rango (empresa): justo debajo del botón "🚚 Flete general de <empresa>" sale el TOTAL DE HORAS y el TOTAL EN $ de TODA la empresa en el rango de fechas seleccionado (suma de sus máquinas).' },
