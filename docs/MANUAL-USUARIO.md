@@ -424,6 +424,17 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **📷 Escanear · reportar avería:** botón arriba del módulo. Escanea el **QR de la máquina** y
   registra la avería directamente (material o **✏️ Otro**, cantidad, nota y foto). Es lo mismo que
   reporta el operador, pero desde la vista del administrador.
+- **📊 Reporte (dashboard de averías):** cuarta pestaña. Muestra un **ranking** (gráfico de barras) de
+  **qué equipo genera más averías**, con su **total de averías** y el **gasto en $**. Puedes agrupar por
+  **🚜 Equipo · 🏢 Empresa · 🏷️ Tipo de maquinaria** y filtrar por tipo. Arriba salen los **totales**
+  (total de averías + gasto total). Toca **📄 Exportar reporte (PDF)** para el reporte por empresa → equipo
+  (averías, desglose por material —cauchos, filtros…— y gasto).
+  - En modo **Equipo**, toca una máquina para ver su **detalle**: empresa, placa/serial, total de averías,
+    el **desglose por tipo** (cuántos cauchos, filtros, aceites, repuestos, otros) y **cada avería con su fecha**.
+
+> **💰 De dónde sale el gasto:** el dinero que genera cada equipo se toma del **almacén** — los materiales
+> que **salieron del inventario para ese equipo** (cantidad × su costo). Por eso al dar una **salida** en
+> Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
 - **🔧 En reparación:** máquinas que salieron a reparación.
 - **✓ Historial:** reparaciones ya cerradas.
 

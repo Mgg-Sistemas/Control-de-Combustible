@@ -557,6 +557,7 @@ export interface InventoryMovement {
   reason: string | null;
   order_id: string | null;
   company_id: string | null;
+  machinery_id: string | null; // equipo destino de la salida (para el gasto por equipo en Mantenimiento)
   note: string | null;
   created_by: string | null;
   created_at: string;

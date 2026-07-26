@@ -6,8 +6,9 @@ import { DateField } from '../components/DateField';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
+import { exportPdf, pdfDocument } from '../lib/pdf';
 import { supabase } from '../lib/supabase';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius } from '../theme';
@@ -35,9 +36,10 @@ function fmtDT(iso: string | null): string {
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
-type Mach = { id: string; code: string; tipo: string | null; company: string; operational: boolean };
+type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean };
 
-type Tab = 'averias' | 'reparacion' | 'historial';
+type Tab = 'averias' | 'reparacion' | 'historial' | 'reporte';
+const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
  * MANTENIMIENTO DE MAQUINARIA (coordinadores de mantenimiento).
@@ -94,6 +96,14 @@ export default function MantenimientoMaquinariaScreen() {
   // Grupos de empresa colapsados en la pestaña Averías (empresa → abierto/cerrado).
   const [avOpen, setAvOpen] = useState<Record<string, boolean>>({});
 
+  // ── Reporte / Dashboard de averías ──────────────────────────────────────────
+  const [gastoByMachine, setGastoByMachine] = useState<Record<string, number>>({});
+  const [reportLoaded, setReportLoaded] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [repGroupBy, setRepGroupBy] = useState<'equipo' | 'empresa' | 'tipo'>('equipo');
+  const [repClasFilter, setRepClasFilter] = useState<string>('__all__'); // filtro por clasificación (tipo de maquinaria)
+  const [repDetailId, setRepDetailId] = useState<string | null>(null);   // máquina cuyo detalle se ve
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const load = async () => {
@@ -101,14 +111,55 @@ export default function MantenimientoMaquinariaScreen() {
     const [{ data: mr }, { data: rp }, { data: mac }] = await Promise.all([
       supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, machinery:machinery_id(code, tipo, plate, serial, last_horometro, operational, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
-      supabase.from('machinery').select('id, code, tipo, operational, active, company:company_id(name)').eq('active', true).order('code'),
+      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, company:company_id(name)').eq('active', true).order('code'),
     ]);
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
-    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false })));
+    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+
+  // Gasto por equipo = materiales que SALIERON del almacén para esa máquina × su costo.
+  // El equipo se toma de machinery_id del movimiento; para salidas viejas (sin ese dato)
+  // se atribuye leyendo el CÓDIGO del equipo en el texto de la salida (reason).
+  const loadReportData = async () => {
+    setReportLoading(true);
+    const [{ data: mv }, { data: items }] = await Promise.all([
+      supabase.from('inventory_movements').select('item_id, qty, unit_cost, machinery_id, reason, kind').in('kind', ['salida', 'consumo']),
+      supabase.from('inventory_items').select('id, machinery_id, avg_cost'),
+    ]);
+    const itemMap = new Map<string, { machinery_id: string | null; avg_cost: number }>();
+    (items ?? []).forEach((it: any) => itemMap.set(it.id, { machinery_id: it.machinery_id ?? null, avg_cost: Number(it.avg_cost) || 0 }));
+    // Códigos de más largo a más corto para que el match del texto sea el más específico.
+    const codeList = machines.map((m) => ({ id: m.id, code: m.code })).filter((c) => c.code).sort((a, b) => b.code.length - a.code.length);
+    const gasto: Record<string, number> = {};
+    (mv ?? []).forEach((m: any) => {
+      const it = itemMap.get(m.item_id);
+      const unit = m.unit_cost != null ? Number(m.unit_cost) : (it?.avg_cost ?? 0);
+      const cost = (Number(m.qty) || 0) * (Number(unit) || 0);
+      let mid: string | null = m.machinery_id ?? it?.machinery_id ?? null;
+      if (!mid && m.reason) { const hit = codeList.find((c) => String(m.reason).includes(` · ${c.code}`)); mid = hit?.id ?? null; }
+      if (mid) gasto[mid] = (gasto[mid] ?? 0) + cost;
+    });
+    setGastoByMachine(gasto);
+    setReportLoaded(true);
+    setReportLoading(false);
+  };
+  useEffect(() => { if (tab === 'reporte' && !reportLoaded && !loading) loadReportData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
+
+  // Estadística por MÁQUINA: total de averías (todas), desglose por material y fechas.
+  const machineStats = useMemo(() => {
+    const by = new Map<string, { id: string; code: string; company: string; plate: string | null; serial: string | null; clasificacion: string | null; total: number; byMat: Record<string, number>; }>();
+    reqs.forEach((r) => {
+      const mac = machines.find((m) => m.id === r.machinery_id);
+      const g = by.get(r.machinery_id) ?? { id: r.machinery_id, code: r.code, company: r.company, plate: r.plate, serial: r.serial, clasificacion: mac?.clasificacion ?? null, total: 0, byMat: {} };
+      g.total += 1;
+      g.byMat[r.material] = (g.byMat[r.material] ?? 0) + 1;
+      by.set(r.machinery_id, g);
+    });
+    return Array.from(by.values());
+  }, [reqs, machines]);
 
   // Reparación ACTIVA por máquina (si existe).
   const activeRepairByMachine = useMemo(() => {
@@ -164,6 +215,35 @@ export default function MantenimientoMaquinariaScreen() {
     setNotice(`✅ Avería registrada · ${code}.`);
     setTab('averias');
     await load();
+  };
+
+  // ── Exportar el reporte de averías a PDF (por empresa → equipo) ──────────────
+  const exportReportePdf = async () => {
+    if (!reportLoaded) await loadReportData();
+    // Agrupa por empresa → equipos, con total de averías, desglose por material y gasto.
+    const byCompany = new Map<string, typeof machineStats>();
+    machineStats.forEach((s) => { const arr = byCompany.get(s.company) ?? []; arr.push(s); byCompany.set(s.company, arr); });
+    const companies = Array.from(byCompany.entries()).sort((a, b) => cmpText(a[0], b[0]));
+    const mats = ['caucho', 'aceite', 'filtro', 'repuesto', 'otro'];
+    const matHead = mats.map((m) => `<th>${matLabel(m)}</th>`).join('');
+    let grandAv = 0, grandGasto = 0;
+    const sections = companies.map(([company, list]) => {
+      list.sort((a, b) => b.total - a.total);
+      let cAv = 0, cGasto = 0;
+      const rows = list.map((s) => {
+        const g = gastoByMachine[s.id] ?? 0; cAv += s.total; cGasto += g;
+        const matCells = mats.map((m) => `<td style="text-align:center">${s.byMat[m] ?? 0}</td>`).join('');
+        const ident = [s.plate, s.serial].filter(Boolean).join(' · ') || '—';
+        return `<tr><td>${s.code}</td><td style="color:#666">${ident}</td><td style="text-align:center;font-weight:700">${s.total}</td>${matCells}<td style="text-align:right;font-weight:700">${usd(g)}</td></tr>`;
+      }).join('');
+      grandAv += cAv; grandGasto += cGasto;
+      return `<h3 style="margin:14px 0 4px">🏢 ${company} · ${list.length} equipo(s) · ${cAv} avería(s) · ${usd(cGasto)}</h3>
+        <table><thead><tr><th>Equipo</th><th>Placa / Serial</th><th>Averías</th>${matHead}<th>Gasto</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }).join('');
+    const body = `<div style="margin-bottom:8px;font-weight:700">TOTAL: ${grandAv} avería(s) · Gasto ${usd(grandGasto)}</div>${sections}
+      <p style="color:#888;font-size:11px;margin-top:10px">El gasto corresponde a los materiales que salieron del almacén para cada equipo (cantidad × costo).</p>`;
+    const html = pdfDocument({ title: 'Reporte de averías por equipo', subtitle: `${machineStats.length} equipo(s) con avería`, body });
+    await exportPdf(html, 'Reporte de averias');
   };
 
   // ── Enviar a reparación ─────────────────────────────────────────────────────
@@ -244,7 +324,7 @@ export default function MantenimientoMaquinariaScreen() {
 
       {/* Pestañas */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 En reparación (${enRepCount})`], ['historial', '✓ Historial']] as const).map(([k, label]) => {
+        {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
             <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
@@ -299,7 +379,7 @@ export default function MantenimientoMaquinariaScreen() {
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, company: g.company, operational: true };
+                const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
@@ -355,7 +435,7 @@ export default function MantenimientoMaquinariaScreen() {
             </Card>
           ))
         )
-      ) : (
+      ) : tab === 'historial' ? (
         historial.length === 0 ? (
           <EmptyState title="Sin reparaciones cerradas" subtitle="Las reparaciones terminadas (máquina de vuelta operativa) aparecerán aquí." />
         ) : (
@@ -371,6 +451,107 @@ export default function MantenimientoMaquinariaScreen() {
             </Card>
           ))
         )
+      ) : (
+        // ── 📊 REPORTE / DASHBOARD ────────────────────────────────────────────
+        (() => {
+          if (machineStats.length === 0) return <EmptyState title="Sin averías registradas" subtitle="Cuando se reporten averías podrás ver aquí el reporte y el dashboard." />;
+          // Filtro por clasificación (tipo de maquinaria).
+          const clasValues = Array.from(new Set(machineStats.map((s) => s.clasificacion || 'Sin clasificación'))).sort(cmpText);
+          const statsF = machineStats.filter((s) => repClasFilter === '__all__' || (s.clasificacion || 'Sin clasificación') === repClasFilter);
+          const gastoOf = (id: string) => gastoByMachine[id] ?? 0;
+          // Filas según el agrupador.
+          type Row = { key: string; title: string; sub: string; total: number; gasto: number; onPress?: () => void };
+          let rows: Row[] = [];
+          if (repGroupBy === 'equipo') {
+            rows = statsF.map((s) => ({ key: s.id, title: s.code, sub: `🏢 ${s.company}${s.plate || s.serial ? ` · ${[s.plate, s.serial].filter(Boolean).join(' · ')}` : ''}`, total: s.total, gasto: gastoOf(s.id), onPress: () => setRepDetailId(s.id) }));
+          } else {
+            const agg = new Map<string, { total: number; gasto: number; machs: Set<string> }>();
+            statsF.forEach((s) => {
+              const k = repGroupBy === 'empresa' ? s.company : (s.clasificacion || 'Sin clasificación');
+              const g = agg.get(k) ?? { total: 0, gasto: 0, machs: new Set<string>() };
+              g.total += s.total; g.gasto += gastoOf(s.id); g.machs.add(s.id); agg.set(k, g);
+            });
+            rows = Array.from(agg.entries()).map(([k, g]) => ({ key: k, title: k, sub: `🚜 ${g.machs.size} equipo(s)`, total: g.total, gasto: g.gasto }));
+          }
+          rows.sort((a, b) => b.total - a.total || b.gasto - a.gasto);
+          const maxTotal = rows.reduce((m, r) => Math.max(m, r.total), 0) || 1;
+          const grandAverias = rows.reduce((s, r) => s + r.total, 0);
+          const grandGasto = rows.reduce((s, r) => s + r.gasto, 0);
+          return (
+            <View>
+              {/* Totales */}
+              <Card style={{ backgroundColor: '#1E3A5F' }}>
+                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>📊 Reporte de averías</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
+                  <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Total averías</Text><Text style={{ color: '#fff', fontWeight: '900', fontSize: 18 }}>{grandAverias}</Text></View>
+                  <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Gasto total</Text><Text style={{ color: '#7CF5B0', fontWeight: '900', fontSize: 18 }}>{usd(grandGasto)}</Text></View>
+                </View>
+                <Text style={{ color: '#9FB6D4', fontSize: 10, marginTop: 4 }}>El gasto = materiales que salieron del almacén para cada equipo × su costo.</Text>
+              </Card>
+
+              {/* Agrupador */}
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+                {([['equipo', '🚜 Equipo'], ['empresa', '🏢 Empresa'], ['tipo', '🏷️ Tipo']] as const).map(([k, label]) => {
+                  const on = repGroupBy === k;
+                  return (
+                    <TouchableOpacity key={k} onPress={() => setRepGroupBy(k)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Filtro por tipo de maquinaria (clasificación) */}
+              {clasValues.length > 1 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                    {['__all__', ...clasValues].map((c) => {
+                      const on = repClasFilter === c;
+                      return (
+                        <TouchableOpacity key={c} onPress={() => setRepClasFilter(c)} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c === '__all__' ? 'Todos' : c}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              ) : null}
+
+              {/* Exportar PDF */}
+              <TouchableOpacity onPress={() => exportReportePdf()} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>📄 Exportar reporte (PDF)</Text>
+              </TouchableOpacity>
+
+              {reportLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
+
+              {/* Gráfico de barras: quién genera más averías */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: spacing.xs }}>Ranking por nº de averías{repGroupBy === 'equipo' ? ' · toca un equipo para ver el detalle' : ''}:</Text>
+              {rows.map((r, i) => {
+                const pct = Math.max(0.06, r.total / maxTotal);
+                return (
+                  <TouchableOpacity key={r.key} activeOpacity={r.onPress ? 0.7 : 1} onPress={r.onPress} style={{ marginBottom: spacing.sm }}>
+                    <Card>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{i + 1}. {r.title}{r.onPress ? '  ›' : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.sub}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{r.total}</Text>
+                          <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>{usd(r.gasto)}</Text>
+                        </View>
+                      </View>
+                      <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: 4, marginTop: spacing.xs, overflow: 'hidden' }}>
+                        <View style={{ width: `${pct * 100}%`, height: 8, backgroundColor: colors.warning, borderRadius: 4 }} />
+                      </View>
+                    </Card>
+                  </TouchableOpacity>
+                );
+              })}
+              <View style={{ height: spacing.lg }} />
+            </View>
+          );
+        })()
       )}
 
       {/* Modal: selector de máquina para enviar a reparación */}
@@ -576,6 +757,70 @@ export default function MantenimientoMaquinariaScreen() {
                 <View style={{ height: spacing.md }} />
               </ScrollView>
             ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal: DETALLE de averías de un equipo (desde el dashboard) */}
+      <Modal visible={!!repDetailId} transparent animationType="fade" onRequestClose={() => setRepDetailId(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%' }}>
+            {repDetailId ? (() => {
+              const s = machineStats.find((x) => x.id === repDetailId);
+              if (!s) return null;
+              const list = reqs.filter((r) => r.machinery_id === repDetailId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+              const gasto = gastoByMachine[repDetailId] ?? 0;
+              const ident = [s.plate, s.serial].filter(Boolean).join(' · ');
+              const matEntries = Object.entries(s.byMat).sort((a, b) => b[1] - a[1]);
+              return (
+                <ScrollView>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🚜 {s.code}</Text>
+                  <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: spacing.sm, gap: 3 }}>
+                    <Text style={{ color: colors.muted, fontSize: 13 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.company}</Text></Text>
+                    {s.clasificacion ? <Text style={{ color: colors.muted, fontSize: 13 }}>🏷️ Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.clasificacion}</Text></Text> : null}
+                    {ident ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔖 Placa / Serial: <Text style={{ color: colors.text, fontWeight: '700' }}>{ident}</Text></Text> : null}
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
+                    <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Total averías</Text>
+                      <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 20 }}>{s.total}</Text>
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>Gasto generado</Text>
+                      <Text style={{ color: colors.success, fontWeight: '900', fontSize: 20 }}>{usd(gasto)}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Desglose por tipo</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    {matEntries.map(([mat, n]) => (
+                      <View key={mat} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text>{MAT_ICON[mat] ?? '🔧'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{matLabel(mat)}: {n}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Averías (con fecha)</Text>
+                  {list.map((r) => (
+                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border }}>
+                      <Text style={{ fontSize: 20 }}>{MAT_ICON[r.material] ?? '🔧'}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}{r.status === 'realizado' ? '  ✓' : ''}</Text>
+                        {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.notes}</Text> : null}
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{fmtDT(r.created_at)}</Text>
+                      </View>
+                    </View>
+                  ))}
+
+                  <TouchableOpacity onPress={() => setRepDetailId(null)} style={{ marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+                  </TouchableOpacity>
+                  <View style={{ height: spacing.md }} />
+                </ScrollView>
+              );
+            })() : null}
           </View>
         </View>
       </Modal>
