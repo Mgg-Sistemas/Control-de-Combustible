@@ -644,7 +644,13 @@ export default function ControlPagosScreen({ navigation }: any) {
     }
 
     setSaving(true);
-    const { error } = await supabase.from('company_payments').insert(rows);
+    let { error } = await supabase.from('company_payments').insert(rows);
+    // Fallback: si aún no se corrió control_pagos_metodo.sql, las columnas metodo/monto_bs/
+    // tasa_bs no existen → reintenta SIN esos campos para no romper el registro del abono.
+    if (error && /metodo|monto_bs|tasa_bs|column/i.test(error.message)) {
+      const rowsBasic = rows.map(({ metodo, monto_bs, tasa_bs, ...r }) => r);
+      ({ error } = await supabase.from('company_payments').insert(rowsBasic));
+    }
     setSaving(false);
     if (error) {
       await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' });
