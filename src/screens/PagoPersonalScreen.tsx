@@ -713,8 +713,8 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-                  <Text style={{ color: '#087443', fontSize: 12, fontWeight: '700' }}>Pagado {usd(totalPagado)}</Text>
-                  <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text>
+                  <Text style={{ color: '#087443', fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}</Text>
+                  {totalSaldo > 0 ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text> : null}
                 </View>
               </Card>
 
