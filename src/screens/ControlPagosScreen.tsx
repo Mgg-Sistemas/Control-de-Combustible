@@ -169,6 +169,9 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [payments, setPayments] = useState<CompanyPayment[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]); // nóminas por empresa
+  // Cotejo: facturado por empresa calculado TAL CUAL el Informe por jornada (precio por
+  // ronda, horas/12). Sirve para verificar que Control de Pagos cuadra con el reporte.
+  const [reporteFact, setReporteFact] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<Group | null>(null);
   // Nómina
   const [nominaFor, setNominaFor] = useState<string | null>(null); // empresa
@@ -334,9 +337,49 @@ export default function ControlPagosScreen({ navigation }: any) {
     });
 
     list.sort((a, b) => (a.weekStart === b.weekStart ? a.company.localeCompare(b.company) : b.weekStart.localeCompare(a.weekStart)));
+
+    // ── COTEJO contra el Informe por jornada ──────────────────────────────────
+    // Recalcula el facturado por empresa EXACTAMENTE como el reporte: dedup por
+    // (máquina, fecha), precio de la ronda (frozen_price>0 ? frozen_price : price_per_hour),
+    // horas trabajadas/12 × precio, + fletes. Piso en FLEET_HOURS_START (igual que el reporte).
+    const repDates = new Map<string, Map<string, { d: number; n: number; s: number; o: number; price: number | null }>>();
+    const repCompany = new Map<string, string>();
+    (rounds ?? []).forEach((r: any) => {
+      if (r.round_date && r.round_date < FLEET_HOURS_START) return;
+      const mid = r.machinery?.id ?? r.machinery?.code ?? '—';
+      repCompany.set(mid, r.machinery?.company?.name ?? 'Sin empresa');
+      const pph = r.machinery?.price_per_hour != null ? Number(r.machinery.price_per_hour) : null;
+      const dm = repDates.get(mid) ?? new Map();
+      const cur = dm.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0, price: null as number | null };
+      cur.d = Math.max(cur.d, Number(r.day_hours) || 0);
+      cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
+      cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
+      cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
+      cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : pph;
+      dm.set(r.round_date, cur);
+      repDates.set(mid, dm);
+    });
+    const repByCompany = new Map<string, number>();
+    repDates.forEach((dm, mid) => {
+      const co = repCompany.get(mid) ?? 'Sin empresa';
+      let usd = 0;
+      dm.forEach(({ d, n, s, o, price }) => {
+        const w = workedFromShifts(d, n, s, o);
+        if (price != null) usd += (w / 12) * price;
+      });
+      repByCompany.set(co, (repByCompany.get(co) ?? 0) + usd);
+    });
+    fletesWk.forEach((amt, key) => { // los fletes también entran en el total del reporte
+      const co = key.split('|')[0];
+      repByCompany.set(co, (repByCompany.get(co) ?? 0) + amt);
+    });
+    const repObj: Record<string, number> = {};
+    repByCompany.forEach((v, k) => { repObj[k] = round2(v); });
+
     setGroups(list);
     setPayments(payList);
     setPayrolls((prs ?? []) as Payroll[]);
+    setReporteFact(repObj);
     setLoading(false);
   };
 
@@ -1048,6 +1091,10 @@ export default function ControlPagosScreen({ navigation }: any) {
           const nomina = nominaByCompany.get(company);
           const nominaTotal = nomina?.total ?? 0;
           const neto = round2(debt - nominaTotal);
+          // Cotejo contra el Informe por jornada (mismo precio/horas). Debe cuadrar.
+          const repFact = round2(reporteFact[company] ?? 0);
+          const cotejoDiff = round2(totalFact - repFact);
+          const cuadra = Math.abs(cotejoDiff) < 1;
           // Máquinas con jornada = máquinas distintas que trabajaron en la empresa.
           const machineSet = new Set<string>();
           weeks.forEach((g) => machinesOf(g).forEach((m) => machineSet.add(m.machine)));
@@ -1062,6 +1109,11 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     Facturado ${money(totalFact)} · Abonado ${money(paidCompany)}{paidCompany > totalFact ? `  ·  💚 saldo a favor $${money(round2(paidCompany - totalFact))}` : ''}
                   </Text>
+                  {repFact > 0 ? (
+                    <Text style={{ color: cuadra ? colors.success : colors.warning, fontSize: 12, marginTop: 2, fontWeight: '700' }}>
+                      📊 Reporte de jornada ${money(repFact)} · {cuadra ? '✓ cuadra' : `⚠️ difiere $${money(Math.abs(cotejoDiff))}`}
+                    </Text>
+                  ) : null}
                   {nominaTotal > 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                       🧾 Nómina −${money(nominaTotal)} · Neto a pagar ${money(neto)}
