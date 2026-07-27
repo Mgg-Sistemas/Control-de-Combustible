@@ -300,6 +300,11 @@ trabajador**.
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
   **subtotal**. Sin tildar nada = todos.
+- **➕ Incluir a todos (personal faltante):** si hay **empleados activos que no están** en el
+  período (por ejemplo, que se registraron después de crearlo), sale un **aviso** con cuántos
+  faltan; tócalo y se **agregan todos** (entran con 0 jornadas, luego ajustas). Así el pago
+  incluye a **todo** el personal con ese cargo, no solo a quienes tienen jornada validada. El nº
+  del **🏷️ Tabulador** cuenta **empleados activos** (mismo universo), para que coincidan.
 
 > **Estados del período:** Borrador → **✅ Aprobar** → **💵 Marcar pagada** (y **↩ Reabrir**). En el
 > encabezado se muestra **"Pagada $X"** (lo ya abonado); el saldo queda pequeño y solo si falta por

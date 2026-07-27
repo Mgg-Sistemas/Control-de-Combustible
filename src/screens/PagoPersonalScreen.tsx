@@ -103,6 +103,8 @@ export default function PagoPersonalScreen() {
   const cargoOf = (cargo?: string | null) => (cargo ?? '').trim().toUpperCase() || 'SIN CARGO';
   // Filtro por cargo (lista desplegable con checks). Vacío = todos.
   const [cargoSel, setCargoSel] = useState<Set<string>>(new Set());
+  // Empleados activos que faltan por incluir en el período (para el aviso "incluir a todos").
+  const [faltantesCount, setFaltantesCount] = useState(0);
   const [cargoOpen, setCargoOpen] = useState(false);
   const toggleCargo = (d: string) => setCargoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
 
@@ -183,6 +185,10 @@ export default function PagoPersonalScreen() {
     const { data: pp } = ids.length ? await supabase.from('staff_pay_payments').select('*').in('item_id', ids) : { data: [] as StaffPayPayment[] };
     setItems(list);
     setPays((pp ?? []) as StaffPayPayment[]);
+    // Empleados ACTIVOS que aún NO están en este período (para avisar y poder incluir a TODOS).
+    const { data: actives } = await supabase.from('employees').select('id').eq('status', 'activo');
+    const have = new Set(list.map((i) => i.employee_id));
+    setFaltantesCount((actives ?? []).filter((e: any) => !have.has(e.id)).length);
     setItemsLoading(false);
   };
   const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setCargoSel(new Set()); setCargoOpen(false); loadDetail(p); };
@@ -746,6 +752,18 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Aviso "incluir a TODOS": empleados activos que aún no están en este período. */}
+              {sel.status === 'borrador' && faltantesCount > 0 ? (
+                <TouchableOpacity onPress={agregarFaltantes} disabled={busy} activeOpacity={0.8} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Text style={{ fontSize: 20 }}>➕</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>Hay {faltantesCount} empleado(s) activo(s) que faltan en este período</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Toca para incluirlos a TODOS (entran con 0 jornadas; ajústalas o edítalos).</Text>
+                  </View>
+                  <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 13 }}>{busy ? '…' : 'Agregar'}</Text>
+                </TouchableOpacity>
+              ) : null}
 
               {/* Filtro por CARGO: lista desplegable con checks.
                   Afecta la lista de abajo Y el reporte PDF. Vacío = todos. */}
