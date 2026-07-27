@@ -677,8 +677,14 @@ export default function ControlPagosScreen({ navigation }: any) {
   // (el diálogo global queda tapado tras el modal a pantalla completa en web).
   const deleteAbono = async (p: CompanyPayment) => {
     setDelAbonoId(null);
-    const { error } = await supabase.from('company_payments').delete().eq('id', p.id);
+    // .select() para saber si REALMENTE se borró: con RLS, un borrado no autorizado
+    // devuelve 0 filas SIN error (silencioso). Así detectamos el caso de permisos.
+    const { data, error } = await supabase.from('company_payments').delete().eq('id', p.id).select('id');
     if (error) { setNotice(`❌ No se pudo eliminar: ${error.message}`); return; }
+    if (!data || data.length === 0) {
+      setNotice('⚠️ El servidor NO permitió borrar el abono (permiso de la base de datos). Corre el SQL "company_payments_delete.sql" en Supabase y reintenta.');
+      return;
+    }
     // Sincroniza al instante la semana abierta (saldo/abonos) sin esperar la recarga.
     setSelected((cur) => {
       if (!cur) return cur;
@@ -697,9 +703,13 @@ export default function ControlPagosScreen({ navigation }: any) {
   const revertirEmpresa = async (companyName: string) => {
     const list = payments.filter((p) => p.company_name === companyName);
     if (!list.length) { setRevertArmed(false); return; }
-    const { error } = await supabase.from('company_payments').delete().in('id', list.map((p) => p.id));
+    const { data, error } = await supabase.from('company_payments').delete().in('id', list.map((p) => p.id)).select('id');
     setRevertArmed(false);
     if (error) { setNotice(`❌ No se pudieron eliminar: ${error.message}`); return; }
+    if (!data || data.length === 0) {
+      setNotice('⚠️ El servidor NO permitió borrar los abonos (permiso de la base de datos). Corre el SQL "company_payments_delete.sql" en Supabase y reintenta.');
+      return;
+    }
     setPayments((prev) => prev.filter((x) => x.company_name !== companyName));
     setHistSel(null); setHistCompany('');
     setNotice(`🗑️ Se revirtieron ${list.length} abono(s) de ${companyName}. Los saldos se actualizaron.`);
