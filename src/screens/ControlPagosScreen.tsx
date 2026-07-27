@@ -312,9 +312,11 @@ export default function ControlPagosScreen({ navigation }: any) {
         const rp = rangePriceWk.get(`${mid}|${g.weekStart}`);
         if (rp != null && rp > 0) { ma.priceCurrent = rp; ma.price = rp; }
       });
-      // Semana cerrada con precio congelado → por defecto muestra "del cierre"
-      // (inmutable); si no hay cierre, usa el precio actual (sincronizado / por rango).
-      g.priceMode = g.hasFrozen ? 'cierre' : 'actual';
+      // Por defecto usa el precio ACTUAL/por rango (el MISMO que el Informe por jornada:
+      // machine_rounds.frozen_price o price_per_hour). Así Control de Pagos SIEMPRE cuadra
+      // con el informe. El precio "📌 Del cierre" (snapshot de control_closures) queda como
+      // opción manual por si alguna vez se quiere ver el monto tal cual se cerró.
+      g.priceMode = 'actual';
       g.fletesUSD = fletesWk.get(`${g.company}|${g.weekStart}`) ?? 0; // fletes de la semana
       recomputeGroup(g);
     });
