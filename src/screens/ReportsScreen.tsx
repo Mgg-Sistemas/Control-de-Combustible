@@ -1267,18 +1267,15 @@ export default function ReportsScreen({ route }: any) {
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
-    const filasMaqPick = pickupMachines
-      .slice()
-      .sort((a, b) => cmpText(a.code ?? '', b.code ?? ''))
-      .map((m) => { const est = estadoOf(m); return `<tr><td><b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}</td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`; });
-    const filasVehPick = vehPickups
-      .sort((a, b) => cmpText(a.plate ?? '', b.plate ?? ''))
-      .map((v) => `<tr><td><b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}</td><td>—</td><td style="color:#0B7A3B;font-weight:700">Operativo</td></tr>`);
-    const filasPick = [...filasMaqPick, ...filasVehPick];
-    const pickupsHtml = filasPick.length
+    // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
+    const pickItems = [
+      ...pickupMachines.map((m) => ({ label: `<b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}`, key: String(m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) })),
+      ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
+    ].sort((a, b) => cmpText(a.key, b.key));
+    const pickupsHtml = pickItems.length
       ? `<div class="disp">🔰 A disposición de los encargados de <b>SOS LA GUAIRA</b></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Camioneta pick-up</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${filasPick
-          .map((tr, i) => tr.replace('<tr><td>', `<tr><td>${i + 1}</td><td>`))
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Camioneta pick-up</th><th>Estado</th></tr></thead><tbody>${pickItems
+          .map((it, i) => `<tr><td>${i + 1}</td><td>${it.label}</td><td style="color:${it.color};font-weight:700">${it.estado}</td></tr>`)
           .join('')}</tbody></table>`
       : `<p class="muted">No hay camionetas pick-up registradas.</p>`;
     const linea = (n = 1) => Array.from({ length: n }).map(() => '<div class="fill"></div>').join('');
@@ -1302,11 +1299,11 @@ export default function ReportsScreen({ route }: any) {
         <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
         <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
       </div>
-      <div class="sect">🚜 2. Maquinaria y equipos en zona</div>
-      ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
-      <div class="sect">🛻 Camionetas pick-up</div>
+      <div class="sect">🛻 2. Camionetas pick-up</div>
       ${pickupsHtml}
-      <div class="sect">📝 3. Observaciones y novedades</div>
+      <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
+      ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
+      <div class="sect">📝 4. Observaciones y novedades</div>
       <div class="box">
         <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
         ${linea(4)}
@@ -2473,6 +2470,16 @@ export default function ReportsScreen({ route }: any) {
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0))}
             </Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Solo equipos que trabajaron</Text>
+            {(() => {
+              const fact = roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0);
+              const abon = roundGroups.reduce((s, g) => s + (Number(g.abonado) || 0), 0);
+              const saldo = Math.max(0, fact - abon);
+              return abon > 0 ? (
+                <Text style={{ fontSize: 13, marginTop: 4, fontWeight: '800', color: colors.text }}>
+                  💰 Abonado <Text style={{ color: colors.success }}>{usd(abon)}</Text> · Saldo pendiente <Text style={{ color: colors.primary }}>{usd(saldo)}</Text>
+                </Text>
+              ) : null;
+            })()}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.xs }}>
               <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
               <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>En vivo · se actualiza solo al agregar o editar jornadas</Text>
