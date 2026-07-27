@@ -1216,6 +1216,99 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', sub, body), 'Reportes - Conteo de equipos');
   };
 
+  // 📍 Reporte Diario de Operaciones y Maquinaria (Ubicaciones tácticas): máquinas
+  // REALES agrupadas por "a cargo de" (CVM / Gobernación / FANB / SOS La Guaira, según
+  // el campo "a disposición de"=zona), con su ubicación real (referencia + sector Este/
+  // Oeste + subzona por GPS) y estado. Incluye las pick-up del módulo de Vehículos.
+  const downloadTacticalPdf = async () => {
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
+    const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
+    const all = (mach ?? []) as any[];
+    // Equipos de la operación: se excluyen los dados de baja (active === false).
+    const list = all.filter((m) => m.active !== false);
+    const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
+    const estadoOf = (m: any) => (m.en_espera === true ? 'En espera / Mantenimiento' : m.operational === false ? 'Inoperativo' : 'Operativo');
+    // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
+    const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
+    const ubicOf = (m: any) => {
+      const ref = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
+      const sec = sectorOf(m.latitude, m.longitude);
+      const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
+      const sub = sec ? sec.replace(/^(Este|Oeste)\s*·\s*/, '').replace(/^Sub\s*\d+:\s*/, '') : '';
+      const parts: string[] = [];
+      if (macro) parts.push(macro);
+      if (sub) parts.push(sub);
+      if (ref) parts.push(ref);
+      return parts.length ? parts.join(' · ') : 'Sin ubicación';
+    };
+    // Agrupar por a cargo de. Orden: entes (CVM/Gobernación/FANB…) alfabético; SOS La Guaira al final.
+    const groups = new Map<string, any[]>();
+    list.forEach((m) => { const e = enteOf(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
+    const enteKey = (n: string) => (n === 'SOS La Guaira' ? 'zzz' : n.toLowerCase());
+    const enteNames = [...groups.keys()].sort((a, b) => cmpText(enteKey(a), enteKey(b)));
+    const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
+    const maquinariaHtml = enteNames.map((ente) => {
+      const rows = groups.get(ente)!
+        .slice()
+        .sort((a, b) => cmpText(companyOf(a), companyOf(b)) || cmpText(a.code ?? '', b.code ?? ''))
+        .map((m, i) => {
+          const est = estadoOf(m);
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(companyOf(m))}</td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+        }).join('');
+      return `<div class="ente">🚜 A cargo de: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Empresa</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }).join('');
+    // Pick-up del módulo de Vehículos (tipo contiene "pick"/"camioneta").
+    const pickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
+    const pickupsHtml = pickups.length
+      ? `<table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Placa</th><th>Marca / Modelo</th><th>Tipo</th></tr></thead><tbody>${pickups
+          .sort((a, b) => cmpText(a.plate ?? '', b.plate ?? ''))
+          .map((v, i) => `<tr><td>${i + 1}</td><td style="font-weight:700">${esc(v.plate ?? '—')}</td><td>${esc([v.brand, v.model].filter(Boolean).join(' ') || '—')}</td><td>${esc(v.vehicle_type ?? '—')}</td></tr>`)
+          .join('')}</tbody></table>`
+      : `<p class="muted">No hay camionetas pick-up registradas en el módulo de Vehículos.</p>`;
+    const linea = (n = 1) => Array.from({ length: n }).map(() => '<div class="fill"></div>').join('');
+    const body = `
+      <style>
+        .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
+        .box{border:1px solid #D1D5DB;border-radius:8px;padding:10px 12px;margin:6px 0 12px}
+        .fill{border-bottom:1px solid #9CA3AF;height:15px;margin:8px 0}
+        .kv{font-size:12px;color:#374151;margin:4px 0}.kv b{color:#111}
+        table.tac{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:12px}
+        table.tac th,table.tac td{border:1px solid #ccc;padding:6px 9px;text-align:left;vertical-align:top}
+        table.tac th{background:#1E3A5F;color:#fff}
+        .ente{margin:12px 0 2px;font-size:12.5px;color:#111}
+        .cnt-pill{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
+        .muted{color:#6B7280;font-size:12px}
+        .legend{font-size:11px;color:#374151}.legend b{color:#111}
+      </style>
+      <div class="sect">📅 1. Datos generales</div>
+      <div class="box">
+        <div class="kv"><b>Fecha:</b></div>${linea()}
+        <div class="kv"><b>Inspector / Supervisor:</b></div>${linea()}
+        <div class="kv"><b>Turno:</b> ☐ Diurno &nbsp;&nbsp; ☐ Nocturno</div>
+        <div class="kv"><b>Hora estimada de fin de jornada:</b></div>${linea()}
+      </div>
+      <div class="sect">📍 2. Ubicación táctica</div>
+      <div class="box legend">
+        <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
+        <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
+        <div class="kv" style="margin-top:8px"><b>Sector de la jornada:</b> ☐ Este &nbsp;&nbsp; ☐ Oeste</div>
+        <div class="kv"><b>Lugar / Edificio / Punto de referencia:</b></div>${linea()}
+      </div>
+      <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
+      ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
+      <div class="sect">🛻 Pick-up a disposición de SOS La Guaira</div>
+      <p class="muted">Camionetas a disposición de los encargados de SOS La Guaira.</p>
+      ${pickupsHtml}
+      <div class="sect">📝 4. Observaciones y novedades</div>
+      <div class="box">
+        <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
+        ${linea(4)}
+      </div>`;
+    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', 'Operación Rescate y Esperanza – La Guaira', body), 'Reporte - Ubicaciones tácticas');
+  };
+
   // Imprime el LISTADO del detalle (activos / inactivos / stand by / total flota).
   const downloadDetailPdf = async (kind: 'activo' | 'inactivo' | 'standby' | 'flota') => {
     if (!conteo) return;
@@ -1879,6 +1972,10 @@ export default function ReportsScreen({ route }: any) {
               {/* Botón de descarga ARRIBA (a la mano, sin bajar hasta el final). */}
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+              </TouchableOpacity>
+              {/* Reporte Diario de Operaciones (máquinas reales por a cargo de + ubicaciones). */}
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadTacticalPdf}>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>📍 Ubicaciones tácticas</Text>
               </TouchableOpacity>
               {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
