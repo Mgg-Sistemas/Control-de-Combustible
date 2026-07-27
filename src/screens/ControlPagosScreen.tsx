@@ -179,6 +179,8 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [histCompany, setHistCompany] = useState<string>('');   // filtro por empresa en el histórico
   const [histCompanyOpen, setHistCompanyOpen] = useState(false);
   const [revertArmed, setRevertArmed] = useState(false);        // confirmación EN LÍNEA del "revertir todos"
+  const [delAbonoId, setDelAbonoId] = useState<string | null>(null); // abono con confirmación EN LÍNEA pendiente
+  const [notice, setNotice] = useState<string | null>(null);    // aviso en línea (el diálogo global queda tapado en web)
 
   // Reporte
   const [repOpen, setRepOpen] = useState(false);
@@ -670,22 +672,24 @@ export default function ControlPagosScreen({ navigation }: any) {
     load();
   };
 
-  // Eliminar un abono (para corregir errores). Devuelve el monto al saldo.
+  // Eliminar un abono (para corregir errores). Devuelve el monto al saldo y SINCRONIZA
+  // (optimista sobre la semana abierta + recarga global). La confirmación es EN LÍNEA
+  // (el diálogo global queda tapado tras el modal a pantalla completa en web).
   const deleteAbono = async (p: CompanyPayment) => {
-    const ok = await confirm({
-      title: 'Eliminar abono',
-      message: `¿Eliminar el abono de ${p.currency} ${money(Number(p.amount))}? El saldo volverá a incluir ese monto.`,
-      confirmText: 'Eliminar',
-      cancelText: 'Cancelar',
-    });
-    if (!ok) return;
+    setDelAbonoId(null);
     const { error } = await supabase.from('company_payments').delete().eq('id', p.id);
-    if (error) {
-      await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' });
-      return;
-    }
-    setSelected(null);
-    load();
+    if (error) { setNotice(`❌ No se pudo eliminar: ${error.message}`); return; }
+    // Sincroniza al instante la semana abierta (saldo/abonos) sin esperar la recarga.
+    setSelected((cur) => {
+      if (!cur) return cur;
+      const abonos = cur.abonos.filter((x) => x.id !== p.id);
+      const paidAmount = round2(abonos.reduce((s, a) => s + (Number(a.amount) || 0), 0));
+      const saldo = Math.max(0, round2(cur.total - paidAmount));
+      return { ...cur, abonos, paidAmount, saldo, fullyPaid: cur.total > 0 && paidAmount >= cur.total - 0.01 };
+    });
+    setPayments((prev) => prev.filter((x) => x.id !== p.id));
+    setNotice(`🗑️ Abono eliminado · ${p.currency} ${money(Number(p.amount))}. El saldo se actualizó.`);
+    load(); // recálculo global de todas las semanas
   };
 
   // Revertir TODOS los abonos de una empresa (para corregir pagos hechos por error).
@@ -695,8 +699,10 @@ export default function ControlPagosScreen({ navigation }: any) {
     if (!list.length) { setRevertArmed(false); return; }
     const { error } = await supabase.from('company_payments').delete().in('id', list.map((p) => p.id));
     setRevertArmed(false);
-    if (error) { await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' }); return; }
+    if (error) { setNotice(`❌ No se pudieron eliminar: ${error.message}`); return; }
+    setPayments((prev) => prev.filter((x) => x.company_name !== companyName));
     setHistSel(null); setHistCompany('');
+    setNotice(`🗑️ Se revirtieron ${list.length} abono(s) de ${companyName}. Los saldos se actualizaron.`);
     load();
   };
 
@@ -955,7 +961,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
         <TouchableOpacity
-          onPress={() => { setHistCompany(''); setHistCompanyOpen(false); setRevertArmed(false); setHistOpen(true); }}
+          onPress={() => { setHistCompany(''); setHistCompanyOpen(false); setRevertArmed(false); setNotice(null); setHistOpen(true); }}
           style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
         >
           <Text style={{ color: colors.text, fontWeight: '700' }}>🗂️ Histórico ({payments.length})</Text>
@@ -1053,7 +1059,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               {open ? weeks.map((g) => {
                 const partial = g.paidAmount > 0 && !g.fullyPaid;
                 return (
-                <TouchableOpacity key={g.weekStart} activeOpacity={0.7} onPress={() => setSelected(g)}>
+                <TouchableOpacity key={g.weekStart} activeOpacity={0.7} onPress={() => { setNotice(null); setDelAbonoId(null); setSelected(g); }}>
                   <Card style={g.fullyPaid ? { borderColor: colors.success } : partial ? { borderColor: colors.warning } : undefined}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
@@ -1150,6 +1156,12 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{selected.company}</SectionTitle>
+              {notice ? (
+                <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+                </TouchableOpacity>
+              ) : null}
               {selected.hasFrozen ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Semana cerrada · precios:</Text>
@@ -1246,9 +1258,20 @@ export default function ControlPagosScreen({ navigation }: any) {
                             {(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))} @ ${money(Number((p as any).tasa_bs || 0))}` : ''}
                           </Text>
                         </View>
-                        <TouchableOpacity onPress={() => deleteAbono(p)} style={{ padding: spacing.xs }}>
-                          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
-                        </TouchableOpacity>
+                        {delAbonoId === p.id ? (
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => setDelAbonoId(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => deleteAbono(p)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.danger }}>
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => setDelAbonoId(p.id)} style={{ padding: spacing.xs }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </Card>
                   ))}
@@ -1351,6 +1374,12 @@ export default function ControlPagosScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Histórico de pagos</SectionTitle>
+          {notice ? (
+            <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+              <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {/* Filtro por empresa + revertir todos sus abonos (corregir pagos por error) */}
           {payments.length > 0 ? (() => {
