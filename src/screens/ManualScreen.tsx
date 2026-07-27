@@ -152,6 +152,9 @@ const SECTIONS: Sec[] = [
     title: 'Control de pagos',
     blocks: [
       { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios. El corte es semanal.' },
+      { t: 'note', text: 'La vista arranca VACÍA: escribe el nombre de la empresa en el buscador para ver su cuenta (no se listan todas de golpe).' },
+      { t: 'note', text: 'El facturado cuadra con el Informe por jornada: Control de Pagos NO cobra rondas ni fletes anteriores al inicio del período (mismo piso de fecha que el informe). Así el saldo = Facturado − Abonado da igual que el reporte real.' },
+      { t: 'note', text: 'Ver por qué da ese saldo: al abrir una empresa aparece "🔍 Abonos contados" con TODOS los abonos que se le cuentan (fecha, monto, método, semana) y la cuenta explícita Facturado − Abonado = Saldo. Ahí puedes borrar un abono duplicado o mal cargado con 🗑️.' },
       { t: 'bullets', items: [
         'El Tabulador de precios es la lista maestra de precios por tipo de máquina. Se puede modificar y sincronizar.',
         'Tiene dos modos: General (aplica a todas las empresas) y por empresa. Arriba eliges "💲 General" o la empresa. Si a una empresa le pones un precio propio, ese manda; si lo dejas vacío, usa el General.',
