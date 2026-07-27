@@ -245,6 +245,7 @@ const SECTIONS: Sec[] = [
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
         'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo cancelado".',
         '💼 Filtrar por cargo: dentro del período hay una lista desplegable con casillas ("💼 Filtrar por cargo"). Tildas uno o varios cargos y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por cargo con su subtotal. Sin tildar nada = todos.',
+        '➕ Incluir a todos: si hay empleados activos que no están en el período (ej. registrados después de crearlo), sale un aviso con cuántos faltan; tócalo y se agregan todos (entran con 0 jornadas, luego ajustas). El nº del 🏷️ Tabulador cuenta empleados activos (mismo universo) para que coincida con el pago.',
       ] },
       { t: 'note', text: 'Estados del período: Borrador → ✅ Aprobar → 💵 Marcar pagada (y ↩ Reabrir). En el encabezado del período se muestra "Pagada $X" (lo ya abonado); el saldo queda pequeño y solo si falta por pagar. Si Aprobar/Marcar pagada no cambia el estado, ahora SÍ te avisa el motivo (antes fallaba en silencio).' },
       { t: 'note', text: 'Las analistas pueden cargar cantidades, bonos y deducciones, pero NO pueden cambiar los precios (hora/día/semana) del trabajador.' },

@@ -54,7 +54,9 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const loadEmpCargos = async () => {
-    const { data } = await supabase.from('employees').select('id, cargo');
+    // Solo empleados ACTIVOS: es el mismo universo que paga/sincroniza el sistema
+    // (así el nº del tabulador coincide con el del pago a personal).
+    const { data } = await supabase.from('employees').select('id, cargo').eq('status', 'activo');
     const m: Record<string, number> = {}; const ids: Record<string, string[]> = {}; const lab: Record<string, string> = {};
     (data ?? []).forEach((e: any) => {
       const raw = (e.cargo || '').trim(); if (!raw) return;
