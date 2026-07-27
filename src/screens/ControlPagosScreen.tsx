@@ -8,7 +8,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
-import { FLEET_HOURS_START } from './ReportsScreen';
+import { FLEET_HOURS_START, FLEET_HOURS_CUTOFF } from './ReportsScreen';
 import { DateField } from '../components/DateField';
 import { CompanyPayment, PaymentDetail, Payroll, PriceTariff } from '../types/database';
 import { matchTariffModelo } from '../lib/tariffs';
@@ -31,6 +31,20 @@ function addDaysISO(iso: string, n: number): string {
   const d = new Date(iso + 'T12:00:00');
   d.setDate(d.getDate() + n);
   return toISO(d);
+}
+/**
+ * Inicio del PERÍODO de facturación de una fecha. El PRIMER cierre es especial:
+ * del 26-jun al 05-jul (los trabajos empezaron el 26). De ahí en adelante, semanal
+ * (lunes a domingo). Así Control de Pagos agrupa el primer corte como uno solo y no
+ * lo parte en "22-28" + "29-05".
+ */
+function periodStartISO(iso: string): string {
+  if (iso <= FLEET_HOURS_CUTOFF) return FLEET_HOURS_START; // todo el primer cierre cae aquí
+  return weekStartISO(iso);
+}
+/** Fin del período dado su inicio: el primer cierre termina el 05-jul; el resto, +6 días. */
+function periodEndISO(start: string): string {
+  return start === FLEET_HOURS_START ? FLEET_HOURS_CUTOFF : addDaysISO(start, 6);
 }
 function todayISO(): string {
   return toISO(new Date());
@@ -229,7 +243,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     (fletesRows ?? []).forEach((f: any) => {
       if (f.flete_date && f.flete_date < FLEET_HOURS_START) return; // no cobrar antes del inicio del período
       const co = f.company?.name ?? 'Sin empresa';
-      const ws = weekStartISO(f.flete_date);
+      const ws = periodStartISO(f.flete_date);
       const monto = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
       fletesWk.set(`${co}|${ws}`, (fletesWk.get(`${co}|${ws}`) ?? 0) + monto);
     });
@@ -240,7 +254,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     (closs ?? []).forEach((c: any) => {
       (c.detail?.machines ?? []).forEach((m: any) => {
         if (m.price == null || !m.machineId || !m.date) return;
-        frozen.set(`${m.machineId}|${weekStartISO(m.date)}`, Number(m.price));
+        frozen.set(`${m.machineId}|${periodStartISO(m.date)}`, Number(m.price));
       });
     });
 
@@ -250,7 +264,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const rangePriceWk = new Map<string, number>();
     (rounds ?? []).forEach((r: any) => {
       const mid = r.machinery?.id ?? r.machinery?.code ?? '—';
-      const ws = weekStartISO(r.round_date);
+      const ws = periodStartISO(r.round_date);
       if (r.frozen_price != null && Number(r.frozen_price) > 0) rangePriceWk.set(`${mid}|${ws}`, Number(r.frozen_price));
     });
 
@@ -267,11 +281,11 @@ export default function ControlPagosScreen({ navigation }: any) {
       // Etiqueta visible: nombre + serial (o placa) para distinguir máquinas del mismo nombre.
       const label = `${code}${serial ? ` · ${serial}` : plate ? ` · ${plate}` : ''}`;
       const price = r.machinery?.price_per_hour != null ? Number(r.machinery.price_per_hour) : null;
-      const weekStart = weekStartISO(r.round_date);
+      const weekStart = periodStartISO(r.round_date);
       const k = `${company}|${weekStart}`;
       const g =
         map.get(k) ??
-        ({ key: k, company, companyId, weekStart, weekEnd: addDaysISO(weekStart, 6), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual', fletesUSD: 0 } as Group);
+        ({ key: k, company, companyId, weekStart, weekEnd: periodEndISO(weekStart), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual', fletesUSD: 0 } as Group);
       const priceFrozen = frozen.has(`${machineId}|${weekStart}`) ? Number(frozen.get(`${machineId}|${weekStart}`)) : null;
       if (priceFrozen != null) g.hasFrozen = true;
       const ma = g.machines[machineId] ?? { machine: label, serial, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
@@ -310,7 +324,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     const payList = (pays ?? []) as CompanyPayment[];
     list.forEach((g) => {
       g.abonos = payList
-        .filter((p) => p.company_name === g.company && p.period_start === g.weekStart)
+        .filter((p) => p.company_name === g.company && periodStartISO(p.period_start) === g.weekStart)
         .sort((a, b) => (a.paid_at < b.paid_at ? -1 : 1));
       g.paidAmount = round2(g.abonos.reduce((s, p) => s + (Number(p.amount) || 0), 0));
       g.saldo = Math.max(0, round2(g.total - g.paidAmount));

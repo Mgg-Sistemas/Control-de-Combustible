@@ -82,7 +82,8 @@ type FleetCompany = { company: string; count: number; liters: number; items: Fle
 // Exportado: Control de Pagos usa el MISMO piso para que el facturado coincida
 // con el Informe por jornada (no cobra rondas anteriores a esta fecha).
 export const FLEET_HOURS_START = '2026-06-26';
-const FLEET_HOURS_CUTOFF = '2026-07-05';
+// Fin del PRIMER cierre (26-jun → 05-jul). De ahí en adelante la facturación es semanal.
+export const FLEET_HOURS_CUTOFF = '2026-07-05';
 // Dinero con 2 decimales y redondeo estándar.
 const money2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
