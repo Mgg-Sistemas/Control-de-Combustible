@@ -693,6 +693,12 @@ Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y pro
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
 escritura en Inventario.
 
+> **Adjuntar un formato (imagen o PDF):** en cada requerimiento toca **"📎 Subir formato"** y elige
+> una **imagen** o un **PDF** (cotización, formato firmado, etc.). Queda guardado (**📎 Formato
+> adjunto**). Con **"👁️ Ver formato"** se abre la **vista previa** (imagen o PDF) con botón
+> **"⬇️ Descargar / Abrir"**. Al **aprobar** un requerimiento que trae formato, la vista previa
+> **se abre sola** para revisarlo y descargarlo.
+
 > **Revertir un rechazo (error de dedo):** si un requerimiento quedó **❌ Rechazado** por
 > equivocación, el administrador toca **"↩ Volver a pendiente"**: vuelve a **Pendiente** (se limpia
 > el rechazo) y se **notifica a los administradores** que quedó pendiente otra vez.

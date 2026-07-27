@@ -1212,6 +1212,10 @@ create table if not exists public.inventory_requirements (
 );
 -- Empresa para la que se hace el requerimiento (opcional).
 alter table public.inventory_requirements add column if not exists company_id uuid references public.companies(id) on delete set null;
+-- Formato adjunto (imagen o PDF) del requerimiento — ver supabase/requerimientos_adjunto.sql.
+alter table public.inventory_requirements add column if not exists attachment_url  text;
+alter table public.inventory_requirements add column if not exists attachment_type text;
+alter table public.inventory_requirements add column if not exists attachment_name text;
 create index if not exists idx_invreq_status on public.inventory_requirements(status);
 create index if not exists idx_invreq_created on public.inventory_requirements(created_at);
 alter table public.inventory_requirements enable row level security;

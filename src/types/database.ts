@@ -634,6 +634,9 @@ export interface InventoryRequirement {
   decided_at: string | null;
   decision_note: string | null;
   received_at: string | null;
+  attachment_url: string | null;      // formato adjunto (imagen o PDF) en Storage
+  attachment_type: string | null;     // 'image' | 'pdf'
+  attachment_name: string | null;     // nombre original del archivo
   created_at: string;
 }
 
