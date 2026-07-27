@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -11,6 +11,7 @@ import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { pickAndUploadRequirementFile } from '../lib/photo';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
@@ -1342,6 +1343,8 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [q, setQ] = useState('');
   const [pickOpen, setPickOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
+  const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
@@ -1442,6 +1445,41 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     }).eq('id', r.id);
     if (error) return Alert.alert('Aviso', error.message);
     refetch();
+    // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.
+    if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
+  };
+
+  // Sube un FORMATO (imagen o PDF) al requerimiento y lo guarda en la fila.
+  const subirFormato = async (r: InventoryRequirement) => {
+    setSubiendoId(r.id);
+    try {
+      const res = await pickAndUploadRequirementFile(r.id);
+      if (!res.ok) { if (res.error) Alert.alert('No se pudo subir', res.error); return; }
+      const { data, error } = await supabase.from('inventory_requirements')
+        .update({ attachment_url: res.url, attachment_type: res.kind, attachment_name: res.name ?? null })
+        .eq('id', r.id).select('id');
+      if (error) {
+        if (/attachment|column/i.test(error.message)) { Alert.alert('Falta correr el SQL', 'Corre "requerimientos_adjunto.sql" en Supabase para guardar el formato.'); return; }
+        Alert.alert('No se pudo guardar', error.message); return;
+      }
+      if (!data || data.length === 0) { Alert.alert('No se pudo guardar', 'No tienes permiso de escritura en inventario.'); return; }
+      await refetch();
+      Alert.alert('Formato adjuntado', 'El formato quedó guardado en el requerimiento.');
+    } finally {
+      setSubiendoId(null);
+    }
+  };
+
+  // Descarga (o abre) el formato adjunto.
+  const descargarFormato = (r: InventoryRequirement) => {
+    if (!r.attachment_url) return;
+    if (Platform.OS === 'web') {
+      const a = document.createElement('a');
+      a.href = r.attachment_url; a.download = r.attachment_name || 'formato'; a.target = '_blank'; a.rel = 'noopener';
+      a.click();
+    } else {
+      Linking.openURL(r.attachment_url);
+    }
   };
 
   // Revierte un requerimiento RECHAZADO de vuelta a PENDIENTE (p. ej. si el rechazo
@@ -1583,11 +1621,24 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                 {r.status === 'aprobado' && r.decided_by_name ? <Text style={{ color: '#2563EB', fontSize: 11, marginTop: 2 }}>Aprobado por {r.decided_by_name}</Text> : null}
                 {r.status === 'rechazado' && r.decided_by_name ? <Text style={{ color: '#DC2626', fontSize: 11, marginTop: 2 }}>Rechazado por {r.decided_by_name}</Text> : null}
                 {r.status === 'recibido' ? <Text style={{ color: '#16A34A', fontSize: 11, marginTop: 2 }}>Recibido en inventario{r.received_at ? ` · ${dmyOf(r.received_at)}` : ''}</Text> : null}
+                {r.attachment_url ? <Text style={{ color: colors.primary, fontSize: 11, marginTop: 2, fontWeight: '700' }}>📎 Formato adjunto{r.attachment_type === 'pdf' ? ' (PDF)' : ' (imagen)'}</Text> : null}
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                   <TouchableOpacity onPress={() => pdf(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 PDF</Text>
                   </TouchableOpacity>
+                  {/* Subir formato (imagen o PDF) al requerimiento. */}
+                  {canWrite ? (
+                    <TouchableOpacity onPress={() => subirFormato(r)} disabled={subiendoId === r.id} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: subiendoId === r.id ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>{subiendoId === r.id ? '⏳ Subiendo…' : r.attachment_url ? '📎 Cambiar formato' : '📎 Subir formato'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {/* Ver formato adjunto (vista previa + descarga). */}
+                  {r.attachment_url ? (
+                    <TouchableOpacity onPress={() => setPreviewReq(r)} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>👁️ Ver formato</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {isAdmin && r.status === 'pendiente' ? (
                     <>
                       <TouchableOpacity onPress={() => decidir(r, 'aprobado')} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -1710,6 +1761,36 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             </View>
           </ScrollView>
         </Screen>
+      </Modal>
+
+      {/* ── Vista previa del FORMATO adjunto (imagen o PDF) + descarga ── */}
+      <Modal visible={!!previewReq} animationType="fade" transparent onRequestClose={() => setPreviewReq(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: spacing.md }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '90%', overflow: 'hidden' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>📎 {previewReq?.attachment_name || 'Formato'}</Text>
+              <TouchableOpacity onPress={() => setPreviewReq(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 16 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: spacing.md }}>
+              {previewReq?.attachment_url ? (
+                previewReq.attachment_type === 'pdf' ? (
+                  Platform.OS === 'web'
+                    ? React.createElement('iframe', { src: previewReq.attachment_url, style: { width: '100%', height: '65vh', border: 'none', borderRadius: 8 } })
+                    : <Text style={{ color: colors.muted, fontSize: 13 }}>Toca "⬇️ Descargar / Abrir" para ver el PDF.</Text>
+                ) : (
+                  <Image source={{ uri: previewReq.attachment_url }} style={{ width: '100%', height: 420, borderRadius: radius.md }} resizeMode="contain" />
+                )
+              ) : null}
+            </ScrollView>
+            <View style={{ padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <TouchableOpacity onPress={() => previewReq && descargarFormato(previewReq)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar / Abrir</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* ── Recibir en inventario ── */}

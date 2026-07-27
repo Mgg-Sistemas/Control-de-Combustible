@@ -121,6 +121,57 @@ export async function captureAndUploadPhoto(
 }
 
 /**
+ * Selecciona un FORMATO (imagen o PDF) y lo sube al bucket 'machinery' en la carpeta
+ * requerimientos/<reqId>/, devolviendo la URL pública, el tipo ('image'|'pdf') y el nombre.
+ * - WEB: usa un <input type=file> nativo (acepta imagen Y PDF), sin dependencias nuevas.
+ * - NATIVO: cae a la galería (solo imagen; el PDF requeriría expo-document-picker).
+ */
+export async function pickAndUploadRequirementFile(
+  reqId: string
+): Promise<{ ok: boolean; url?: string; kind?: 'image' | 'pdf'; name?: string; error?: string }> {
+  if (Platform.OS === 'web') {
+    const file = await new Promise<File | null>((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*,application/pdf';
+      let done = false;
+      const finish = (f: File | null) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('focus', onFocus);
+        resolve(f);
+      };
+      // Cancelar: la ventana recupera el foco sin elegir archivo (no hay evento de cancel).
+      const onFocus = () => setTimeout(() => finish(null), 1500);
+      input.onchange = () => finish(input.files && input.files[0] ? input.files[0] : null);
+      window.addEventListener('focus', onFocus);
+      input.click();
+    });
+    if (!file) return { ok: false };
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const ext = isPdf ? 'pdf' : ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg');
+    const path = `requerimientos/${reqId}/${Date.now()}.${ext}`;
+    const up = await supabase.storage.from('machinery').upload(path, file, {
+      contentType: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+      upsert: true,
+    });
+    if (up.error) return { ok: false, error: up.error.message };
+    const { data } = supabase.storage.from('machinery').getPublicUrl(path);
+    return { ok: true, url: data.publicUrl, kind: isPdf ? 'pdf' : 'image', name: file.name };
+  }
+  // NATIVO: solo imagen (galería).
+  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
+  const res = await pick(() => ImagePicker.launchImageLibraryAsync({ quality: PICK_QUALITY, base64: true }));
+  if (!res || res.canceled || !res.assets?.[0]) return { ok: false };
+  const body = await assetToBody(res.assets[0]);
+  if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
+  const path = `requerimientos/${reqId}/${Date.now()}.jpg`;
+  const r = await uploadToMachinery(path, body);
+  return r.ok ? { ok: true, url: r.url, kind: 'image', name: 'formato.jpg' } : { ok: false, error: r.error };
+}
+
+/**
  * Toma/selecciona la foto de un EMPLEADO y la normaliza a un encuadre estándar
  * (5:6) antes de subir, para que todos los carnets se vean parejos.
  * - Web: pasa por el recortador con guía (óvalo para centrar el rostro).
