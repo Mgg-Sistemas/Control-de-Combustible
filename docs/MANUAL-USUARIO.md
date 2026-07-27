@@ -627,6 +627,10 @@ traslado, Gastos, Requerimiento y Movimientos**.
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
 > **"✕ Limpiar"** quita los filtros.
 
+> **Revertir una salida:** abre una **SALIDA** en Movimientos y toca **"↩️ Revertir al inventario"**.
+> Pide confirmación, **devuelve la cantidad al stock** y elimina esa salida. El stock se recalcula
+> solo (no toca el costo/PMP). Úsalo para corregir salidas hechas por error o materiales devueltos.
+
 **💵 Precios en $ y en Bs (tasa BCV):** en **Existencias**, arriba, se muestra la **tasa del BCV
 del día** (Bs por US$). El sistema la **baja automáticamente** cada día; con **🔄 Actualizar** la
 refrescas y los **administradores** pueden **fijarla a mano** (por si el servicio falla). Cada
