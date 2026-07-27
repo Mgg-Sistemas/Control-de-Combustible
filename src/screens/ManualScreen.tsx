@@ -243,7 +243,7 @@ const SECTIONS: Sec[] = [
       { t: 'bullets', items: [
         'Bonos y Deducciones: por persona, agregas líneas de concepto y monto (ej. Bono producción, Adelanto, Préstamo).',
         'Abonos: cuando el período está aprobado, con 💵 Abonar registras pagos parciales o totales (efectivo, pago móvil, transferencia…). Se ve el Pagado y el Saldo pendiente.',
-        'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo a cancelar".',
+        'Reportes: 🧾 Recibo por persona y ⬇️ Reporte del período completo, ambos en PDF. El recibo muestra el Total y el "Saldo cancelado".',
         '💼 Filtrar por cargo: dentro del período hay una lista desplegable con casillas ("💼 Filtrar por cargo"). Tildas uno o varios cargos y la lista de personas y el ⬇️ Reporte PDF salen solo de esos, agrupados por cargo con su subtotal. Sin tildar nada = todos.',
       ] },
       { t: 'note', text: 'Estados del período: Borrador → ✅ Aprobar → 💵 Marcar pagada (y ↩ Reabrir). En el encabezado del período se muestra "Pagada $X" (lo ya abonado); el saldo queda pequeño y solo si falta por pagar. Si Aprobar/Marcar pagada no cambia el estado, ahora SÍ te avisa el motivo (antes fallaba en silencio).' },
