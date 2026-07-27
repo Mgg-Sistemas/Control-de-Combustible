@@ -436,7 +436,7 @@ export default function PagoPersonalScreen() {
           <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
         <div class="net" style="color:#111827">Total: ${usd(it.total)}</div>
-        <div class="net">Saldo a cancelar: ${usd(saldo)}</div>
+        <div class="net">Saldo cancelado: ${usd(saldo)}</div>
         <div class="firmas">
           <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
           <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>

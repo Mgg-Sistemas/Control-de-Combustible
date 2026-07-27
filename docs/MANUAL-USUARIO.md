@@ -295,7 +295,7 @@ trabajador**.
 - **Abonos:** con el período aprobado, **💵 Abonar** registra pagos parciales o totales
   (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
-  El **recibo** muestra el **Total** y el **"Saldo a cancelar"**.
+  El **recibo** muestra el **Total** y el **"Saldo cancelado"**.
 - **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su

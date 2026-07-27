@@ -44,15 +44,26 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   const [addOpen, setAddOpen] = useState(false);
   const [nCargo, setNCargo] = useState('');
   const [nDraft, setNDraft] = useState<Draft>(emptyDraft);
-  // Cuántos empleados tiene cada cargo (por texto EXACTO del cargo).
-  const [empByCargo, setEmpByCargo] = useState<Record<string, number>>({});
+  // Cuántos empleados tiene cada cargo. Se agrupa por cargo NORMALIZADO (sin distinguir
+  // mayúsculas/acentos) para que "Ayudante de cocina" y "AYUDANTE DE COCINA" cuenten juntos
+  // y el nº mostrado coincida con lo que la sincronización realmente actualiza.
+  const [empByCargo, setEmpByCargo] = useState<Record<string, number>>({}); // clave = norm(cargo)
+  const empIds = useRef<Record<string, string[]>>({});   // norm(cargo) → ids de empleados
+  const empLabel = useRef<Record<string, string>>({});   // norm(cargo) → nombre a mostrar
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const loadEmpCargos = async () => {
-    const { data } = await supabase.from('employees').select('cargo');
-    const m: Record<string, number> = {};
-    (data ?? []).forEach((e: any) => { const c = (e.cargo || '').trim(); if (c) m[c] = (m[c] ?? 0) + 1; });
+    const { data } = await supabase.from('employees').select('id, cargo');
+    const m: Record<string, number> = {}; const ids: Record<string, string[]> = {}; const lab: Record<string, string> = {};
+    (data ?? []).forEach((e: any) => {
+      const raw = (e.cargo || '').trim(); if (!raw) return;
+      const k = norm(raw);
+      m[k] = (m[k] ?? 0) + 1;
+      (ids[k] ??= []).push(e.id);
+      if (!lab[k]) lab[k] = raw.toUpperCase();
+    });
+    empIds.current = ids; empLabel.current = lab;
     setEmpByCargo(m);
   };
   useEffect(() => { if (visible) { loadEmpCargos(); refetch(); } /* eslint-disable-next-line */ }, [visible]);
@@ -60,7 +71,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   // Cargos que existen en EMPLEADOS pero aún NO tienen tabulador (para poder crearlo).
   const cargosSinTab = useMemo(() => {
     const conTab = new Set(tariffs.map((t) => norm(t.cargo)));
-    return Object.keys(empByCargo).filter((c) => !conTab.has(norm(c))).sort((a, b) => cmpText(a, b));
+    return Object.keys(empByCargo).filter((k) => !conTab.has(k)).map((k) => empLabel.current[k] ?? k).sort((a, b) => cmpText(a, b));
   }, [tariffs, empByCargo]);
 
   const nq = norm(q.trim());
@@ -70,7 +81,8 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
   );
   const shownSinTab = useMemo(() => cargosSinTab.filter((c) => !nq || norm(c).includes(nq)), [cargosSinTab, nq]);
 
-  const empCount = (cargo: string) => empByCargo[cargo] ?? empByCargo[Object.keys(empByCargo).find((k) => norm(k) === norm(cargo)) ?? ''] ?? 0;
+  const empCount = (cargo: string) => empByCargo[norm(cargo)] ?? 0;
+  const empIdsOf = (cargo: string) => empIds.current[norm(cargo)] ?? [];
 
   const openCargo = (t: StaffCargoTariff) => {
     if (openId === t.id) { setOpenId(null); return; }
@@ -104,10 +116,12 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
     });
     if (!ok) return;
     setBusy(true);
+    // Actualiza EXACTAMENTE los empleados contados (por id), sin importar mayúsculas/acentos
+    // del texto del cargo. Antes se hacía .eq('cargo', ...) y se perdían las variantes de escritura.
     const { error } = await supabase.from('employees').update({
       precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche, precio_semana: t.precio_semana,
       precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
-    }).eq('cargo', t.cargo);
+    }).in('id', empIdsOf(t.cargo));
     setBusy(false);
     if (error) return setNotice(`⚠️ ${error.message}`);
     onSynced?.();
@@ -132,7 +146,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
       const { error } = await supabase.from('employees').update({
         precio_hora: t.precio_hora, precio_dia: t.precio_dia, precio_noche: t.precio_noche,
         precio_semana: t.precio_semana, precio_quincena: t.precio_quincena, precio_mes: t.precio_mes,
-      }).eq('cargo', t.cargo);
+      }).in('id', empIdsOf(t.cargo));
       if (error) errores++; else hechos += empCount(t.cargo);
     }
     setBusy(false);
@@ -266,7 +280,7 @@ export function TabuladorCargos({ visible, onClose, canEdit, onSynced }: {
                 {shownSinTab.map((c) => (
                   <TouchableOpacity key={c} onPress={() => canEdit && abrirAlta(c)} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{c}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>{empByCargo[c]} empleado(s){canEdit ? ' · + crear' : ''}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{empCount(c)} empleado(s){canEdit ? ' · + crear' : ''}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
