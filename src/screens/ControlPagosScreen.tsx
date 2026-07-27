@@ -1078,6 +1078,58 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <Text style={{ color: colors.text, fontWeight: '800', marginTop: spacing.xs }}>Total nómina: −${money(nominaTotal)}</Text>
                 </Card>
               ) : null}
+
+              {/* 🔍 Auditoría del saldo: TODOS los abonos que se le están contando a la empresa. */}
+              {open ? (() => {
+                const abonos = payments
+                  .filter((p) => p.company_name === company)
+                  .slice()
+                  .sort((a, b) => (a.paid_at || '').localeCompare(b.paid_at || ''));
+                const sumAb = round2(abonos.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+                return (
+                  <Card>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>
+                      🔍 Abonos contados ({abonos.length}) · suma ${money(sumAb)}
+                    </Text>
+                    {abonos.length === 0 ? (
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Sin abonos registrados para esta empresa.</Text>
+                    ) : abonos.map((p, i) => (
+                      <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                            {i + 1}. ${money(Number(p.amount) || 0)}
+                            {(p.detail as any)?.credit ? '  💚 saldo a favor' : ''}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>
+                            {(p.paid_at || '').slice(0, 10)} · {metodoLabel((p as any).metodo)} · sem {p.period_start} → {p.period_end}
+                          </Text>
+                        </View>
+                        {delAbonoId === p.id ? (
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => setDelAbonoId(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => deleteAbono(p)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.danger }}>
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => setDelAbonoId(p.id)} style={{ padding: spacing.xs }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                    <Text style={{ color: colors.text, fontSize: 12, marginTop: spacing.sm, fontWeight: '700' }}>
+                      Facturado ${money(totalFact)} − Abonado ${money(sumAb)} = Saldo ${money(round2(Math.max(0, totalFact - sumAb)))}
+                    </Text>
+                    {notice ? (
+                      <Text style={{ color: colors.danger, fontSize: 12, marginTop: spacing.xs }}>{notice}</Text>
+                    ) : null}
+                  </Card>
+                );
+              })() : null}
+
               {open ? weeks.map((g) => {
                 const partial = g.paidAmount > 0 && !g.fullyPaid;
                 return (
