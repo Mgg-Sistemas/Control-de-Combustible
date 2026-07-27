@@ -8,6 +8,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { workedFromShifts } from './ControlMaquinariaScreen';
+import { FLEET_HOURS_START } from './ReportsScreen';
 import { DateField } from '../components/DateField';
 import { CompanyPayment, PaymentDetail, Payroll, PriceTariff } from '../types/database';
 import { matchTariffModelo } from '../lib/tariffs';
@@ -226,6 +227,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     // Fletes/viajes por empresa+semana → se suman al total a cobrar de esa semana.
     const fletesWk = new Map<string, number>();
     (fletesRows ?? []).forEach((f: any) => {
+      if (f.flete_date && f.flete_date < FLEET_HOURS_START) return; // no cobrar antes del inicio del período
       const co = f.company?.name ?? 'Sin empresa';
       const ws = weekStartISO(f.flete_date);
       const monto = (Number(f.viajes) || 0) * (Number(f.precio) || 0);
@@ -254,6 +256,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
     const map = new Map<string, Group>();
     (rounds ?? []).forEach((r: any) => {
+      if (r.round_date && r.round_date < FLEET_HOURS_START) return; // igual que el Informe por jornada: sin cobrar rondas previas al inicio
       const company = r.machinery?.company?.name ?? 'Sin empresa';
       const companyId = r.machinery?.company?.id ?? null;
       // Identidad ÚNICA por máquina física: id de la máquina (no el nombre, que puede repetirse).
@@ -584,7 +587,8 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Solo cuentas con monto por cobrar o con algún abono (evita mostrar $0 sin actividad).
   const visible = groups.filter((g) => g.total > 0 || g.paidAmount > 0);
   const q = norm(query.trim());
-  const shown = !q ? visible : visible.filter((g) => norm(g.company).includes(q));
+  // No se listan empresas hasta buscar: la vista arranca vacía y solo aparece lo que coincide.
+  const shown = !q ? [] : visible.filter((g) => norm(g.company).includes(q));
 
   const byCompany = useMemo(() => {
     const m = new Map<string, Group[]>();
@@ -1014,7 +1018,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       {loading ? (
         <Loading />
       ) : byCompany.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : 'Sin cuentas por pagar'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Registra rondas y precios en Control de maquinaria.'} />
+        <EmptyState title={q ? 'Sin resultados' : '🔎 Busca una empresa'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Escribe el nombre de la empresa en el buscador para ver su cuenta.'} />
       ) : (
         byCompany.map(([company, weeks]) => {
           const open = !!expandedCompany[company];
