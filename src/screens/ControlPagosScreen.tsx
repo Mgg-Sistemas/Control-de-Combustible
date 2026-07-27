@@ -567,12 +567,15 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   // ── Deudas pendientes (no pagadas, con monto) → alerta de los lunes ──────────
   const outstandingByCompany = useMemo(() => {
+    // Saldo pendiente a NIVEL EMPRESA = facturado total − abonado total (netea el excedente).
+    const fact = new Map<string, number>();
+    groups.forEach((g) => fact.set(g.company, (fact.get(g.company) ?? 0) + g.total));
+    const paid = new Map<string, number>();
+    payments.forEach((p) => paid.set(p.company_name, (paid.get(p.company_name) ?? 0) + (Number(p.amount) || 0)));
     const m = new Map<string, number>();
-    groups.forEach((g) => {
-      if (g.saldo > 0) m.set(g.company, (m.get(g.company) ?? 0) + g.saldo);
-    });
+    fact.forEach((f, c) => { const s = Math.max(0, round2(f - (paid.get(c) ?? 0))); if (s > 0.005) m.set(c, s); });
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
-  }, [groups]);
+  }, [groups, payments]);
 
   const isMonday = new Date().getDay() === 1;
   const canAlert = role === 'admin' || role === 'supervisor';
@@ -906,7 +909,9 @@ export default function ControlPagosScreen({ navigation }: any) {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([c, v]) => {
         const nom = nominaOf(c);
-        const neto = round2(v.saldo - nom);
+        // Saldo pendiente a nivel empresa (netea el excedente), no la suma de saldos por semana.
+        const saldoEmp = Math.max(0, round2(v.total - v.pag));
+        const neto = round2(saldoEmp - nom);
         totalNomina += nom; totalNeto += neto;
         return `<tr><td>${c}</td><td style="text-align:right">$${money(v.total)}</td>` +
           `<td style="text-align:right;color:#087443;font-weight:700">$${money(v.pag)}</td>` +
@@ -1013,8 +1018,12 @@ export default function ControlPagosScreen({ navigation }: any) {
       ) : (
         byCompany.map(([company, weeks]) => {
           const open = !!expandedCompany[company];
-          // Total que se debe = suma de los SALDOS pendientes (descontando abonos).
-          const debt = weeks.reduce((s, g) => s + g.saldo, 0);
+          // Saldo pendiente A NIVEL EMPRESA = facturado total − abonado total (todos sus abonos).
+          // NO se suman los saldos semana por semana (con tope 0), porque si una semana quedó
+          // sobrepagada, ese excedente debe descontar del total de la empresa (saldo a favor).
+          const totalFact = round2(weeks.reduce((s, g) => s + g.total, 0));
+          const paidCompany = round2(payments.filter((p) => p.company_name === company).reduce((s, p) => s + (Number(p.amount) || 0), 0));
+          const debt = Math.max(0, round2(totalFact - paidCompany)); // saldo pendiente
           // Nómina de la empresa: se descuenta de la cuenta general.
           const nomina = nominaByCompany.get(company);
           const nominaTotal = nomina?.total ?? 0;
@@ -1028,11 +1037,14 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
-                    <Text style={{ color: neto > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(neto)}</Text>
+                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(debt)}</Text>
                   </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                    Facturado ${money(totalFact)} · Abonado ${money(paidCompany)}{paidCompany > totalFact ? `  ·  💚 saldo a favor $${money(round2(paidCompany - totalFact))}` : ''}
+                  </Text>
                   {nominaTotal > 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                      Facturado ${money(debt)} · 🧾 Nómina −${money(nominaTotal)}
+                      🧾 Nómina −${money(nominaTotal)} · Neto a pagar ${money(neto)}
                     </Text>
                   ) : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
