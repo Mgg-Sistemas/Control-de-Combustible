@@ -915,10 +915,30 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 // ── Movimientos (trazabilidad) ───────────────────────────────────────────────
 function MovimientosTab() {
   const { colors } = useTheme();
-  const { data: movs, loading } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false });
+  const confirm = useConfirm();
+  const { data: movs, loading, refetch } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
   const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
   const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? 'Producto';
   const itemUnit = (id: string) => items.find((i) => i.id === id)?.unit ?? '';
+
+  // Revertir una SALIDA: devuelve la cantidad al inventario. El stock es DERIVADO de los
+  // movimientos (vista inventory_levels), así que al borrar la salida el stock sube solo,
+  // sin tocar el costo (PMP). Borrado no autorizado por RLS quita 0 filas SIN error → se
+  // detecta con .select().
+  const revertirSalida = async (m: InventoryMovement) => {
+    const ok = await confirm({
+      title: 'Revertir al inventario',
+      message: `Se devolverán ${qtyFmt(m.qty)} ${itemUnit(m.item_id)} de "${itemName(m.item_id)}" al inventario y se eliminará esta salida. ¿Continuar?`,
+      confirmText: 'Sí, revertir',
+      cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const { data, error } = await supabase.from('inventory_movements').delete().eq('id', m.id).select('id');
+    if (error) { Alert.alert('No se pudo revertir', error.message); return; }
+    if (!data || data.length === 0) { Alert.alert('No se pudo revertir', 'El servidor no autorizó eliminar el movimiento (permiso del módulo de inventario).'); return; }
+    await refetch();
+    Alert.alert('Revertido', 'La salida se devolvió al inventario. El stock ya refleja el cambio.');
+  };
 
   const [filter, setFilter] = useState('');
   const [qFree, setQFree] = useState('');          // búsqueda libre (producto / motivo / tipo)
@@ -997,6 +1017,14 @@ function MovimientosTab() {
                 {m.reason ? <Text style={{ color: colors.text, fontSize: 13 }}>{m.reason}</Text> : null}
                 {m.order_id ? <Text style={{ color: '#16A34A', fontSize: 13, fontWeight: '700' }}>🧾 Desde orden de compra</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDate(m.created_at)}</Text>
+                {m.kind === 'salida' ? (
+                  <TouchableOpacity
+                    onPress={() => revertirSalida(m)}
+                    style={{ alignSelf: 'flex-start', marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  >
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>↩️ Revertir al inventario</Text>
+                  </TouchableOpacity>
+                ) : null}
               </>
             }
           />
