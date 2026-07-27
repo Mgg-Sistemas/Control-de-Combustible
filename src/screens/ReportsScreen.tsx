@@ -1254,10 +1254,10 @@ export default function ReportsScreen({ route }: any) {
         .sort((a, b) => cmpText(companyOf(a), companyOf(b)) || cmpText(a.code ?? '', b.code ?? ''))
         .map((m, i) => {
           const est = estadoOf(m);
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(companyOf(m))}</td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       return `<div class="ente">🚜 A cargo de: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Empresa</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up del módulo de Vehículos (tipo contiene "pick"/"camioneta").
     const pickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
@@ -1282,26 +1282,17 @@ export default function ReportsScreen({ route }: any) {
         .muted{color:#6B7280;font-size:12px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
-      <div class="sect">📅 1. Datos generales</div>
-      <div class="box">
-        <div class="kv"><b>Fecha:</b></div>${linea()}
-        <div class="kv"><b>Inspector / Supervisor:</b></div>${linea()}
-        <div class="kv"><b>Turno:</b> ☐ Diurno &nbsp;&nbsp; ☐ Nocturno</div>
-        <div class="kv"><b>Hora estimada de fin de jornada:</b></div>${linea()}
-      </div>
-      <div class="sect">📍 2. Ubicación táctica</div>
+      <div class="sect">📍 1. Ubicación táctica</div>
       <div class="box legend">
         <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
         <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
-        <div class="kv" style="margin-top:8px"><b>Sector de la jornada:</b> ☐ Este &nbsp;&nbsp; ☐ Oeste</div>
-        <div class="kv"><b>Lugar / Edificio / Punto de referencia:</b></div>${linea()}
       </div>
-      <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
+      <div class="sect">🚜 2. Maquinaria y equipos en zona</div>
       ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
       <div class="sect">🛻 Pick-up a disposición de SOS La Guaira</div>
       <p class="muted">Camionetas a disposición de los encargados de SOS La Guaira.</p>
       ${pickupsHtml}
-      <div class="sect">📝 4. Observaciones y novedades</div>
+      <div class="sect">📝 3. Observaciones y novedades</div>
       <div class="box">
         <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
         ${linea(4)}
