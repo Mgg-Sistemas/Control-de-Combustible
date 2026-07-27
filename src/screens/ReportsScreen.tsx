@@ -84,6 +84,9 @@ type FleetCompany = { company: string; count: number; liters: number; items: Fle
 export const FLEET_HOURS_START = '2026-06-26';
 // Fin del PRIMER cierre (26-jun → 05-jul). De ahí en adelante la facturación es semanal.
 export const FLEET_HOURS_CUTOFF = '2026-07-05';
+// Patrones para los reportes de "camiones" y de "transporte de escombros" (por nombre/tipo/clasificación).
+const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO|TORONTO|CISTERNA|PIPA/;
+const ESCOMBRO_RE = /VOLQUETA|VOLTEO|TORONTO|ESCOMBRO|BATEA/; // equipos de transporte de escombros (volteo)
 // Dinero con 2 decimales y redondeo estándar.
 const money2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -454,7 +457,7 @@ export default function ReportsScreen({ route }: any) {
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
   const [camMonth0, setCamMonth0] = useState(nowRef.getMonth());
   const [camPreview, setCamPreview] = useState(false);
-  const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[] } | null>(null);
+  const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
@@ -1338,11 +1341,10 @@ export default function ReportsScreen({ route }: any) {
   // volqueta/batea/lowboy), volteo/toronto/volquetas y cisternas (agua o combustible).
   // Se busca en el NOMBRE (code), el modelo (tipo) y la clasificación, porque en muchas
   // máquinas el "modelo" viene vacío y el tipo real está en el nombre.
-  const buildTruckCompanies = useCallback(async () => {
+  const buildTruckCompanies = useCallback(async (re: RegExp = TRUCK_RE) => {
     const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, clasificacion, company:company_id(name)');
-    const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO|TORONTO|CISTERNA|PIPA/;
     const trucks = (mach ?? [])
-      .filter((m: any) => TRUCK_RE.test(`${m.code || ''} ${canonTipo(m.tipo) || ''} ${m.clasificacion || ''}`.toUpperCase()))
+      .filter((m: any) => re.test(`${m.code || ''} ${canonTipo(m.tipo) || ''} ${m.clasificacion || ''}`.toUpperCase()))
       .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
@@ -1353,7 +1355,8 @@ export default function ReportsScreen({ route }: any) {
   const generateCamiones = async () => {
     setLoading(true);
     const companies = await buildTruckCompanies();
-    setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: weeksOfMonth(camYear, camMonth0), companies });
+    const escompanies = await buildTruckCompanies(ESCOMBRO_RE);
+    setCamData({ monthLabel: `${MES_NOMBRES[camMonth0]} ${camYear}`, weeks: weeksOfMonth(camYear, camMonth0), companies, escompanies });
     setLoading(false);
     setCamPreview(true);
   };
@@ -1399,6 +1402,51 @@ export default function ReportsScreen({ route }: any) {
     const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
     const fileLabel = sel ? `Reportes - Camiones E-S Semana ${sel.n}` : 'Reportes - Camiones E-S';
     await exportPdf(pdfShell('CONTROL CAMIONES ENTRADAS/SALIDAS', subLabel, body), fileLabel);
+  };
+
+  // Reporte "Transporte de escombros": mismos equipos de volteo, hoja por semana con
+  // CHECK de turno DÍA / NOCHE por día (se marca a mano al imprimir).
+  const downloadEscombrosPdf = async (weekN?: number) => {
+    if (!camData) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const dayTh = (d: { name: string; iso: string }) => `<th class="d">${d.name.slice(0, 3).toUpperCase()}<br><span class="dt">${fmtDM(d.iso)}</span></th>`;
+    const cell = `<td class="c"><div class="ck">☐ Día</div><div class="ck">☐ Noche</div></td>`;
+    const weeksToPrint = weekN == null ? camData.weeks : camData.weeks.filter((w) => w.n === weekN);
+    const sel = weekN == null ? null : weeksToPrint[0] || null;
+    const cos = camData.escompanies ?? [];
+    const weeksHtml = weeksToPrint
+      .map((w) => {
+        const companiesHtml = cos
+          .map((co) => {
+            const rows = co.items
+              .map((t) => `<tr><td class="nm">${esc(t.code)}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
+              .join('');
+            return `<h3 class="emp">🏢 ${esc(co.company)} — ${co.items.length} equipo(s)</h3>
+              <table class="cam"><thead><tr><th class="nm">Equipo</th><th class="ps">Placa/Serial</th>${w.days.map(dayTh).join('')}</tr></thead>
+              <tbody>${rows || '<tr><td colspan="9" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+          })
+          .join('');
+        return `<h2 class="wk">Semana ${w.n} · del ${fmtDMY(w.from)} al ${fmtDMY(w.to)}</h2>${companiesHtml}`;
+      })
+      .join('');
+    const body = `<style>
+      .wk{background:#1E3A5F;color:#fff;font-size:13px;padding:7px 10px;border-radius:5px;margin:16px 0 6px}
+      .emp{font-size:12px;color:#1E3A5F;font-weight:800;margin:10px 0 2px}
+      table.cam{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:6px}
+      table.cam th,table.cam td{border:1px solid #bbb;padding:2px 2px;font-size:8px;line-height:1.05;overflow:hidden;word-break:break-word;vertical-align:middle}
+      table.cam th{background:#1E3A5F;color:#fff;text-align:center}
+      table.cam th.nm,table.cam td.nm{width:18%;text-align:left}
+      table.cam th.ps,table.cam td.ps{width:15%;text-align:left}
+      table.cam th.d,table.cam td.c{width:9.5%;text-align:center}
+      .dt{font-weight:400;font-size:7px}
+      table.cam td.c{height:34px;vertical-align:top}
+      table.cam td.c .ck{border-bottom:1px solid #ddd;font-size:8px;color:#333;padding:2px;height:15px;text-align:left}
+    </style>
+    <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Marca ☐ Día / ☐ Noche por día (a mano)</div>
+    ${weeksHtml || '<p class="muted">Sin equipos de transporte de escombros.</p>'}`;
+    const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
+    const fileLabel = sel ? `Reportes - Escombros Semana ${sel.n}` : 'Reportes - Escombros';
+    await exportPdf(pdfShell('TRANSPORTE DE ESCOMBROS · TURNOS DÍA/NOCHE', subLabel, body), fileLabel);
   };
 
   const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
@@ -1684,7 +1732,8 @@ export default function ReportsScreen({ route }: any) {
     let timer: any;
     const refresh = async () => {
       const companies = await buildTruckCompanies();
-      setCamData((prev) => (prev ? { ...prev, companies } : prev));
+      const escompanies = await buildTruckCompanies(ESCOMBRO_RE);
+      setCamData((prev) => (prev ? { ...prev, companies, escompanies } : prev));
     };
     const ch = supabase.channel('rt-camiones-es');
     ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: 'machinery' }, () => {
@@ -2881,6 +2930,28 @@ export default function ReportsScreen({ route }: any) {
               <TouchableOpacity style={[styles.genBtn, { marginTop: 0, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }]} onPress={() => downloadCamionesPdf()}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>⬇️ Descargar todo el mes (todas las semanas)</Text>
               </TouchableOpacity>
+
+              {/* 🧱 Transporte de escombros: mismos volteos, hoja con check Día/Noche por día */}
+              <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🧱 Transporte de escombros (turnos Día/Noche)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.xs }}>
+                  {camData.escompanies.reduce((s, c) => s + c.items.length, 0)} equipo(s) de volteo · marca ☐ Día / ☐ Noche por día a mano.
+                </Text>
+                {camData.weeks.map((w) => (
+                  <View key={w.n} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Semana {w.n}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>del {fmtDMY(w.from)} al {fmtDMY(w.to)}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => downloadEscombrosPdf(w.n)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TouchableOpacity style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }} onPress={() => downloadEscombrosPdf()}>
+                  <Text style={{ color: colors.text, fontWeight: '800' }}>⬇️ Todo el mes (escombros)</Text>
+                </TouchableOpacity>
+              </Card>
 
               {/* Camiones por empresa */}
               {camData.companies.map((co) => (
