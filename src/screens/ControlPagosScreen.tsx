@@ -1201,6 +1201,45 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </Text>
                 </TouchableOpacity>
               )}
+
+              {/* Abonos registrados (pagos parciales) — ARRIBA para eliminar rápido. */}
+              {selected.abonos.length > 0 ? (
+                <>
+                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
+                    Abonos ({selected.abonos.length})
+                  </Text>
+                  {selected.abonos.map((p, i) => (
+                    <Card key={p.id}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>
+                            🟢 Abono {i + 1} · ${money(Number(p.amount))}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>
+                            {p.paid_at?.slice(0, 10)} · {metodoLabel((p as any).metodo)}
+                            {(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))} @ ${money(Number((p as any).tasa_bs || 0))}` : ''}
+                          </Text>
+                        </View>
+                        {delAbonoId === p.id ? (
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => setDelAbonoId(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => deleteAbono(p)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.danger }}>
+                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => setDelAbonoId(p.id)} style={{ padding: spacing.xs }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </Card>
+                  ))}
+                </>
+              ) : null}
+
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>
                   Semana {selected.weekStart} → {selected.weekEnd}
@@ -1249,44 +1288,6 @@ export default function ControlPagosScreen({ navigation }: any) {
                   </Text>
                 </Card>
               ))}
-
-              {/* Abonos registrados (pagos parciales) */}
-              {selected.abonos.length > 0 ? (
-                <>
-                  <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
-                    Abonos ({selected.abonos.length})
-                  </Text>
-                  {selected.abonos.map((p, i) => (
-                    <Card key={p.id}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.text, fontWeight: '700' }}>
-                            🟢 Abono {i + 1} · ${money(Number(p.amount))}
-                          </Text>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>
-                            {p.paid_at?.slice(0, 10)} · {metodoLabel((p as any).metodo)}
-                            {(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))} @ ${money(Number((p as any).tasa_bs || 0))}` : ''}
-                          </Text>
-                        </View>
-                        {delAbonoId === p.id ? (
-                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                            <TouchableOpacity onPress={() => setDelAbonoId(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
-                              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Cancelar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => deleteAbono(p)} style={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: colors.danger }}>
-                              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Sí, eliminar</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <TouchableOpacity onPress={() => setDelAbonoId(p.id)} style={{ padding: spacing.xs }}>
-                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </Card>
-                  ))}
-                </>
-              ) : null}
 
               <TouchableOpacity
                 style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
