@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'reac
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -176,6 +176,9 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Histórico y detalle de un pago
   const [histOpen, setHistOpen] = useState(false);
   const [histSel, setHistSel] = useState<CompanyPayment | null>(null);
+  const [histCompany, setHistCompany] = useState<string>('');   // filtro por empresa en el histórico
+  const [histCompanyOpen, setHistCompanyOpen] = useState(false);
+  const [revertArmed, setRevertArmed] = useState(false);        // confirmación EN LÍNEA del "revertir todos"
 
   // Reporte
   const [repOpen, setRepOpen] = useState(false);
@@ -685,6 +688,18 @@ export default function ControlPagosScreen({ navigation }: any) {
     load();
   };
 
+  // Revertir TODOS los abonos de una empresa (para corregir pagos hechos por error).
+  // Confirmación EN LÍNEA en el histórico (el diálogo global queda tapado tras el modal en web).
+  const revertirEmpresa = async (companyName: string) => {
+    const list = payments.filter((p) => p.company_name === companyName);
+    if (!list.length) { setRevertArmed(false); return; }
+    const { error } = await supabase.from('company_payments').delete().in('id', list.map((p) => p.id));
+    setRevertArmed(false);
+    if (error) { await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' }); return; }
+    setHistSel(null); setHistCompany('');
+    load();
+  };
+
   // ── Reporte por EMPRESA → TIPO de maquinaria, con apartado especial y semanas ──
   // 1er apartado: desde la fecha de llegada de cada máquina hasta el 05/07/2026.
   // Luego, un apartado por SEMANA (lun→dom) alineado con la semana de la jornada.
@@ -940,7 +955,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
         <TouchableOpacity
-          onPress={() => setHistOpen(true)}
+          onPress={() => { setHistCompany(''); setHistCompanyOpen(false); setRevertArmed(false); setHistOpen(true); }}
           style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}
         >
           <Text style={{ color: colors.text, fontWeight: '700' }}>🗂️ Histórico ({payments.length})</Text>
@@ -1336,10 +1351,56 @@ export default function ControlPagosScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Histórico de pagos</SectionTitle>
+
+          {/* Filtro por empresa + revertir todos sus abonos (corregir pagos por error) */}
+          {payments.length > 0 ? (() => {
+            const empresasHist = Array.from(new Set(payments.map((p) => p.company_name))).sort((a, b) => cmpText(a || '', b || ''));
+            const filtrados = histCompany ? payments.filter((p) => p.company_name === histCompany) : payments;
+            const totalFiltrado = filtrados.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            return (
+              <View style={{ marginBottom: spacing.sm }}>
+                <TouchableOpacity onPress={() => { setHistCompanyOpen((v) => !v); setRevertArmed(false); }} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {histCompany || 'Todas las empresas'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 16 }}>{histCompanyOpen ? '▴' : '▾'}</Text>
+                </TouchableOpacity>
+                {histCompanyOpen ? (
+                  <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: spacing.xs, maxHeight: 220, overflow: 'hidden' }}>
+                    <ScrollView>
+                      <TouchableOpacity onPress={() => { setHistCompany(''); setHistCompanyOpen(false); setRevertArmed(false); }} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <Text style={{ color: !histCompany ? colors.primary : colors.text, fontWeight: !histCompany ? '800' : '500' }}>Todas las empresas</Text>
+                      </TouchableOpacity>
+                      {empresasHist.map((c) => (
+                        <TouchableOpacity key={c} onPress={() => { setHistCompany(c); setHistCompanyOpen(false); setRevertArmed(false); }} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: histCompany === c ? colors.primary : colors.text, fontWeight: histCompany === c ? '800' : '500' }}>{c}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {histCompany ? (
+                  revertArmed ? (
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                      <TouchableOpacity onPress={() => setRevertArmed(false)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => revertirEmpresa(histCompany)} style={{ flex: 2, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.danger }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>Sí, eliminar {filtrados.length} abono(s)</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={() => setRevertArmed(true)} style={{ marginTop: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger }}>
+                      <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>🗑️ Revertir TODOS los abonos de {histCompany} · {filtrados.length} · ${money(round2(totalFiltrado))}</Text>
+                    </TouchableOpacity>
+                  )
+                ) : null}
+              </View>
+            );
+          })() : null}
+
           {payments.length === 0 ? (
             <EmptyState title="Sin pagos" subtitle="Aquí aparecerán todos los pagos hechos a las empresas." />
           ) : (
-            payments.map((p) => (
+            (histCompany ? payments.filter((p) => p.company_name === histCompany) : payments).map((p) => (
               <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => setHistSel(p)}>
                 <Card>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
