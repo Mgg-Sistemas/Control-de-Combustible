@@ -1232,7 +1232,9 @@ export default function ReportsScreen({ route }: any) {
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
     const ubicOf = (m: any) => {
-      const ref = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
+      const rawRef = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
+      // Ignora referencias que son SOLO números (ej. "46564.0"): mejor mostrar el sector.
+      const ref = /^[\d.,\s-]+$/.test(rawRef) ? '' : rawRef;
       const sec = sectorOf(m.latitude, m.longitude);
       const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
       const sub = sec ? sec.replace(/^(Este|Oeste)\s*·\s*/, '').replace(/^Sub\s*\d+:\s*/, '') : '';
