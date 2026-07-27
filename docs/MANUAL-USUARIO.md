@@ -219,6 +219,18 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 
 ### 4.6. Control de pagos (cuánto se le paga a cada empresa)
 Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los precios.
+
+> **La vista arranca vacía:** escribe el nombre de la empresa en el **buscador** para ver su cuenta
+> (no se listan todas de golpe).
+
+> **El facturado cuadra con el Informe por jornada:** Control de Pagos **no cobra rondas ni fletes
+> anteriores al inicio del período** (el mismo piso de fecha que usa el informe). Así el saldo
+> = **Facturado − Abonado** da igual que el reporte real.
+
+> **Ver por qué da ese saldo:** al abrir una empresa aparece **"🔍 Abonos contados"** con **todos**
+> los abonos que se le cuentan (fecha, monto, método, semana) y la cuenta explícita
+> **Facturado − Abonado = Saldo**. Ahí puedes **borrar** un abono duplicado o mal cargado con 🗑️.
+
 - El **Tabulador de precios** es la lista maestra de precios por tipo de máquina.
   Puedes **modificarlo** y **sincronizar** los precios actuales.
 - **General y por empresa:** arriba del tabulador eliges **💲 General** (aplica a todas las
