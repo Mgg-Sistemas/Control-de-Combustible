@@ -199,6 +199,15 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
 
+- **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"Reporte Diario de
+  Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Trae las máquinas
+  **reales agrupadas por quién las tiene a cargo** (**CVM / Gobernación / FANB / SOS La Guaira**,
+  según el campo *"a disposición de"* del equipo), cada una con su **empresa**, **ubicación real**
+  (referencia + sector Este/Oeste y subzona por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado**
+  (Operativo / Inoperativo / En espera). Incluye una sección con las **camionetas pick-up** del
+  módulo de **Vehículos** a disposición de SOS La Guaira, y deja **campos en blanco para llenar a
+  mano** (fecha, inspector, turno, hora de fin, sector y observaciones).
+
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
 - El sistema guarda todo en el **Histórico** y **congela el precio**. Lo cerrado **no se borra**.
