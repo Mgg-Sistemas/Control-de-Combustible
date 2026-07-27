@@ -1242,9 +1242,14 @@ export default function ReportsScreen({ route }: any) {
       if (ref) parts.push(ref);
       return parts.length ? parts.join(' · ') : 'Sin ubicación';
     };
+    // Las camionetas PICK-UP no van en la lista de maquinaria: van en su propia sección
+    // (a disposición de los encargados de SOS La Guaira).
+    const esPickup = (m: any) => /pick|camioneta/i.test(equipCategory(m.code)) || /pick|camioneta/i.test(String(m.clasificacion ?? ''));
+    const pickupMachines = list.filter(esPickup);
+    const maqList = list.filter((m) => !esPickup(m));
     // Agrupar por a cargo de. Orden: entes (CVM/Gobernación/FANB…) alfabético; SOS La Guaira al final.
     const groups = new Map<string, any[]>();
-    list.forEach((m) => { const e = enteOf(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
+    maqList.forEach((m) => { const e = enteOf(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
     const enteKey = (n: string) => (n === 'SOS La Guaira' ? 'zzz' : n.toLowerCase());
     const enteNames = [...groups.keys()].sort((a, b) => cmpText(enteKey(a), enteKey(b)));
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
@@ -1259,14 +1264,23 @@ export default function ReportsScreen({ route }: any) {
       return `<div class="ente">🚜 A cargo de: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
-    // Pick-up del módulo de Vehículos (tipo contiene "pick"/"camioneta").
-    const pickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
-    const pickupsHtml = pickups.length
-      ? `<table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Placa</th><th>Marca / Modelo</th><th>Tipo</th></tr></thead><tbody>${pickups
-          .sort((a, b) => cmpText(a.plate ?? '', b.plate ?? ''))
-          .map((v, i) => `<tr><td>${i + 1}</td><td style="font-weight:700">${esc(v.plate ?? '—')}</td><td>${esc([v.brand, v.model].filter(Boolean).join(' ') || '—')}</td><td>${esc(v.vehicle_type ?? '—')}</td></tr>`)
+    // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
+    // TODAS a disposición de los encargados de SOS LA GUAIRA.
+    const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
+    const filasMaqPick = pickupMachines
+      .slice()
+      .sort((a, b) => cmpText(a.code ?? '', b.code ?? ''))
+      .map((m) => { const est = estadoOf(m); return `<tr><td><b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}</td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`; });
+    const filasVehPick = vehPickups
+      .sort((a, b) => cmpText(a.plate ?? '', b.plate ?? ''))
+      .map((v) => `<tr><td><b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}</td><td>—</td><td style="color:#0B7A3B;font-weight:700">Operativo</td></tr>`);
+    const filasPick = [...filasMaqPick, ...filasVehPick];
+    const pickupsHtml = filasPick.length
+      ? `<div class="disp">🔰 A disposición de los encargados de <b>SOS LA GUAIRA</b></div>
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Camioneta pick-up</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${filasPick
+          .map((tr, i) => tr.replace('<tr><td>', `<tr><td>${i + 1}</td><td>`))
           .join('')}</tbody></table>`
-      : `<p class="muted">No hay camionetas pick-up registradas en el módulo de Vehículos.</p>`;
+      : `<p class="muted">No hay camionetas pick-up registradas.</p>`;
     const linea = (n = 1) => Array.from({ length: n }).map(() => '<div class="fill"></div>').join('');
     const body = `
       <style>
@@ -1280,6 +1294,7 @@ export default function ReportsScreen({ route }: any) {
         .ente{margin:12px 0 2px;font-size:12.5px;color:#111}
         .cnt-pill{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
         .muted{color:#6B7280;font-size:12px}
+        .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       <div class="sect">📍 1. Ubicación táctica</div>
@@ -1289,8 +1304,7 @@ export default function ReportsScreen({ route }: any) {
       </div>
       <div class="sect">🚜 2. Maquinaria y equipos en zona</div>
       ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
-      <div class="sect">🛻 Pick-up a disposición de SOS La Guaira</div>
-      <p class="muted">Camionetas a disposición de los encargados de SOS La Guaira.</p>
+      <div class="sect">🛻 Camionetas pick-up</div>
       ${pickupsHtml}
       <div class="sect">📝 3. Observaciones y novedades</div>
       <div class="box">
