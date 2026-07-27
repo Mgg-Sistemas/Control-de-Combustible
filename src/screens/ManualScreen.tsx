@@ -164,6 +164,8 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Sobrepago que se abona a la siguiente: si una empresa debe 50.000 y pagas 100.000, el sistema cubre esa semana y ABONA el resto a las siguientes semanas pendientes de la misma empresa (la más vieja primero). Si aún sobra, queda como saldo a favor. Al registrar el pago te muestra un resumen de cómo se repartió.' },
       { t: 'note', text: 'Los FLETES cuentan: el total a cobrar de cada empresa/semana ahora INCLUYE los fletes/viajes registrados en el Control para esa semana (no solo las horas de máquina).' },
       { t: 'note', text: 'Método de pago del abono: al "＋ Registrar abono" eliges cómo se pagó — 💵 Efectivo ($) · ₮ USDT · 🇻🇪 Bs (al cambio). Si es en Bs, escribes el MONTO EN Bs y la TASA del día (Bs por $) y el sistema calcula el equivalente en $ (el saldo siempre se lleva en $). Cada abono muestra su método y, si fue en Bs, el monto en Bs y la tasa usada.' },
+      { t: 'note', text: 'Excedente que pasa a la otra semana (cascada): si pagas MÁS de lo que debe una semana (ej. debe $10 y pagas $15), el sobrante ($5) se aplica solo a las otras semanas con deuda de la misma empresa (de la más antigua a la más nueva). Si no queda ninguna semana pendiente, el sobrante se guarda como 💚 saldo a favor (prepago). Al final te dice cómo se distribuyó el pago.' },
+      { t: 'note', text: 'Revertir pagos (corregir errores): en 🗂️ Histórico puedes filtrar por empresa y usar "🗑️ Revertir TODOS los abonos de <empresa>" (te muestra cuántos y el total, y pide confirmar) para borrarlos todos de una. El saldo de cada semana vuelve a incluir esos montos. También puedes borrar un abono suelto desde el detalle de la semana.' },
     ],
   },
   {

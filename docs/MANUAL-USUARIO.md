@@ -237,6 +237,17 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 > (Bs por $) y el sistema calcula el **equivalente en $** (el saldo siempre se lleva en $). Cada
 > abono muestra su **método** y, si fue en Bs, el **monto en Bs y la tasa** usada.
 
+> **Excedente que pasa a la otra semana (cascada):** si pagas **más** de lo que debe una semana
+> (ej. debe $10 y pagas $15), el **sobrante ($5)** se aplica **solo** a las **otras semanas con deuda**
+> de la misma empresa (de la más antigua a la más nueva). Si **no queda ninguna semana pendiente**,
+> el sobrante se guarda como **💚 saldo a favor** (prepago) de la empresa. Al final te dice cómo se
+> distribuyó el pago.
+
+> **Revertir pagos (corregir errores):** en **🗂️ Histórico** puedes **filtrar por empresa** y, con esa
+> empresa elegida, usar **"🗑️ Revertir TODOS los abonos de \<empresa\>"** (te muestra cuántos y el
+> total, y pide confirmar) para borrarlos todos de una. El saldo de cada semana vuelve a incluir esos
+> montos. También puedes borrar **un** abono suelto desde el detalle de la semana.
+
 ### 4.6b. Control de pago a personal (dentro de Nómina)
 Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
 principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
