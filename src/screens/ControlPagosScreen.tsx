@@ -148,8 +148,8 @@ function recomputeGroup(g: Group): void {
     ma.hours = hrs;
     ma.dayHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.day : 0), 0);
     ma.nightHours = days.reduce((s, d) => s + (d.day + d.night > 0 ? d.night : 0), 0);
-    ma.subtotal = round2((eff ?? 0) * units);
-    total += ma.subtotal;
+    ma.subtotal = round2((eff ?? 0) * units); // redondeado SOLO para mostrar por máquina
+    total += (eff ?? 0) * units; // acumula SIN redondear (como el Informe por jornada); se redondea 1 sola vez al final → evita el descuadre de centavos
     hoursWorked += hrs;
     if (eff == null && hrs > 0) noPrice = true;
   });
