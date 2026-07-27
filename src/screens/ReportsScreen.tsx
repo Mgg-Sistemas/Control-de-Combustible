@@ -1252,13 +1252,12 @@ export default function ReportsScreen({ route }: any) {
     // Agrupar por a cargo de. Orden: entes (CVM/Gobernación/FANB…) alfabético; SOS La Guaira al final.
     const groups = new Map<string, any[]>();
     maqList.forEach((m) => { const e = enteOf(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
-    const enteKey = (n: string) => (n === 'SOS La Guaira' ? 'zzz' : n.toLowerCase());
-    const enteNames = [...groups.keys()].sort((a, b) => cmpText(enteKey(a), enteKey(b)));
+    const enteNames = [...groups.keys()].sort((a, b) => cmpText(a, b)); // grupos en orden alfabético
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
     const maquinariaHtml = enteNames.map((ente) => {
       const rows = groups.get(ente)!
         .slice()
-        .sort((a, b) => cmpText(companyOf(a), companyOf(b)) || cmpText(a.code ?? '', b.code ?? ''))
+        .sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? ''))
         .map((m, i) => {
           const est = estadoOf(m);
           return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
