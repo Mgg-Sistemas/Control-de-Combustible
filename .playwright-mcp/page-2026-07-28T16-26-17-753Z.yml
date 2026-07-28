@@ -1,0 +1,10 @@
+- generic [ref=e5]:
+  - generic [ref=e9]: CONTROL INTERNO
+  - generic [ref=e10]: SOS La Guaira 2026
+  - generic [ref=e11]: Inicia sesión con tu usuario y contraseña
+  - textbox "Usuario" [ref=e12]
+  - generic [ref=e13]:
+    - textbox "Contraseña" [ref=e14]
+    - generic "Mostrar contraseña" [ref=e15] [cursor=pointer]
+  - generic [ref=e20] [cursor=pointer]: Entrar
+  - generic [ref=e22]: 🔒 Acceso restringido. Las cuentas las crea únicamente el administrador.
