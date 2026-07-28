@@ -8,14 +8,17 @@ const LOGO = require('../../assets/logo.png');
 
 /**
  * Pantalla de ENTRADA al escanear el QR de una máquina: muestra el logo y dos
- * botones. Ambos llevan al LOGIN (todos ingresan con usuario y contraseña);
- * luego, según su rol, cada quien cae en su vista (supervisión / operador).
+ * botones.
+ *  - 👥 Usuarios   → LOGIN (usuario y contraseña); luego cada quien cae en su
+ *                    vista según su rol (supervisión / operador / etc.).
+ *  - 🚜 Operadores → vista de operador que EXIGE escanear el carnet para poder
+ *                    hacer algo (si no escanea, no ve ni registra nada).
  */
-export default function MachineQrEntry({ onLogin }: { onLogin: () => void }) {
+export default function MachineQrEntry({ onLogin, onOperator }: { onLogin: () => void; onOperator: () => void }) {
   const { colors } = useTheme();
-  const boton = (emoji: string, label: string, sub: string) => (
+  const boton = (emoji: string, label: string, sub: string, onPress: () => void) => (
     <TouchableOpacity
-      onPress={onLogin}
+      onPress={onPress}
       activeOpacity={0.85}
       style={{ backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.md, marginTop: spacing.sm, alignItems: 'center' }}
     >
@@ -31,8 +34,8 @@ export default function MachineQrEntry({ onLogin }: { onLogin: () => void }) {
         ¿Cómo vas a ingresar?
       </Text>
       <View style={{ width: '100%', maxWidth: 380 }}>
-        {boton('👷', 'Inspector / Coordinador', 'Inicia sesión con tu usuario')}
-        {boton('👤', 'Otro usuario', 'Inicia sesión con tu usuario')}
+        {boton('👥', 'Usuarios', 'Inicia sesión con usuario y contraseña', onLogin)}
+        {boton('🚜', 'Operadores', 'Escanea tu carnet para operar la máquina', onOperator)}
       </View>
     </View>
   );
