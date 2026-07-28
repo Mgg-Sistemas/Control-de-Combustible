@@ -27,6 +27,8 @@ update public.employees set department = 'MANTENIMIENTO'
   where btrim(coalesce(department,'')) <> '' and department ~* 'manten|mecanic|soldad|electric|lubric';
 update public.employees set department = 'SERVICIOS GENERALES'
   where btrim(coalesce(department,'')) <> '' and department ~* 'servicio|general|aseo|limpie|seguridad|vigilan';
+update public.employees set department = 'SISTEMAS'
+  where btrim(coalesce(department,'')) <> '' and department ~* 'sistema|informatic|tecnolog';
 update public.employees set department = 'DIRECCIÓN Y COORDINACIÓN'
   where btrim(coalesce(department,'')) <> '' and department ~* 'direcc|coordinac|gerenc';
 
@@ -43,8 +45,10 @@ update public.employees set department = 'MANTENIMIENTO'
   where btrim(coalesce(department,'')) = '' and cargo ~* 'mecanic|manten|soldad|electric|lubric';
 update public.employees set department = 'OPERACIONES DE MAQUINARIA'
   where btrim(coalesce(department,'')) = '' and cargo ~* 'operador|maquinist|maquinaria|excavad|retro|payloader|cisterna|pitman|volqueta|camion|chofer|conductor';
+update public.employees set department = 'SISTEMAS'
+  where btrim(coalesce(department,'')) = '' and cargo ~* 'sistema|informatic|programad|soporte tecnic|desarrollad';
 update public.employees set department = 'SERVICIOS GENERALES'
-  where btrim(coalesce(department,'')) = '' and cargo ~* 'todero|obrero|caletero|aseo|limpie|motorizad|seguridad|vigilan|servicio';
+  where btrim(coalesce(department,'')) = '' and cargo ~* 'todero|obrero|caletero|plomer|gasfiter|aseo|limpie|motorizad|seguridad|vigilan|servicio';
 update public.employees set department = 'ADMINISTRATIVO'
   where btrim(coalesce(department,'')) = '' and cargo ~* 'analista|contab|nomina|rrhh|recursos humanos|oficina|secretari|cajero|cobranza|administ|adminit';
 update public.employees set department = 'DIRECCIÓN Y COORDINACIÓN'

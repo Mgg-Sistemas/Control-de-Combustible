@@ -23,6 +23,7 @@ const DEP_ALMACEN = 'ALMACÉN';
 const DEP_INSPEC = 'INSPECCIÓN Y PATIO';
 const DEP_MANT = 'MANTENIMIENTO';
 const DEP_SERV = 'SERVICIOS GENERALES';
+const DEP_SISTEMAS = 'SISTEMAS';
 const DEP_DIR = 'DIRECCIÓN Y COORDINACIÓN';
 const DEP_SIN = 'SIN DEPARTAMENTO';
 
@@ -35,6 +36,7 @@ const DEPT_RULES: { re: RegExp; dep: string }[] = [
   { re: /inspec|patio|listero|trafico|controlador/, dep: DEP_INSPEC },
   { re: /manten|mecanic|soldad|electric|lubric/, dep: DEP_MANT },
   { re: /servicio|general|aseo|limpie|seguridad|vigilan/, dep: DEP_SERV },
+  { re: /sistema|informatic|tecnolog/, dep: DEP_SISTEMAS },
   { re: /direcc|coordinac|gerenc/, dep: DEP_DIR },
 ];
 
@@ -46,7 +48,8 @@ const CARGO_RULES: { re: RegExp; dep: string }[] = [
   { re: /inspec|patio|listero|trafico|controlador/, dep: DEP_INSPEC },
   { re: /mecanic|manten|soldad|electric|lubric/, dep: DEP_MANT },
   { re: /operador|maquinist|maquinaria|excavad|retro|payloader|cisterna|pitman|volqueta|camion|chofer|conductor/, dep: DEP_OPER },
-  { re: /todero|obrero|caletero|aseo|limpie|motorizad|seguridad|vigilan|servicio/, dep: DEP_SERV },
+  { re: /sistema|informatic|programad|soporte tecnic|desarrollad/, dep: DEP_SISTEMAS },
+  { re: /todero|obrero|caletero|plomer|gasfiter|aseo|limpie|motorizad|seguridad|vigilan|servicio/, dep: DEP_SERV },
   { re: /analista|contab|nomina|rrhh|recursos humanos|oficina|secretari|cajero|cobranza|administ|adminit/, dep: DEP_ADMIN },
   { re: /director|gerent|jefe|coordinador|supervisor/, dep: DEP_DIR },
 ];
