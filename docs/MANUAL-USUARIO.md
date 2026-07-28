@@ -773,8 +773,9 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   **Solo los administradores** pueden reubicar máquinas y eliminar ubicaciones del mapa.
 - **📄 Máquinas por sector (Este / Oeste) (reporte PDF):** agrupa las máquinas **ubicadas** por
   su **sector geográfico** (macro **🟢 Este / 🟠 Oeste** y su **sub-sector**, según el GPS de la
-  máquina), con su **placa/serial**, el **inspector** asignado y la **empresa**. Las que **no están
-  en el mapa** salen aparte como **"⛔ SIN UBICACIÓN (faltan por ubicar)"** con su placa/serial.
+  máquina), con su **placa/serial**, el **edificio/referencia** que puso el inspector al ubicarla,
+  el **inspector** asignado y la **empresa**. Las que **no están en el mapa** salen aparte como
+  **"⛔ SIN UBICACIÓN (faltan por ubicar)"** con su placa/serial.
 - **🔎 Buscador del mapa:** la lupa de búsqueda está **limitada a La Guaira** — solo encuentra
   calles, sectores y lugares de la franja costera de La Guaira; lo de otros estados no aparece.
 - **🕵️ Monitoreo (solo administradores):** el panel **"Monitoreo · quién ubica"** (colapsable,

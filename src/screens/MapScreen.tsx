@@ -170,6 +170,8 @@ export default function MapScreen({ navigation, route }: any) {
   // "SIN UBICACIÓN (faltan por ubicar)" con su placa/serial.
   const referenciasPdf = async () => {
     const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Edificio/referencia que puso el inspector; ignora las que son solo números (ej. "46564.0").
+    const edificio = (r: string | null) => { const t = (r ?? '').trim(); return t && !/^[\d.,\s-]+$/.test(t) ? t : '—'; };
     setRefBusy(true);
     try {
       const inspectors = await latestInspectorByMachine(); // machinery_id → inspector del último check-in
@@ -197,10 +199,10 @@ export default function MapScreen({ navigation, route }: any) {
         const blocks = subs.map((sub) => {
           const items = list.filter((m) => m.sub === sub).sort((a, b) => cmpText(a.code, b.code));
           const rows = items.map((m, i) =>
-            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(edificio(m.referencia))}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
           ).join('');
           return `<h4 class="sub2">📍 ${esc(sub)} <span>· ${items.length} máquina(s)</span></h4>
-            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Edificio / Referencia</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
         }).join('');
         return `<h3 class="sect">${mac.emoji} ${mac.title} <span class="sub">· ${list.length} máquina(s)</span></h3>${blocks}`;
       }).join('');
@@ -456,7 +458,7 @@ export default function MapScreen({ navigation, route }: any) {
         <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1, paddingRight: spacing.sm }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Máquinas por sector (Este / Oeste)</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con inspector y empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con el edificio/referencia que puso el inspector, el inspector y la empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
           </View>
           <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
         </Card>
