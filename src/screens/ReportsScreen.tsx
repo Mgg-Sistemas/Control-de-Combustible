@@ -22,6 +22,7 @@ import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
+import { normalizeDept } from '../lib/personal';
 import { sectorOf, SUBSECTORS } from '../lib/mapZones';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
@@ -1331,6 +1332,14 @@ export default function ReportsScreen({ route }: any) {
       ? `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
          <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`
       : '';
+    // TODO el personal, SOLO TOTALES por departamento (unificado / inferido del cargo).
+    const depTot = new Map<string, number>();
+    activeEmps.forEach((e) => { const d = normalizeDept(e.department, e.cargo); depTot.set(d, (depTot.get(d) ?? 0) + 1); });
+    const resumenPersonalHtml = conPersonal
+      ? `<table class="tac"><thead><tr><th>Departamento</th><th style="width:110px;text-align:right">Cantidad</th></tr></thead>
+         <tbody>${[...depTot.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([d, n]) => `<tr><td>${esc(d)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin personal</td></tr>'}</tbody>
+         <tfoot><tr><td style="font-weight:800">TOTAL PERSONAL</td><td style="text-align:right;font-weight:800">${activeEmps.length}</td></tr></tfoot></table>`
+      : '';
     const body = `
       <style>
         .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
@@ -1358,8 +1367,9 @@ export default function ReportsScreen({ route }: any) {
       ${pickupsHtml}
       <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
       ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
-      ${conPersonal ? `<div class="sect">👷 4. Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
-      <div class="sect">📝 ${conPersonal ? 5 : 4}. Observaciones y novedades</div>
+      ${conPersonal ? `<div class="sect">👥 4. Personal por departamento (totales)</div>${resumenPersonalHtml}` : ''}
+      ${conPersonal ? `<div class="sect">👷 5. Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
+      <div class="sect">📝 ${conPersonal ? 6 : 4}. Observaciones y novedades</div>
       <div class="box">
         <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
         ${linea(4)}
@@ -1373,7 +1383,8 @@ export default function ReportsScreen({ route }: any) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const emps = (((await selectAllRows('employees', 'first_name, last_name, cedula, cargo, department, status')) ?? []) as any[]).filter((e) => (e.status ?? 'activo') === 'activo');
     const nameOf = (e: any) => `${(e.first_name ?? '').trim()} ${(e.last_name ?? '').trim()}`.trim() || '—';
-    const deptOf = (e: any) => (e.department && String(e.department).trim()) || 'Sin departamento';
+    // Departamento UNIFICADO (y si falta, inferido del cargo — ver lib/personal.ts).
+    const deptOf = (e: any) => normalizeDept(e.department, e.cargo);
     const groups = new Map<string, any[]>();
     emps.forEach((e) => { const d = deptOf(e); if (!groups.has(d)) groups.set(d, []); groups.get(d)!.push(e); });
     const deptNames = [...groups.keys()].sort((a, b) => cmpText(a, b));

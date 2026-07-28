@@ -1345,6 +1345,9 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const [busy, setBusy] = useState(false);
   const [subiendoId, setSubiendoId] = useState<string | null>(null);              // formato subiendo
   const [previewReq, setPreviewReq] = useState<InventoryRequirement | null>(null); // vista previa del formato
+  // Formato (imagen/PDF) adjuntado AL CREAR/EDITAR el requerimiento (antes de guardar).
+  const [formato, setFormato] = useState<{ url: string; kind: 'image' | 'pdf'; name: string } | null>(null);
+  const [subiendoNuevo, setSubiendoNuevo] = useState(false);
 
   // Recibir en inventario
   const [recvFor, setRecvFor] = useState<InventoryRequirement | null>(null);
@@ -1372,6 +1375,20 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     return (data as any)?.full_name ?? null;
   };
 
+  // Adjunta el formato (imagen/PDF) AL CREAR/EDITAR: sube el archivo y lo deja en
+  // memoria (`formato`); se guarda junto con el requerimiento al enviar.
+  const adjuntarFormatoNuevo = async () => {
+    setSubiendoNuevo(true);
+    try {
+      const folder = editId || `nuevo-${Date.now()}`;
+      const res = await pickAndUploadRequirementFile(folder);
+      if (!res.ok) { if (res.error) Alert.alert('No se pudo subir', res.error); return; }
+      setFormato({ url: res.url!, kind: res.kind!, name: res.name ?? 'formato' });
+    } finally {
+      setSubiendoNuevo(false);
+    }
+  };
+
   const crear = async () => {
     const items: RequirementLine[] = rows.filter((x) => x.name.trim()).map((x) => ({
       product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
@@ -1381,12 +1398,13 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     if (editId) {
+      const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
       const { error } = await supabase.from('inventory_requirements')
-        .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, items })
+        .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, items, ...adj })
         .eq('id', editId);
       setBusy(false);
       if (error) return Alert.alert('Aviso', error.message);
-      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]);
+      setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null);
       refetch();
       Alert.alert('Listo', 'Requerimiento actualizado.');
       return;
@@ -1395,13 +1413,14 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const { data: codeRows } = await supabase.from('inventory_requirements').select('code');
     const code = nextReqCode((codeRows ?? []).map((r: any) => r.code));
     const reqName = await perfilNombre();
+    const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
     const { error } = await supabase.from('inventory_requirements').insert({
       code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, status: 'pendiente', items,
-      requested_by: uid, requested_by_name: reqName,
+      requested_by: uid, requested_by_name: reqName, ...adj,
     });
     setBusy(false);
     if (error) return Alert.alert('Aviso', error.message);
-    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setRows([]);
+    setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null);
     refetch();
     Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
   };
@@ -1412,6 +1431,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setTitle(r.title ?? '');
     setNote(r.note ?? '');
     setCompanyId(r.company_id ?? null);
+    setFormato(r.attachment_url ? { url: r.attachment_url, kind: (r.attachment_type as 'image' | 'pdf') || 'image', name: r.attachment_name || 'formato' } : null);
     let s = 0;
     setRows(r.items.map((it) => ({
       key: `${Date.now()}-${s++}`, product_id: it.product_id, name: it.name, unit: it.unit ?? '',
@@ -1578,7 +1598,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <TouchableOpacity onPress={() => { setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>➕ Nuevo</Text>
           </TouchableOpacity>
         ) : null}
@@ -1755,8 +1775,24 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </Card>
             ) : <EmptyState title="Sin productos" subtitle="Agrega productos del inventario o nuevos." />}
 
+            {/* Adjuntar FORMATO (imagen o PDF): cotización, foto del repuesto, planilla… */}
+            <Card>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>📎 Formato (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Adjunta una imagen o un PDF (cotización, foto del repuesto, planilla…). El jefe lo verá al aprobar.</Text>
+              {formato ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+                  {formato.kind === 'image' ? <Image source={{ uri: formato.url }} style={{ width: 46, height: 46, borderRadius: radius.sm }} /> : <Text style={{ fontSize: 30 }}>📄</Text>}
+                  <Text style={{ color: colors.text, fontSize: 12, flex: 1 }} numberOfLines={1}>{formato.name}{formato.kind === 'pdf' ? ' (PDF)' : ''}</Text>
+                  <TouchableOpacity onPress={() => setFormato(null)}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+                </View>
+              ) : null}
+              <TouchableOpacity onPress={adjuntarFormatoNuevo} disabled={subiendoNuevo} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: subiendoNuevo ? 0.6 : 1 }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{subiendoNuevo ? '⏳ Subiendo…' : formato ? '📎 Cambiar formato' : '📎 Adjuntar imagen o PDF'}</Text>
+              </TouchableOpacity>
+            </Card>
+
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.xl }}>
-              <TouchableOpacity onPress={() => { setCreateOpen(false); setEditId(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setCreateOpen(false); setEditId(null); setFormato(null); }} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
               <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 2, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios' : '📤 Enviar al jefe')}</Text></TouchableOpacity>
             </View>
           </ScrollView>
