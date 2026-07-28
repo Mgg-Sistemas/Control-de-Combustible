@@ -61,6 +61,15 @@ function fmtDMY(iso?: string | null): string {
   return y && m && d ? `${d}/${m}/${y}` : (iso || '');
 }
 
+// Fecha y hora en que se REGISTRÓ el abono (paid_at), en hora local, DD/MM/AAAA HH:MM.
+function fmtFechaHora(iso?: string | null): string {
+  if (!iso) return '—';
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return String(iso).slice(0, 10);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(dt.getDate())}/${p2(dt.getMonth() + 1)}/${dt.getFullYear()} ${p2(dt.getHours())}:${p2(dt.getMinutes())}`;
+}
+
 // ── Formato de dinero: SIEMPRE 2 decimales, redondeo estándar (si el 3er decimal
 //    es ≥ 5 sube el 2º). Ej.: 46,666 → 46,67 · 85895833,333 → 85.895.833,33 ──────
 function round2(n: number): number {
@@ -1173,7 +1182,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                             {(p.detail as any)?.credit ? '  💚 saldo a favor' : ''}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>
-                            {(p.paid_at || '').slice(0, 10)} · {metodoLabel((p as any).metodo)} · sem {p.period_start} → {p.period_end}
+                            🗓️ Registrado: {fmtFechaHora(p.paid_at)} · {metodoLabel((p as any).metodo)} · sem {p.period_start} → {p.period_end}
                           </Text>
                         </View>
                         {delAbonoId === p.id ? (
@@ -1352,7 +1361,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                             🟢 Abono {i + 1} · ${money(Number(p.amount))}
                           </Text>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>
-                            {p.paid_at?.slice(0, 10)} · {metodoLabel((p as any).metodo)}
+                            🗓️ Registrado: {fmtFechaHora(p.paid_at)} · {metodoLabel((p as any).metodo)}
                             {(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))} @ ${money(Number((p as any).tasa_bs || 0))}` : ''}
                           </Text>
                         </View>
@@ -1584,7 +1593,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.success, fontWeight: '800' }}>{p.currency} {money(Number(p.amount))}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                    Semana {p.period_start} → {p.period_end} · pagado {p.paid_at?.slice(0, 10)}
+                    Semana {p.period_start} → {p.period_end} · registrado {fmtFechaHora(p.paid_at)}
                   </Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Toca para ver el detalle</Text>
                 </Card>
@@ -1612,7 +1621,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <Text style={{ color: colors.success, fontWeight: '800', fontSize: 22, marginTop: 4 }}>
                   {histSel.currency} {money(Number(histSel.amount))}
                 </Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Pagado el {histSel.paid_at?.slice(0, 10)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Registrado el {fmtFechaHora(histSel.paid_at)}</Text>
               </Card>
 
               <Text style={{ color: colors.text, fontWeight: '700', marginTop: spacing.sm, marginBottom: spacing.xs }}>
