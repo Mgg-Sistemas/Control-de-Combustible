@@ -1283,6 +1283,13 @@ export default function ReportsScreen({ route }: any) {
           .join('')}</tbody></table>`
       : `<p class="muted">No hay camionetas pick-up registradas.</p>`;
     const linea = (n = 1) => Array.from({ length: n }).map(() => '<div class="fill"></div>').join('');
+    // Resumen ARRIBA: cantidad de maquinaria por empresa (incluye pick-ups).
+    const countByCo = new Map<string, number>();
+    list.forEach((m) => { const c = companyOf(m); countByCo.set(c, (countByCo.get(c) ?? 0) + 1); });
+    const resumenCoHtml = `<div class="sect">🏢 Cantidad de maquinaria por empresa</div>
+      <table class="tac"><thead><tr><th>Empresa</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${[...countByCo.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([co, n]) => `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     const body = `
       <style>
         .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
@@ -1292,12 +1299,14 @@ export default function ReportsScreen({ route }: any) {
         table.tac{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:12px}
         table.tac th,table.tac td{border:1px solid #ccc;padding:6px 9px;text-align:left;vertical-align:top}
         table.tac th{background:#1E3A5F;color:#fff}
+        table.tac tfoot td{background:#EEF2F7;font-weight:800}
         .ente{margin:12px 0 2px;font-size:12.5px;color:#111}
         .cnt-pill{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
         .muted{color:#6B7280;font-size:12px}
         .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
+      ${resumenCoHtml}
       <div class="sect">📍 1. Ubicación táctica</div>
       <div class="box legend">
         <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
@@ -1414,6 +1423,12 @@ export default function ReportsScreen({ route }: any) {
     const weeksToPrint = weekN == null ? camData.weeks : camData.weeks.filter((w) => w.n === weekN);
     const sel = weekN == null ? null : weeksToPrint[0] || null;
     const cos = camData.escompanies ?? [];
+    // Resumen ARRIBA: cantidad total de equipos por empresa.
+    const totalEq = cos.reduce((s, co) => s + co.items.length, 0);
+    const resumenHtml = `<h2 class="wk">Cantidad de equipos por empresa</h2>
+      <table class="res"><thead><tr><th>Empresa</th><th class="qty">Cantidad</th></tr></thead>
+      <tbody>${cos.map((co) => `<tr><td>${esc(co.company)}</td><td class="qty">${co.items.length}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tfoot><tr><td>TOTAL</td><td class="qty">${totalEq}</td></tr></tfoot></table>`;
     const weeksHtml = weeksToPrint
       .map((w) => {
         const companiesHtml = cos
@@ -1441,8 +1456,14 @@ export default function ReportsScreen({ route }: any) {
       .dt{font-weight:400;font-size:7px}
       table.cam td.c{height:34px;vertical-align:top}
       table.cam td.c .ck{border-bottom:1px solid #ddd;font-size:8px;color:#333;padding:2px;height:15px;text-align:left}
+      table.res{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:12px}
+      table.res th,table.res td{border:1px solid #bbb;padding:5px 9px;text-align:left}
+      table.res th{background:#1E3A5F;color:#fff}
+      table.res .qty{text-align:right;font-weight:800;width:110px}
+      table.res tfoot td{background:#EEF2F7;font-weight:800}
     </style>
     <div class="muted">${esc(camData.monthLabel)}${sel ? ` · Semana ${sel.n} (del ${fmtDMY(sel.from)} al ${fmtDMY(sel.to)})` : ''} · Marca ☐ Día / ☐ Noche por día (a mano)</div>
+    ${resumenHtml}
     ${weeksHtml || '<p class="muted">Sin equipos de transporte de escombros.</p>'}`;
     const subLabel = sel ? `${camData.monthLabel} · Semana ${sel.n}` : camData.monthLabel;
     const fileLabel = sel ? `Reportes - Escombros Semana ${sel.n}` : 'Reportes - Escombros';
