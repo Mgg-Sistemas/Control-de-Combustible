@@ -291,6 +291,13 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 > total, y pide confirmar) para borrarlos todos de una. El saldo de cada semana vuelve a incluir esos
 > montos. También puedes borrar **un** abono suelto desde el detalle de la semana.
 
+> **📄 Reportes (botón 📄 arriba):** elige **una o varias empresas** (o todas) y un **rango de
+> fechas**, y saca dos PDFs: **⬇️ Reporte detallado** (por semana, con el desglose de máquinas,
+> horas y abonos) o **🧾 Estado de cuenta** — enfocado en la cuenta: por cada empresa, sus
+> **semanas facturadas** (facturado / abonado / **saldo** / estado) y aparte **todos los pagos
+> realizados con su fecha de registro** (monto, método, semana que cubre), y el **saldo pendiente**
+> de la empresa. Al final trae los **totales** (facturado, abonado, saldo pendiente).
+
 ### 4.6b. Control de pago a personal (dentro de Nómina)
 Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
 principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.

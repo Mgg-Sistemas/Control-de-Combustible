@@ -1018,6 +1018,81 @@ export default function ControlPagosScreen({ navigation }: any) {
     await exportPdf(html, 'Control de Pagos - Reporte');
   };
 
+  // ── ESTADO DE CUENTA por empresa: semanas facturadas + pagos con fecha + saldo ──
+  // Reporte enfocado en la cuenta (no en las horas de máquina): por cada empresa,
+  // las semanas facturadas con su saldo, y aparte TODOS los pagos con su fecha de
+  // registro. Usa los mismos filtros (empresas + rango) del reporte.
+  const generateEstadoCuenta = async () => {
+    const allCompanies = repCompanies.length === 0;
+    const inRange = groups.filter(
+      (g) => g.weekStart >= repFrom && g.weekStart <= repTo && (allCompanies || repCompanies.includes(g.company))
+    );
+    const companies = [...new Set(inRange.map((g) => g.company))].sort((a, b) => a.localeCompare(b));
+    let gFact = 0, gPag = 0, gSaldo = 0;
+    const sections = companies
+      .map((company) => {
+        const weeks = inRange.filter((g) => g.company === company).slice().sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+        const totFact = round2(weeks.reduce((s, g) => s + g.total, 0));
+        const totPag = round2(weeks.reduce((s, g) => s + g.paidAmount, 0));
+        const totSaldo = round2(weeks.reduce((s, g) => s + g.saldo, 0));
+        gFact = round2(gFact + totFact); gPag = round2(gPag + totPag); gSaldo = round2(gSaldo + totSaldo);
+        const weekRows = weeks
+          .map((g) => {
+            const est = g.fullyPaid ? 'PAGADA' : g.paidAmount > 0 ? 'ABONADA' : 'PENDIENTE';
+            return `<tr><td>${fmtDMY(g.weekStart)} → ${fmtDMY(g.weekEnd)}</td>` +
+              `<td style="text-align:right">$${money(g.total)}</td>` +
+              `<td style="text-align:right;color:#087443;font-weight:700">$${money(g.paidAmount)}</td>` +
+              `<td style="text-align:right;color:#B42318;font-weight:800">$${money(g.saldo)}</td>` +
+              `<td>${est}</td></tr>`;
+          })
+          .join('');
+        // Pagos de la empresa dentro del rango (por la semana que cubren), con fecha de registro.
+        const pays = payments
+          .filter((p) => p.company_name === company && p.period_start >= repFrom && p.period_start <= repTo)
+          .slice()
+          .sort((a, b) => (a.paid_at || '').localeCompare(b.paid_at || ''));
+        const totPagPays = round2(pays.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+        const payRows = pays.length
+          ? pays
+              .map((p, i) => `<tr><td>${i + 1}</td><td>${fmtFechaHora(p.paid_at)}</td>` +
+                `<td style="text-align:right;font-weight:700">$${money(Number(p.amount) || 0)}</td>` +
+                `<td>${metodoLabel((p as any).metodo)}${(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))}` : ''}</td>` +
+                `<td>${fmtDMY(p.period_start)} → ${fmtDMY(p.period_end)}${(p.detail as any)?.credit ? ' · 💚 saldo a favor' : ''}</td></tr>`)
+              .join('')
+          : '<tr><td colspan="5" style="text-align:center;color:#666">Sin pagos registrados</td></tr>';
+        return `<h3 class="co">${company}</h3>
+          <div class="lbl">📅 Semanas facturadas</div>
+          <table><thead><tr><th>Semana</th><th style="text-align:right">Facturado</th><th style="text-align:right">Abonado</th><th style="text-align:right">Saldo</th><th>Estado</th></tr></thead>
+          <tbody>${weekRows || '<tr><td colspan="5" style="text-align:center">Sin semanas</td></tr>'}</tbody>
+          <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">$${money(totFact)}</td><td style="text-align:right;font-weight:800;color:#087443">$${money(totPag)}</td><td style="text-align:right;font-weight:800;color:#B42318">$${money(totSaldo)}</td><td></td></tr></tfoot></table>
+          <div class="lbl">💵 Pagos realizados (con fecha de registro)</div>
+          <table class="ab"><thead><tr><th>#</th><th>Fecha de registro</th><th style="text-align:right">Monto</th><th>Método</th><th>Semana que cubre</th></tr></thead>
+          <tbody>${payRows}</tbody>
+          <tfoot><tr><td colspan="2" style="text-align:right;font-weight:800">Total pagado</td><td style="text-align:right;font-weight:800">$${money(totPagPays)}</td><td colspan="2"></td></tr></tfoot></table>
+          <div class="saldo">🔴 Saldo pendiente de ${company}: <b>$${money(totSaldo)}</b></div>`;
+      })
+      .join('');
+    const title = allCompanies ? 'Todas las empresas' : repCompanies.length === 1 ? repCompanies[0] : `${repCompanies.length} empresas`;
+    const html = pdfDocument({
+      title: 'Estado de cuenta por empresa',
+      subtitle: `${title} · del ${fmtDMY(repFrom)} al ${fmtDMY(repTo)}`,
+      extraCss: `
+        table{width:100%;border-collapse:collapse;margin:4px 0 10px;font-size:11px}
+        th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
+        th{background:#1E3A5F;color:#fff}
+        tfoot td{background:#EEF2F7}
+        table.ab th{background:#087443}
+        h3.co{margin:20px 0 4px;color:#1E3A5F;border-bottom:2px solid #1E3A5F;padding-bottom:3px}
+        .lbl{font-size:12px;font-weight:800;color:#374151;margin:8px 0 2px}
+        .saldo{margin:4px 0 10px;font-size:13px;color:#B42318}
+        .grand{margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:13px;border-radius:6px;text-align:right}`,
+      body: `
+        ${sections || '<p style="text-align:center;color:#666">Sin datos en el rango.</p>'}
+        <div class="grand">TOTALES — Facturado: $${money(gFact)} &nbsp;·&nbsp; Abonado: $${money(gPag)} &nbsp;·&nbsp; Saldo pendiente: $${money(gSaldo)}</div>`,
+    });
+    await exportPdf(html, 'Control de Pagos - Estado de cuenta');
+  };
+
   if (!canSee('control_pagos')) {
     return (
       <Screen>
@@ -1709,12 +1784,16 @@ export default function ControlPagosScreen({ navigation }: any) {
               </View>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+            {/* Estado de cuenta enfocado en la cuenta: semanas facturadas + pagos con fecha + saldo. */}
+            <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.lg }} onPress={generateEstadoCuenta}>
+              <Text style={{ color: colors.primary, fontWeight: '800' }}>🧾 Estado de cuenta (semanas + pagos + saldo)</Text>
+            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setRepOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={generateReport}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Generar PDF</Text>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Reporte detallado</Text>
               </TouchableOpacity>
             </View>
           </View>
