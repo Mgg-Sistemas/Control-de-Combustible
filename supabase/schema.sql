@@ -1218,6 +1218,9 @@ alter table public.inventory_requirements add column if not exists attachment_ty
 alter table public.inventory_requirements add column if not exists attachment_name text;
 create index if not exists idx_invreq_status on public.inventory_requirements(status);
 create index if not exists idx_invreq_created on public.inventory_requirements(created_at);
+-- El correlativo REQ-#### debe ser ÚNICO: evita que una lectura fallida del máximo
+-- reinicie a REQ-0001 y duplique el código. (Corrido en la BD el 2026-07-28.)
+create unique index if not exists inventory_requirements_code_key on public.inventory_requirements (code);
 alter table public.inventory_requirements enable row level security;
 -- Cualquiera con escritura en inventario puede crear/editar sus requerimientos;
 -- la APROBACIÓN (solo admins) se controla en la app.
