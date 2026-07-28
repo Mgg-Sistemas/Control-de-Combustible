@@ -1314,10 +1314,10 @@ const REQ_STATUS: Record<string, { label: string; color: string; short: string }
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
 };
-function nextReqCode(codes: (string | null | undefined)[]): string {
+function nextReqCode(codes: (string | null | undefined)[], bump = 0): string {
   let max = 0;
   codes.forEach((c) => { const m = String(c ?? '').match(/(\d+)\s*$/); if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; } });
-  return 'REQ-' + String(max + 1).padStart(4, '0');
+  return 'REQ-' + String(max + 1 + bump).padStart(4, '0');
 }
 const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
@@ -1409,17 +1409,33 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       Alert.alert('Listo', 'Requerimiento actualizado.');
       return;
     }
-    // CREAR: nuevo requerimiento (código incremental, estado pendiente).
-    const { data: codeRows } = await supabase.from('inventory_requirements').select('code');
-    const code = nextReqCode((codeRows ?? []).map((r: any) => r.code));
+    // CREAR: código correlativo (REQ-000N). Se lee el máximo actual; si la lectura
+    // FALLA, se ABORTA (NUNCA se reinicia a 0001 con una lectura vacía). El índice
+    // único en `code` impide duplicados; si dos requerimientos chocan en el mismo
+    // código, se reintenta con el siguiente número.
     const reqName = await perfilNombre();
     const adj = formato ? { attachment_url: formato.url, attachment_type: formato.kind, attachment_name: formato.name } : {};
-    const { error } = await supabase.from('inventory_requirements').insert({
-      code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, status: 'pendiente', items,
-      requested_by: uid, requested_by_name: reqName, ...adj,
-    });
+    let code = '';
+    let saved = false;
+    for (let intento = 0; intento < 6 && !saved; intento++) {
+      const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
+      if (readErr || !codeRows) {
+        setBusy(false);
+        return Alert.alert('No se pudo crear', 'No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.');
+      }
+      code = nextReqCode(codeRows.map((r: any) => r.code), intento);
+      const { error } = await supabase.from('inventory_requirements').insert({
+        code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, status: 'pendiente', items,
+        requested_by: uid, requested_by_name: reqName, ...adj,
+      });
+      if (!error) { saved = true; break; }
+      // Código ya usado (índice único): reintenta con el siguiente número.
+      if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
+      setBusy(false);
+      return Alert.alert('Aviso', error.message);
+    }
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (!saved) return Alert.alert('Aviso', 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.');
     setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null);
     refetch();
     Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
