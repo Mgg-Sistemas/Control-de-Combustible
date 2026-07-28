@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Image,
+  Switch,
 } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -432,6 +433,8 @@ export default function ReportsScreen({ route }: any) {
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
   const [conteoPreview, setConteoPreview] = useState(false);
+  // Ubicaciones tácticas: ON = incluye personal (operadores por máquina, coordinadores/inspectores por zona).
+  const [tacConPersonal, setTacConPersonal] = useState(false);
   // Filtro por ZONA del conteo: '__all__' (todas), un nombre de zona, o 'Sin zona'.
   const [conteoZona, setConteoZona] = useState<string>('__all__');
   // Al reabrir el conteo, arranca mostrando todas las zonas.
@@ -1223,13 +1226,22 @@ export default function ReportsScreen({ route }: any) {
   // REALES agrupadas por "a cargo de" (CVM / Gobernación / FANB / SOS La Guaira, según
   // el campo "a disposición de"=zona), con su ubicación real (referencia + sector Este/
   // Oeste + subzona por GPS) y estado. Incluye las pick-up del módulo de Vehículos.
-  const downloadTacticalPdf = async () => {
+  const downloadTacticalPdf = async (conPersonal = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     const all = (mach ?? []) as any[];
     // Equipos de la operación: se excluyen los dados de baja (active === false).
     const list = all.filter((m) => m.active !== false);
+    // Personal de la nómina (solo cuando se pide "con personal"): operadores por
+    // máquina, coordinadores e inspectores repartidos por zona (Este/Oeste).
+    const empsRaw = conPersonal ? (((await selectAllRows('employees', 'first_name, last_name, cargo, department, status')) ?? []) as any[]) : [];
+    const activeEmps = empsRaw.filter((e) => (e.status ?? 'activo') === 'activo');
+    const nameOf = (e: any) => `${(e.first_name ?? '').trim()} ${(e.last_name ?? '').trim()}`.trim() || '—';
+    const byCargo = (re: RegExp) => activeEmps.filter((e) => re.test(`${e.cargo ?? ''} ${e.department ?? ''}`)).map(nameOf).sort((a, b) => cmpText(a, b));
+    const operadores = byCargo(/operador/i);
+    const coordinadores = byCargo(/coordinador/i);
+    const inspectores = byCargo(/inspector/i);
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     const estadoOf = (m: any) => (m.en_espera === true ? 'En espera / Mantenimiento' : m.operational === false ? 'Inoperativo' : 'Operativo');
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
@@ -1257,16 +1269,29 @@ export default function ReportsScreen({ route }: any) {
     maqList.forEach((m) => { const e = enteOf(m); if (!groups.has(e)) groups.set(e, []); groups.get(e)!.push(m); });
     const enteNames = [...groups.keys()].sort((a, b) => cmpText(a, b)); // grupos en orden alfabético
     const estadoColor = (e: string) => (e === 'Operativo' ? '#0B7A3B' : e === 'Inoperativo' ? '#B91C1C' : '#B45309');
+    const sortMaq = (a: any, b: any) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? '');
+    // Operadores: 2 por máquina de SOS La Guaira (1 turno día + 1 turno noche), en
+    // rotación por la lista de operadores de la nómina. Solo aplica a los equipos de
+    // SOS La Guaira (NO a los de CVM / Gobernación / FANB).
+    const opAssign = new Map<any, { dia: string; noche: string }>();
+    if (conPersonal && operadores.length) {
+      (groups.get('SOS La Guaira') ?? []).slice().sort(sortMaq).forEach((m, i) => {
+        opAssign.set(m, { dia: operadores[(2 * i) % operadores.length], noche: operadores[(2 * i + 1) % operadores.length] });
+      });
+    }
     const maquinariaHtml = enteNames.map((ente) => {
+      const showOps = conPersonal && ente === 'SOS La Guaira';
       const rows = groups.get(ente)!
         .slice()
-        .sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? '') || cmpText(a.serial ?? '', b.serial ?? ''))
+        .sort(sortMaq)
         .map((m, i) => {
           const est = estadoOf(m);
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(ubicOf(m))}</td><td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
+      const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       return `<div class="ente">🚜 A cargo de: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
-        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo / Tipo</th><th>Ubicación</th>${opHead}<th>Estado</th></tr></thead><tbody>${rows}</tbody></table>`;
     }).join('');
     // Pick-up: las máquinas clasificadas como pick-up + las del módulo de Vehículos.
     // TODAS a disposición de los encargados de SOS LA GUAIRA.
@@ -1290,6 +1315,22 @@ export default function ReportsScreen({ route }: any) {
       <table class="tac"><thead><tr><th>Empresa</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody>${[...countByCo.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([co, n]) => `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
+    let este = 0, oeste = 0, sinUbic = 0;
+    list.forEach((m) => { const sec = sectorOf(m.latitude, m.longitude); if (!sec) { sinUbic++; return; } if (sec.startsWith('Oeste')) oeste++; else este++; });
+    const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
+      <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
+      <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>
+      ${sinUbic ? `<tr><td style="color:#6B7280">Sin ubicación GPS</td><td style="text-align:right;color:#6B7280">${sinUbic}</td></tr>` : ''}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
+    const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
+    const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
+    const zonaPersonalHtml = conPersonal
+      ? `<table class="tac"><thead><tr><th style="width:80px">Zona</th><th>Coordinadores</th><th>Inspectores</th></tr></thead>
+         <tbody>${['ESTE', 'OESTE'].map((z, idx) => `<tr><td style="font-weight:700">${z}</td><td>${celda(pickZona(coordinadores, idx))}</td><td>${celda(pickZona(inspectores, idx))}</td></tr>`).join('')}</tbody></table>`
+      : '';
     const body = `
       <style>
         .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
@@ -1307,6 +1348,7 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenCoHtml}
+      ${resumenZonaHtml}
       <div class="sect">📍 1. Ubicación táctica</div>
       <div class="box legend">
         <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
@@ -1316,12 +1358,69 @@ export default function ReportsScreen({ route }: any) {
       ${pickupsHtml}
       <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
       ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
-      <div class="sect">📝 4. Observaciones y novedades</div>
+      ${conPersonal ? `<div class="sect">👷 4. Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
+      <div class="sect">📝 ${conPersonal ? 5 : 4}. Observaciones y novedades</div>
       <div class="box">
         <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
         ${linea(4)}
       </div>`;
-    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', 'Operación Rescate y Esperanza – La Guaira', body), 'Reporte - Ubicaciones tácticas');
+    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', conPersonal ? 'Operación Rescate y Esperanza – La Guaira · Con personal' : 'Operación Rescate y Esperanza – La Guaira', body), conPersonal ? 'Reporte - Ubicaciones tácticas con personal' : 'Reporte - Ubicaciones tácticas');
+  };
+
+  // Reporte de PERSONAL COMPLETO: toda la nómina (del administrativo a cocina),
+  // agrupada por departamento, con la cantidad de personas por departamento arriba.
+  const downloadPersonalPdf = async () => {
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const emps = (((await selectAllRows('employees', 'first_name, last_name, cedula, cargo, department, status')) ?? []) as any[]).filter((e) => (e.status ?? 'activo') === 'activo');
+    const nameOf = (e: any) => `${(e.first_name ?? '').trim()} ${(e.last_name ?? '').trim()}`.trim() || '—';
+    const deptOf = (e: any) => (e.department && String(e.department).trim()) || 'Sin departamento';
+    const groups = new Map<string, any[]>();
+    emps.forEach((e) => { const d = deptOf(e); if (!groups.has(d)) groups.set(d, []); groups.get(d)!.push(e); });
+    const deptNames = [...groups.keys()].sort((a, b) => cmpText(a, b));
+    const cargoOf = (e: any) => (e.cargo && String(e.cargo).trim()) || 'Sin cargo';
+    const cargoGroups = new Map<string, number>();
+    emps.forEach((e) => { const c = cargoOf(e); cargoGroups.set(c, (cargoGroups.get(c) ?? 0) + 1); });
+    // Mensaje de agradecimiento al personal (arriba de todo).
+    const gratoHtml = `<div class="grato">🙌 <b>Personal sumado a SOS LA GUAIRA</b> — gracias a ellos no se llevaría a cabo tan grande labor.</div>`;
+    // PRIMERO el total general de personal.
+    const totalHtml = `<div class="total-box"><div class="total-lbl">TOTAL DE PERSONAL</div><div class="total-num">${emps.length}</div></div>`;
+    // Luego: cantidad por departamento + por cargo.
+    const resumenHtml = `<div class="sect">🏢 Cantidad de personal por departamento</div>
+      <table class="tac"><thead><tr><th>Departamento</th><th style="width:110px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${deptNames.map((d) => `<tr><td>${esc(d)}</td><td style="text-align:right;font-weight:700">${groups.get(d)!.length}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin personal</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${emps.length}</td></tr></tfoot></table>
+      <div class="sect">🏷️ Cantidad de personal por cargo</div>
+      <table class="tac"><thead><tr><th>Cargo</th><th style="width:110px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${[...cargoGroups.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([c, n]) => `<tr><td>${esc(c)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin personal</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${emps.length}</td></tr></tfoot></table>`;
+    const detalleHtml = deptNames.map((d) => {
+      const rows = groups.get(d)!
+        .slice()
+        .sort((a, b) => cmpText(nameOf(a), nameOf(b)))
+        .map((e, i) => `<tr><td>${i + 1}</td><td><b>${esc(nameOf(e))}</b></td><td>${esc((e.cargo && String(e.cargo).trim()) || '—')}</td><td>${esc(e.cedula ?? '—')}</td></tr>`).join('');
+      return `<div class="ente">🏷️ <b>${esc(d)}</b> <span class="cnt-pill">${groups.get(d)!.length} persona(s)</span></div>
+        <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Nombre y apellido</th><th>Cargo</th><th>Cédula</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }).join('');
+    const body = `
+      <style>
+        .sect{margin:14px 0 4px;font-size:13px;font-weight:800;color:#1E3A5F;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
+        table.tac{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:12px}
+        table.tac th,table.tac td{border:1px solid #ccc;padding:6px 9px;text-align:left;vertical-align:top}
+        table.tac th{background:#1E3A5F;color:#fff}
+        table.tac tfoot td{background:#EEF2F7;font-weight:800}
+        .ente{margin:12px 0 2px;font-size:12.5px;color:#111}
+        .cnt-pill{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700}
+        .grato{background:#E7F5EC;border:1px solid #B7E0C4;border-radius:8px;padding:10px 12px;margin:2px 0 10px;font-size:13px;color:#0B3D2E}
+        .total-box{text-align:center;border:2px solid #1E3A5F;border-radius:10px;padding:10px;margin:0 0 12px;background:#F4F7FB}
+        .total-lbl{font-size:12px;font-weight:800;color:#1E3A5F;letter-spacing:.5px}
+        .total-num{font-size:34px;font-weight:900;color:#1E3A5F;line-height:1.1}
+      </style>
+      ${gratoHtml}
+      ${totalHtml}
+      ${resumenHtml}
+      <div class="sect">👥 Personal por departamento</div>
+      ${detalleHtml || '<p style="color:#6B7280;font-size:12px">Sin personal registrado.</p>'}`;
+    await exportPdf(pdfShell('REPORTE DE PERSONAL', `${COMPANY_NAME} · ${emps.length} personas`, body), 'Reporte - Personal por departamento');
   };
 
   // Imprime el LISTADO del detalle (activos / inactivos / stand by / total flota).
@@ -2047,8 +2146,19 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
               {/* Reporte Diario de Operaciones (máquinas reales por a cargo de + ubicaciones). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadTacticalPdf}>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>📍 Ubicaciones tácticas</Text>
+              {/* Switch: solo ubicaciones (por defecto) o CON PERSONAL (operadores por máquina + coordinadores/inspectores por zona). */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1 }}>
+                  {tacConPersonal ? '👷 Con personal (operadores, coordinadores, inspectores)' : '📍 Solo ubicaciones'}
+                </Text>
+                <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
+              </View>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
+              </TouchableOpacity>
+              {/* Reporte de TODO el personal por departamento (del administrativo a cocina). */}
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadPersonalPdf}>
+                <Text style={{ color: colors.primary, fontWeight: '800' }}>👥 Personal por departamento</Text>
               </TouchableOpacity>
               {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
