@@ -1358,22 +1358,27 @@ export default function ReportsScreen({ route }: any) {
       </style>
       ${resumenCoHtml}
       ${resumenZonaHtml}
-      <div class="sect">📍 1. Ubicación táctica</div>
-      <div class="box legend">
-        <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
-        <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
-      </div>
-      <div class="sect">🛻 2. Camionetas pick-up</div>
-      ${pickupsHtml}
-      <div class="sect">🚜 3. Maquinaria y equipos en zona</div>
-      ${maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>'}
-      ${conPersonal ? `<div class="sect">👥 4. Personal por departamento (totales)</div>${resumenPersonalHtml}` : ''}
-      ${conPersonal ? `<div class="sect">👷 5. Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}
-      <div class="sect">📝 ${conPersonal ? 6 : 4}. Observaciones y novedades</div>
-      <div class="box">
-        <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
-        ${linea(4)}
-      </div>`;
+      ${(() => {
+        // Secciones numeradas. Con personal, el personal va ARRIBA (secciones 1 y 2).
+        const legendHtml = `<div class="box legend">
+          <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
+          <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
+        </div>`;
+        const obsHtml = `<div class="box">
+          <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
+          ${linea(4)}
+        </div>`;
+        const secs: { icon: string; title: string; html: string }[] = [];
+        if (conPersonal) {
+          secs.push({ icon: '👥', title: 'Personal por departamento (totales)', html: resumenPersonalHtml });
+          secs.push({ icon: '👷', title: 'Coordinadores e inspectores por zona', html: zonaPersonalHtml });
+        }
+        secs.push({ icon: '📍', title: 'Ubicación táctica', html: legendHtml });
+        secs.push({ icon: '🛻', title: 'Camionetas pick-up', html: pickupsHtml });
+        secs.push({ icon: '🚜', title: 'Maquinaria y equipos en zona', html: maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>' });
+        secs.push({ icon: '📝', title: 'Observaciones y novedades', html: obsHtml });
+        return secs.map((s, i) => `<div class="sect">${s.icon} ${i + 1}. ${s.title}</div>${s.html}`).join('');
+      })()}`;
     await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', conPersonal ? 'Operación Rescate y Esperanza – La Guaira · Con personal' : 'Operación Rescate y Esperanza – La Guaira', body), conPersonal ? 'Reporte - Ubicaciones tácticas con personal' : 'Reporte - Ubicaciones tácticas');
   };
 
