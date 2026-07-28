@@ -29,6 +29,7 @@ import CocinaScreen from '../screens/CocinaScreen';
 import ComidaScreen from '../screens/ComidaScreen';
 import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
+import MachineQrEntry from '../screens/MachineQrEntry';
 import ScanQrScreen from '../screens/ScanQrScreen';
 import PatioScreen from '../screens/PatioScreen';
 import CamionesScreen from '../screens/CamionesScreen';
@@ -410,10 +411,10 @@ export default function RootNavigator() {
         // El SUPERVISOR pidió iniciar sesión (con su nombre) desde la vista de la máquina.
         <LoginScreen />
       ) : qrMachineId && !loggedInReal ? (
-        // OPERADOR SIN usuario: vista de operador ANÓNIMA de esa máquina. Se identifica
-        // DENTRO de la pantalla con su carnet + cédula (deben coincidir) antes de ver los
-        // botones (combustible, avería, ubicar, jornada). El supervisor puede iniciar sesión.
-        <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} onSupervisorLogin={goSupervisorLogin} />
+        // Al escanear el QR de la máquina: pantalla con el logo y dos botones
+        // (Inspector/Coordinador · Otro usuario). Ambos llevan al LOGIN; luego,
+        // según su rol, cada quien cae en su vista (supervisión / operador).
+        <MachineQrEntry onLogin={goSupervisorLogin} />
       ) : qrMachineId && roleLoading ? (
         // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
