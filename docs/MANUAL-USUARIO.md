@@ -204,9 +204,20 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **reales agrupadas por quién las tiene a cargo** (**CVM / Gobernación / FANB / SOS La Guaira**,
   según el campo *"a disposición de"* del equipo), cada una con su **empresa**, **ubicación real**
   (referencia + sector Este/Oeste y subzona por GPS: Macuto, Caraballeda, Aeropuerto…) y **estado**
-  (Operativo / Inoperativo / En espera). Incluye una sección con las **camionetas pick-up** del
-  módulo de **Vehículos** a disposición de SOS La Guaira, y deja **campos en blanco para llenar a
-  mano** (fecha, inspector, turno, hora de fin, sector y observaciones).
+  (Operativo / Inoperativo / En espera). **Arriba** trae la cantidad de maquinaria por empresa y los
+  **equipos por zona** (cuántos en el **ESTE** y cuántos en el **OESTE**, solo totales). Incluye una
+  sección con las **camionetas pick-up** del módulo de **Vehículos** a disposición de SOS La Guaira,
+  y deja **campos en blanco para llenar a mano**.
+- **👷 Ubicaciones tácticas CON PERSONAL:** al lado del botón hay un **switch** *"Solo ubicaciones /
+  Con personal"*. Actívalo antes de descargar y el reporte reparte la nómina en los equipos de
+  **SOS La Guaira** (no en los de CVM / Gobernación / FANB): a cada máquina le asigna **2 operadores**
+  (uno de turno **día** y uno de turno **noche**), en rotación; y agrega una sección con los
+  **coordinadores** e **inspectores** repartidos por zona (**ESTE / OESTE**). Los cargos se toman del
+  campo *"cargo"* del empleado.
+- **👥 Personal por departamento (botón en 📊 Conteo de equipos):** genera el **"Reporte de Personal"**
+  con **toda la nómina activa** (del administrativo a los ayudantes de cocina). Arriba lleva un mensaje
+  de **agradecimiento** y el **TOTAL de personal**; luego la cantidad por **departamento** y por
+  **cargo**; y al final el listado por departamento con **nombre, cargo y cédula**.
 
 **Cerrar el control (guardar la semana):**
 - Cuando termines de anotar, toca **🔒 Cerrar control**.
