@@ -51,3 +51,8 @@ QR-maquinas-por-empresa.html
 _genqr.mjs
 
 QR-maquinas-por-empresa.pdf
+
+# Temporales de pruebas/automatizacion
+.playwright-mcp/
+boot.png
+qrinactive.png
