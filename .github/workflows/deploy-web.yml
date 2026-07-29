@@ -55,8 +55,8 @@ jobs:
         run: |
           # apple-touch-icon (iOS) + icon 512 (Android) desde el logo 1024² → el
           # ícono/splash de "Agregar a pantalla de inicio" deja de verse borroso.
-          sed -i 's|</head>|<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png"/><meta name="theme-color" content="#1E3A5F"/></head>|' dist/index.html
-          echo "Íconos inyectados en dist/index.html"
+          sed -i 's|</head>|<link rel="apple-touch-icon" href="/apple-touch-icon.png"/><link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png"/><link rel="manifest" href="/manifest.json"/><meta name="theme-color" content="#1E3A5F"/></head>|' dist/index.html
+          echo "Íconos + manifest inyectados en dist/index.html"
 
       - name: Publicar dist (commit a main)
         run: |
