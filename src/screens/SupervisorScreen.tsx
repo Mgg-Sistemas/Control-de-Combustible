@@ -6,6 +6,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm } from '../lib/text';
+import { EDIFICIOS } from '../lib/edificios';
 import { Machinery, SupervisorVisit, VisitStatus } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
@@ -78,7 +79,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ciNote, setCiNote] = useState('');
   const [ciSaving, setCiSaving] = useState(false);
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
-  const [ciRef, setCiRef] = useState(''); // referencia (edificio/parque/plaza/calle) de la ubicación
+  const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
+  const [refOpen, setRefOpen] = useState(false);  // desplegable de edificios abierto
+  const [refOtro, setRefOtro] = useState(false);  // "Otro…" → escribir a mano
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
   const [avOpen, setAvOpen] = useState(false);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -115,7 +118,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
 
   useEffect(() => { warmLocation(); }, []);
   // Al abrir el check-in de una máquina, precarga su referencia actual (si tiene).
-  useEffect(() => { setCiRef((ci as any)?.referencia ?? ''); }, [ci?.id]);
+  useEffect(() => {
+    const r = (ci as any)?.referencia ?? '';
+    setCiRef(r);
+    setRefOtro(!!r && !EDIFICIOS.includes(r)); // valor viejo fuera del catálogo → editable a mano
+    setRefOpen(false);
+  }, [ci?.id]);
 
   const load = async () => {
     if (!uid) { setLoading(false); return; }
@@ -453,10 +461,36 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                 <TouchableOpacity onPress={recapture} disabled={gpsBusy} style={{ marginTop: 6 }}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
                 </TouchableOpacity>
-                {/* Referencia del punto: edificio, parque, plaza, calle… Se guarda con la
-                    ubicación y sale en el reporte "Referencias" del Mapa. */}
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Referencia (edificio, parque, plaza, calle…)</Text>
-                <TextInput value={ciRef} onChangeText={setCiRef} placeholder="Ej: frente a la plaza Bolívar, calle 5" placeholderTextColor={colors.muted} style={input} />
+                {/* Edificio del catálogo: DESPLEGABLE. Se guarda con la ubicación y sale
+                    en el reporte "Máquinas por sector" del Mapa. "Otro…" permite escribir. */}
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Edificio</Text>
+                <TouchableOpacity
+                  onPress={() => setRefOpen((v) => !v)}
+                  activeOpacity={0.8}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}
+                >
+                  <Text style={{ color: ciRef ? colors.text : colors.muted, fontSize: 14, flex: 1 }} numberOfLines={1}>
+                    {ciRef || 'Selecciona el edificio…'}
+                  </Text>
+                  <Text style={{ color: colors.primary, fontWeight: '800' }}>{refOpen ? '▲' : '▼'}</Text>
+                </TouchableOpacity>
+                {refOpen ? (
+                  <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: 4, maxHeight: 240, overflow: 'hidden' }}>
+                    <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {EDIFICIOS.map((e) => (
+                        <TouchableOpacity key={e} onPress={() => { setCiRef(e); setRefOtro(false); setRefOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: ciRef === e ? colors.surfaceAlt : colors.surface }}>
+                          <Text style={{ color: colors.text, fontSize: 14 }}>{ciRef === e ? '✓ ' : ''}{e}</Text>
+                        </TouchableOpacity>
+                      ))}
+                      <TouchableOpacity onPress={() => { setRefOtro(true); setCiRef(''); setRefOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, backgroundColor: colors.surface }}>
+                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>✏️ Otro (escribir a mano)…</Text>
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+                ) : null}
+                {refOtro ? (
+                  <TextInput value={ciRef} onChangeText={setCiRef} placeholder="Escribe el edificio / referencia" placeholderTextColor={colors.muted} style={[input, { marginTop: 6 }]} />
+                ) : null}
                 {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + la referencia. */}
                 <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
