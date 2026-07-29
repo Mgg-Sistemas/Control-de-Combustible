@@ -136,6 +136,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
   const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
+  const [averiadas, setAveriadas] = useState<Set<string>>(new Set()); // máquinas con avería pendiente → "MÁQUINA PARADA"
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [loading, setLoading] = useState(true);
@@ -276,6 +277,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
       // Inspector "asignado" = quien hizo el último check-in en cada máquina.
       latestInspectorByMachine().then(setInspectors).catch(() => {});
+      // Averías PENDIENTES → en la tarjeta sale "🔴 MÁQUINA PARADA".
+      (async () => {
+        try {
+          const { data } = await supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente');
+          setAveriadas(new Set(((data ?? []) as any[]).map((r) => r.machinery_id as string)));
+        } catch {}
+      })();
       const cmap: Record<string, string> = {};
       (c ?? []).forEach((row: any) => (cmap[row.id] = row.name));
       setCompanies(cmap);
@@ -1620,6 +1628,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
                     {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.primary, fontSize: 13 }}> ✎</Text> : null}
                   </Text>
+                  {averiadas.has(m.id) ? (
+                    <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '900', marginTop: 2 }}>
+                      🔴 MÁQUINA PARADA (avería)
+                    </Text>
+                  ) : null}
                   {m.operational === false ? (
                     <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700', marginTop: 2 }}>
                       ⛔ Inactiva · se mantiene en este corte por sus horas trabajadas
