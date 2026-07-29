@@ -1424,11 +1424,13 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         return Alert.alert('No se pudo crear', 'No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.');
       }
       code = nextReqCode(codeRows.map((r: any) => r.code), intento);
-      const { error } = await supabase.from('inventory_requirements').insert({
+      // La BASE reasigna el código con un trigger (correlativo a prueba de fallos);
+      // leemos el código REAL que quedó para mostrarlo.
+      const { data: inserted, error } = await supabase.from('inventory_requirements').insert({
         code, title: title.trim() || null, note: note.trim() || null, company_id: companyId, status: 'pendiente', items,
         requested_by: uid, requested_by_name: reqName, ...adj,
-      });
-      if (!error) { saved = true; break; }
+      }).select('code').single();
+      if (!error) { if ((inserted as any)?.code) code = (inserted as any).code; saved = true; break; }
       // Código ya usado (índice único): reintenta con el siguiente número.
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusy(false);
