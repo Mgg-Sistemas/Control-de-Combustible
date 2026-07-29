@@ -113,7 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase.from('profiles').select('role, app_role_id, can_audit').eq('id', uid).single();
       if (!active) return;
       setRole((data?.role as UserRole) ?? null);
-      setCanAudit(!!(data as any)?.can_audit);
+      // Auditoría: TODOS los admin la ven; además cualquiera con el flag can_audit.
+      setCanAudit((data?.role as UserRole) === 'admin' || !!(data as any)?.can_audit);
       const arId = (data as any)?.app_role_id ?? null;
       if (!arId) { setAppRole(null); return; }
       // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.

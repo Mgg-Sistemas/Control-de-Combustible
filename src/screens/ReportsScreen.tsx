@@ -23,7 +23,8 @@ import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { normalizeDept } from '../lib/personal';
-import { sectorOf, SUBSECTORS } from '../lib/mapZones';
+import { sectorOf, SUBSECTORS, sectorLabel } from '../lib/mapZones';
+import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -421,7 +422,7 @@ export default function ReportsScreen({ route }: any) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion'>('fuel');
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
@@ -1227,6 +1228,67 @@ export default function ReportsScreen({ route }: any) {
   // REALES agrupadas por "a cargo de" (CVM / Gobernación / FANB / SOS La Guaira, según
   // el campo "a disposición de"=zona), con su ubicación real (referencia + sector Este/
   // Oeste + subzona por GPS) y estado. Incluye las pick-up del módulo de Vehículos.
+  // Reporte DIARIO "Inspección de equipos": agrupado por inspector (el del ÚLTIMO
+  // check-in). Por cada equipo: máquina, serial/placa, sector, edificio y horas del
+  // día (día/noche/total, de machine_rounds). Excluye CVM/Gobernación/FANB. Las
+  // máquinas sin inspector van a "FALTA INSPECTOR" con su encargado del catálogo.
+  const generateInspeccion = async (date: string) => {
+    setLoading(true);
+    try {
+      const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
+      const mach = await selectAllRows('machinery', 'id, code, serial, plate, active, latitude, longitude, zona, encargado, referencia, company:company_id(name)');
+      const rounds = await selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours', (q) => q.eq('round_date', date));
+      const insp = await latestInspectorByMachine();
+      const hoursBy = new Map<string, { d: number; n: number }>();
+      (rounds ?? []).forEach((r: any) => {
+        const cur = hoursBy.get(r.machinery_id) ?? { d: 0, n: 0 };
+        cur.d += Number(r.day_hours) || 0; cur.n += Number(r.night_hours) || 0;
+        hoursBy.set(r.machinery_id, cur);
+      });
+      // A cargo de (zona): se EXCLUYEN CVM / Gobernación / FANB.
+      const esInstitucion = (m: any) => /cvm|gobernaci|fanb/i.test(String(m.zona ?? ''));
+      const list = ((mach ?? []) as any[]).filter((m) => m.active !== false && !esInstitucion(m));
+      const sectorOfM = (m: any) => { const s = sectorOf(m.latitude, m.longitude); return s ? sectorLabel(s) : 'Sin ubicación'; };
+      const edificioOf = (m: any) => { const r = (m.referencia && String(m.referencia).trim()) || ''; return r && !/^[\d.,\s\/-]+$/.test(r) ? r : '—'; };
+      const FALTA = 'FALTA INSPECTOR';
+      const groups = new Map<string, any[]>();
+      list.forEach((m) => { const n = insp[m.id]?.name?.trim() || FALTA; if (!groups.has(n)) groups.set(n, []); groups.get(n)!.push(m); });
+      // Orden: inspectores A→Z; "FALTA INSPECTOR" al final.
+      const names = [...groups.keys()].sort((a, b) => (a === FALTA ? 1 : b === FALTA ? -1 : cmpText(a, b)));
+      let totD = 0, totN = 0;
+      const secciones = names.map((name) => {
+        const isFalta = name === FALTA;
+        const items = groups.get(name)!.slice().sort((a, b) => cmpText(a.code ?? '', b.code ?? ''));
+        const rows = items.map((m, i) => {
+          const h = hoursBy.get(m.id) ?? { d: 0, n: 0 };
+          const tot = Math.round((h.d + h.n) * 100) / 100;
+          totD += h.d; totN += h.n;
+          const encCol = isFalta ? `<td>${esc((m.encargado && String(m.encargado).trim()) || '—')}</td>` : '';
+          return `<tr><td>${i + 1}</td><td><b>${esc(m.code ?? '—')}</b></td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(sectorOfM(m))}</td><td>${esc(edificioOf(m))}</td>${encCol}<td class="r">${h.d || 0}</td><td class="r">${h.n || 0}</td><td class="r" style="font-weight:800">${tot}</td></tr>`;
+        }).join('');
+        const encHead = isFalta ? '<th>Encargado</th>' : '';
+        return `<div class="insp ${isFalta ? 'falta' : ''}">${isFalta ? '⚠️ ' : '👷 '}Inspector: <b>${esc(name)}</b> <span class="cnt">${items.length} equipo(s)</span></div>
+          <table class="tac"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Sector</th><th>Edificio</th>${encHead}<th class="r">Día</th><th class="r">Noche</th><th class="r">Nº Horas</th></tr></thead><tbody>${rows || ''}</tbody></table>`;
+      }).join('');
+      const body = `
+        <style>
+          .insp{margin:14px 0 4px;font-size:12.5px;color:#111;border-left:4px solid ${PDF_ACCENT};padding-left:8px}
+          .insp.falta{border-left-color:#B45309;color:#7A4A0B}
+          .cnt{background:#EEF2F7;color:#1E3A5F;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:700;margin-left:6px}
+          table.tac{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11.5px}
+          table.tac th,table.tac td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
+          table.tac th{background:#1E3A5F;color:#fff}
+          table.tac td.r,table.tac th.r{text-align:right}
+        </style>
+        <div style="font-size:12px;color:#374151;margin-bottom:6px">Equipos: <b>${list.length}</b> · Horas del día — Día: <b>${Math.round(totD * 100) / 100}</b> · Noche: <b>${Math.round(totN * 100) / 100}</b> · Total: <b>${Math.round((totD + totN) * 100) / 100}</b><br/><span style="color:#6B7280">No incluye equipos de CVM / Gobernación / FANB.</span></div>
+        ${secciones || '<p style="color:#6B7280">Sin equipos para el día.</p>'}`;
+      await exportPdf(pdfShell('INSPECCIÓN DE EQUIPOS', `Reporte diario · ${dmy(date)}`, body), `Reporte - Inspeccion de equipos ${dmy(date)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const downloadTacticalPdf = async (conPersonal = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
@@ -1946,6 +2008,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'deploy', label: '🚜 Despliegue' },
           { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
+          { v: 'inspeccion', label: '🔍 Inspección equipos' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -1958,6 +2021,8 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'rounds' || t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
+                // Inspección de equipos: reporte de UN día; arranca en HOY.
+                if (t.v === 'inspeccion') { setFrom(isoDaysAgo(0)); }
               }}
               style={{
                 flexGrow: 1,
@@ -2005,6 +2070,16 @@ export default function ReportsScreen({ route }: any) {
           <Text style={{ color: colors.muted, fontSize: 13 }}>
             Cuenta TODOS los equipos del catálogo por clasificación y por tipo, con totales de activos, inactivos y stand by. No depende de fechas.
           </Text>
+        ) : mode === 'inspeccion' ? (
+          <View>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>
+              Reporte DIARIO de inspección: máquina, serial/placa, sector, edificio, inspector y horas (día/noche/total).
+              Agrupado por inspector; las que no tienen inspector salen como “⚠️ FALTA INSPECTOR” con su encargado.
+              No incluye equipos de CVM / Gobernación / FANB.
+            </Text>
+            <Text style={styles.lbl}>Día</Text>
+            <DateField value={from} onChange={setFrom} />
+          </View>
         ) : (
         <>
         <Text style={{ color: colors.muted, fontSize: 13 }}>Rango de fechas</Text>
@@ -2125,6 +2200,8 @@ export default function ReportsScreen({ route }: any) {
               ? generateDeploy()
               : mode === 'conteo'
               ? generateConteo()
+              : mode === 'inspeccion'
+              ? generateInspeccion(from)
               : generateCamiones()
           }
           disabled={loading}
@@ -2140,6 +2217,8 @@ export default function ReportsScreen({ route }: any) {
               ? '🚜 Descargar despliegue de maquinaria (PDF)'
               : mode === 'conteo'
               ? '📊 Ver conteo de equipos'
+              : mode === 'inspeccion'
+              ? '🔍 Generar INSPECCIÓN DE EQUIPOS (PDF)'
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
