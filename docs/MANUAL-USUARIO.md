@@ -564,6 +564,13 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > **Inspector asignado:** el inspector que hizo el **último check-in** de una máquina queda como su
 > **inspector asignado** y se muestra en el **Catálogo** y en **Control de maquinaria** (🪖 Inspector: nombre).
 
+> **🏢 Edificio (lista desplegable):** en el check-in, el campo **Edificio** es ahora una **lista
+> desplegable** con los sitios oficiales (Residencias Militares, La Iguana, Hotel Litoral Palace,
+> Residencias Las Palmas, Rita Mar, Arichuna, Mar de Leva, Puente Caraballeda, Tahiti, Club Caribe,
+> La Joya, Opp 22/25/26/27/33, Hotel Albatro, Playa escondida Tanaguarena, Santa Eduvigis). Se elige
+> de la lista para que **todos escriban igual**; si el sitio no está, se usa **"✏️ Otro (escribir a
+> mano)"**. Ese edificio sale en el reporte **Mapa → 📄 Máquinas por sector**.
+
 > La cercanía es **amplia a propósito** (unos 300 m): si la máquina está trabajando y no se
 > puede interrumpir, basta con estar "más o menos cerca". Si está lejos, igual se guarda pero
 > queda marcado **"lejos ⚠️"**.
