@@ -21,10 +21,10 @@ create index if not exists audit_log_at_idx on public.audit_log (at desc);
 create index if not exists audit_log_user_idx on public.audit_log (user_id);
 
 alter table public.audit_log enable row level security;
--- Solo quien tiene can_audit puede LEER la bitácora.
+-- Pueden LEER la bitácora: TODOS los admin y cualquiera con la bandera can_audit.
 drop policy if exists audit_read on public.audit_log;
 create policy audit_read on public.audit_log for select to authenticated
-  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.can_audit));
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and (p.can_audit or p.role = 'admin')));
 -- Nadie inserta directo desde el cliente: solo lo escribe el trigger (security definer).
 
 -- 3) Función genérica de trigger: registra quién, qué acción, en qué tabla y fila.
