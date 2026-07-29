@@ -427,16 +427,12 @@ export default function RootNavigator() {
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : qrMachineId && loggedInSup ? (
-        // Supervisor con sesión que escanea una máquina: va DIRECTO a su check-in de
-        // supervisión (marcar Operativa / Parada / No está + GPS, y si hace falta,
-        // iniciar la jornada de un operador escaneando su carnet). El supervisor
-        // SUPERVISA, no opera: no pasa por la vista de operador. Puede escanear
-        // CUALQUIER máquina (no tiene la restricción por empresa del operador).
-        <SupervisorScreen initialMachineId={qrMachineId} />
       ) : qrMachineId ? (
-        // Otro rol con sesión (admin/operador): vista de operador de esa máquina.
-        <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={exitQr} />
+        // QR de máquina + sesión iniciada (CUALQUIER rol): cae en la VISTA DE
+        // INSPECTORES de esa máquina (check-in: nombre/empresa/serial + marcar
+        // estado/ubicación, iniciar la jornada del operador escaneando su carnet,
+        // etc.). El login NORMAL (sin escanear) sigue viendo la app como siempre.
+        <SupervisorScreen initialMachineId={qrMachineId} />
       ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (
