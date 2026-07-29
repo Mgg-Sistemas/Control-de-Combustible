@@ -77,6 +77,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ci, setCi] = useState<Mach | null>(null);
   const [ciStatus, setCiStatus] = useState<VisitStatus>('trabajando');
   const [ciNote, setCiNote] = useState('');
+  const [ciMotivo, setCiMotivo] = useState(''); // motivo de la avería cuando la máquina está PARADA
   const [ciSaving, setCiSaving] = useState(false);
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
@@ -129,7 +130,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     if (!uid) { setLoading(false); return; }
     const [{ data: prof }, mach] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
-      selectAllRows('machinery', 'id, code, tipo, referencia, latitude, longitude, operational, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, latitude, longitude, operational, company:company_id(name)'),
     ]);
     const name = (prof as any)?.full_name ?? '';
     setFullName(name);
@@ -158,6 +159,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setCi(m);
     setCiStatus('trabajando');
     setCiNote('');
+    setCiMotivo('');
     setAvOpen(false); setAvMaterial(null); setAvQty(''); setAvNote('');
     setGps(null);
     setGpsErr(null);
@@ -249,6 +251,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
 
   const confirmCheckin = async () => {
     if (!ci) return;
+    // Si está PARADA, el motivo de la avería es obligatorio.
+    if (ciStatus === 'parada' && !ciMotivo.trim()) { setNotice('⚠️ Escribe el motivo de la avería (la máquina está parada).'); return; }
     setCiSaving(true);
     setNotice(null);
     const { data, error } = await saveVisit({
@@ -263,11 +267,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       machineLat: ci.latitude ?? null,
       machineLng: ci.longitude ?? null,
     });
-    setCiSaving(false);
-    if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo guardar la visita.')); return; }
+    if (error || !data) { setCiSaving(false); setNotice('❌ ' + (error ?? 'No se pudo guardar la visita.')); return; }
     setVisits((prev) => ({ ...prev, [ci.id]: data }));
+    // PARADA → crea la AVERÍA automáticamente (va a Mantenimiento; Control mostrará "MÁQUINA PARADA").
+    let averiaTxt = '';
+    if (ciStatus === 'parada') {
+      const { error: avErr } = await supabase.from('maintenance_requests').insert({
+        machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
+      });
+      averiaTxt = avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada';
+    }
+    setCiSaving(false);
     const dtxt = data.distance_m != null ? ` · a ~${data.distance_m} m${data.near ? ' (en sitio ✓)' : ' (lejos ⚠️)'}` : '';
-    setNotice(`✅ ${ci.code} revisada · ${statusLabel(ciStatus)}${dtxt}.`);
+    setNotice(`✅ ${ci.code} revisada · ${statusLabel(ciStatus)}${dtxt}${averiaTxt}.`);
+    setCiMotivo('');
     setCi(null);
   };
 
@@ -439,7 +452,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
           <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>✅ Revisé la máquina</Text>
-              {ci ? <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{ci.code} · {(ci.tipo || 'Sin tipo')} · {ci.companyName}</Text> : null}
+              {ci ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{ci.code}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {ci.companyName}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Serial/Placa: {((ci as any).plate || (ci as any).serial || '—')}</Text>
+                </View>
+              ) : null}
 
               {/* GPS / cercanía */}
               <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: gpsBusy ? colors.border : near === true ? colors.success : near === false ? colors.warning : colors.border }}>
@@ -511,6 +530,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                   );
                 })}
               </View>
+
+              {/* Si la máquina está PARADA se registra la AVERÍA automáticamente (pide el motivo). */}
+              {ciStatus === 'parada' ? (
+                <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>⚠️ Máquina parada — motivo de la avería (obligatorio)</Text>
+                  <TextInput value={ciMotivo} onChangeText={setCiMotivo} placeholder="Ej: falla hidráulica, sin arranque, cauchos…" placeholderTextColor={colors.muted} style={input} />
+                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Se creará una avería en Mantenimiento y en Control saldrá “MÁQUINA PARADA”.</Text>
+                </View>
+              ) : null}
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Nota (opcional)</Text>
               <TextInput value={ciNote} onChangeText={setCiNote} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
