@@ -1785,7 +1785,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         );
                       })}
                       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {bloqueadoAnalista(stopped) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
@@ -1794,10 +1794,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(stopped) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(stopped) ? 0.5 : 1 }}
                           />
                         </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
                           <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {bloqueadoAnalista(ot) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
@@ -1806,7 +1806,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>
