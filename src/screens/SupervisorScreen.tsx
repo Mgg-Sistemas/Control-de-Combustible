@@ -187,7 +187,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
   const searchList = useMemo(() => {
     const q = norm(query.trim());
-    return machines.filter((m) => !q || norm(m.code).includes(q) || norm(m.companyName || '').includes(q));
+    return machines.filter((m) => !q
+      || norm(m.code).includes(q)
+      || norm(m.companyName || '').includes(q)
+      || norm((m as any).serial || '').includes(q)
+      || norm((m as any).plate || '').includes(q));
   }, [machines, query]);
 
   const openCheckin = (m: Mach) => {
@@ -456,6 +460,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          {/* Escanear el QR de la máquina — acceso rápido arriba. */}
+          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>📷</Text>
+          </TouchableOpacity>
           <ChangePasswordButton />
           <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
@@ -495,7 +503,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
             <SectionTitle>Todas las máquinas</SectionTitle>
             {mine.length > 0 ? <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity> : null}
           </View>
-          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por nombre o empresa…" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
           <View style={{ marginTop: spacing.xs }}>
             {searchList.slice(0, 100).map(renderMachine)}
             {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}

@@ -84,6 +84,7 @@ export interface AuditLog {
   table_name: string;
   row_id: string | null;
   detail?: string | null; // texto legible del evento (p. ej. el código de la máquina)
+  device?: string | null; // dispositivo desde donde se hizo (📱 teléfono / 💻 PC)
 }
 
 /** Registro de ENTRADA / SALIDA de un camión al patio (Coordinador de Patio). */
