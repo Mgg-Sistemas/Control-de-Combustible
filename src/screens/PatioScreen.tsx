@@ -12,6 +12,26 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { getMachineRound, upsertMachineRound } from '../lib/machineRounds';
+import { saveVisit } from '../lib/supervisorVisits';
+import { shiftOf, caracasParts } from '../lib/jornada';
+import { logAudit } from '../lib/audit';
+
+const CARACAS_TZ = 'America/Caracas';
+function caracasToday(): string {
+  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function caracasClock(iso: string): string {
+  return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
+}
+/** Tiempo transcurrido "Xh YYm" desde el inicio (ISO) hasta ahora. */
+function elapsedLabel(startISO: string): string {
+  const ms = Math.max(0, Date.now() - new Date(startISO).getTime());
+  const min = Math.floor(ms / 60000);
+  return `${Math.floor(min / 60)}h ${(min % 60).toString().padStart(2, '0')}m`;
+}
 
 const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
   { key: 'caucho', label: 'Caucho', icon: '🛞' },
@@ -21,8 +41,10 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
 ];
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 
-type Mode = 'camion' | 'averia' | 'gasoil';
+type Mode = 'camion' | 'averia' | 'gasoil' | 'jornada';
 type Mach = { id: string; code: string; plate: string | null };
+type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night' };
+type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night' };
 
 /**
  * Panel del COORDINADOR DE PATIO (rol fijo). Dos acciones grandes:
@@ -42,6 +64,10 @@ export default function PatioScreen({ navigation }: any) {
   const [gasoilId, setGasoilId] = useState<string | null>(null); // máquina para surtir gasoil
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Jornada de camión por escaneo (asistencia): abre/cierra jornada del camión.
+  const [openJornadas, setOpenJornadas] = useState<OpenJornada[]>([]);
+  const [pendingFin, setPendingFin] = useState<PendingFin | null>(null);
+  const [jornBusy, setJornBusy] = useState(false);
 
   // Formulario de avería.
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -65,20 +91,82 @@ export default function PatioScreen({ navigation }: any) {
       .then(({ data }) => setFullName((data as any)?.full_name ?? 'Coordinador'));
   }, [uid]);
 
-  // Al detectar un QR: busca la máquina y abre el flujo (camión o avería).
+  // Camiones con JORNADA ABIERTA hoy (para la lista de "asistencia" del patio).
+  const loadOpen = async () => {
+    const { data } = await supabase
+      .from('machine_rounds')
+      .select('machinery_id, jornada_start_at, jornada_shift, machine:machinery_id(code)')
+      .eq('round_date', caracasToday())
+      .not('jornada_start_at', 'is', null);
+    setOpenJornadas(((data ?? []) as any[]).map((r) => ({
+      id: r.machinery_id as string,
+      code: r.machine?.code ?? '—',
+      start: r.jornada_start_at as string,
+      shift: (r.jornada_shift as 'day' | 'night') ?? 'day',
+    })));
+  };
+  useEffect(() => { loadOpen(); }, []);
+
+  // Al detectar un QR: busca la máquina y abre el flujo (camión, avería, gasoil o jornada).
   const onDetected = async (text: string) => {
     const id = parseMachineId(text);
     const mode = scanMode;
     setScanMode(null);
     if (!id) { setNotice('❌ QR no reconocido. Escanea el QR de una máquina.'); return; }
     setBusy(true);
-    const { data } = await supabase.from('machinery').select('id, code, plate').eq('id', id).single();
+    const { data } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude').eq('id', id).single();
     setBusy(false);
     if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
     if (mode === 'gasoil') { setGasoilId((data as Mach).id); return; }
+    if (mode === 'jornada') { await handleJornadaScan(data as any); return; }
     setMachine(data as Mach);
     if (mode === 'averia') { setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); }
     // Si era modo camión, el modal de Entrada/Salida se muestra solo (machine != null && no avería).
+  };
+
+  // Escaneo de JORNADA: si el camión no tiene jornada abierta hoy → la INICIA
+  // (marca en Inspecciones y guarda la hora); si ya tiene una abierta → pide
+  // confirmar y la FINALIZA (horas = fin − inicio → Control de maquinaria).
+  const handleJornadaScan = async (m: { id: string; code: string; latitude: number | null; longitude: number | null }) => {
+    const today = caracasToday();
+    setJornBusy(true);
+    const round = await getMachineRound(m.id, today);
+    if (!(round as any)?.jornada_start_at) {
+      const now = new Date();
+      const sh = shiftOf(caracasParts(now).hour).key;
+      await saveVisit({
+        machineryId: m.id, supervisorId: uid || null, supervisorName: fullName || 'Patio',
+        visitDate: today, status: 'trabajando', lat: null, lng: null,
+        note: 'Jornada de camión (patio)', machineLat: m.latitude ?? null, machineLng: m.longitude ?? null,
+      });
+      const res = await upsertMachineRound(m.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh }, uid || null);
+      setJornBusy(false);
+      if (res.error) { setNotice('❌ ' + res.error); return; }
+      logAudit('JORNADA_INICIO', 'machinery', m.id, m.code);
+      setNotice(`🟢 Jornada INICIADA · ${m.code} · ${caracasClock(now.toISOString())}. Aparece en Control e Inspecciones.`);
+      loadOpen();
+    } else {
+      setJornBusy(false);
+      setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day' });
+    }
+  };
+
+  // Confirma la FINALIZACIÓN de la jornada del camión: suma las horas al turno.
+  const confirmarFin = async () => {
+    if (!pendingFin || jornBusy) return;
+    setJornBusy(true);
+    const today = caracasToday();
+    const horas = Math.max(0, Math.round((Date.now() - new Date(pendingFin.start).getTime()) / 3600000 * 100) / 100);
+    const round = await getMachineRound(pendingFin.id, today);
+    const key = pendingFin.shift === 'night' ? 'night_hours' : 'day_hours';
+    const base = Number((round as any)?.[key] ?? 0);
+    const res = await upsertMachineRound(pendingFin.id, today, { [key]: Math.round((base + horas) * 100) / 100, jornada_start_at: null }, uid || null);
+    setJornBusy(false);
+    if (res.error) { setNotice('❌ ' + res.error); return; }
+    logAudit('JORNADA_FIN', 'machinery', pendingFin.id, `${pendingFin.code} · ${horas.toFixed(2)} h`);
+    setNotice(`🏁 Jornada FINALIZADA · ${pendingFin.code} · ${horas.toFixed(2)} h → Control de maquinaria (turno ${pendingFin.shift === 'night' ? 'noche' : 'día'}).`);
+    setPendingFin(null);
+    loadOpen();
   };
 
   // Registra ENTRADA o SALIDA del camión escaneado.
@@ -137,13 +225,33 @@ export default function PatioScreen({ navigation }: any) {
           <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>Salir</Text>
         </TouchableOpacity>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>Hola{fullName ? `, ${fullName}` : ''}. Escanea el QR del camión para registrar su entrada o salida.</Text>
+      <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>Hola{fullName ? `, ${fullName}` : ''}. Escanea el QR del camión para INICIAR su jornada; al escanearlo de nuevo se FINALIZA y las horas van a Control.</Text>
 
       {notice ? (
         <Card><Text style={{ color: notice.startsWith('✅') ? colors.success : colors.danger, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {bigBtn('📷  ESCANEAR QR', 'Registrar ENTRADA o SALIDA del camión', '#2563EB', () => { setAvStarted(false); setScanMode('camion'); })}
+      {bigBtn('🕒  JORNADA DE CAMIÓN', 'Escanea para INICIAR; escanea otra vez para FINALIZAR', '#0F766E', () => { setAvStarted(false); setScanMode('jornada'); })}
+
+      {/* Asistencia del patio: camiones con jornada ABIERTA ahora mismo. */}
+      {openJornadas.length > 0 ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🟢 Camiones en jornada ({openJornadas.length})</Text>
+          {openJornadas.map((j) => (
+            <View key={j.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift })} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🏁 Finalizar</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+
+      {bigBtn('📷  ENTRADA / SALIDA', 'Registrar ENTRADA o SALIDA del camión (patio)', '#2563EB', () => { setAvStarted(false); setScanMode('camion'); })}
       {bigBtn('⛽  SURTIR GASOIL', 'Horómetro + litros (surtido vs consumido)', '#15803D', () => { setAvStarted(false); setScanMode('gasoil'); })}
       {bigBtn('🛠️  AVERÍA DE MAQUINARIA', 'Reportar una avería (va a Mantenimiento)', '#B45309', () => { setAvStarted(true); setScanMode('averia'); })}
       {bigBtn('🕒  ASISTENCIA EMPLEADOS', 'Marcar entrada/salida escaneando el carnet', '#4F46E5', () => navigation.navigate('Asistencia'))}
@@ -179,6 +287,38 @@ export default function PatioScreen({ navigation }: any) {
       {/* Escáner */}
       <Modal visible={scanMode !== null} animationType="slide" onRequestClose={() => setScanMode(null)}>
         <QrScanner onClose={() => setScanMode(null)} onDetected={onDetected} />
+      </Modal>
+
+      {/* Confirmar FINALIZAR jornada del camión (muestra el total de horas). */}
+      <Modal visible={!!pendingFin} transparent animationType="fade" onRequestClose={() => setPendingFin(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <Card>
+            {pendingFin ? (
+              <>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🏁 Finalizar jornada</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, textAlign: 'center', marginTop: 4 }}>{pendingFin.code}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginTop: spacing.sm }}>
+                  Inició {caracasClock(pendingFin.start)} ({pendingFin.shift === 'night' ? '🌙 noche' : '☀️ día'})
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 15, textAlign: 'center', marginTop: 2 }}>
+                  Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(pendingFin.start)}</Text>
+                  {'  '}({((Date.now() - new Date(pendingFin.start).getTime()) / 3600000).toFixed(2)} h)
+                </Text>
+                <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 2, marginBottom: spacing.md }}>
+                  Se sumarán a Control de maquinaria en el turno de {pendingFin.shift === 'night' ? 'noche' : 'día'}.
+                </Text>
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity onPress={() => setPendingFin(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={confirmarFin} disabled={jornBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </Card>
+        </View>
       </Modal>
 
       {/* Surtir gasoil */}
