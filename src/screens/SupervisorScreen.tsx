@@ -64,7 +64,7 @@ const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'
  * Ese check-in VALIDA la jornada: sin visita, la máquina-día queda sin validar
  * (el operador no cobra). Ve sus máquinas asignadas (🪖) y puede escanear el QR.
  */
-export default function SupervisorScreen({ initialMachineId, onConsumed }: { initialMachineId?: string; onConsumed?: () => void } = {}) {
+export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
   const { session, signOut } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -460,6 +460,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
           <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+          {/* Solo ADMIN (en teléfono): ir a la app completa (SISTEMA). */}
+          {onSistema ? (
+            <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗂️ SISTEMA</Text>
+            </TouchableOpacity>
+          ) : null}
           {/* Escanear el QR de la máquina — acceso rápido arriba. */}
           <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>📷</Text>

@@ -536,6 +536,8 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > en el módulo de **Inspectores** (esta pantalla). Desde una **PC** cada quien ve la app normal
 > según su rol y la **sesión se mantiene iniciada**. El **coordinador de patio** en teléfono ve su
 > propia pantalla (jornada de camiones), no la de máquinas.
+> **Solo el administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
+> desde el teléfono (para volver a Inspectores, recarga la página).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve la lista **🪖 Revisar**.
