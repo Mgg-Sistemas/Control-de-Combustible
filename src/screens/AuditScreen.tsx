@@ -38,7 +38,17 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   INSERT: { icon: '➕', label: 'creó', color: '#15803D' },
   UPDATE: { icon: '✏️', label: 'modificó', color: '#2563EB' },
   DELETE: { icon: '🗑️', label: 'eliminó', color: '#DC2626' },
+  // Eventos de la app (no escriben en tabla): login, escaneo, jornada, parada.
+  LOGIN: { icon: '🔑', label: 'inició sesión', color: '#0F766E' },
+  LOGOUT: { icon: '🚪', label: 'cerró sesión', color: '#6B7280' },
+  SCAN: { icon: '📷', label: 'escaneó', color: '#7C3AED' },
+  JORNADA_INICIO: { icon: '🟢', label: 'inició jornada', color: '#15803D' },
+  JORNADA_FIN: { icon: '🏁', label: 'finalizó jornada', color: '#2563EB' },
+  PARADA: { icon: '🟡', label: 'marcó PARADA', color: '#D9A200' },
 };
+// Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
+// no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
+const EVENT_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SCAN', 'JORNADA_INICIO', 'JORNADA_FIN', 'PARADA']);
 
 // Nombre legible del registro afectado (según su tabla) a partir del row_id, para
 // mostrar en el detalle "a qué apunta" la acción (ej. cuál usuario, cuál máquina).
@@ -179,8 +189,10 @@ export default function AuditScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontSize: 14 }}>
                       <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
-                      <Text style={{ color: a.color, fontWeight: '700' }}> {a.label} </Text>
-                      <Text style={{ fontWeight: '700' }}>{tableLabel(r.table_name)}</Text>
+                      <Text style={{ color: a.color, fontWeight: '700' }}> {a.label}</Text>
+                      {EVENT_ACTIONS.has(r.action)
+                        ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
+                        : <Text style={{ fontWeight: '700' }}> {tableLabel(r.table_name)}</Text>}
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}</Text>
                   </View>
@@ -211,8 +223,8 @@ export default function AuditScreen() {
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>Detalle de la acción</Text>
                   </View>
                   <Row k="Quién" v={detail.user_name || 'No registrado (acción del servidor · gestión de usuarios)'} />
-                  <Row k="Qué hizo" v={`${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
-                  <Row k="A qué registro" v={targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—'))} />
+                  <Row k="Qué hizo" v={EVENT_ACTIONS.has(detail.action) ? a.label.toUpperCase() : `${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
+                  <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
                   <Row k="Cuándo" v={caracasDT(detail.at)} />
                   {detail.user_name ? null : (
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
