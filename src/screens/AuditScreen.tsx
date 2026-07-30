@@ -4,6 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
+import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { AuditLog } from '../types/database';
@@ -119,6 +120,39 @@ export default function AuditScreen() {
     (!nq || norm(r.user_name).includes(nq) || norm(tableLabel(r.table_name)).includes(nq))
   );
 
+  // PDF de la bitácora (con las filas ya filtradas). En web abre la VISTA PREVIA
+  // (modal con Imprimir / Guardar como PDF); en móvil comparte el archivo.
+  const generarPdf = async () => {
+    if (shown.length === 0) return;
+    const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const filtro = [
+      userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
+      tableFilter !== '__all__' ? `Tipo: ${tableLabel(tableFilter)}` : '',
+    ].filter(Boolean).join(' · ');
+    const filas = shown.map((r) => {
+      const a = ACTION_META[r.action] ?? { label: r.action.toLowerCase() };
+      const ev = EVENT_ACTIONS.has(r.action);
+      const accion = ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`;
+      const detalle = ev ? (r.detail ?? '') : '';
+      return `<tr>
+        <td>${esc(caracasDT(r.at))}</td>
+        <td>${esc(r.user_name || 'Alguien')}</td>
+        <td>${esc(accion)}</td>
+        <td>${esc(detalle)}</td>
+        <td>${esc(r.device ?? '')}</td>
+      </tr>`;
+    }).join('');
+    const html = pdfDocument({
+      title: 'Auditoría · Bitácora',
+      subtitle: `${date.split('-').reverse().join('/')} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
+      extraCss: `table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+        th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left;vertical-align:top}
+        th{background:#16324F;color:#fff} tr:nth-child(even) td{background:#f4f7fb}`,
+      body: `<table><thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Máquina / detalle</th><th>Dispositivo</th></tr></thead><tbody>${filas}</tbody></table>`,
+    });
+    await exportPdf(html, `Auditoria ${date}`);
+  };
+
   if (!canAudit) {
     return (<Screen><SectionTitle>Auditoría</SectionTitle><EmptyState title="Sin acceso" subtitle="Este módulo es privado." /></Screen>);
   }
@@ -152,7 +186,12 @@ export default function AuditScreen() {
             <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>{shown.length} acción(es) este día{userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
+          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>{shown.length} acción(es) este día{userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}</Text>
+          <TouchableOpacity onPress={generarPdf} disabled={shown.length === 0} style={{ backgroundColor: shown.length === 0 ? colors.surfaceAlt : colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: shown.length === 0 ? 0.5 : 1 }}>
+            <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF (vista previa)</Text>
+          </TouchableOpacity>
+        </View>
       </Card>
 
       <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar usuario o tipo…" placeholderTextColor={colors.muted}
