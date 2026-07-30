@@ -15,6 +15,7 @@ import QrScanner from '../components/QrScanner';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
+import { getMachineRound, upsertMachineRound } from '../lib/machineRounds';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -28,6 +29,13 @@ function caracasToday(): string {
 }
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
+}
+/** Tiempo transcurrido "Xh YYm" entre el inicio (ISO) y ahora (ms). */
+function elapsedLabel(startISO: string, nowMs: number): string {
+  const ms = Math.max(0, nowMs - new Date(startISO).getTime());
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return `${h}h ${m.toString().padStart(2, '0')}m`;
 }
 
 type Mach = Machinery & { companyName?: string; latitude?: number | null; longitude?: number | null };
@@ -79,6 +87,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [ciNote, setCiNote] = useState('');
   const [ciMotivo, setCiMotivo] = useState(''); // motivo de la avería cuando la máquina está PARADA
   const [ciSaving, setCiSaving] = useState(false);
+  // ── Jornada por TIEMPO (INICIAR → FINALIZAR). El inicio se guarda en la BD
+  //    (machine_rounds.jornada_start_at) para que sobreviva aunque se cierre la
+  //    pantalla. Al finalizar, las horas = (fin − inicio) van a Control (día/noche).
+  const [jornadaStart, setJornadaStart] = useState<string | null>(null);
+  const [jornadaShift, setJornadaShift] = useState<'day' | 'night'>('day');
+  const [jornadaBusy, setJornadaBusy] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const [paradaOpen, setParadaOpen] = useState(false); // desplegable del motivo de la avería (PARADA)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
   const [refOpen, setRefOpen] = useState(false);  // desplegable de edificios abierto
@@ -125,6 +141,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setRefOtro(!!r && !EDIFICIOS.includes(r)); // valor viejo fuera del catálogo → editable a mano
     setRefOpen(false);
   }, [ci?.id]);
+  // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
+  useEffect(() => {
+    if (!ci) { setJornadaStart(null); setParadaOpen(false); return; }
+    setParadaOpen(false);
+    (async () => {
+      const r = await getMachineRound(ci.id, today);
+      setJornadaStart((r as any)?.jornada_start_at ?? null);
+      setJornadaShift((((r as any)?.jornada_shift as any) ?? shiftOf(caracasParts(new Date()).hour).key));
+    })();
+  }, [ci?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reloj que corre solo mientras hay una jornada abierta (para el tiempo transcurrido).
+  useEffect(() => {
+    if (!jornadaStart) return;
+    setNowTick(Date.now());
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [jornadaStart]);
 
   const load = async () => {
     if (!uid) { setLoading(false); return; }
@@ -249,38 +282,75 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   }, [ci, gps]);
   const near = dist == null ? null : dist <= VISIT_NEAR_M;
 
-  const confirmCheckin = async () => {
-    if (!ci) return;
-    // Si está PARADA, el motivo de la avería es obligatorio.
-    if (ciStatus === 'parada' && !ciMotivo.trim()) { setNotice('⚠️ Escribe el motivo de la avería (la máquina está parada).'); return; }
-    setCiSaving(true);
-    setNotice(null);
+  // Guarda la visita (check-in) con un estado dado → aparece en el módulo de
+  // INSPECCIONES y valida la jornada del día. Devuelve la fila o null.
+  const registrarVisita = async (status: VisitStatus) => {
+    if (!ci) return null;
     const { data, error } = await saveVisit({
       machineryId: ci.id,
       supervisorId: uid || null,
       supervisorName: fullName || 'Inspector',
       visitDate: today,
-      status: ciStatus,
+      status,
       lat: gps?.lat ?? null,
       lng: gps?.lng ?? null,
       note: ciNote,
       machineLat: ci.latitude ?? null,
       machineLng: ci.longitude ?? null,
     });
-    if (error || !data) { setCiSaving(false); setNotice('❌ ' + (error ?? 'No se pudo guardar la visita.')); return; }
+    if (error || !data) { setNotice('❌ ' + (error ?? 'No se pudo guardar la visita.')); return null; }
     setVisits((prev) => ({ ...prev, [ci.id]: data }));
-    // PARADA → crea la AVERÍA automáticamente (va a Mantenimiento; Control mostrará "MÁQUINA PARADA").
-    let averiaTxt = '';
-    if (ciStatus === 'parada') {
-      const { error: avErr } = await supabase.from('maintenance_requests').insert({
-        machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
-      });
-      averiaTxt = avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada';
-    }
+    return data;
+  };
+
+  // ▶️ INICIAR JORNADA: guarda la hora de inicio (en la BD) y marca la máquina
+  // como "trabajando" en Inspecciones. El botón pasa a "Finalizar jornada".
+  const iniciarJornada = async () => {
+    if (!ci || jornadaBusy) return;
+    setJornadaBusy(true); setNotice(null);
+    const now = new Date();
+    const sh = shiftOf(caracasParts(now).hour).key;
+    const vis = await registrarVisita('trabajando');
+    if (!vis) { setJornadaBusy(false); return; }
+    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh }, uid || null);
+    setJornadaBusy(false);
+    if (res.error) { setNotice('❌ ' + res.error); return; }
+    setJornadaShift(sh);
+    setJornadaStart(now.toISOString());
+    setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftOf(caracasParts(now).hour).label}. Aparece en Inspecciones.`);
+  };
+
+  // 🏁 FINALIZAR JORNADA: horas = (fin − inicio); se SUMAN al turno (día/noche)
+  // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
+  const finalizarJornada = async () => {
+    if (!ci || !jornadaStart || jornadaBusy) return;
+    setJornadaBusy(true); setNotice(null);
+    const ms = Date.now() - new Date(jornadaStart).getTime();
+    const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
+    const prev = await getMachineRound(ci.id, today);
+    const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
+    const base = Number((prev as any)?.[key] ?? 0);
+    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, jornada_start_at: null }, uid || null);
+    setJornadaBusy(false);
+    if (res.error) { setNotice('❌ ' + res.error); return; }
+    setJornadaStart(null);
+    setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
+  };
+
+  // 🟡 PARADA: marca la máquina parada en INSPECCIONES y crea la AVERÍA en el
+  // módulo de Mantenimiento (con el motivo obligatorio). Control mostrará "MÁQUINA PARADA".
+  const marcarParada = async () => {
+    if (!ci || ciSaving) return;
+    if (!ciMotivo.trim()) { setNotice('⚠️ Escribe el motivo de la avería (la máquina está parada).'); return; }
+    setCiSaving(true); setNotice(null);
+    const vis = await registrarVisita('parada');
+    if (!vis) { setCiSaving(false); return; }
+    const { error: avErr } = await supabase.from('maintenance_requests').insert({
+      machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
+    });
     setCiSaving(false);
-    const dtxt = data.distance_m != null ? ` · a ~${data.distance_m} m${data.near ? ' (en sitio ✓)' : ' (lejos ⚠️)'}` : '';
-    setNotice(`✅ ${ci.code} revisada · ${statusLabel(ciStatus)}${dtxt}${averiaTxt}.`);
-    setCiMotivo('');
+    setNotice(`🟡 ${ci.code} marcada PARADA${avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
+    setCiMotivo(''); setParadaOpen(false);
     setCi(null);
   };
 
@@ -518,25 +588,38 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                 </TouchableOpacity>
               </View>
 
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>¿Cómo está la máquina?</Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-                {STATUS_OPTS.map((o) => {
-                  const on = ciStatus === o.key;
-                  return (
-                    <TouchableOpacity key={o.key} onPress={() => setCiStatus(o.key)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? o.color : colors.border, backgroundColor: on ? o.color : colors.surface }}>
-                      <Text style={{ fontSize: 20 }}>{o.icon}</Text>
-                      <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '800', fontSize: 12, marginTop: 2 }}>{o.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {/* ── Jornada de la máquina: INICIAR → FINALIZAR (cuenta las horas) ── */}
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Jornada de la máquina</Text>
+              {jornadaStart ? (
+                <View style={{ marginBottom: spacing.sm }}>
+                  <View style={{ backgroundColor: '#E8F5EC', borderWidth: 1, borderColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+                    <Text style={{ color: '#0F5C2E', fontWeight: '800', fontSize: 12 }}>
+                      🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
+                    </Text>
+                    <Text style={{ color: '#0F5C2E', fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, nowTick)}</Text>
+                  </View>
+                  <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🏁 FINALIZAR JORNADA'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm, opacity: jornadaBusy ? 0.6 : 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🟢 INICIAR JORNADA'}</Text>
+                </TouchableOpacity>
+              )}
 
-              {/* Si la máquina está PARADA se registra la AVERÍA automáticamente (pide el motivo). */}
-              {ciStatus === 'parada' ? (
+              {/* PARADA → avería (Mantenimiento) + inspección (Inspecciones). Pide el motivo. */}
+              <TouchableOpacity onPress={() => setParadaOpen((v) => !v)} disabled={ciSaving} style={{ backgroundColor: paradaOpen ? '#D9A200' : colors.surface, borderWidth: 2, borderColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
+                <Text style={{ color: paradaOpen ? '#fff' : '#8A6A00', fontWeight: '800' }}>🟡 PARADA (marcar avería)</Text>
+              </TouchableOpacity>
+              {paradaOpen ? (
                 <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>⚠️ Máquina parada — motivo de la avería (obligatorio)</Text>
+                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Motivo de la avería (obligatorio)</Text>
                   <TextInput value={ciMotivo} onChangeText={setCiMotivo} placeholder="Ej: falla hidráulica, sin arranque, cauchos…" placeholderTextColor={colors.muted} style={input} />
-                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Se creará una avería en Mantenimiento y en Control saldrá “MÁQUINA PARADA”.</Text>
+                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea una avería en Mantenimiento y aparece en Inspecciones. En Control saldrá “MÁQUINA PARADA”.</Text>
+                  <TouchableOpacity onPress={marcarParada} disabled={ciSaving} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
+                  </TouchableOpacity>
                 </View>
               ) : null}
 
@@ -639,11 +722,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                 </TouchableOpacity>
               ) : null}
 
-              <TouchableOpacity onPress={confirmCheckin} disabled={ciSaving} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '✅ Marcar como revisada'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setCi(null)} style={{ marginTop: spacing.sm, padding: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: colors.muted, fontWeight: '700' }}>Cancelar</Text>
+              <TouchableOpacity onPress={() => setCi(null)} style={{ marginTop: spacing.md, padding: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.muted, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

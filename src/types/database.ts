@@ -671,6 +671,8 @@ export interface MachineRound {
   horometro_inicial: number | null; // lectura del horómetro al iniciar la jornada
   horometro_final: number | null;   // lectura del horómetro al finalizar (horas = HF − HI)
   horometro_photo: string | null;   // foto del horómetro al iniciar
+  jornada_start_at: string | null;   // inicio de la jornada por TIEMPO abierta (null = cerrada)
+  jornada_shift: 'day' | 'night' | null; // turno del inicio de la jornada por tiempo
   created_at: string;
 }
 
