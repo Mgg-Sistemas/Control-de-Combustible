@@ -43,8 +43,8 @@ const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'))
 
 type Mode = 'camion' | 'averia' | 'gasoil' | 'jornada';
 type Mach = { id: string; code: string; plate: string | null };
-type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night' };
-type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night' };
+type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null };
+type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null };
 type PendingStart = { id: string; code: string; latitude: number | null; longitude: number | null };
 
 /**
@@ -99,7 +99,7 @@ export default function PatioScreen({ navigation }: any) {
   const loadOpen = async () => {
     const { data } = await supabase
       .from('machine_rounds')
-      .select('machinery_id, jornada_start_at, jornada_shift, machine:machinery_id(code)')
+      .select('machinery_id, jornada_start_at, jornada_shift, horometro_inicial, machine:machinery_id(code)')
       .eq('round_date', caracasToday())
       .not('jornada_start_at', 'is', null);
     setOpenJornadas(((data ?? []) as any[]).map((r) => ({
@@ -107,6 +107,7 @@ export default function PatioScreen({ navigation }: any) {
       code: r.machine?.code ?? '—',
       start: r.jornada_start_at as string,
       shift: (r.jornada_shift as 'day' | 'night') ?? 'day',
+      iniHoro: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
     })));
   };
   useEffect(() => { loadOpen(); }, []);
@@ -144,7 +145,7 @@ export default function PatioScreen({ navigation }: any) {
     } else {
       // Jornada abierta → confirmar finalización (pide horómetro final).
       setHoroFin('');
-      setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day' });
+      setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day', iniHoro: (round as any).horometro_inicial != null ? Number((round as any).horometro_inicial) : null });
     }
   };
 
@@ -268,7 +269,7 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
               </View>
-              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift, iniHoro: j.iniHoro }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                 <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🏁 Finalizar</Text>
               </TouchableOpacity>
             </View>
@@ -360,7 +361,15 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final</Text>
                 <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 4 }} />
-                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.md }}>Será el horómetro inicial de la próxima jornada.</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el horómetro inicial de la próxima jornada.</Text>
+                {(() => {
+                  const hf = Number((horoFin || '').replace(',', '.'));
+                  const hi = pendingFin.iniHoro;
+                  if (horoFin && isFinite(hf) && hi != null && hf >= hi) {
+                    return <Text style={{ color: colors.text, fontSize: 12, textAlign: 'center', marginBottom: spacing.md }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial {hi})</Text>;
+                  }
+                  return <View style={{ marginBottom: spacing.md }} />;
+                })()}
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                   <TouchableOpacity onPress={() => setPendingFin(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>

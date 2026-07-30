@@ -656,7 +656,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       </Text>
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final{horoIni ? ` (inicial: ${horoIni})` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
-                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Este horómetro final será el inicial de la próxima jornada.</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Este horómetro final será el inicial de la próxima jornada.</Text>
+                      {(() => {
+                        const hf = Number((horoFin || '').replace(',', '.'));
+                        const hi = Number((horoIni || '').replace(',', '.'));
+                        if (isFinite(hf) && isFinite(hi) && hf >= hi && horoFin) {
+                          return <Text style={{ color: '#12356B', fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial)</Text>;
+                        }
+                        return <View style={{ marginBottom: spacing.sm }} />;
+                      })()}
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                         <TouchableOpacity onPress={() => setFinConfirm(false)} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
