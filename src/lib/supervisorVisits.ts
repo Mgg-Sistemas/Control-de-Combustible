@@ -95,12 +95,17 @@ export async function listVisits(fromDate: string, toDate?: string): Promise<Vis
   }));
 }
 
-/** Inspector "asignado" a una máquina = quien hizo el ÚLTIMO check-in (visita). */
+/** Inspector "asignado" a una máquina = quien hizo el ÚLTIMO check-in (visita).
+ *  Las visitas de usuarios ADMIN se IGNORAN (el usuario de sistemas hace pruebas y
+ *  no debe quedar asignado como inspector; se usa el último inspector real). */
 export type InspectorInfo = { name: string; date: string; status: VisitStatus; near: boolean | null };
 export async function latestInspectorByMachine(): Promise<Record<string, InspectorInfo>> {
-  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_name, visit_date, visited_at, status, near');
+  const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+  const adminIds = new Set(((admins ?? []) as any[]).map((a) => a.id as string));
+  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_id, supervisor_name, visit_date, visited_at, status, near');
   const acc: Record<string, InspectorInfo & { _ts: string }> = {};
   (rows ?? []).forEach((v: any) => {
+    if (v.supervisor_id && adminIds.has(v.supervisor_id)) return; // ignora visitas de admin (pruebas)
     const cur = acc[v.machinery_id];
     if (!cur || String(v.visited_at) > cur._ts) {
       acc[v.machinery_id] = { name: v.supervisor_name, date: v.visit_date, status: v.status, near: v.near, _ts: v.visited_at };
