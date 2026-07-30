@@ -12,7 +12,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
-import { getMachineRound, upsertMachineRound } from '../lib/machineRounds';
+import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
 import { logAudit } from '../lib/audit';
@@ -45,6 +45,7 @@ type Mode = 'camion' | 'averia' | 'gasoil' | 'jornada';
 type Mach = { id: string; code: string; plate: string | null };
 type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night' };
 type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night' };
+type PendingStart = { id: string; code: string; latitude: number | null; longitude: number | null };
 
 /**
  * Panel del COORDINADOR DE PATIO (rol fijo). Dos acciones grandes:
@@ -67,6 +68,9 @@ export default function PatioScreen({ navigation }: any) {
   // Jornada de camión por escaneo (asistencia): abre/cierra jornada del camión.
   const [openJornadas, setOpenJornadas] = useState<OpenJornada[]>([]);
   const [pendingFin, setPendingFin] = useState<PendingFin | null>(null);
+  const [pendingStart, setPendingStart] = useState<PendingStart | null>(null);
+  const [horoIni, setHoroIni] = useState('');
+  const [horoFin, setHoroFin] = useState('');
   const [jornBusy, setJornBusy] = useState(false);
 
   // Formulario de avería.
@@ -131,36 +135,57 @@ export default function PatioScreen({ navigation }: any) {
     const today = caracasToday();
     setJornBusy(true);
     const round = await getMachineRound(m.id, today);
+    setJornBusy(false);
     if (!(round as any)?.jornada_start_at) {
-      const now = new Date();
-      const sh = shiftOf(caracasParts(now).hour).key;
-      await saveVisit({
-        machineryId: m.id, supervisorId: uid || null, supervisorName: fullName || 'Patio',
-        visitDate: today, status: 'trabajando', lat: null, lng: null,
-        note: 'Jornada de camión (patio)', machineLat: m.latitude ?? null, machineLng: m.longitude ?? null,
-      });
-      const res = await upsertMachineRound(m.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh }, uid || null);
-      setJornBusy(false);
-      if (res.error) { setNotice('❌ ' + res.error); return; }
-      logAudit('JORNADA_INICIO', 'machinery', m.id, m.code);
-      setNotice(`🟢 Jornada INICIADA · ${m.code} · ${caracasClock(now.toISOString())}. Aparece en Control e Inspecciones.`);
-      loadOpen();
+      // Sin jornada abierta → pide el horómetro inicial (precargado con el último final).
+      const last = await lastHorometroFinal(m.id);
+      setHoroIni(last != null ? String(last) : '');
+      setPendingStart({ id: m.id, code: m.code, latitude: m.latitude ?? null, longitude: m.longitude ?? null });
     } else {
-      setJornBusy(false);
+      // Jornada abierta → confirmar finalización (pide horómetro final).
+      setHoroFin('');
       setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day' });
     }
   };
 
-  // Confirma la FINALIZACIÓN de la jornada del camión: suma las horas al turno.
+  // Confirma el INICIO de la jornada del camión (con horómetro inicial).
+  const confirmarInicio = async () => {
+    if (!pendingStart || jornBusy) return;
+    const hi = Number((horoIni || '').replace(',', '.'));
+    if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
+    setJornBusy(true);
+    const today = caracasToday();
+    const now = new Date();
+    const sh = shiftOf(caracasParts(now).hour).key;
+    await saveVisit({
+      machineryId: pendingStart.id, supervisorId: uid || null, supervisorName: fullName || 'Patio',
+      visitDate: today, status: 'trabajando', lat: null, lng: null,
+      note: 'Jornada de camión (patio)', machineLat: pendingStart.latitude, machineLng: pendingStart.longitude,
+    });
+    const res = await upsertMachineRound(pendingStart.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh, horometro_inicial: hi }, uid || null);
+    setJornBusy(false);
+    if (res.error) { setNotice('❌ ' + res.error); return; }
+    logAudit('JORNADA_INICIO', 'machinery', pendingStart.id, pendingStart.code);
+    setNotice(`🟢 Jornada INICIADA · ${pendingStart.code} · ${caracasClock(now.toISOString())}. Aparece en Control e Inspecciones.`);
+    setPendingStart(null);
+    loadOpen();
+  };
+
+  // Confirma la FINALIZACIÓN de la jornada del camión (con horómetro final): suma
+  // las horas al turno. El horómetro final será el inicial de la próxima jornada.
   const confirmarFin = async () => {
     if (!pendingFin || jornBusy) return;
+    const hf = Number((horoFin || '').replace(',', '.'));
+    if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
     setJornBusy(true);
     const today = caracasToday();
     const horas = Math.max(0, Math.round((Date.now() - new Date(pendingFin.start).getTime()) / 3600000 * 100) / 100);
     const round = await getMachineRound(pendingFin.id, today);
+    const hi = Number((round as any)?.horometro_inicial);
+    if (isFinite(hi) && hf < hi) { setJornBusy(false); setNotice('❌ El horómetro final no puede ser menor que el inicial.'); return; }
     const key = pendingFin.shift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((round as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(pendingFin.id, today, { [key]: Math.round((base + horas) * 100) / 100, jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(pendingFin.id, today, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
     setJornBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     logAudit('JORNADA_FIN', 'machinery', pendingFin.id, `${pendingFin.code} · ${horas.toFixed(2)} h`);
@@ -243,7 +268,7 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
               </View>
-              <TouchableOpacity onPress={() => setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift })} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                 <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🏁 Finalizar</Text>
               </TouchableOpacity>
             </View>
@@ -289,6 +314,31 @@ export default function PatioScreen({ navigation }: any) {
         <QrScanner onClose={() => setScanMode(null)} onDetected={onDetected} />
       </Modal>
 
+      {/* INICIAR jornada del camión (pide el horómetro inicial). */}
+      <Modal visible={!!pendingStart} transparent animationType="fade" onRequestClose={() => setPendingStart(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <Card>
+            {pendingStart ? (
+              <>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🟢 Iniciar jornada</Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, textAlign: 'center', marginTop: 4, marginBottom: spacing.md }}>{pendingStart.code}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
+                <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.md }} />
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <TouchableOpacity onPress={() => setPendingStart(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={confirmarInicio} disabled={jornBusy} style={{ flex: 1, backgroundColor: '#0F766E', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornBusy ? 'Guardando…' : '🟢 Iniciar'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : null}
+          </Card>
+        </View>
+      </Modal>
+
       {/* Confirmar FINALIZAR jornada del camión (muestra el total de horas). */}
       <Modal visible={!!pendingFin} transparent animationType="fade" onRequestClose={() => setPendingFin(null)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
@@ -304,9 +354,13 @@ export default function PatioScreen({ navigation }: any) {
                   Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(pendingFin.start)}</Text>
                   {'  '}({((Date.now() - new Date(pendingFin.start).getTime()) / 3600000).toFixed(2)} h)
                 </Text>
-                <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 2, marginBottom: spacing.md }}>
+                <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 2, marginBottom: spacing.sm }}>
                   Se sumarán a Control de maquinaria en el turno de {pendingFin.shift === 'night' ? 'noche' : 'día'}.
                 </Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final</Text>
+                <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 4 }} />
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.md }}>Será el horómetro inicial de la próxima jornada.</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                   <TouchableOpacity onPress={() => setPendingFin(null)} disabled={jornBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>

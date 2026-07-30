@@ -72,6 +72,23 @@ export async function upsertMachineRound(
   return { data: data as MachineRound };
 }
 
+/**
+ * Último horómetro FINAL registrado de una máquina (la jornada más reciente con
+ * horómetro final). Sirve para precargar el horómetro INICIAL de la próxima
+ * jornada: el final de una jornada es el inicial de la siguiente.
+ */
+export async function lastHorometroFinal(machineryId: string): Promise<number | null> {
+  const { data } = await supabase
+    .from('machine_rounds')
+    .select('horometro_final')
+    .eq('machinery_id', machineryId)
+    .not('horometro_final', 'is', null)
+    .order('round_date', { ascending: false })
+    .limit(1);
+  const r = (data && (data[0] as any)) || null;
+  return r?.horometro_final != null ? Number(r.horometro_final) : null;
+}
+
 /** Lee la jornada (round_no=1) de una máquina en una fecha, o null si no existe. */
 export async function getMachineRound(
   machineryId: string,

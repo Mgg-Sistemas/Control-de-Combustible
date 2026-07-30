@@ -301,8 +301,8 @@ const SECTIONS: Sec[] = [
       ] },
       { t: 'p', text: 'Botones de la ficha de la máquina:' },
       { t: 'steps', items: [
-        '🟢 INICIAR JORNADA: guarda la hora de inicio y marca la máquina en Inspecciones. El botón cambia a 🏁 FINALIZAR JORNADA con un contador del tiempo trabajado.',
-        '🏁 FINALIZAR JORNADA: pide CONFIRMAR mostrando el total de horas; al aceptar, esas horas (fin − inicio) se suman a Control de maquinaria en el turno ☀️ día / 🌙 noche.',
+        '🟢 INICIAR JORNADA: pide el horómetro inicial (viene precargado con el horómetro final de la jornada anterior), guarda la hora de inicio y marca la máquina en Inspecciones. El botón cambia a 🏁 FINALIZAR JORNADA con un contador del tiempo trabajado.',
+        '🏁 FINALIZAR JORNADA: pide CONFIRMAR mostrando el total de horas y el horómetro final; al aceptar, esas horas (fin − inicio) se suman a Control de maquinaria en el turno ☀️ día / 🌙 noche. REGLA: ese horómetro final será el inicial de la próxima jornada.',
         '🟡 PARADA (marcar avería): pide el motivo (obligatorio), crea la avería en Mantenimiento y marca la visita en Inspecciones. En Control sale 🔴 MÁQUINA PARADA.',
       ] },
       { t: 'note', text: '📍 Ubicación: dentro del check-in el inspector guarda la ubicación GPS de la máquina con "📍 Guardar/Actualizar ubicación". Esa ubicación alimenta el reporte "📄 Máquinas por sector (Este / Oeste)" del Mapa, que agrupa las máquinas ubicadas por su sector geográfico (y lista aparte las que faltan por ubicar).' },
