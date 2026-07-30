@@ -77,6 +77,15 @@ export default function SupervisionScreen({ navigation }: any) {
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
+  // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
+  const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('profiles').select('id').eq('role', 'admin');
+      setAdminIds(new Set(((data ?? []) as any[]).map((a) => a.id as string)));
+    })();
+  }, []);
+  const noAdmin = (v: VisitRow) => !((v as any).supervisor_id && adminIds.has((v as any).supervisor_id));
 
   // ── Reporte por inspector (día o rango de fechas, con filtro multi-inspector) ──
   const [repOpen, setRepOpen] = useState(false);
@@ -91,7 +100,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const generarReporte = async () => {
     setRepLoading(true);
     const to = repMode === 'rango' ? repTo : undefined;
-    const vs = await listVisits(repFrom, to);
+    const vs = (await listVisits(repFrom, to)).filter(noAdmin);
     // Orden por inspector y luego por hora de inicio (ascendente).
     vs.sort((a, b) => cmpText(a.supervisor_name || '', b.supervisor_name || '') || String(a.visited_at).localeCompare(String(b.visited_at)));
     setRepVisits(vs);
@@ -186,20 +195,22 @@ export default function SupervisionScreen({ navigation }: any) {
     setDate(d.toISOString().slice(0, 10));
   };
 
-  const visitedIds = useMemo(() => new Set(visits.map((v) => v.machinery_id)), [visits]);
+  // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
+  const cleanVisits = useMemo(() => visits.filter(noAdmin), [visits, adminIds]);
+  const visitedIds = useMemo(() => new Set(cleanVisits.map((v) => v.machinery_id)), [cleanVisits]);
   const unvalidated = useMemo(() => rounds.filter((r) => !visitedIds.has(r.machinery_id)), [rounds, visitedIds]);
   const validated = rounds.length - unvalidated.length;
 
   // Traza agrupada por supervisor.
   const bySupervisor = useMemo(() => {
     const map = new Map<string, VisitRow[]>();
-    visits.forEach((v) => {
+    cleanVisits.forEach((v) => {
       const k = v.supervisor_name || '—';
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(v);
     });
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [visits]);
+  }, [cleanVisits]);
 
   // ── Reporte PDF de la traza del día (resumen por supervisor + detalle) ──────
   const reporte = async () => {
@@ -236,7 +247,7 @@ export default function SupervisionScreen({ navigation }: any) {
         }</tbody></table>`;
     const html = pdfDocument({
       title: 'Reporte de inspecciones',
-      subtitle: `Rondas del ${dmy(date)} · ${visits.length} visita(s) · ${validated} jornada(s) validada(s) · ${unvalidated.length} sin validar`,
+      subtitle: `Rondas del ${dmy(date)} · ${cleanVisits.length} visita(s) · ${validated} jornada(s) validada(s) · ${unvalidated.length} sin validar`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
         td.r,th.r{text-align:right} tr:nth-child(even) td{background:#f4f7fb}
@@ -274,7 +285,7 @@ export default function SupervisionScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Visitas', visits.length, colors.text)}
+          {kpi('Visitas', cleanVisits.length, colors.text)}
           {kpi('Jornadas validadas', validated, colors.success)}
           {kpi('Sin validar', unvalidated.length, unvalidated.length > 0 ? colors.danger : colors.success)}
         </View>
