@@ -17,6 +17,8 @@ export type RoundPatch = Partial<{
   horometro_inicial: number | null;
   horometro_final: number | null;
   horometro_photo: string | null;
+  jornada_start_at: string | null;
+  jornada_shift: string | null;
 }>;
 
 /**
@@ -54,6 +56,8 @@ export async function upsertMachineRound(
     horometro_inicial: ex?.horometro_inicial ?? null,
     horometro_final: ex?.horometro_final ?? null,
     horometro_photo: ex?.horometro_photo ?? null,
+    jornada_start_at: ex?.jornada_start_at ?? null,
+    jornada_shift: ex?.jornada_shift ?? null,
     ...patch,
   };
   if (recordedBy && !ex) payload.recorded_by = recordedBy;
