@@ -335,13 +335,17 @@ export default function RootNavigator() {
   // Al escanear el QR de la máquina se elige "Operadores" (vista de operador con
   // carnet) o "Usuarios" (login). Este flag marca que se eligió operador.
   const [qrOperator, setQrOperator] = React.useState(false);
+  // Al escanear el QR SIEMPRE se muestra primero la pantalla de entrada (logo +
+  // botones). Este flag marca que ya pasó por ahí (tocó "Usuarios") y puede caer
+  // en la vista de inspección de la máquina.
+  const [qrEntered, setQrEntered] = React.useState(false);
   const { colors } = useTheme();
   // Sesión anónima (operador que escaneó el QR sin loguearse): NO da acceso a la app.
   const isAnon = !!(session as any)?.user?.is_anonymous;
   // Al salir de una vista abierta por QR: SIEMPRE se cierra la sesión y se vuelve al
   // login. Escanear un QR NO es una puerta al sistema: la vista (operador / control de
   // cocina) queda aislada; su única salida es cerrar sesión (no entrar a la app).
-  const exitQr = React.useCallback(() => { signOut(); clearQr(); clearWantLogin(); setQrOperator(false); }, [signOut, clearQr, clearWantLogin]);
+  const exitQr = React.useCallback(() => { signOut(); clearQr(); clearWantLogin(); setQrOperator(false); setQrEntered(false); }, [signOut, clearQr, clearWantLogin]);
   const exitQrEmp = React.useCallback(() => { signOut(); clearQrEmp(); clearWantLogin(); }, [signOut, clearQrEmp, clearWantLogin]);
   const exitQrComida = React.useCallback(() => { signOut(); clearQrComida(); }, [signOut, clearQrComida]);
   // El QR de aliado es solo INFORMACIÓN pública: si era anónimo, cierra esa sesión temporal.
@@ -411,17 +415,22 @@ export default function RootNavigator() {
         // lectura). Cocina puede tocar "Soy de cocina" para entrar con su nombre.
         <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} />
       ) : qrMachineId && wantLogin && !loggedInReal ? (
-        // El SUPERVISOR pidió iniciar sesión (con su nombre) desde la vista de la máquina.
+        // Tocó "INICIAR SESIÓN" sin sesión: login (con su nombre) para la máquina.
         <LoginScreen />
       ) : qrMachineId && !loggedInReal && qrOperator ? (
         // Eligió "Operadores": vista de operador ANÓNIMA. Se identifica DENTRO con
         // su carnet + cédula (deben coincidir) antes de ver los botones; si no
         // escanea, no ve ni registra nada. "Volver" regresa a la pantalla de entrada.
         <MachineQuickScreen machineId={qrMachineId} qrSerial={qrMachineSerial} onExit={() => { if (isAnon) signOut(); setQrOperator(false); }} onSupervisorLogin={goSupervisorLogin} />
-      ) : qrMachineId && !loggedInReal ? (
-        // Al escanear el QR de la máquina: pantalla con el logo y dos botones.
-        // 👥 Usuarios → login · 🚜 Operadores → vista de operador (escanea carnet).
-        <MachineQrEntry onLogin={goSupervisorLogin} onOperator={() => setQrOperator(true)} />
+      ) : qrMachineId && !qrEntered && !wantLogin ? (
+        // Al escanear el QR de la máquina SIEMPRE se muestra primero esta pantalla
+        // (logo + botones), tengas sesión o no. 🔓 INICIAR SESIÓN → login (o, si ya
+        // hay sesión, entra directo a la vista de inspección). 🚜 Operadores →
+        // vista de operador (escanea carnet).
+        <MachineQrEntry
+          onLogin={() => { if (loggedInReal) setQrEntered(true); else goSupervisorLogin(); }}
+          onOperator={() => setQrOperator(true)}
+        />
       ) : qrMachineId && roleLoading ? (
         // Hay sesión real pero aún no sabemos el rol: esperar para no parpadear.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
@@ -429,9 +438,11 @@ export default function RootNavigator() {
         </View>
       ) : qrMachineId ? (
         // QR de máquina + sesión iniciada (CUALQUIER rol): cae en la VISTA DE
-        // INSPECTORES de esa máquina (check-in: nombre/empresa/serial + marcar
+        // INSPECCIÓN de esa máquina (check-in: nombre/empresa/serial + marcar
         // estado/ubicación, iniciar la jornada del operador escaneando su carnet,
-        // etc.). El login NORMAL (sin escanear) sigue viendo la app como siempre.
+        // avería, gasoil, etc.). Incluye a los coordinadores de patio, que así
+        // tienen su pantalla normal + todo lo de la máquina. El login NORMAL (sin
+        // escanear) sigue viendo la app como siempre según su rol.
         <SupervisorScreen initialMachineId={qrMachineId} />
       ) : !showApp ? (
         <LoginScreen />
