@@ -225,9 +225,12 @@ function PatioStack() {
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
-function SupervisorTabs() {
+function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
   const { colors } = useTheme();
   const screenHeader = useScreenHeader();
+  // Pestaña "Revisar" (Inspectores). Si es admin en teléfono, se le inyecta el
+  // botón SISTEMA para saltar a la app completa.
+  const RevisarScreen = React.useCallback(() => <SupervisorScreen onSistema={onSistema} />, [onSistema]);
   return (
     <Tab.Navigator
       screenOptions={{
@@ -238,7 +241,7 @@ function SupervisorTabs() {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
-      <Tab.Screen name="Revisar" component={SupervisorScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
+      <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
     </Tab.Navigator>
@@ -374,6 +377,9 @@ export default function RootNavigator() {
   // el módulo de Inspectores; en PC ven la app normal según su rol (y se mantiene
   // la sesión iniciada). Se calcula una sola vez (el dispositivo no cambia en vivo).
   const phone = React.useMemo(() => isPhoneDevice(), []);
+  // Admin en teléfono: cae en Inspectores, pero con el botón SISTEMA salta a la
+  // app completa (este flag lo activa). Se reinicia al recargar / cerrar sesión.
+  const [sistemaMode, setSistemaMode] = React.useState(false);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -466,10 +472,14 @@ export default function RootNavigator() {
         // TELÉFONO · coordinador de patio: su vista (registra entrada/salida y
         // jornada de camiones por escaneo). No cae en Inspectores de máquinas.
         <PatioStack />
+      ) : phone && role === 'admin' && sistemaMode ? (
+        // TELÉFONO · admin que tocó "SISTEMA": ve la app completa.
+        <Tabs />
       ) : phone ? (
         // TELÉFONO · cualquier otro rol: cae en el módulo de INSPECTORES (vista de
         // inspección de máquinas: escanear QR, iniciar/finalizar jornada, avería…).
-        <SupervisorTabs />
+        // El admin ve además el botón SISTEMA para saltar a la app completa.
+        <SupervisorTabs onSistema={role === 'admin' ? () => setSistemaMode(true) : undefined} />
       ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
         // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />

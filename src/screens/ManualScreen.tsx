@@ -290,7 +290,7 @@ const SECTIONS: Sec[] = [
     title: 'Inspecciones (rondas de inspectores)',
     blocks: [
       { t: 'p', text: 'Sirve para saber si los inspectores SÍ están yendo a las máquinas a revisar que estén trabajando. El inspector entra al sistema (rol inspector) y su pantalla principal es 🪖 Revisar (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.' },
-      { t: 'note', text: '📱 Teléfono vs 💻 PC: desde un TELÉFONO, al iniciar sesión TODOS los usuarios caen en el módulo de Inspectores (esta pantalla). Desde una PC cada quien ve la app normal según su rol y la sesión se mantiene iniciada. El coordinador de patio en teléfono ve su propia pantalla (jornada de camiones).' },
+      { t: 'note', text: '📱 Teléfono vs 💻 PC: desde un TELÉFONO, al iniciar sesión TODOS los usuarios caen en el módulo de Inspectores (esta pantalla). Desde una PC cada quien ve la app normal según su rol y la sesión se mantiene iniciada. El coordinador de patio en teléfono ve su propia pantalla (jornada de camiones). SOLO el administrador ve arriba un botón 🗂️ SISTEMA que lo lleva a la app completa desde el teléfono (para volver a Inspectores, recarga la página).' },
       { t: 'p', text: 'Cómo marca el inspector una máquina:' },
       { t: 'steps', items: [
         'Entra con su usuario y contraseña (desde teléfono, cualquiera cae aquí). Ve la lista 🪖 Revisar.',
