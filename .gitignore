@@ -52,6 +52,9 @@ _genqr.mjs
 
 QR-maquinas-por-empresa.pdf
 
+# Guía local del inspector (no versionar; se genera en local)
+Guia-Inspector-SOS-La-Guaira.pdf
+
 # Temporales de pruebas/automatizacion
 .playwright-mcp/
 boot.png
