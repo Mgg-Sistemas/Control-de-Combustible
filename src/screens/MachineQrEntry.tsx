@@ -9,8 +9,9 @@ const LOGO = require('../../assets/logo.png');
 /**
  * Pantalla de ENTRADA al escanear el QR de una máquina: muestra el logo y dos
  * botones.
- *  - 👥 Usuarios   → LOGIN (usuario y contraseña); luego cada quien cae en su
- *                    vista según su rol (supervisión / operador / etc.).
+ *  - 🔓 INICIAR SESIÓN → LOGIN (usuario y contraseña); luego, sin importar el rol,
+ *                    cae en la VISTA DE INSPECCIÓN de esta máquina. Los
+ *                    coordinadores de patio conservan su pantalla + jornada/avería.
  *  - 🚜 Operadores → vista de operador que EXIGE escanear el carnet para poder
  *                    hacer algo (si no escanea, no ve ni registra nada).
  */
@@ -34,7 +35,7 @@ export default function MachineQrEntry({ onLogin, onOperator }: { onLogin: () =>
         ¿Cómo vas a ingresar?
       </Text>
       <View style={{ width: '100%', maxWidth: 380 }}>
-        {boton('👥', 'Usuarios', 'Inicia sesión con usuario y contraseña', onLogin)}
+        {boton('🔓', 'INICIAR SESIÓN', 'Entra con tu usuario y contraseña', onLogin)}
         {boton('🚜', 'Operadores', 'Escanea tu carnet para operar la máquina', onOperator)}
       </View>
     </View>
