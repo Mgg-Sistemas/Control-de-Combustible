@@ -473,12 +473,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   return (
     <Screen>
       <ConfigBanner />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.muted, fontSize: 12 }}>Inspector</Text>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
+      <View>
+        {/* Fila 1: nombre del inspector + Salir (el nombre se recorta, no se apila). */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Inspector</Text>
+            <Text numberOfLines={1} style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
+          </View>
+          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+          </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+        {/* Fila 2: acciones (se acomodan en varias líneas si no caben). */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
           {/* Solo ADMIN (en teléfono): ir a la app completa (SISTEMA). */}
           {onSistema ? (
             <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
@@ -487,12 +494,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           ) : null}
           {/* Escanear el QR de la máquina — acceso rápido arriba. */}
           <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>📷</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📷 Escanear</Text>
           </TouchableOpacity>
           <ChangePasswordButton />
-          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-          </TouchableOpacity>
         </View>
       </View>
 
