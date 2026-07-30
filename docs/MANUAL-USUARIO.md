@@ -532,16 +532,27 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-**Cómo marca el inspector una máquina (tres formas, las tres valen):**
-1. Entra con su cédula y contraseña (rol inspector). Cae en la pestaña **🪖 Revisar**.
-2. **Desde la lista:** busca la máquina y **tócala** (o toca **"📷 Escanear QR"** si la tiene
-   pegada). **Ya no hace falta el QR físico** para marcarla.
-3. **Escaneando el QR con la CÁMARA del teléfono** (aunque no esté dentro del sistema): al abrir,
-   toca el botón azul **"🪖 SOY INSPECTOR — ENTRAR"**, inicia sesión con su usuario y va
-   **directo** al check-in de esa máquina (no pasa por la identificación de operador).
-4. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
-5. Elige el estado: 🟢 **Trabajando**, 🟡 **Parada** o 🔴 **No está**, y una nota si quiere.
-6. Toca **"✅ Marcar como revisada"**. Queda la hora, el estado y la distancia.
+> **📱 Teléfono vs 💻 PC:** desde un **teléfono**, al iniciar sesión **todos los usuarios** caen
+> en el módulo de **Inspectores** (esta pantalla). Desde una **PC** cada quien ve la app normal
+> según su rol y la **sesión se mantiene iniciada**. El **coordinador de patio** en teléfono ve su
+> propia pantalla (jornada de camiones), no la de máquinas.
+
+**Cómo marca el inspector una máquina (varias formas, todas valen):**
+1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve la lista **🪖 Revisar**.
+2. **Buscar:** arriba puede **buscar por nombre, serial/placa o empresa**. Hay un botón **📷** arriba
+   para escanear el QR directo.
+3. **Desde la lista:** toca la máquina y se abre su ficha de inspección (nombre, empresa, serial/placa).
+4. **Escaneando el QR con la CÁMARA del teléfono:** sale una pantalla con el logo y el botón
+   **🔓 INICIAR SESIÓN**; entra con su usuario y cae **directo** en la ficha de esa máquina.
+5. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
+
+**Botones de la ficha de la máquina:**
+- **🟢 INICIAR JORNADA** — guarda la **hora de inicio** y marca la máquina en **Inspecciones**. El
+  botón cambia a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
+- **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas**; al aceptar, esas
+  horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️ día / 🌙 noche.
+- **🟡 PARADA (marcar avería)** — pide el **motivo** (obligatorio), crea la **avería** en
+  Mantenimiento **y** marca la visita en **Inspecciones**. En Control sale **🔴 MÁQUINA PARADA**.
 
 > El inspector puede marcar **cualquier** máquina (no tiene la restricción por empresa del
 > operador). El operador, en cambio, solo puede usar equipos de **su** empresa.
@@ -590,6 +601,17 @@ Cada inspector trae un **resumen de cercanía** para saber qué tan confiables f
 **• sin GPS** (no se pudo verificar). El botón **"📄 Reporte de inspecciones (PDF)"** genera el
 informe del día con ese resumen por inspector, el detalle de cada visita (hora, máquina,
 empresa, estado y ubicación) y las jornadas sin validar.
+
+> **📊 Reporte por inspector (día o rango):** dentro de Inspecciones hay un reporte con filtro por
+> **📅 un día** o **📆 rango de fechas** y un filtro de inspectores **tipo check** (marcas uno o
+> varios; vacío = todos). Muestra, por inspector, la **hora de inicio**, la **máquina**, el
+> **serial/placa**, el **sector** y la **empresa**, y se puede **descargar en PDF**.
+
+> **🚚 Jornada de camiones (coordinador de patio):** el coordinador de patio **escanea el QR del
+> camión** para **iniciar** su jornada; al **escanearlo de nuevo** la **finaliza** (pide confirmar
+> con el total de horas). Las horas van a **Control de maquinaria** y la marca aparece en
+> **Inspecciones**. En su pantalla ve la lista de **camiones en jornada** (asistencia) con el tiempo
+> transcurrido y un botón para finalizar.
 
 ### 4.8c. Distribución de comida
 Lleva el control de **cuántas comidas** se le reparten a cada persona. Quien reparte es un
@@ -842,6 +864,23 @@ No se puede **borrar** un rol si tiene **usuarios vinculados** (el sistema te av
 
 ---
 
+### 4.13b. Auditoría (bitácora — quién hace qué)
+
+La ven **todos los administradores** (y quien tenga el permiso). Registra, con **fecha y hora**
+(horario de Caracas) y **nombre y apellido** de quien lo hizo, todo lo que pasa en el sistema.
+Además de las creaciones/modificaciones/eliminaciones de cada módulo, ahora registra **eventos**
+que antes no quedaban:
+
+- **🔑 Inició sesión** — quién entró y **desde qué dispositivo** (📱 teléfono o 💻 PC, con el
+  sistema: Android/iPhone/Windows).
+- **📷 Escaneó** — qué **máquina** se escaneó (código) y a qué hora.
+- **🟢 Inició jornada / 🏁 Finalizó jornada / 🟡 Parada** — la máquina, las horas y el motivo.
+
+Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
+completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
+
+---
+
 ### 4.20. Surtir gasoil (por QR)
 
 Se registra el surtido de gasoil escaneando el **QR de la máquina**, desde: el **Inspector**
@@ -858,9 +897,14 @@ Se registra el surtido de gasoil escaneando el **QR de la máquina**, desde: el 
 
 ### 4.21. Coordinador de Patio
 
-Rol para controlar la **entrada y salida de camiones** al patio, y reportar averías, por QR.
+Rol para controlar la **jornada y la entrada/salida de camiones** al patio, y reportar averías, por QR.
 
-- **📷 Escanear QR** → elige **ENTRADA** o **SALIDA** del camión (queda con la hora).
+- **🕒 Jornada de camión** → escanea el **QR del camión** para **INICIAR** su jornada; al
+  **escanearlo de nuevo** la **FINALIZA** (pide confirmar mostrando el total de horas). Las horas
+  van a **Control de maquinaria** (turno día/noche) y la jornada aparece en **Inspecciones**.
+  Debajo se ve la lista de **🟢 Camiones en jornada** (asistencia) con el tiempo transcurrido y un
+  botón **🏁 Finalizar** por cada uno.
+- **📷 Entrada / Salida** → elige **ENTRADA** o **SALIDA** del camión (queda con la hora).
 - **⛽ Surtir gasoil** → horómetro + litros.
 - **🛠️ Avería** → reporta la falla (va a Mantenimiento).
 - **🚚 Entrada y salida de camiones** → un **CALENDARIO**: cada día muestra cuántos camiones
