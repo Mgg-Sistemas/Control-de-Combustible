@@ -353,8 +353,12 @@ export default function RootNavigator() {
   // Pide iniciar sesión desde una vista abierta por QR (para que quede el nombre
   // de quien registra). Cierra la sesión anónima y marca ?login=1 conservando el
   // parámetro del QR (?maquina o ?empleado).
-  const goQrLogin = React.useCallback((param: 'maquina' | 'empleado', id: string) => {
-    if (isAnon) signOut();
+  const goQrLogin = React.useCallback(async (param: 'maquina' | 'empleado', id: string) => {
+    // SIEMPRE cerrar la sesión actual (anónima o real) antes de mostrar el login,
+    // para que "INICIAR SESIÓN" realmente pida usuario y contraseña aunque ya
+    // hubiera alguien logueado en el teléfono. Hay que esperar a que se limpie el
+    // almacenamiento; si recargamos antes, la sesión se restauraría y no pediría login.
+    try { await signOut(); } catch {}
     if (Platform.OS === 'web') {
       try {
         const w: any = globalThis;
@@ -362,7 +366,7 @@ export default function RootNavigator() {
         w.location.reload();
       } catch {}
     }
-  }, [isAnon, signOut]);
+  }, [signOut]);
   const goSupervisorLogin = React.useCallback(() => goQrLogin('maquina', qrMachineId ?? ''), [goQrLogin, qrMachineId]);
   const goCocinaLogin = React.useCallback(() => goQrLogin('empleado', qrEmployeeId ?? ''), [goQrLogin, qrEmployeeId]);
   // Sesión real (no anónima) ya cargada.
@@ -428,7 +432,7 @@ export default function RootNavigator() {
         // hay sesión, entra directo a la vista de inspección). 🚜 Operadores →
         // vista de operador (escanea carnet).
         <MachineQrEntry
-          onLogin={() => { if (loggedInReal) setQrEntered(true); else goSupervisorLogin(); }}
+          onLogin={goSupervisorLogin}
           onOperator={() => setQrOperator(true)}
         />
       ) : qrMachineId && roleLoading ? (
