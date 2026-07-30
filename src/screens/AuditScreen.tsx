@@ -194,7 +194,7 @@ export default function AuditScreen() {
                         ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
                         : <Text style={{ fontWeight: '700' }}> {tableLabel(r.table_name)}</Text>}
                     </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
                 </View>
@@ -226,6 +226,7 @@ export default function AuditScreen() {
                   <Row k="Qué hizo" v={EVENT_ACTIONS.has(detail.action) ? a.label.toUpperCase() : `${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
                   <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
                   <Row k="Cuándo" v={caracasDT(detail.at)} />
+                  {detail.device ? <Row k="Dispositivo" v={detail.device} /> : null}
                   {detail.user_name ? null : (
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                       ℹ️ Las ediciones de usuario hechas antes de esta actualización no guardaron quién las hizo. De ahora en adelante sí queda registrado el admin.

@@ -31,6 +31,7 @@ import FoodCompanyScreen from '../screens/FoodCompanyScreen';
 import MachineQuickScreen from '../screens/MachineQuickScreen';
 import MachineQrEntry from '../screens/MachineQrEntry';
 import ScanQrScreen from '../screens/ScanQrScreen';
+import { isPhoneDevice } from '../lib/device';
 import PatioScreen from '../screens/PatioScreen';
 import CamionesScreen from '../screens/CamionesScreen';
 import MapScreen from '../screens/MapScreen';
@@ -369,6 +370,10 @@ export default function RootNavigator() {
   }, [signOut]);
   const goSupervisorLogin = React.useCallback(() => goQrLogin('maquina', qrMachineId ?? ''), [goQrLogin, qrMachineId]);
   const goCocinaLogin = React.useCallback(() => goQrLogin('empleado', qrEmployeeId ?? ''), [goQrLogin, qrEmployeeId]);
+  // ¿La sesión corre en un TELÉFONO/tablet? En teléfono todos los usuarios caen en
+  // el módulo de Inspectores; en PC ven la app normal según su rol (y se mantiene
+  // la sesión iniciada). Se calcula una sola vez (el dispositivo no cambia en vivo).
+  const phone = React.useMemo(() => isPhoneDevice(), []);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -452,6 +457,19 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
+      ) : phone && roleLoading ? (
+        // En teléfono, mientras carga el rol esperamos (para saber si es patio).
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : phone && role === 'coordinador_patio' ? (
+        // TELÉFONO · coordinador de patio: su vista (registra entrada/salida y
+        // jornada de camiones por escaneo). No cae en Inspectores de máquinas.
+        <PatioStack />
+      ) : phone ? (
+        // TELÉFONO · cualquier otro rol: cae en el módulo de INSPECTORES (vista de
+        // inspección de máquinas: escanear QR, iniciar/finalizar jornada, avería…).
+        <SupervisorTabs />
       ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
         // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />
