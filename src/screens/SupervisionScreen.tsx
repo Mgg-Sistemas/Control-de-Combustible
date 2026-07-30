@@ -7,6 +7,8 @@ import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { sectorOf, sectorLabel } from '../lib/mapZones';
+import { cmpText } from '../lib/text';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -48,6 +50,13 @@ function summarize(list: VisitRow[]) {
 }
 /** ISO (YYYY-MM-DD) → DD/MM/YYYY. */
 const dmy = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+/** Sector de la máquina de una visita (por su ubicación; si no, por su referencia). */
+const sectorOfVisit = (v: VisitRow): string => {
+  const s = sectorLabel(sectorOf(v.machineLat, v.machineLng));
+  return s && s !== 'Sin zona' ? s : (v.machineRef || 'Sin zona');
+};
+/** Serial o placa de la máquina de una visita. */
+const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial || '—';
 
 /**
  * Módulo de SUPERVISIÓN (para el jefe): traza de las rondas de los supervisores
@@ -68,6 +77,65 @@ export default function SupervisionScreen({ navigation }: any) {
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
+
+  // ── Reporte por inspector (día o rango de fechas, con filtro multi-inspector) ──
+  const [repOpen, setRepOpen] = useState(false);
+  const [repMode, setRepMode] = useState<'dia' | 'rango'>('dia');
+  const [repFrom, setRepFrom] = useState(caracasToday());
+  const [repTo, setRepTo] = useState(caracasToday());
+  const [repVisits, setRepVisits] = useState<VisitRow[]>([]);
+  const [repLoaded, setRepLoaded] = useState(false);
+  const [repLoading, setRepLoading] = useState(false);
+  const [repSel, setRepSel] = useState<Set<string>>(new Set()); // inspectores marcados (vacío = todos)
+
+  const generarReporte = async () => {
+    setRepLoading(true);
+    const to = repMode === 'rango' ? repTo : undefined;
+    const vs = await listVisits(repFrom, to);
+    // Orden por inspector y luego por hora de inicio (ascendente).
+    vs.sort((a, b) => cmpText(a.supervisor_name || '', b.supervisor_name || '') || String(a.visited_at).localeCompare(String(b.visited_at)));
+    setRepVisits(vs);
+    setRepLoaded(true);
+    setRepLoading(false);
+  };
+  const repInspectors = useMemo(() => Array.from(new Set(repVisits.map((v) => v.supervisor_name || '—'))).sort(cmpText), [repVisits]);
+  const repRows = useMemo(() => repVisits.filter((v) => repSel.size === 0 || repSel.has(v.supervisor_name || '—')), [repVisits, repSel]);
+  const repByInspector = useMemo(() => {
+    const map = new Map<string, VisitRow[]>();
+    repRows.forEach((v) => { const k = v.supervisor_name || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(v); });
+    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  }, [repRows]);
+  const toggleRepInspector = (name: string) => setRepSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+
+  // PDF del reporte por inspector (hora de inicio · máquina · serial/placa · sector · empresa).
+  const reportePorInspector = async () => {
+    if (repByInspector.length === 0) return;
+    const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rango = repMode === 'rango' ? `${dmy(repFrom)} — ${dmy(repTo)}` : dmy(repFrom);
+    const mostrarFecha = repMode === 'rango';
+    const secciones = repByInspector.map(([name, list]) => {
+      const filas = list.map((v) => `<tr>
+        <td>${esc(mostrarFecha ? `${dmy(v.visit_date)} ` : '')}${esc(caracasClock(v.visited_at))}</td>
+        <td>${esc(v.machineCode)}</td>
+        <td>${esc(plateOfVisit(v))}</td>
+        <td>${esc(sectorOfVisit(v))}</td>
+        <td>${esc(v.companyName)}</td>
+        <td>${esc(STATUS_META[v.status].label)}</td>
+      </tr>`).join('');
+      return `<h3>👮 ${esc(name)} · ${list.length} registro(s)</h3>
+        <table><thead><tr><th>Hora inicio</th><th>Máquina</th><th>Serial/Placa</th><th>Sector</th><th>Empresa</th><th>Estado</th></tr></thead>
+          <tbody>${filas}</tbody></table>`;
+    }).join('');
+    const html = pdfDocument({
+      title: 'Inspecciones por inspector',
+      subtitle: `${rango} · ${repRows.length} registro(s) · ${repByInspector.length} inspector(es)`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
+        tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 2px;font-size:14px;color:#16324F}`,
+      body: secciones,
+    });
+    await exportPdf(html, `Inspecciones ${rango}`);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -211,6 +279,95 @@ export default function SupervisionScreen({ navigation }: any) {
           {kpi('Sin validar', unvalidated.length, unvalidated.length > 0 ? colors.danger : colors.success)}
         </View>
       </Card>
+
+      {/* ── REPORTE por inspector: día o rango de fechas + filtro multi-inspector ── */}
+      <TouchableOpacity onPress={() => setRepOpen((v) => !v)} activeOpacity={0.8}>
+        <Card>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Text style={{ fontSize: 24 }}>📊</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: '800', color: colors.text, fontSize: 15 }}>Reporte por inspector</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Por día o rango de fechas · hora de inicio, máquina, serial/placa, sector, empresa</Text>
+            </View>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{repOpen ? '▲' : '▼'}</Text>
+          </View>
+        </Card>
+      </TouchableOpacity>
+
+      {repOpen ? (
+        <Card>
+          {/* Modo: un día o un rango */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            {(['dia', 'rango'] as const).map((m) => {
+              const on = repMode === m;
+              return (
+                <TouchableOpacity key={m} onPress={() => setRepMode(m)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{m === 'dia' ? '📅 Un día' : '📆 Rango'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>{repMode === 'dia' ? 'Día' : 'Desde'}</Text>
+          <DateField value={repFrom} onChange={setRepFrom} maxISO={caracasToday()} />
+          {repMode === 'rango' ? (
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
+              <DateField value={repTo} onChange={setRepTo} maxISO={caracasToday()} />
+            </>
+          ) : null}
+          <TouchableOpacity onPress={generarReporte} disabled={repLoading} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: repLoading ? 0.6 : 1 }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{repLoading ? 'Buscando…' : '🔎 Generar'}</Text>
+          </TouchableOpacity>
+
+          {repLoaded ? (
+            repVisits.length === 0 ? (
+              <View style={{ marginTop: spacing.md }}><EmptyState title="Sin inspecciones" subtitle="No hay registros para ese día o rango." /></View>
+            ) : (
+              <>
+                {/* Filtro por inspector (check para seleccionar varios o uno; vacío = todos). */}
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Inspectores (marca uno o varios · vacío = todos)</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                  {repInspectors.map((name) => {
+                    const on = repSel.has(name);
+                    return (
+                      <TouchableOpacity key={name} onPress={() => toggleRepInspector(name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                        <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {repSel.size > 0 ? (
+                    <TouchableOpacity onPress={() => setRepSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <TouchableOpacity onPress={reportePorInspector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Descargar PDF ({repRows.length})</Text>
+                </TouchableOpacity>
+
+                {/* Resultado en pantalla, agrupado por inspector. */}
+                {repByInspector.map(([name, list]) => (
+                  <View key={name} style={{ marginTop: spacing.xs }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 2 }}>👮 {name} · {list.length}</Text>
+                    {list.map((v) => (
+                      <View key={v.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                          🕒 {repMode === 'rango' ? `${dmy(v.visit_date)} · ` : ''}{caracasClock(v.visited_at)} · {v.machineCode}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          🔖 {plateOfVisit(v)} · 📍 {sectorOfVisit(v)} · 🏢 {v.companyName}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </>
+            )
+          ) : null}
+        </Card>
+      ) : null}
 
       {/* Submódulo: entrada y salida de camiones (calendario del patio). */}
       <TouchableOpacity onPress={() => navigation?.navigate?.('Camiones')} activeOpacity={0.8}>
