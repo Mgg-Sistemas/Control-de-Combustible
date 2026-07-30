@@ -15,7 +15,7 @@ import QrScanner from '../components/QrScanner';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
-import { getMachineRound, upsertMachineRound } from '../lib/machineRounds';
+import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { logAudit } from '../lib/audit';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -95,6 +95,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [jornadaShift, setJornadaShift] = useState<'day' | 'night'>('day');
   const [jornadaBusy, setJornadaBusy] = useState(false);
   const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
+  // Horómetro: al iniciar se pide el INICIAL (precargado con el último final de la
+  // máquina); al finalizar se pide el FINAL (que será el inicial de la próxima jornada).
+  const [horoIni, setHoroIni] = useState('');
+  const [horoFin, setHoroFin] = useState('');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [paradaOpen, setParadaOpen] = useState(false); // desplegable del motivo de la avería (PARADA)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
@@ -146,11 +150,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); return; }
-    setParadaOpen(false); setFinConfirm(false);
+    setParadaOpen(false); setFinConfirm(false); setHoroFin('');
     (async () => {
       const r = await getMachineRound(ci.id, today);
-      setJornadaStart((r as any)?.jornada_start_at ?? null);
+      const open = (r as any)?.jornada_start_at ?? null;
+      setJornadaStart(open);
       setJornadaShift((((r as any)?.jornada_shift as any) ?? shiftOf(caracasParts(new Date()).hour).key));
+      if (open) {
+        // Jornada abierta: muestra su horómetro inicial ya guardado.
+        setHoroIni((r as any)?.horometro_inicial != null ? String((r as any).horometro_inicial) : '');
+      } else {
+        // Cerrada: precarga el inicial con el último horómetro final de la máquina.
+        const last = await lastHorometroFinal(ci.id);
+        setHoroIni(last != null ? String(last) : '');
+      }
     })();
   }, [ci?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reloj que corre solo mientras hay una jornada abierta (para el tiempo transcurrido).
@@ -316,12 +329,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // como "trabajando" en Inspecciones. El botón pasa a "Finalizar jornada".
   const iniciarJornada = async () => {
     if (!ci || jornadaBusy) return;
+    const hi = Number((horoIni || '').replace(',', '.'));
+    if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     setJornadaBusy(true); setNotice(null);
     const now = new Date();
     const sh = shiftOf(caracasParts(now).hour).key;
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
-    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh }, uid || null);
+    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh, horometro_inicial: hi }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
@@ -334,13 +349,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
+    const hf = Number((horoFin || '').replace(',', '.'));
+    if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
+    const hi = Number((horoIni || '').replace(',', '.'));
+    if (isFinite(hi) && hf < hi) { setNotice('❌ El horómetro final no puede ser menor que el inicial.'); return; }
     setJornadaBusy(true); setNotice(null);
     const ms = Date.now() - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
     const prev = await getMachineRound(ci.id, today);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaStart(null);
@@ -631,6 +650,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: '#12356B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final{horoIni ? ` (inicial: ${horoIni})` : ''}</Text>
+                      <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Este horómetro final será el inicial de la próxima jornada.</Text>
                       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
                         <TouchableOpacity onPress={() => setFinConfirm(false)} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
                           <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
@@ -647,9 +669,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   )}
                 </View>
               ) : (
-                <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm, opacity: jornadaBusy ? 0.6 : 1 }}>
-                  <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🟢 INICIAR JORNADA'}</Text>
-                </TouchableOpacity>
+                <View style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
+                  <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                  <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🟢 INICIAR JORNADA'}</Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
               {/* PARADA → avería (Mantenimiento) + inspección (Inspecciones). Pide el motivo. */}

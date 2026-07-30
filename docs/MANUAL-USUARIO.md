@@ -549,10 +549,12 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 5. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
 
 **Botones de la ficha de la máquina:**
-- **🟢 INICIAR JORNADA** — guarda la **hora de inicio** y marca la máquina en **Inspecciones**. El
-  botón cambia a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
-- **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas**; al aceptar, esas
-  horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️ día / 🌙 noche.
+- **🟢 INICIAR JORNADA** — pide el **horómetro inicial** (viene **precargado** con el horómetro
+  final de la jornada anterior), guarda la **hora de inicio** y marca la máquina en **Inspecciones**.
+  El botón cambia a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
+- **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas** y el **horómetro
+  final**; al aceptar, las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️
+  día / 🌙 noche. **Regla:** ese **horómetro final será el inicial de la próxima jornada**.
 - **🟡 PARADA (marcar avería)** — pide el **motivo** (obligatorio), crea la **avería** en
   Mantenimiento **y** marca la visita en **Inspecciones**. En Control sale **🔴 MÁQUINA PARADA**.
 
