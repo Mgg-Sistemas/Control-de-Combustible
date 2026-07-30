@@ -93,6 +93,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   const [jornadaStart, setJornadaStart] = useState<string | null>(null);
   const [jornadaShift, setJornadaShift] = useState<'day' | 'night'>('day');
   const [jornadaBusy, setJornadaBusy] = useState(false);
+  const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [paradaOpen, setParadaOpen] = useState(false); // desplegable del motivo de la avería (PARADA)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
@@ -143,8 +144,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
-    if (!ci) { setJornadaStart(null); setParadaOpen(false); return; }
-    setParadaOpen(false);
+    if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); return; }
+    setParadaOpen(false); setFinConfirm(false);
     (async () => {
       const r = await getMachineRound(ci.id, today);
       setJornadaStart((r as any)?.jornada_start_at ?? null);
@@ -334,6 +335,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaStart(null);
+    setFinConfirm(false);
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
 
@@ -598,9 +600,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
                     </Text>
                     <Text style={{ color: '#0F5C2E', fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, nowTick)}</Text>
                   </View>
-                  <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🏁 FINALIZAR JORNADA'}</Text>
-                  </TouchableOpacity>
+                  {finConfirm ? (
+                    <View style={{ backgroundColor: '#EAF1FB', borderWidth: 1, borderColor: '#2563EB', borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
+                      <Text style={{ color: '#12356B', fontSize: 13, marginTop: 4, textAlign: 'center' }}>
+                        Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, nowTick)}</Text>
+                        {'  '}({((Math.max(0, nowTick - new Date(jornadaStart).getTime())) / 3600000).toFixed(2)} h)
+                      </Text>
+                      <Text style={{ color: '#12356B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
+                        Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                        <TouchableOpacity onPress={() => setFinConfirm(false)} disabled={jornadaBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', backgroundColor: colors.surface }}>
+                          <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={finalizarJornada} disabled={jornadaBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={() => setFinConfirm(true)} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '800' }}>🏁 FINALIZAR JORNADA</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : (
                 <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm, opacity: jornadaBusy ? 0.6 : 1 }}>
