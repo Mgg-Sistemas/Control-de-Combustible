@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
 import { PermLevel, defaultLevel, maxLevel } from '../lib/permissions';
+import { logAudit } from '../lib/audit';
 import {
   isBiometricSupported,
   isBiometricEnabled,
@@ -190,7 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const v = validateName(firstName, lastName);
     if (v) return { error: v };
     const email = nameToEmail(firstName, lastName);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       return {
         error:
@@ -199,6 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : error.message,
       };
     }
+    logAudit('LOGIN', 'profiles', data.user?.id ?? null); // bitácora: inició sesión
     setLocked(false);
     return {};
   };
@@ -217,7 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const email = status?.email;
     if (!email) return { error: 'Pídele al administrador de sistemas que agregue la CÉDULA para poder ingresar.' };
     if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
-    const { error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email: String(email), password });
     if (error) {
       const invalid = error.message.toLowerCase().includes('invalid');
       if (!invalid) return { error: error.message };
@@ -230,6 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // Éxito: limpia el contador de intentos fallidos.
     await supabase.rpc('reset_failed_login', { p_cedula: ci });
+    logAudit('LOGIN', 'profiles', data.user?.id ?? null); // bitácora: inició sesión
     setLocked(false);
     return {};
   };
@@ -247,7 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const email = status?.email;
     if (!email) return { error: 'Usuario no registrado. Pídele al administrador de sistemas que te cree un usuario.' };
     if (status?.locked) return { error: '🔒 Usuario BLOQUEADO por intentos fallidos. Pídele al administrador de sistemas que lo desbloquee.' };
-    const { error } = await supabase.auth.signInWithPassword({ email: String(email), password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email: String(email), password });
     if (error) {
       const invalid = error.message.toLowerCase().includes('invalid');
       if (!invalid) return { error: error.message };
@@ -258,6 +261,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: `Usuario o contraseña incorrectos. ${left === 1 ? 'Te queda 1 intento' : `Te quedan ${left} intentos`} antes del bloqueo.` };
     }
     await supabase.rpc('reset_failed_login_username', { p_username: u });
+    logAudit('LOGIN', 'profiles', data.user?.id ?? null); // bitácora: inició sesión
     setLocked(false);
     return {};
   };

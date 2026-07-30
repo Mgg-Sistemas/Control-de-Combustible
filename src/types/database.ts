@@ -78,9 +78,12 @@ export interface AuditLog {
   at: string;
   user_id: string | null;
   user_name: string | null;
-  action: 'INSERT' | 'UPDATE' | 'DELETE';
+  // INSERT/UPDATE/DELETE los escriben los triggers; el resto son EVENTOS de la app
+  // (login, escaneo de QR, jornada) que registra audit_event(...).
+  action: 'INSERT' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'SCAN' | 'JORNADA_INICIO' | 'JORNADA_FIN' | 'PARADA';
   table_name: string;
   row_id: string | null;
+  detail?: string | null; // texto legible del evento (p. ej. el código de la máquina)
 }
 
 /** Registro de ENTRADA / SALIDA de un camión al patio (Coordinador de Patio). */

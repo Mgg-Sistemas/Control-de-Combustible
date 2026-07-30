@@ -16,6 +16,7 @@ import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
 import { getMachineRound, upsertMachineRound } from '../lib/machineRounds';
+import { logAudit } from '../lib/audit';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -219,7 +220,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     if (consumedRef.current || !initialMachineId || machines.length === 0) return;
     consumedRef.current = true;
     const found = machines.find((m) => m.id === initialMachineId);
-    if (found) openCheckin(found);
+    if (found) {
+      openCheckin(found);
+      logAudit('SCAN', 'machinery', found.id, found.code); // bitácora: escaneó el QR de esta máquina
+    }
     onConsumed?.();
   }, [initialMachineId, machines]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -318,6 +322,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(now.toISOString());
+    logAudit('JORNADA_INICIO', 'machinery', ci.id, ci.code); // bitácora
     setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftOf(caracasParts(now).hour).label}. Aparece en Inspecciones.`);
   };
 
@@ -336,6 +341,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaStart(null);
     setFinConfirm(false);
+    logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
 
@@ -351,6 +357,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed }: { ini
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
     });
     setCiSaving(false);
+    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · ${ciMotivo.trim()}`); // bitácora
     setNotice(`🟡 ${ci.code} marcada PARADA${avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
     setCiMotivo(''); setParadaOpen(false);
     setCi(null);
