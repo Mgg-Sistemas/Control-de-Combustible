@@ -492,10 +492,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗂️ SISTEMA</Text>
             </TouchableOpacity>
           ) : null}
-          {/* Escanear el QR de la máquina — acceso rápido arriba. */}
-          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📷 Escanear</Text>
-          </TouchableOpacity>
           <ChangePasswordButton />
         </View>
       </View>
@@ -509,8 +505,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
           Toca una máquina o escanea su QR para marcarla. Si no la marcas, esa jornada queda sin validar.
         </Text>
-        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📷 Escanear QR de la máquina</Text>
+        {/* Botón GRANDE y cuadrado para escanear (pensado para el teléfono). */}
+        <TouchableOpacity
+          onPress={() => setScanOpen(true)}
+          activeOpacity={0.85}
+          style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.lg, aspectRatio: 1.35, maxHeight: 220, width: '100%', alignSelf: 'center', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ fontSize: 64 }}>📷</Text>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
+          <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
         </TouchableOpacity>
       </Card>
 
