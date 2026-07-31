@@ -10,6 +10,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
+import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { cmpText, norm } from '../lib/text';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -97,6 +98,7 @@ export default function SupervisionScreen({ navigation }: any) {
   // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
   type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
   const [yardLogs, setYardLogs] = useState<YardLog[]>([]);
+  const [fuelDay, setFuelDay] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en el día
   // Retraso de declaración por máquina (minutos), leído de la columna opcional
   // machine_rounds.jornada_late_min (si no existe, queda vacío sin romper nada).
   const [lateMap, setLateMap] = useState<Record<string, number>>({});
@@ -292,6 +294,8 @@ export default function SupervisionScreen({ navigation }: any) {
         worked: workedOf(r),
         recordedBy: (r.recorded_by ?? null) as string | null,
       })));
+    // Combustible surtido por máquina en el día (para mostrar ⛽ L y L/h en la jornada).
+    loadFuelByMachine(date).then(setFuelDay).catch(() => setFuelDay({}));
     // Retraso de declaración (columna opcional): consulta aislada para que si la
     // columna aún no existe (falta correr el SQL) NO rompa el resto del módulo.
     try {
@@ -867,6 +871,7 @@ export default function SupervisionScreen({ navigation }: any) {
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
+                      {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
                       {finalizada ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>📍 Ver ubicación en el mapa ›</Text> : null}
                     </View>

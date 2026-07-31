@@ -121,7 +121,9 @@ export function DispatchesScreen() {
         { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
         { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
         { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-        { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', createColumn: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+        // Sin createColumn: se ELIGE una máquina existente (no se crea al vuelo) para
+        // no fragmentar el consumo en códigos duplicados. El buscador sigue disponible.
+        { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
         { key: 'liters', label: 'Litros', type: 'number', required: true },
         { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
         { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },

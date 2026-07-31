@@ -14,6 +14,7 @@ import { DateField } from '../components/DateField';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
+import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
@@ -139,6 +140,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [averiadas, setAveriadas] = useState<Set<string>>(new Set()); // máquinas con avería pendiente → "MÁQUINA PARADA"
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
+  const [fuelWeek, setFuelWeek] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en el rango visible
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   // Al llegar desde el Dashboard con ?q (serial/código), filtra a ESA máquina.
@@ -281,6 +283,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setFletesByMachine(fmap);
       setFletesGeneral(fgen);
       setMachines((m ?? []) as Machinery[]);
+      // Combustible surtido por máquina en el rango visible (para mostrar ⛽ L y L/h).
+      loadFuelByMachine(days[0], days[days.length - 1]).then(setFuelWeek).catch(() => {});
       // Guardia/militar actual de cada máquina (para mostrarlo en cada ronda).
       fetchActiveGuards((m ?? []).map((x: any) => x.id)).then(setGuards).catch(() => {});
       // Inspector "asignado" = quien hizo el último check-in en cada máquina.
@@ -1713,6 +1717,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
                   {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                  {fuelWeek[m.id]?.liters ? (
+                    <Text style={{ color: '#B45309', fontSize: 12, fontWeight: '700' }}>
+                      ⛽ {litersLabel(fuelWeek[m.id].liters)} L{weekWorked > 0 ? ` · ${lphOf(fuelWeek[m.id].liters, weekWorked)} L/h` : ''} <Text style={{ color: colors.muted, fontWeight: '400' }}>(período)</Text>
+                    </Text>
+                  ) : null}
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setCardOpen((p) => ({ ...p, [m.id]: !isOpen }))}
