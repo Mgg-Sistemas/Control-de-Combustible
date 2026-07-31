@@ -568,9 +568,9 @@ export default function SupervisionScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.text, () => { setKpiQuery(''); setKpiModal('iniciadas'); })}
+          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.success, () => { setKpiQuery(''); setKpiModal('iniciadas'); })}
           {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiModal('averiadas'); })}
-          {kpi('Jornadas terminadas', jornadasTerminadas, colors.success, () => { setKpiQuery(''); setKpiModal('terminadas'); })}
+          {kpi('Jornadas terminadas', jornadasTerminadas, '#2563EB', () => { setKpiQuery(''); setKpiModal('terminadas'); })}
         </View>
       </Card>
 
