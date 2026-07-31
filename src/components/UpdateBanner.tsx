@@ -31,33 +31,35 @@ export function UpdateBanner() {
   }, []);
 
   const actualizar = () => {
+    try { (globalThis as any).location?.reload?.(true); } catch {}
     try { (globalThis as any).location?.reload?.(); } catch {}
   };
 
   if (!show) return null;
 
+  // Barra ARRIBA (no la tapa la barra de pestañas del teléfono), a todo el ancho
+  // y TOCABLE COMPLETA: tocar cualquier parte recarga con la versión nueva.
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPress={actualizar}
       // @ts-ignore — 'fixed' es válido en web (react-native-web).
       style={{
         position: (Platform.OS === 'web' ? 'fixed' : 'absolute') as any,
-        left: 0, right: 0, bottom: 0, zIndex: 9999,
+        left: 0, right: 0, top: 0, zIndex: 999999,
         backgroundColor: '#1E3A5F',
-        paddingVertical: 12, paddingHorizontal: 16,
+        paddingTop: 16, paddingBottom: 12, paddingHorizontal: 16,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
         flexWrap: 'wrap',
-        borderTopWidth: 2, borderTopColor: '#F2B705',
+        borderBottomWidth: 2, borderBottomColor: '#F2B705',
       }}
     >
       <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, textAlign: 'center' }}>
-        🔄 Sistema en proceso de actualización, por favor presione el botón
+        🔄 Hay una versión NUEVA — toca para actualizar
       </Text>
-      <TouchableOpacity
-        onPress={actualizar}
-        style={{ backgroundColor: '#F2B705', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 }}
-      >
+      <View style={{ backgroundColor: '#F2B705', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 20 }}>
         <Text style={{ color: '#1E3A5F', fontWeight: '900', fontSize: 14, letterSpacing: 0.5 }}>ACTUALIZAR</Text>
-      </TouchableOpacity>
-    </View>
+      </View>
+    </TouchableOpacity>
   );
 }
