@@ -164,7 +164,9 @@ export interface Machinery {
   zona: string | null; // ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del conteo
   tipo: string | null; // MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — para agrupar
   clasificacion: string | null; // CLASIFICACIÓN de la máquina (Excavadora, Volteo, Retro...) — para agrupar
-  referencia: string | null; // UBICACIÓN / referencia de la máquina — se muestra en los reportes
+  referencia: string | null; // UBICACIÓN / referencia (edificio) de la máquina — se muestra en los reportes
+  parroquia: string | null; // PARROQUIA (texto editable) — ubicación administrativa
+  sector: string | null; // SECTOR (texto editable) — complementa el sector geográfico del GPS
   last_horometro: number | null; // última lectura de horómetro (se arrastra al próximo inicio)
   viajes: number | null; // nº de viajes realizados (solo Golden Touch) — extra al subtotal por jornada
   precio_viaje: number | null; // precio por viaje en $ (solo Golden Touch)

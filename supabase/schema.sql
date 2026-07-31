@@ -700,6 +700,10 @@ alter table public.machinery add column if not exists clasificacion text;
 
 -- Referencia / UBICACIÓN de la máquina — se muestra en los reportes.
 alter table public.machinery add column if not exists referencia text;
+-- PARROQUIA y SECTOR (texto, editables) — complementan la referencia/edificio y el
+-- sector geográfico del GPS. Se muestran en Catálogo, check-in del inspector y reportes.
+alter table public.machinery add column if not exists parroquia text;
+alter table public.machinery add column if not exists sector text;
 
 -- Horas extras por máquina/día (se suman a las horas trabajadas y al total a pagar).
 alter table public.machine_rounds add column if not exists overtime_hours numeric(6,2) default 0;
