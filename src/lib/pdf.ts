@@ -36,7 +36,7 @@ export const PDF_BASE_CSS = `
      encabezado azul se ve gris/blanco. */
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff;text-transform:uppercase}
   /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
   @media screen{ body{ padding:28px 34px } }
   .top{display:flex;justify-content:space-between;align-items:flex-start}
