@@ -16,6 +16,7 @@ import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
+import { myInspectorMachineIds, assignInspector, unassignInspector } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -79,6 +80,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
+  //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [checkQuery, setCheckQuery] = useState('');
+  const [assignBusy, setAssignBusy] = useState<string | null>(null); // id de la máquina que se está asignando
+  const isAdmin = !!onSistema; // el admin recibe onSistema; puede ver todas las máquinas
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -185,27 +192,50 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as Mach[];
     list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
     setMachines(list);
-    // Mis máquinas = las que custodio según el botón 🪖 (machine_guards activo con mi nombre).
-    const { data: guards } = await supabase
-      .from('machine_guards')
-      .select('machinery_id')
-      .eq('active', true)
-      .ilike('guard_name', name || '___nunca___');
-    setMineIds(new Set(((guards ?? []) as any[]).map((g) => g.machinery_id as string)));
+    // Mis máquinas = las que me asigné con el CHECK (machine_inspectors). El
+    // inspector solo ve estas; si la tabla aún no existe, avisa que falta el SQL.
+    const asg = await myInspectorMachineIds(uid);
+    setMineIds(asg.ids);
+    if (asg.missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
     setVisits(await myVisitsToday(uid, today));
     setLoading(false);
   };
   useEffect(() => { load(); }, [uid]);
 
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
+  const matchQuery = (m: Mach, q: string) => !q
+    || norm(m.code).includes(q)
+    || norm(m.companyName || '').includes(q)
+    || norm((m as any).serial || '').includes(q)
+    || norm((m as any).plate || '').includes(q);
   const searchList = useMemo(() => {
     const q = norm(query.trim());
-    return machines.filter((m) => !q
-      || norm(m.code).includes(q)
-      || norm(m.companyName || '').includes(q)
-      || norm((m as any).serial || '').includes(q)
-      || norm((m as any).plate || '').includes(q));
+    return machines.filter((m) => matchQuery(m, q));
   }, [machines, query]);
+  // Listado del CHECK: todas las máquinas (buscable) para asignármelas/quitármelas.
+  const checkList = useMemo(() => {
+    const q = norm(checkQuery.trim());
+    return machines.filter((m) => matchQuery(m, q));
+  }, [machines, checkQuery]);
+
+  // ✅ CHECK MÁQUINA: asigna (o quita) una máquina al inspector logueado. Casa la
+  // persona ↔ máquina; luego el inspector solo verá las que tiene asignadas.
+  const toggleAssign = async (m: Mach) => {
+    if (!uid || assignBusy) return;
+    const has = mineIds.has(m.id);
+    setAssignBusy(m.id); setNotice(null);
+    const res = has ? await unassignInspector(m.id, uid) : await assignInspector(m.id, uid, fullName || 'Inspector');
+    setAssignBusy(null);
+    if (res.error) {
+      setNotice(res.missing
+        ? '❌ Falta activar la asignación: corre supabase/inspector_asignacion.sql en Supabase.'
+        : '❌ ' + res.error);
+      return;
+    }
+    setMineIds((prev) => { const n = new Set(prev); if (has) n.delete(m.id); else n.add(m.id); return n; });
+    if (!has) logAudit('CHECK', 'machinery', m.id, m.code); // bitácora: se asignó esta máquina
+    setNotice(has ? `➖ ${m.code} quitada de tus máquinas.` : `✅ ${m.code} asignada a ti.`);
+  };
 
   const openCheckin = (m: Mach) => {
     setCi(m);
@@ -515,31 +545,46 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
           <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
         </TouchableOpacity>
+        {/* CHECK MÁQUINA: asignarme las máquinas que inspecciono (solo veo las mías). */}
+        <TouchableOpacity
+          onPress={() => { setCheckQuery(''); setCheckOpen(true); }}
+          activeOpacity={0.85}
+          style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
+        >
+          <Text style={{ fontSize: 20 }}>✅</Text>
+          <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
+        </TouchableOpacity>
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+          Asígnate las máquinas que inspeccionas. Solo verás las tuyas.
+        </Text>
       </Card>
 
       {notice ? (
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {mine.length > 0 && !showAll ? (
-        <>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <SectionTitle>Mis máquinas a revisar</SectionTitle>
-            <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity>
-          </View>
-          {mine.map(renderMachine)}
-        </>
-      ) : (
+      {isAdmin && showAll ? (
+        // ADMIN: ver TODAS las máquinas (para pruebas). El inspector normal no ve esto.
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <SectionTitle>Todas las máquinas</SectionTitle>
-            {mine.length > 0 ? <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity> : null}
+            <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
           </View>
           <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
           <View style={{ marginTop: spacing.xs }}>
             {searchList.slice(0, 100).map(renderMachine)}
             {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
           </View>
+        </>
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <SectionTitle>Mis máquinas asignadas</SectionTitle>
+            {isAdmin ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
+          </View>
+          {mine.length > 0 ? mine.map(renderMachine) : (
+            <EmptyState title="Aún no tienes máquinas asignadas" subtitle="Toca ✅ CHECK MÁQUINA para asignarte las que inspeccionas." />
+          )}
         </>
       )}
 
@@ -560,6 +605,48 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             }}
           />
         </View>
+      </Modal>
+
+      {/* ✅ CHECK MÁQUINA: asignar/quitar máquinas al inspector logueado. */}
+      <Modal visible={checkOpen} animationType="slide" onRequestClose={() => setCheckOpen(false)}>
+        <Screen>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>✅ CHECK máquina</Text>
+              <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>Asignadas: <Text style={{ color: colors.success, fontWeight: '800' }}>{mineIds.size}</Text></Text>
+            </View>
+            <TouchableOpacity onPress={() => setCheckOpen(false)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+            Toca una máquina para asignártela (o quitártela). Solo verás en tu ronda las que tengas asignadas.
+          </Text>
+          <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
+          <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+            {checkList.slice(0, 200).map((m) => {
+              const on = mineIds.has(m.id);
+              const busy = assignBusy === m.id;
+              return (
+                <TouchableOpacity
+                  key={m.id}
+                  onPress={() => toggleAssign(m)}
+                  disabled={busy}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.success : colors.border, backgroundColor: on ? '#E8F5EC' : colors.surface, marginBottom: spacing.xs, opacity: busy ? 0.6 : 1 }}
+                >
+                  <Text style={{ fontSize: 20 }}>{busy ? '⏳' : on ? '✅' : '⬜'}</Text>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={{ color: on ? '#0F5C2E' : colors.text, fontWeight: '800' }}>{m.code}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                  </View>
+                  <Text style={{ color: on ? colors.success : colors.primary, fontWeight: '800', fontSize: 12 }}>{on ? 'Quitar' : 'Asignar'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {checkList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
+            <View style={{ height: spacing.xl }} />
+          </ScrollView>
+        </Screen>
       </Modal>
 
       {/* Surtir gasoil a la máquina del check-in */}

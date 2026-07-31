@@ -539,10 +539,16 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **Solo el administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
 > desde el teléfono (para volver a Inspectores, recarga la página).
 
+> **✅ CHECK MÁQUINA (asignación):** cada inspector **solo ve en su ronda las máquinas que tiene
+> ASIGNADAS**. Para asignarse una, toca **✅ CHECK MÁQUINA** (debajo del escáner), busca la máquina
+> por **nombre/serial/placa** y tócala para **asignártela** (o **quitártela**). La asignación **casa la
+> persona logueada con la máquina** y queda en la **Auditoría** (✅ *se asignó*). El **administrador**
+> tiene además **"Ver todas"** para ver el listado completo.
+
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
-1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve la lista **🪖 Revisar**.
-2. **Buscar:** arriba puede **buscar por nombre, serial/placa o empresa**. Hay un botón **📷** arriba
-   para escanear el QR directo.
+1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
+2. **Asignar:** si la lista está vacía, toca **✅ CHECK MÁQUINA** y asígnate las que inspeccionas.
+   También hay un botón **📷** para escanear el QR directo.
 3. **Desde la lista:** toca la máquina y se abre su ficha de inspección (nombre, empresa, serial/placa).
 4. **Escaneando el QR con la CÁMARA del teléfono:** sale una pantalla con el logo y el botón
    **🔓 INICIAR SESIÓN**; entra con su usuario y cae **directo** en la ficha de esa máquina.
@@ -572,9 +578,9 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
    mismas reglas: 1 máquina por operador al día y máximo 2 operadores por turno) y la marca de
    quién la registró (el inspector). La ubicación del inspector queda como punto de inicio.
 
-> Antes el inspector **solo** podía marcar escaneando el QR físico de cada máquina; ahora su
-> pantalla **🪖 Revisar** lista todas las máquinas y puede marcar cualquiera directo. El check-in
-> aparece de inmediato en el módulo **Inspecciones** (Traza por inspector) y **valida la jornada**.
+> El inspector marca desde **"Mis máquinas asignadas"** (las que se asignó con **✅ CHECK MÁQUINA**)
+> o escaneando el QR físico. El check-in aparece de inmediato en el módulo **Inspecciones**
+> (Traza por inspector) y **valida la jornada**.
 
 > **Inspector asignado:** el inspector que hizo el **último check-in** de una máquina queda como su
 > **inspector asignado** y se muestra en el **Catálogo** y en **Control de maquinaria** (🪖 Inspector: nombre).

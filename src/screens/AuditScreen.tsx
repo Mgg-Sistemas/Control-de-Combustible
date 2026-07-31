@@ -43,13 +43,14 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
   LOGIN: { icon: '🔑', label: 'inició sesión', color: '#0F766E' },
   LOGOUT: { icon: '🚪', label: 'cerró sesión', color: '#6B7280' },
   SCAN: { icon: '📷', label: 'escaneó', color: '#7C3AED' },
+  CHECK: { icon: '✅', label: 'se asignó', color: '#0369A1' },
   JORNADA_INICIO: { icon: '🟢', label: 'inició jornada', color: '#15803D' },
   JORNADA_FIN: { icon: '🏁', label: 'finalizó jornada', color: '#2563EB' },
   PARADA: { icon: '🟡', label: 'marcó PARADA', color: '#D9A200' },
 };
 // Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
 // no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
-const EVENT_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SCAN', 'JORNADA_INICIO', 'JORNADA_FIN', 'PARADA']);
+const EVENT_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SCAN', 'CHECK', 'JORNADA_INICIO', 'JORNADA_FIN', 'PARADA']);
 
 // Nombre legible del registro afectado (según su tabla) a partir del row_id, para
 // mostrar en el detalle "a qué apunta" la acción (ej. cuál usuario, cuál máquina).
