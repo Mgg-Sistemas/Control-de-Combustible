@@ -12,6 +12,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { NavigationRouteContext } from '@react-navigation/native';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -43,8 +44,12 @@ export function Screen({
 
   // (Web) Al recargar, mantener la posición de scroll en donde estaba el usuario.
   // Se guarda mientras se hace scroll y se restaura al montar (varios intentos,
-  // porque el contenido puede crecer al cargar datos). Opt-in con persistScrollKey.
-  const SKEY = persistScrollKey ? `SCREEN_SCROLL_${persistScrollKey}` : '';
+  // porque el contenido puede crecer al cargar datos). Por defecto se activa en
+  // TODO el sistema usando el nombre de la ruta actual como clave; `persistScrollKey`
+  // permite forzar una clave propia. Solo web.
+  const routeCtx = React.useContext(NavigationRouteContext as any) as any;
+  const autoKey = persistScrollKey || (routeCtx?.name ? `route_${routeCtx.name}` : '');
+  const SKEY = Platform.OS === 'web' && autoKey ? `SCREEN_SCROLL_${autoKey}` : '';
   React.useEffect(() => {
     if (Platform.OS !== 'web' || !SKEY) return;
     let y = 0;
@@ -54,8 +59,12 @@ export function Screen({
     const ts = [0, 120, 300, 600].map((ms) => setTimeout(restore, ms));
     return () => ts.forEach(clearTimeout);
   }, [SKEY]);
+  const lastSaveRef = React.useRef(0);
   const saveScroll = (y: number) => {
     if (Platform.OS !== 'web' || !SKEY) return;
+    const now = Date.now();
+    if (now - lastSaveRef.current < 150) return; // throttle: no escribir en cada frame
+    lastSaveRef.current = now;
     try { localStorage.setItem(SKEY, String(Math.max(0, Math.round(y)))); } catch {}
   };
 
