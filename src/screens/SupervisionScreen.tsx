@@ -279,30 +279,52 @@ export default function SupervisionScreen({ navigation }: any) {
     await exportPdf(html, `Supervision ${dmy(date)}`);
   };
 
-  // PDF de las asignaciones del CHECK (inspector → sus máquinas).
-  const reporteAsignaciones = async () => {
+  // Sector de la máquina de una asignación (por ubicación; si no, por referencia).
+  const sectorOfAssign = (a: AssignmentRow): string => {
+    const s = sectorLabel(sectorOf(a.latitude, a.longitude));
+    return s && s !== 'Sin zona' ? s : (a.referencia || 'Sin zona');
+  };
+  // Referencia legible (edificio): descarta valores que sean solo números/coordenadas.
+  const refOf = (a: AssignmentRow): string => {
+    const t = (a.referencia ?? '').trim();
+    return t && !/^[\d.,\s-]+$/.test(t) ? t : '—';
+  };
+
+  // 📄 REPORTE 2: máquinas asignadas por inspector, UBICADAS POR SECTOR, con
+  // referencia + serial + placa + empresa. SIN el estado de la máquina.
+  const reporteAsignacionesPorSector = async () => {
     if (assignsByInspector.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const secciones = assignsByInspector.map(([name, list]) => {
-      const filas = list.map((a) => `<tr>
-        <td>${esc(a.code)}</td>
-        <td>${esc(a.plate || a.serial || '—')}</td>
-        <td>${esc(a.companyName)}</td>
-        <td>${esc(`${dmy(a.assigned_at.slice(0, 10))} ${caracasClock(a.assigned_at)}`)}</td>
-      </tr>`).join('');
-      return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>
-        <table><thead><tr><th>Máquina</th><th>Serial/Placa</th><th>Empresa</th><th>Asignada</th></tr></thead>
-          <tbody>${filas}</tbody></table>`;
+      // Agrupa las máquinas del inspector por sector (A→Z, "Sin zona" al final).
+      const bySector = new Map<string, AssignmentRow[]>();
+      list.forEach((a) => { const k = sectorOfAssign(a); if (!bySector.has(k)) bySector.set(k, []); bySector.get(k)!.push(a); });
+      const sectores = Array.from(bySector.entries()).sort((x, y) =>
+        (x[0] === 'Sin zona' ? 1 : y[0] === 'Sin zona' ? -1 : cmpText(x[0], y[0])));
+      const bloques = sectores.map(([sector, ms]) => {
+        const filas = ms.map((a) => `<tr>
+          <td>${esc(a.code)}</td>
+          <td>${esc(refOf(a))}</td>
+          <td>${esc(a.serial || '—')}</td>
+          <td>${esc(a.plate || '—')}</td>
+          <td>${esc(a.companyName)}</td>
+        </tr>`).join('');
+        return `<h4>📍 ${esc(sector)} · ${ms.length}</h4>
+          <table><thead><tr><th>Máquina</th><th>Referencia</th><th>Serial</th><th>Placa</th><th>Empresa</th></tr></thead>
+            <tbody>${filas}</tbody></table>`;
+      }).join('');
+      return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>${bloques}`;
     }).join('');
     const html = pdfDocument({
-      title: 'Máquinas asignadas por inspector (CHECK)',
+      title: 'Máquinas asignadas por inspector · por sector',
       subtitle: `${assigns.length} asignación(es) · ${assignsByInspector.length} inspector(es)`,
-      extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
+      extraCss: `table{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
-        tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 2px;font-size:14px;color:#16324F}`,
+        tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 4px;font-size:14px;color:#16324F}
+        h4{margin:8px 0 2px;font-size:12px;color:#2A5C8A}`,
       body: secciones,
     });
-    await exportPdf(html, 'Asignaciones de inspectores');
+    await exportPdf(html, 'Asignaciones por sector');
   };
 
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
@@ -348,8 +370,8 @@ export default function SupervisionScreen({ navigation }: any) {
         <EmptyState title="Sin asignaciones" subtitle="Cuando un inspector se asigna una máquina con ✅ CHECK MÁQUINA (teléfono), aparece aquí." />
       ) : (
         <>
-          <TouchableOpacity onPress={reporteAsignaciones} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF de asignaciones ({assigns.length})</Text>
+          <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF por sector · referencia/serial/placa/empresa ({assigns.length})</Text>
           </TouchableOpacity>
           {assignsByInspector.map(([name, list]) => (
             <Card key={name}>
@@ -360,7 +382,8 @@ export default function SupervisionScreen({ navigation }: any) {
               {list.map((a) => (
                 <View key={a.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {a.plate || a.serial || '—'} · ✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
                 </View>
               ))}
             </Card>

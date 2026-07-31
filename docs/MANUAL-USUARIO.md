@@ -582,13 +582,19 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 > o escaneando el QR físico. El check-in aparece de inmediato en el módulo **Inspecciones**
 > (Traza por inspector) y **valida la jornada**.
 
-> **Inspector asignado:** el inspector que hizo el **último check-in** de una máquina queda como su
-> **inspector asignado** y se muestra en el **Catálogo** y en **Control de maquinaria** (🪖 Inspector: nombre).
+> **Inspector asignado:** se muestra en el **Catálogo** y en **Control de maquinaria** (🪖 Inspector:
+> nombre). **Prioridad:** si el inspector se asignó la máquina con **✅ CHECK MÁQUINA** (teléfono),
+> ese es el asignado; si no, se usa el del **último check-in** (visita).
 
 > **✅ Máquinas asignadas por inspector (CHECK):** arriba del módulo de **Inspecciones** sale la
-> lista de qué máquinas se asignó **cada inspector** con el botón **✅ CHECK MÁQUINA** del teléfono
-> (inspector → sus máquinas, con serial/placa, empresa y fecha/hora). Se **sincroniza en vivo**:
-> apenas un inspector se asigna una máquina, aparece aquí. Tiene su propio **📄 PDF de asignaciones**.
+> lista de qué máquinas se asignó **cada inspector** con el botón **✅ CHECK MÁQUINA** del teléfono.
+> Se **sincroniza en vivo**. En pantalla ves **inspector → sus máquinas** con **sector, referencia,
+> serial/placa, empresa** y fecha/hora.
+>
+> **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (día/rango, con hora, sector,
+> serial/placa, empresa y **estado** de la máquina); y (2) **📄 Asignaciones por sector** — las
+> máquinas que cada inspector se asignó con el CHECK, **agrupadas por sector**, con **referencia +
+> serial + placa + empresa**, **sin el estado** de la máquina.
 
 > **🏢 Edificio (lista desplegable):** en el check-in, el campo **Edificio** es ahora una **lista
 > desplegable** con los sitios oficiales (Residencias Militares, La Iguana, Hotel Litoral Palace,

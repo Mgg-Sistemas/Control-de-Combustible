@@ -39,14 +39,16 @@ export async function assignInspector(machineryId: string, inspectorId: string, 
 export type AssignmentRow = {
   id: string; machinery_id: string; inspector_id: string | null; inspector_name: string;
   assigned_at: string; code: string; serial: string | null; plate: string | null; companyName: string;
+  referencia: string | null; latitude: number | null; longitude: number | null;
 };
 
-/** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina, para el módulo
- *  de Inspecciones. Más reciente primero. `missing` = falta correr el SQL. */
+/** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina (incluye
+ *  referencia y ubicación para agrupar por sector), para el módulo de
+ *  Inspecciones. Más reciente primero. `missing` = falta correr el SQL. */
 export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
   const { data, error } = await supabase
     .from('machine_inspectors')
-    .select('id, machinery_id, inspector_id, inspector_name, assigned_at, machine:machinery_id(code, serial, plate, company:company_id(name))')
+    .select('id, machinery_id, inspector_id, inspector_name, assigned_at, machine:machinery_id(code, serial, plate, referencia, latitude, longitude, company:company_id(name))')
     .eq('active', true)
     .order('assigned_at', { ascending: false });
   if (error) return { rows: [], missing: isMissingTable(error.message) };
@@ -60,6 +62,9 @@ export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[
     serial: r.machine?.serial ?? null,
     plate: r.machine?.plate ?? null,
     companyName: r.machine?.company?.name ?? 'Sin empresa',
+    referencia: r.machine?.referencia ?? null,
+    latitude: r.machine?.latitude ?? null,
+    longitude: r.machine?.longitude ?? null,
   }));
   return { rows, missing: false };
 }
