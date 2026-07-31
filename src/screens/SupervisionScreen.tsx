@@ -25,6 +25,13 @@ function caracasClock(iso: string): string {
 }
 /** Suma día+noche (0/6/12) del round como horas trabajadas. */
 const workedOf = (r: any) => (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
+/** Retraso legible a partir de minutos: "45 min", "1 h", "1 h 30 min". */
+function lateLabel(min: number): string {
+  const m = Math.max(0, Math.round(min));
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h <= 0) return `${r} min`;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
+}
 const STATUS_META: Record<VisitStatus, { icon: string; label: string; color: string }> = {
   trabajando: { icon: '🟢', label: 'Trabajando', color: '#1E9E4A' },
   parada: { icon: '🟡', label: 'Parada', color: '#D9A200' },
@@ -68,11 +75,15 @@ const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial 
  */
 export default function SupervisionScreen({ navigation }: any) {
   const { colors, typography } = useTheme();
-  // Secciones colapsables del módulo (por defecto: abiertas). Guarda las CERRADAS.
-  const [secClosed, setSecClosed] = useState<Set<string>>(new Set());
+  // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
+  // todas las claves cerradas). Guarda las CERRADAS.
+  const ALL_SECS = ['asg', 'camiones', 'sinval', 'machjor', 'opjor', 'traza'];
+  const [secClosed, setSecClosed] = useState<Set<string>>(() => new Set(ALL_SECS));
   const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  // Abre el Catálogo filtrado a ESA máquina (por serial único; si no hay, por código).
+  // Abre la ficha de ESA máquina. Si fue reportada AVERIADA (parada), va al módulo
+  // de Mantenimiento de Maquinaria; si no, al Catálogo (por serial único o código).
   const openMachine = (v: VisitRow) => {
+    if (v.status === 'parada') { navigation?.navigate?.('MantenimientoMaquinaria', { q: String(v.machineSerial || v.machineCode || '') }); return; }
     const term = v.machineSerial || v.machineCode;
     if (term) navigation?.navigate?.('Equipos', { q: String(term) });
   };
@@ -85,6 +96,9 @@ export default function SupervisionScreen({ navigation }: any) {
   // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
   type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
   const [yardLogs, setYardLogs] = useState<YardLog[]>([]);
+  // Retraso de declaración por máquina (minutos), leído de la columna opcional
+  // machine_rounds.jornada_late_min (si no existe, queda vacío sin romper nada).
+  const [lateMap, setLateMap] = useState<Record<string, number>>({});
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
   // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
@@ -277,6 +291,14 @@ export default function SupervisionScreen({ navigation }: any) {
         worked: workedOf(r),
         recordedBy: (r.recorded_by ?? null) as string | null,
       })));
+    // Retraso de declaración (columna opcional): consulta aislada para que si la
+    // columna aún no existe (falta correr el SQL) NO rompa el resto del módulo.
+    try {
+      const { data: lateData } = await supabase.from('machine_rounds').select('machinery_id, jornada_late_min').eq('round_date', date);
+      const lm: Record<string, number> = {};
+      ((lateData ?? []) as any[]).forEach((r) => { const v = Number(r.jornada_late_min); if (isFinite(v) && v > 0) lm[r.machinery_id] = v; });
+      setLateMap(lm);
+    } catch { setLateMap({}); }
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
@@ -364,6 +386,11 @@ export default function SupervisionScreen({ navigation }: any) {
   const visitedIds = useMemo(() => new Set(cleanVisits.map((v) => v.machinery_id)), [cleanVisits]);
   const unvalidated = useMemo(() => rounds.filter((r) => !visitedIds.has(r.machinery_id)), [rounds, visitedIds]);
   const validated = rounds.length - unvalidated.length;
+
+  // KPIs pedidos: jornadas iniciadas (total), máquinas averiadas y jornadas terminadas.
+  const jornadasIniciadas = machJornadas.length;                                    // en curso + finalizadas
+  const jornadasTerminadas = useMemo(() => machJornadas.filter((j) => !j.enCurso).length, [machJornadas]);
+  const maquinasAveriadas = useMemo(() => new Set(cleanVisits.filter((v) => v.status === 'parada').map((v) => v.machinery_id)).size, [cleanVisits]);
 
   // Traza agrupada por supervisor.
   const bySupervisor = useMemo(() => {
@@ -512,6 +539,11 @@ export default function SupervisionScreen({ navigation }: any) {
           {kpi('Visitas', cleanVisits.length, colors.text)}
           {kpi('Jornadas validadas', validated, colors.success)}
           {kpi('Sin validar', unvalidated.length, unvalidated.length > 0 ? colors.danger : colors.success)}
+        </View>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.text)}
+          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success)}
+          {kpi('Jornadas terminadas', jornadasTerminadas, colors.success)}
         </View>
       </Card>
 
@@ -820,12 +852,22 @@ export default function SupervisionScreen({ navigation }: any) {
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👮 {name}</Text>
                   <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} jorn.{enCursoN > 0 ? ` · ${enCursoN} en curso` : ''}</Text>
                 </TouchableOpacity>
-                {collapsed ? null : list.map((j) => (
-                  <View key={j.machinery_id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                {collapsed ? null : list.map((j) => {
+                  const late = lateMap[j.machinery_id] || 0;               // minutos de desfase (si hubo)
+                  const finalizada = !j.enCurso;                          // finalizada → tocar lleva al Mapa
+                  return (
+                  <TouchableOpacity
+                    key={j.machinery_id}
+                    activeOpacity={finalizada ? 0.6 : 1}
+                    onPress={finalizada ? () => navigation?.navigate?.('Map', { focus: { id: j.machinery_id, code: j.code } }) : undefined}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}
+                  >
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
+                      {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
+                      {finalizada ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>📍 Ver ubicación en el mapa ›</Text> : null}
                     </View>
                     {j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
@@ -835,8 +877,9 @@ export default function SupervisionScreen({ navigation }: any) {
                     ) : (
                       <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked} h</Text>
                     )}
-                  </View>
-                ))}
+                  </TouchableOpacity>
+                  );
+                })}
               </Card>
             );
           })}
