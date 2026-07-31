@@ -157,6 +157,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [encargadoQuery, setEncargadoQuery] = useState('');
   const SIN_ENCARGADO = '(sin encargado)';
   const toggleEncargado = (name: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  // ¿La máquina pasa el filtro de encargado? (vacío = todos). Se usa en la lista y en los PDF.
+  const inEncargado = (m: Machinery) => encargadoSel.size === 0 || encargadoSel.has((m.encargado || '').trim() || SIN_ENCARGADO);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
@@ -846,7 +848,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         amountByMachine.set(b.machinery_id, (amountByMachine.get(b.machinery_id) ?? 0) + (w / 12) * p);
       }
     });
-    const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope));
+    const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope) && inEncargado(m));
     // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
     type Row = { name: string; serial: string | null; worked: number; amount: number };
     type Viaje = { code: string; viajes: number; precio: number };
@@ -867,7 +869,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     }
     // Fletes/viajes CON FECHA dentro del rango del reporte: se suman al TOTAL POR PAGAR
     // de su empresa (solo aparecen en la semana en que ocurrieron).
-    const fletes = await selectAllRows('fletes', 'company_id, code, viajes, precio, company:company_id(name)', (qb) => qb.gte('flete_date', fromArg).lte('flete_date', toArg));
+    // Al filtrar por encargado, los fletes (que son por EMPRESA, no por encargado) se omiten
+    // para no inflar el total con viajes de máquinas fuera del filtro.
+    const fletes = encargadoSel.size > 0 ? [] : await selectAllRows('fletes', 'company_id, code, viajes, precio, company:company_id(name)', (qb) => qb.gte('flete_date', fromArg).lte('flete_date', toArg));
     (fletes ?? []).forEach((f: any) => {
       if (scope === '__none__') return;
       if (scope !== '__all__' && f.company_id !== scope) return;
@@ -961,7 +965,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const byMD = new Map<string, any>();
     (allRounds ?? []).forEach((b: any) => byMD.set(`${b.machinery_id}|${b.round_date}`, b));
     // Empresa de cada máquina (respetando el alcance elegido).
-    const inScope = (m: Machinery) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope);
+    const inScope = (m: Machinery) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope) && inEncargado(m);
     const companyOf = new Map<string, string>();
     machines.forEach((m) => { if (inScope(m)) companyOf.set(m.id, m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa'); });
     // company → day → set de máquinas que trabajaron; company → set total de máquinas.
@@ -1248,7 +1252,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // el filtro de empresa normal.
   const matchCompanyOrSearch = (m: Machinery) => (q ? true : matchCompany(m));
   // Filtro por encargado (multi-check; vacío = todos). Se ignora al BUSCAR (como empresa).
-  const matchEncargado = (m: Machinery) => q ? true : (encargadoSel.size === 0 || encargadoSel.has((m.encargado || '').trim() || SIN_ENCARGADO));
+  const matchEncargado = (m: Machinery) => q ? true : inEncargado(m);
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
   const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.

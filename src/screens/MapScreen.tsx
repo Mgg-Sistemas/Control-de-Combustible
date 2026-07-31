@@ -202,10 +202,10 @@ export default function MapScreen({ navigation, route }: any) {
         const blocks = subs.map((sub) => {
           const items = list.filter((m) => m.sub === sub).sort((a, b) => cmpText(a.code, b.code));
           const rows = items.map((m, i) =>
-            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(edificio(m.referencia))}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(edificio(m.referencia))}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc((m.encargado || '').trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
           ).join('');
           return `<h4 class="sub2">📍 ${esc(sub)} <span>· ${items.length} máquina(s)</span></h4>
-            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Edificio / Referencia</th><th>Inspector</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Edificio / Referencia</th><th>Inspector</th><th>Encargado</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
         }).join('');
         return `<h3 class="sect">${mac.emoji} ${mac.title} <span class="sub">· ${list.length} máquina(s)</span></h3>${blocks}`;
       }).join('');
