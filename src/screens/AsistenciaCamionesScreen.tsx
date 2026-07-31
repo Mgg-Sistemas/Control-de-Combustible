@@ -18,6 +18,7 @@ import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/
 import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
 import { logAudit } from '../lib/audit';
+import { logTruckYard } from '../lib/truckYard';
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -222,7 +223,8 @@ export default function AsistenciaCamionesScreen() {
     setJorBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     logAudit('JORNADA_INICIO', 'machinery', jorTruck.id, `${jorTruck.code} · asistencia`);
-    setNotice(`🟢 Jornada iniciada · ${jorTruck.code} · ${caracasClock(now.toISOString())}. Marcado PRESENTE.`);
+    logTruckYard(jorTruck.id, jorTruck.code, 'salida', uid || null, fullName || null); // camión: SALIDA al iniciar
+    setNotice(`🟢 Jornada iniciada · ${jorTruck.code} · ${caracasClock(now.toISOString())}. Marcado PRESENTE · SALIDA registrada.`);
     setJorTruck(null); setJorRound(null); load();
   };
   const finalizarJornada = async () => {
@@ -238,7 +240,8 @@ export default function AsistenciaCamionesScreen() {
     setJorBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     logAudit('JORNADA_FIN', 'machinery', jorTruck.id, `${jorTruck.code} · ${horas.toFixed(2)} h`);
-    setNotice(`🏁 Jornada finalizada · ${jorTruck.code} · ${horas.toFixed(2)} h → Control.`);
+    logTruckYard(jorTruck.id, jorTruck.code, 'entrada', uid || null, fullName || null); // camión: ENTRADA al finalizar
+    setNotice(`🏁 Jornada finalizada · ${jorTruck.code} · ${horas.toFixed(2)} h → Control · ENTRADA registrada.`);
     setJorTruck(null); setJorRound(null); load();
   };
 

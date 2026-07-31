@@ -19,6 +19,7 @@ import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
+import { logTruckYardIfTruck } from '../lib/truckYard';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -467,6 +468,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? ` · declarada ${retrasoLabel(retrasoMin)} tarde` : ''}`); // bitácora
+    // Camión: al INICIAR la jornada, se registra su SALIDA del patio.
+    logTruckYardIfTruck(ci.id, ci.code, 'salida', uid || null, fullName || null);
 
     // ⏰ Alerta a los ADMIN si la jornada se declaró TARDE (después del límite).
     if (retrasoMin > 0) {
@@ -502,6 +505,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaStart(null);
     setFinConfirm(false);
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
+    // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
+    logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
     reloadEstados();
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
