@@ -467,6 +467,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
+    // Guarda el desfase (minutos) para que Inspecciones muestre "inició tarde".
+    // Best-effort: si la columna jornada_late_min no existe aún, se ignora el error.
+    supabase.from('machine_rounds').update({ jornada_late_min: retrasoMin > 0 ? retrasoMin : null }).eq('machinery_id', ci.id).eq('round_date', today).then(() => {}, () => {});
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? ` · declarada ${retrasoLabel(retrasoMin)} tarde` : ''}`); // bitácora
     // Camión: al INICIAR la jornada, se registra su SALIDA del patio.
     logTruckYardIfTruck(ci.id, ci.code, 'salida', uid || null, fullName || null);
