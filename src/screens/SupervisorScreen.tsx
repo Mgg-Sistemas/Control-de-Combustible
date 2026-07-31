@@ -215,7 +215,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!uid) { setLoading(false); return; }
     const [{ data: prof }, mach] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
-      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, latitude, longitude, operational, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, encargado, latitude, longitude, operational, company:company_id(name)'),
     ]);
     const name = (prof as any)?.full_name ?? '';
     setFullName(name);
@@ -282,7 +282,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm(m.code).includes(q)
     || norm(m.companyName || '').includes(q)
     || norm((m as any).serial || '').includes(q)
-    || norm((m as any).plate || '').includes(q);
+    || norm((m as any).plate || '').includes(q)
+    || norm((m as any).encargado || '').includes(q)
+    || norm((m as any).referencia || '').includes(q);
   const searchList = useMemo(() => {
     const q = norm(query.trim());
     return machines.filter((m) => matchQuery(m, q));
@@ -728,7 +730,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <SectionTitle>Todas las máquinas</SectionTitle>
             <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
           </View>
-          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
           <View style={{ marginTop: spacing.xs }}>
             {searchList.slice(0, 100).map(renderMachine)}
             {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
@@ -812,7 +814,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                 Toca ☀️ Día o 🌙 Noche para asignarle la máquina a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text> (o de nuevo para quitársela).
               </Text>
-              <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar máquina por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {checkList.slice(0, 200).map((m) => {
                   const slots = assignMap[m.id] || {};
