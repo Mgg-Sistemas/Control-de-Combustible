@@ -278,11 +278,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
 
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
-  // Buscador sobre MIS máquinas asignadas (mismo filtro: nombre/serial/placa/empresa/encargado/edificio).
-  const mineList = useMemo(() => {
-    const q = norm(query.trim());
-    return mine.filter((m) => matchQuery(m, q));
-  }, [mine, query]);
   const matchQuery = (m: Mach, q: string) => !q
     || norm(m.code).includes(q)
     || norm(m.companyName || '').includes(q)
@@ -290,6 +285,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm((m as any).plate || '').includes(q)
     || norm((m as any).encargado || '').includes(q)
     || norm((m as any).referencia || '').includes(q);
+  // Buscador sobre MIS máquinas asignadas (mismo filtro: nombre/serial/placa/empresa/encargado/edificio).
+  const mineList = useMemo(() => {
+    const q = norm(query.trim());
+    return mine.filter((m) => matchQuery(m, q));
+  }, [mine, query]);
   const searchList = useMemo(() => {
     const q = norm(query.trim());
     return machines.filter((m) => matchQuery(m, q));
