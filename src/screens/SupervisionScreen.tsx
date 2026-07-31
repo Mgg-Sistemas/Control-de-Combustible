@@ -113,6 +113,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const [asgSel, setAsgSel] = useState<Set<string>>(new Set()); // inspectores (check)
   const [edifSel, setEdifSel] = useState<Set<string>>(new Set()); // edificios (check)
   const [edifQuery, setEdifQuery] = useState('');               // buscar dentro de los edificios
+  const [edifOpen, setEdifOpen] = useState(false);              // desplegable abierto/cerrado
   const toggleAsgInspector = (name: string) => setAsgSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleEdif = (e: string) => setEdifSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   // Lista de inspectores y de edificios presentes (para los chips).
@@ -429,28 +430,43 @@ export default function SupervisionScreen({ navigation }: any) {
             ) : null}
           </View>
 
-          {/* Filtro por EDIFICIO/REFERENCIA (buscable + check; vacío = todos). */}
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🏢 Edificio / referencia (marca uno o varios · vacío = todos)</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
-            <Text style={{ fontSize: 13 }}>🔎</Text>
-            <TextInput value={edifQuery} onChangeText={setEdifQuery} placeholder="Buscar edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }} />
-          </View>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-            {edifShown.map((e) => {
-              const on = edifSel.has(e);
-              return (
-                <TouchableOpacity key={e} onPress={() => toggleEdif(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
-                  <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{e}</Text>
+          {/* Filtro por EDIFICIO/REFERENCIA: LISTA DESPLEGABLE con check (buscable). */}
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🏢 Edificio / referencia</Text>
+          <TouchableOpacity
+            onPress={() => setEdifOpen((v) => !v)}
+            activeOpacity={0.8}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: edifOpen ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: edifOpen ? 0 : spacing.sm }}
+          >
+            <Text style={{ color: edifSel.size > 0 ? colors.text : colors.muted, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+              {edifSel.size === 0 ? 'Todos los edificios' : `${edifSel.size} seleccionado(s)`}
+            </Text>
+            <Text style={{ color: colors.primary, fontWeight: '800' }}>{edifOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+          {edifOpen ? (
+            <View style={{ borderWidth: 1, borderColor: colors.primary, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+                <Text style={{ fontSize: 13 }}>🔎</Text>
+                <TextInput value={edifQuery} onChangeText={setEdifQuery} placeholder="Buscar edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }} />
+              </View>
+              <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                {edifShown.map((e) => {
+                  const on = edifSel.has(e);
+                  return (
+                    <TouchableOpacity key={e} onPress={() => toggleEdif(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.primary + '12' : 'transparent' }}>
+                      <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
+                      <Text style={{ color: colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }}>{e}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {edifShown.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text> : null}
+              </ScrollView>
+              {edifSel.size > 0 ? (
+                <TouchableOpacity onPress={() => setEdifSel(new Set())} style={{ marginTop: spacing.xs, alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar selección</Text>
                 </TouchableOpacity>
-              );
-            })}
-            {edifSel.size > 0 ? (
-              <TouchableOpacity onPress={() => setEdifSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+              ) : null}
+            </View>
+          ) : null}
 
           <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF por sector · referencia/serial/placa/empresa ({asgCount})</Text>
