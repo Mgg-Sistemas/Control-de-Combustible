@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
-import { listInspectorAssignments, AssignmentRow } from '../lib/machineInspectors';
+import { listInspectorAssignments, AssignmentRow, shiftLabel } from '../lib/machineInspectors';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
-import { cmpText } from '../lib/text';
+import { cmpText, norm } from '../lib/text';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -105,12 +105,37 @@ export default function SupervisionScreen({ navigation }: any) {
     assigns.forEach((a) => { const k = a.inspector_name || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(a); });
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [assigns]);
-  // Filtro por inspector (tipo check) para las asignaciones. Vacío = todos.
-  const [asgSel, setAsgSel] = useState<Set<string>>(new Set());
+  // Edificio/referencia legible de una asignación (para filtrar y mostrar).
+  const edifKey = (a: AssignmentRow): string => { const t = (a.referencia ?? '').trim(); return t && !/^[\d.,\s-]+$/.test(t) ? t : 'Sin edificio'; };
+  // ── Filtros del reporte de asignaciones ──────────────────────────────────
+  const [asgQuery, setAsgQuery] = useState('');                 // búsqueda libre
+  const [asgSel, setAsgSel] = useState<Set<string>>(new Set()); // inspectores (check)
+  const [edifSel, setEdifSel] = useState<Set<string>>(new Set()); // edificios (check)
+  const [edifQuery, setEdifQuery] = useState('');               // buscar dentro de los edificios
   const toggleAsgInspector = (name: string) => setAsgSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
-  const asgInspectors = useMemo(() => assignsByInspector.map(([name]) => name), [assignsByInspector]);
-  const asgByInspector = useMemo(() => assignsByInspector.filter(([name]) => asgSel.size === 0 || asgSel.has(name)), [assignsByInspector, asgSel]);
-  const asgCount = useMemo(() => asgByInspector.reduce((n, [, list]) => n + list.length, 0), [asgByInspector]);
+  const toggleEdif = (e: string) => setEdifSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
+  // Lista de inspectores y de edificios presentes (para los chips).
+  const asgInspectors = useMemo(() => Array.from(new Set(assigns.map((a) => a.inspector_name || '—'))).sort(cmpText), [assigns]);
+  const asgEdificios = useMemo(() => Array.from(new Set(assigns.map(edifKey))).sort((a, b) => (a === 'Sin edificio' ? 1 : b === 'Sin edificio' ? -1 : cmpText(a, b))), [assigns]);
+  const edifShown = useMemo(() => { const q = norm(edifQuery.trim()); return asgEdificios.filter((e) => !q || norm(e).includes(q)); }, [asgEdificios, edifQuery]);
+  // Aplica TODOS los filtros: búsqueda libre + inspector + edificio.
+  const filteredAssigns = useMemo(() => {
+    const q = norm(asgQuery.trim());
+    return assigns.filter((a) => {
+      if (asgSel.size > 0 && !asgSel.has(a.inspector_name || '—')) return false;
+      if (edifSel.size > 0 && !edifSel.has(edifKey(a))) return false;
+      if (!q) return true;
+      const hay = [a.code, a.plate, a.serial, a.companyName, a.inspector_name, a.encargado, a.referencia, edifKey(a)]
+        .map((x) => norm(String(x ?? ''))).join(' ');
+      return hay.includes(q);
+    });
+  }, [assigns, asgQuery, asgSel, edifSel]);
+  const asgByInspector = useMemo(() => {
+    const map = new Map<string, AssignmentRow[]>();
+    filteredAssigns.forEach((a) => { const k = a.inspector_name || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(a); });
+    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  }, [filteredAssigns]);
+  const asgCount = filteredAssigns.length;
 
   // ── Reporte por inspector (día o rango de fechas, con filtro multi-inspector) ──
   const [repOpen, setRepOpen] = useState(false);
@@ -309,6 +334,7 @@ export default function SupervisionScreen({ navigation }: any) {
         (x[0] === 'Sin zona' ? 1 : y[0] === 'Sin zona' ? -1 : cmpText(x[0], y[0])));
       const bloques = sectores.map(([sector, ms]) => {
         const filas = ms.map((a) => `<tr>
+          <td>${esc(a.shift === 'night' ? '🌙 Noche' : '☀️ Día')}</td>
           <td>${esc(a.code)}</td>
           <td>${esc(refOf(a))}</td>
           <td>${esc(a.serial || '—')}</td>
@@ -316,7 +342,7 @@ export default function SupervisionScreen({ navigation }: any) {
           <td>${esc(a.companyName)}</td>
         </tr>`).join('');
         return `<h4>📍 ${esc(sector)} · ${ms.length}</h4>
-          <table><thead><tr><th>Máquina</th><th>Referencia</th><th>Serial</th><th>Placa</th><th>Empresa</th></tr></thead>
+          <table><thead><tr><th>Turno</th><th>Máquina</th><th>Referencia</th><th>Serial</th><th>Placa</th><th>Empresa</th></tr></thead>
             <tbody>${filas}</tbody></table>`;
       }).join('');
       return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>${bloques}`;
@@ -372,12 +398,19 @@ export default function SupervisionScreen({ navigation }: any) {
         <Card><Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12 }}>
           ⚠️ Falta activar la asignación: corre <Text style={{ fontWeight: '900' }}>supabase/inspector_asignacion.sql</Text> en Supabase.
         </Text></Card>
-      ) : assignsByInspector.length === 0 ? (
+      ) : assigns.length === 0 ? (
         <EmptyState title="Sin asignaciones" subtitle="Cuando un inspector se asigna una máquina con ✅ CHECK MÁQUINA (teléfono), aparece aquí." />
       ) : (
         <>
-          {/* Filtro por inspector (check para uno o varios; vacío = todos). */}
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>Inspectores (marca uno o varios · vacío = todos)</Text>
+          {/* Búsqueda libre: máquina, placa, serial, empresa, inspector, encargado, edificio. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+            <Text style={{ fontSize: 14 }}>🔎</Text>
+            <TextInput value={asgQuery} onChangeText={setAsgQuery} placeholder="Buscar: máquina, placa, serial, empresa, inspector, encargado, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+            {asgQuery ? <TouchableOpacity onPress={() => setAsgQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+          </View>
+
+          {/* Filtro por INSPECTOR (check; vacío = todos). */}
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>👮 Inspectores (marca uno o varios · vacío = todos)</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
             {asgInspectors.map((name) => {
               const on = asgSel.has(name);
@@ -395,10 +428,35 @@ export default function SupervisionScreen({ navigation }: any) {
             ) : null}
           </View>
 
+          {/* Filtro por EDIFICIO/REFERENCIA (buscable + check; vacío = todos). */}
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>🏢 Edificio / referencia (marca uno o varios · vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+            <Text style={{ fontSize: 13 }}>🔎</Text>
+            <TextInput value={edifQuery} onChangeText={setEdifQuery} placeholder="Buscar edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }} />
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {edifShown.map((e) => {
+              const on = edifSel.has(e);
+              return (
+                <TouchableOpacity key={e} onPress={() => toggleEdif(e)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                  <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{e}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {edifSel.size > 0 ? (
+              <TouchableOpacity onPress={() => setEdifSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
           <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF por sector · referencia/serial/placa/empresa ({asgCount})</Text>
           </TouchableOpacity>
-          {asgByInspector.map(([name, list]) => (
+          {asgByInspector.length === 0 ? (
+            <EmptyState title="Sin resultados" subtitle="Ninguna asignación coincide con los filtros." />
+          ) : asgByInspector.map(([name, list]) => (
             <Card key={name}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👮 {name}</Text>
@@ -406,8 +464,8 @@ export default function SupervisionScreen({ navigation }: any) {
               </View>
               {list.map((a) => (
                 <View key={a.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{a.shift === 'night' ? '🌙' : '☀️'} {shiftLabel(a.shift)} · 🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}{a.encargado ? ` · 👤 ${a.encargado}` : ''}</Text>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
                 </View>
               ))}

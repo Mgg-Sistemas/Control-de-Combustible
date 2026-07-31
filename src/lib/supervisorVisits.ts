@@ -115,22 +115,29 @@ export async function latestInspectorByMachine(): Promise<Record<string, Inspect
   Object.entries(acc).forEach(([k, v]) => { out[k] = { name: v.name, date: v.date, status: v.status, near: v.near }; });
 
   // Superpone la asignación EXPLÍCITA del CHECK (machine_inspectors): tiene
-  // prioridad sobre el último check-in. Si la tabla aún no existe, se ignora.
+  // prioridad sobre el último check-in. Cada máquina tiene inspector de DÍA (☀️)
+  // y de NOCHE (🌙); se muestran ambos. Si la tabla no existe, se ignora.
   try {
     const { data: asg } = await supabase
       .from('machine_inspectors')
-      .select('machinery_id, inspector_id, inspector_name, assigned_at')
+      .select('machinery_id, inspector_id, inspector_name, shift, assigned_at')
       .eq('active', true);
-    const best: Record<string, any> = {};
+    const per: Record<string, { day?: { name: string; ts: string }; night?: { name: string; ts: string } }> = {};
     ((asg ?? []) as any[]).forEach((a) => {
       if (a.inspector_id && adminIds.has(a.inspector_id)) return; // ignora asignaciones de admin
-      const cur = best[a.machinery_id];
-      if (!cur || String(a.assigned_at) > String(cur.assigned_at)) best[a.machinery_id] = a;
+      const slot: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
+      const cur = (per[a.machinery_id] ||= {})[slot];
+      if (!cur || String(a.assigned_at) > String(cur.ts)) per[a.machinery_id][slot] = { name: a.inspector_name || '—', ts: a.assigned_at || '' };
     });
-    Object.entries(best).forEach(([mid, a]: [string, any]) => {
+    Object.entries(per).forEach(([mid, s]) => {
+      const parts: string[] = [];
+      if (s.day) parts.push(`☀️ ${s.day.name}`);
+      if (s.night) parts.push(`🌙 ${s.night.name}`);
+      if (parts.length === 0) return;
+      const ts = [s.day?.ts, s.night?.ts].filter(Boolean).sort().pop() || '';
       out[mid] = {
-        name: a.inspector_name || out[mid]?.name || '—',
-        date: (a.assigned_at || '').slice(0, 10) || out[mid]?.date || '',
+        name: parts.join(' · '),
+        date: ts.slice(0, 10) || out[mid]?.date || '',
         status: out[mid]?.status ?? 'trabajando',
         near: out[mid]?.near ?? null,
       };

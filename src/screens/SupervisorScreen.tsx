@@ -16,7 +16,7 @@ import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
-import { myInspectorMachineIds, assignInspector, unassignInspector } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -84,7 +84,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
   const [checkOpen, setCheckOpen] = useState(false);
   const [checkQuery, setCheckQuery] = useState('');
-  const [assignBusy, setAssignBusy] = useState<string | null>(null); // id de la máquina que se está asignando
+  const [assignBusy, setAssignBusy] = useState<string | null>(null); // clave máquina+turno que se está asignando
+  // Asignaciones por máquina: quién es el inspector de DÍA y de NOCHE.
+  type SlotInfo = { id: string | null; name: string };
+  const [assignMap, setAssignMap] = useState<Record<string, { day?: SlotInfo; night?: SlotInfo }>>({});
   const isAdmin = !!onSistema; // el admin recibe onSistema; puede ver todas las máquinas
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
@@ -192,13 +195,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as Mach[];
     list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
     setMachines(list);
-    // Mis máquinas = las que me asigné con el CHECK (machine_inspectors). El
-    // inspector solo ve estas; si la tabla aún no existe, avisa que falta el SQL.
-    const asg = await myInspectorMachineIds(uid);
-    setMineIds(asg.ids);
-    if (asg.missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
+    await reloadAssigns();
     setVisits(await myVisitsToday(uid, today));
     setLoading(false);
+  };
+
+  // Arma el mapa de asignaciones (quién es DÍA y NOCHE por máquina) y "mis
+  // máquinas" = donde soy inspector de día o de noche. Si falta el SQL, avisa.
+  const reloadAssigns = async () => {
+    const { rows, missing } = await listInspectorAssignments();
+    const map: Record<string, { day?: SlotInfo; night?: SlotInfo }> = {};
+    rows.forEach((a) => { (map[a.machinery_id] ||= {})[a.shift] = { id: a.inspector_id, name: a.inspector_name }; });
+    setAssignMap(map);
+    setMineIds(new Set(Object.entries(map).filter(([, s]) => s.day?.id === uid || s.night?.id === uid).map(([mid]) => mid)));
+    if (missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
   };
   useEffect(() => { load(); }, [uid]);
 
@@ -218,23 +228,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
 
-  // ✅ CHECK MÁQUINA: asigna (o quita) una máquina al inspector logueado. Casa la
-  // persona ↔ máquina; luego el inspector solo verá las que tiene asignadas.
-  const toggleAssign = async (m: Mach) => {
+  // ✅ CHECK MÁQUINA por TURNO: asigna (o quita) al inspector logueado como
+  // inspector de DÍA o de NOCHE de la máquina. Cada máquina → 2 inspectores.
+  const assignShift = async (m: Mach, shift: Shift) => {
     if (!uid || assignBusy) return;
-    const has = mineIds.has(m.id);
-    setAssignBusy(m.id); setNotice(null);
-    const res = has ? await unassignInspector(m.id, uid) : await assignInspector(m.id, uid, fullName || 'Inspector');
+    const slot = assignMap[m.id]?.[shift];
+    const mineHere = slot?.id === uid;
+    setAssignBusy(m.id + shift); setNotice(null);
+    const res = mineHere ? await unassignInspector(m.id, uid, shift) : await assignInspector(m.id, uid, fullName || 'Inspector', shift);
     setAssignBusy(null);
     if (res.error) {
       setNotice(res.missing
-        ? '❌ Falta activar la asignación: corre supabase/inspector_asignacion.sql en Supabase.'
+        ? '❌ Falta activar la asignación: corre supabase/inspector_turno.sql en Supabase.'
         : '❌ ' + res.error);
       return;
     }
-    setMineIds((prev) => { const n = new Set(prev); if (has) n.delete(m.id); else n.add(m.id); return n; });
-    if (!has) logAudit('CHECK', 'machinery', m.id, m.code); // bitácora: se asignó esta máquina
-    setNotice(has ? `➖ ${m.code} quitada de tus máquinas.` : `✅ ${m.code} asignada a ti.`);
+    await reloadAssigns();
+    if (!mineHere) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)}`); // bitácora
+    setNotice(mineHere
+      ? `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado.`
+      : `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} asignada a ti.`);
   };
 
   const openCheckin = (m: Mach) => {
@@ -489,6 +502,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           )}
         </View>
         <Text style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
+        {(() => {
+          const s = assignMap[m.id] || {};
+          const turnos = [s.day?.id === uid ? '☀️ Día' : null, s.night?.id === uid ? '🌙 Noche' : null].filter(Boolean).join(' · ');
+          return turnos ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800', marginTop: 2 }}>Mi turno: {turnos}</Text> : null;
+        })()}
         {v && so ? (
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
             {so.icon} {so.label}{v.distance_m != null ? ` · a ~${v.distance_m} m${v.near ? ' (en sitio)' : ' (lejos)'}` : ''}
@@ -620,27 +638,45 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             </TouchableOpacity>
           </View>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-            Toca una máquina para asignártela (o quitártela). Solo verás en tu ronda las que tengas asignadas.
+            Cada máquina tiene DOS inspectores: uno de ☀️ Día y otro de 🌙 Noche. Toca el turno que cubres para asignarte (o de nuevo para quitarte).
           </Text>
           <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
           <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
             {checkList.slice(0, 200).map((m) => {
-              const on = mineIds.has(m.id);
-              const busy = assignBusy === m.id;
+              const slots = assignMap[m.id] || {};
+              const mineDay = slots.day?.id === uid, mineNight = slots.night?.id === uid;
+              const on = mineDay || mineNight;
+              // Botón de un turno: verde si soy yo, gris con el nombre si es otro, punteado si libre.
+              const shiftBtn = (shift: Shift) => {
+                const slot = slots[shift];
+                const mineHere = slot?.id === uid;
+                const taken = !!slot && !mineHere;
+                const busy = assignBusy === m.id + shift;
+                return (
+                  <TouchableOpacity
+                    key={shift}
+                    onPress={() => assignShift(m, shift)}
+                    disabled={busy}
+                    style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderStyle: slot ? 'solid' : 'dashed', borderColor: mineHere ? colors.success : taken ? colors.warning : colors.border, backgroundColor: mineHere ? '#E8F5EC' : colors.surface, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? '#0F5C2E' : colors.text }}>
+                      {busy ? '⏳ ' : ''}{shiftIcon(shift)} {shiftLabel(shift)}
+                    </Text>
+                    <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.warning : colors.muted, fontWeight: '700' }}>
+                      {mineHere ? '✓ Yo (quitar)' : slot ? slot.name : 'Asignar'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              };
               return (
-                <TouchableOpacity
-                  key={m.id}
-                  onPress={() => toggleAssign(m)}
-                  disabled={busy}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.success : colors.border, backgroundColor: on ? '#E8F5EC' : colors.surface, marginBottom: spacing.xs, opacity: busy ? 0.6 : 1 }}
-                >
-                  <Text style={{ fontSize: 20 }}>{busy ? '⏳' : on ? '✅' : '⬜'}</Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: on ? '#0F5C2E' : colors.text, fontWeight: '800' }}>{m.code}</Text>
-                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.success : colors.border, backgroundColor: on ? '#F1FAF4' : colors.surface, marginBottom: spacing.xs }}>
+                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{on ? '✅ ' : ''}{m.code}</Text>
+                  <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    {shiftBtn('day')}
+                    {shiftBtn('night')}
                   </View>
-                  <Text style={{ color: on ? colors.success : colors.primary, fontWeight: '800', fontSize: 12 }}>{on ? 'Quitar' : 'Asignar'}</Text>
-                </TouchableOpacity>
+                </View>
               );
             })}
             {checkList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}

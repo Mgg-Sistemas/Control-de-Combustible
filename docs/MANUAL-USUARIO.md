@@ -539,11 +539,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **Solo el administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
 > desde el teléfono (para volver a Inspectores, recarga la página).
 
-> **✅ CHECK MÁQUINA (asignación):** cada inspector **solo ve en su ronda las máquinas que tiene
-> ASIGNADAS**. Para asignarse una, toca **✅ CHECK MÁQUINA** (debajo del escáner), busca la máquina
-> por **nombre/serial/placa** y tócala para **asignártela** (o **quitártela**). La asignación **casa la
-> persona logueada con la máquina** y queda en la **Auditoría** (✅ *se asignó*). El **administrador**
-> tiene además **"Ver todas"** para ver el listado completo.
+> **✅ CHECK MÁQUINA (asignación por TURNO):** cada máquina tiene **dos inspectores**: uno de
+> **☀️ Día** y otro de **🌙 Noche**. Toca **✅ CHECK MÁQUINA** (debajo del escáner), busca la máquina
+> por **nombre/serial/placa** y toca el **turno que cubres** (☀️ Día o 🌙 Noche). Si el turno ya lo
+> tiene otro inspector, sale su nombre; al tocarlo lo **reemplazas**. Toca de nuevo tu turno para
+> **quitarte**. Cada inspector solo ve en su ronda las máquinas donde es de día o de noche (indica
+> **"Mi turno"**). Queda en la **Auditoría** (✅ *se asignó · Día/Noche*). El **administrador** tiene
+> además **"Ver todas"**.
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
@@ -593,8 +595,14 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
 >
 > **Dos reportes en Inspecciones:** (1) **📊 Reporte por inspector** (día/rango, con hora, sector,
 > serial/placa, empresa y **estado** de la máquina); y (2) **📄 Asignaciones por sector** — las
-> máquinas que cada inspector se asignó con el CHECK, **agrupadas por sector**, con **referencia +
-> serial + placa + empresa**, **sin el estado** de la máquina.
+> máquinas que cada inspector se asignó con el CHECK, **agrupadas por sector**, con **turno ☀️/🌙 +
+> referencia + serial + placa + empresa**, **sin el estado**. El reporte (2) tiene **búsqueda libre**
+> (máquina, placa, serial, empresa, inspector, encargado, edificio) y filtros tipo **check** por
+> **inspector** y por **edificio/referencia** (con su propia búsqueda).
+
+> **🔎 Búsqueda en Trazabilidad de ubicaciones (Mapa):** arriba de la trazabilidad hay un buscador
+> por **máquina, placa, serial, empresa, encargado, referencia/edificio** y **quién registró**
+> (inspector/operador).
 
 > **🏢 Edificio (lista desplegable):** en el check-in, el campo **Edificio** es ahora una **lista
 > desplegable** con los sitios oficiales (Residencias Militares, La Iguana, Hotel Litoral Palace,
