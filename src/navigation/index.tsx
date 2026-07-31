@@ -386,6 +386,12 @@ export default function RootNavigator() {
   // Admin en teléfono: cae en Inspectores, pero con el botón SISTEMA salta a la
   // app completa (este flag lo activa). Se reinicia al recargar / cerrar sesión.
   const [sistemaMode, setSistemaMode] = React.useState(false);
+  // Callback ESTABLE para el botón SISTEMA. Si se pasara inline (`() => ...`), su
+  // identidad cambiaría en cada render del provider (p. ej. cuando la presencia
+  // actualiza `onlineIds`), y eso REMONTABA la pantalla de Inspectores del teléfono
+  // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
+  // useCallback la referencia es fija y la pestaña ya no se remonta.
+  const goSistema = React.useCallback(() => setSistemaMode(true), []);
   // PERSISTENCIA DE NAVEGACIÓN (solo PC/web): al recargar la página, se mantiene
   // la MISMA pantalla/pestaña donde estaba el usuario (no vuelve al inicio). En
   // teléfono no aplica (allí la vista la fija el rol/dispositivo).
@@ -514,7 +520,7 @@ export default function RootNavigator() {
         // TELÉFONO · cualquier otro rol: cae en el módulo de INSPECTORES (vista de
         // inspección de máquinas: escanear QR, iniciar/finalizar jornada, avería…).
         // El admin ve además el botón SISTEMA para saltar a la app completa.
-        <SupervisorTabs onSistema={role === 'admin' ? () => setSistemaMode(true) : undefined} />
+        <SupervisorTabs onSistema={role === 'admin' ? goSistema : undefined} />
       ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
         // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />
