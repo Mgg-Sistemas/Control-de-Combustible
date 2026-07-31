@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -9,6 +9,7 @@ import { listInspectorAssignments, AssignmentRow, shiftLabel } from '../lib/mach
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
+import { isVolteoVolqueta } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -77,7 +78,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const { colors, typography } = useTheme();
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
-  const ALL_SECS = ['asg', 'camiones', 'sinval', 'machjor', 'opjor', 'traza'];
+  const ALL_SECS = ['asg', 'camiones', 'machjor', 'opjor', 'traza'];
   const [secClosed, setSecClosed] = useState<Set<string>>(() => new Set(ALL_SECS));
   const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Abre la ficha de ESA máquina. Si fue reportada AVERIADA (parada), va al módulo
@@ -344,24 +345,35 @@ export default function SupervisionScreen({ navigation }: any) {
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
   const camiones = useMemo(() => {
-    const map = new Map<string, { code: string; companyName: string; salida: string | null; entrada: string | null }>();
+    type C = { code: string; companyName: string; salida: string | null; entrada: string | null; jornada: boolean };
+    const map = new Map<string, C>();
+    // Base: JORNADAS de camiones (volteo/toronto/volqueta). Así aparecen aunque su
+    // salida/entrada no se haya registrado en el patio (jornadas iniciadas antes).
+    rawRounds.filter((r) => isVolteoVolqueta(r.code)).forEach((r) => {
+      const cur = map.get(r.machinery_id) || { code: r.code, companyName: r.companyName, salida: null, entrada: null, jornada: false };
+      cur.jornada = true;
+      if (r.startAt) { if (!cur.salida || r.startAt < cur.salida) cur.salida = r.startAt; } // jornada abierta → salió a esa hora
+      cur.code = r.code; cur.companyName = r.companyName;
+      map.set(r.machinery_id, cur);
+    });
+    // Superpone los movimientos reales de patio (hora exacta de salida/entrada).
     yardLogs.forEach((l) => {
-      const cur = map.get(l.machinery_id) || { code: l.code, companyName: l.companyName, salida: null, entrada: null };
-      if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; } // primera salida del día
-      else { if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at; }                        // última entrada del día
+      const cur = map.get(l.machinery_id) || { code: l.code, companyName: l.companyName, salida: null, entrada: null, jornada: false };
+      if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; }
+      else { if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at; }
       cur.code = l.code; cur.companyName = l.companyName;
       map.set(l.machinery_id, cur);
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
-  }, [yardLogs]);
-  const camPresentes = useMemo(() => camiones.filter((c) => c.salida).length, [camiones]);
+  }, [rawRounds, yardLogs]);
+  const camPresentes = useMemo(() => camiones.filter((c) => c.salida || c.jornada).length, [camiones]);
 
   // 📄 Reporte PDF de asistencia de camiones (salida/entrada del día).
   const reporteCamiones = async () => {
     if (camiones.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const filas = camiones.map((c) => {
-      const estado = c.salida && c.entrada ? '🟢 Regresó' : c.salida ? '🟠 En obra' : '— sin salida';
+      const estado = c.salida && c.entrada ? '🟢 Regresó' : (c.salida || c.jornada) ? '🟠 En obra' : '— sin salida';
       return `<tr>
         <td>${esc(c.code)}</td>
         <td>${esc(c.companyName)}</td>
@@ -388,9 +400,23 @@ export default function SupervisionScreen({ navigation }: any) {
   const validated = rounds.length - unvalidated.length;
 
   // KPIs pedidos: jornadas iniciadas (total), máquinas averiadas y jornadas terminadas.
+  const jornadasTerminadasList = useMemo(() => machJornadas.filter((j) => !j.enCurso), [machJornadas]);
+  // Máquinas averiadas (parada): última visita 'parada' por máquina (para la lista).
+  const averiadaList = useMemo(() => {
+    const map = new Map<string, VisitRow>();
+    cleanVisits.filter((v) => v.status === 'parada').forEach((v) => {
+      const cur = map.get(v.machinery_id);
+      if (!cur || String(v.visited_at) > String(cur.visited_at)) map.set(v.machinery_id, v);
+    });
+    return Array.from(map.values()).sort((a, b) => cmpText(a.machineCode || '', b.machineCode || ''));
+  }, [cleanVisits]);
   const jornadasIniciadas = machJornadas.length;                                    // en curso + finalizadas
-  const jornadasTerminadas = useMemo(() => machJornadas.filter((j) => !j.enCurso).length, [machJornadas]);
-  const maquinasAveriadas = useMemo(() => new Set(cleanVisits.filter((v) => v.status === 'parada').map((v) => v.machinery_id)).size, [cleanVisits]);
+  const jornadasTerminadas = jornadasTerminadasList.length;
+  const maquinasAveriadas = averiadaList.length;
+
+  // Tarjeta KPI tocada → abre la lista con detalle y buscador.
+  const [kpiModal, setKpiModal] = useState<null | 'iniciadas' | 'averiadas' | 'terminadas'>(null);
+  const [kpiQuery, setKpiQuery] = useState('');
 
   // Traza agrupada por supervisor.
   const bySupervisor = useMemo(() => {
@@ -500,12 +526,18 @@ export default function SupervisionScreen({ navigation }: any) {
 
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
 
-  const kpi = (label: string, value: React.ReactNode, color: string) => (
-    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-      <Text style={{ color, fontSize: 22, fontWeight: '900' }}>{value}</Text>
-      <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center' }}>{label}</Text>
-    </View>
-  );
+  const kpi = (label: string, value: React.ReactNode, color: string, onPress?: () => void) => {
+    const inner = (
+      <>
+        <Text style={{ color, fontSize: 22, fontWeight: '900' }}>{value}</Text>
+        <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center' }}>{label}{onPress ? ' ›' : ''}</Text>
+      </>
+    );
+    const style = { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: onPress ? colors.primary : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' } as const;
+    return onPress
+      ? <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={style}>{inner}</TouchableOpacity>
+      : <View style={style}>{inner}</View>;
+  };
 
   // Cabecera de sección colapsable: mismo look que SectionTitle + flecha ▾/▸.
   const secHead = (key: string, title: string) => {
@@ -536,14 +568,9 @@ export default function SupervisionScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Visitas', cleanVisits.length, colors.text)}
-          {kpi('Jornadas validadas', validated, colors.success)}
-          {kpi('Sin validar', unvalidated.length, unvalidated.length > 0 ? colors.danger : colors.success)}
-        </View>
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.text)}
-          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success)}
-          {kpi('Jornadas terminadas', jornadasTerminadas, colors.success)}
+          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.text, () => { setKpiQuery(''); setKpiModal('iniciadas'); })}
+          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiModal('averiadas'); })}
+          {kpi('Jornadas terminadas', jornadasTerminadas, colors.success, () => { setKpiQuery(''); setKpiModal('terminadas'); })}
         </View>
       </Card>
 
@@ -778,7 +805,7 @@ export default function SupervisionScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de asistencia de camiones (PDF)</Text>
           </TouchableOpacity>
           {camiones.map((c) => {
-            const estado = c.salida && c.entrada ? { t: '🟢 Regresó', col: colors.success } : c.salida ? { t: '🟠 En obra', col: colors.warning } : { t: '— sin salida', col: colors.muted };
+            const estado = c.salida && c.entrada ? { t: '🟢 Regresó', col: colors.success } : (c.salida || c.jornada) ? { t: '🟠 En obra', col: colors.warning } : { t: '— sin salida', col: colors.muted };
             return (
               <Card key={c.code}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -792,32 +819,6 @@ export default function SupervisionScreen({ navigation }: any) {
             );
           })}
         </>
-      )}
-
-      {/* ── JORNADAS SIN VALIDAR (el operador no cobra) ── */}
-      {secHead('sinval', '⛔ Jornadas sin validar')}
-      {secClosed.has('sinval') ? null : (
-      <Card>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-          Máquinas que trabajaron este día pero que <Text style={{ fontWeight: '800', color: colors.danger }}>ningún inspector marcó</Text>. Regla: sin visita, el operador no cobra.
-        </Text>
-        {unvalidated.length === 0 ? (
-          <Text style={{ color: colors.success, fontWeight: '800' }}>✓ Todas las jornadas del día están validadas.</Text>
-        ) : (
-          unvalidated.map((r) => (
-            <View key={r.machinery_id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.border }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontWeight: '800' }}>{r.code}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{r.companyName}{r.operator ? ` · ${r.operator}` : ''}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={{ color: colors.text, fontWeight: '800' }}>{r.worked} h</Text>
-                <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>NO cobra</Text>
-              </View>
-            </View>
-          ))
-        )}
-      </Card>
       )}
 
       {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
@@ -982,6 +983,71 @@ export default function SupervisionScreen({ navigation }: any) {
         })
       )}
       <View style={{ height: spacing.xl }} />
+
+      {/* Detalle de una tarjeta KPI: lista buscable con todos los detalles. */}
+      <Modal visible={kpiModal !== null} transparent animationType="fade" onRequestClose={() => setKpiModal(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setKpiModal(null)}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: spacing.md }}>
+            {(() => {
+              const q = kpiQuery.trim().toLowerCase();
+              const title = kpiModal === 'iniciadas' ? '🟢 Jornadas iniciadas' : kpiModal === 'averiadas' ? '🟡 Máquinas averiadas' : '🏁 Jornadas terminadas';
+              const jList = (kpiModal === 'terminadas' ? jornadasTerminadasList : machJornadas).filter((j) =>
+                !q || `${j.code} ${j.companyName} ${j.inspector} ${j.serial ?? ''} ${j.plate ?? ''} ${j.encargado ?? ''}`.toLowerCase().includes(q));
+              const aList = averiadaList.filter((v) =>
+                !q || `${v.machineCode ?? ''} ${v.companyName ?? ''} ${v.supervisor_name ?? ''} ${v.note ?? ''}`.toLowerCase().includes(q));
+              const total = kpiModal === 'averiadas' ? aList.length : jList.length;
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, flex: 1 }}>{title} · {total}</Text>
+                    <TouchableOpacity onPress={() => setKpiModal(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                    <Text style={{ fontSize: 14 }}>🔎</Text>
+                    <TextInput value={kpiQuery} onChangeText={setKpiQuery} placeholder="Buscar…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+                    {kpiQuery ? <TouchableOpacity onPress={() => setKpiQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+                  </View>
+                  <ScrollView style={{ paddingHorizontal: spacing.md }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
+                    {total === 0 ? (
+                      <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>Sin resultados.</Text>
+                    ) : kpiModal === 'averiadas' ? (
+                      aList.map((v) => (
+                        <TouchableOpacity key={v.id} onPress={() => { setKpiModal(null); openMachine(v); }} activeOpacity={0.6} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🟡 {v.machineCode} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {v.companyName}</Text></Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {v.supervisor_name || '—'} · 🕒 {caracasClock(v.visited_at)}</Text>
+                          {v.note ? <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>“{v.note}”</Text> : null}
+                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>🔧 Ver en Mantenimiento ›</Text>
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      jList.map((j) => {
+                        const late = lateMap[j.machinery_id] || 0;
+                        return (
+                          <TouchableOpacity key={j.machinery_id} activeOpacity={j.enCurso ? 1 : 0.6}
+                            onPress={j.enCurso ? undefined : () => { setKpiModal(null); navigation?.navigate?.('Map', { focus: { id: j.machinery_id, code: j.code } }); }}
+                            style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {j.inspector}{j.shift ? ` · ${j.shift === 'night' ? '🌙 noche' : '☀️ día'}` : ''}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
+                            {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado)</Text> : null}
+                            {j.enCurso ? (
+                              <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>● En curso{j.startAt ? ` desde ${caracasClock(j.startAt)}` : ''}</Text>
+                            ) : (
+                              <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>🏁 {j.worked} h · 📍 Ver ubicación en el mapa ›</Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+                </>
+              );
+            })()}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
