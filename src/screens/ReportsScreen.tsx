@@ -177,7 +177,7 @@ const PDF_CSS = `
   /* Forzar impresión de fondos de color (encabezados azules) al guardar/imprimir PDF. */
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff}
+  body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff;text-transform:uppercase}
   /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
   @media screen{ body{ padding:28px 34px } }
   .top{display:flex;justify-content:space-between;align-items:flex-start}
@@ -252,7 +252,7 @@ function deployInfographicHtml(d: DeployData): string {
   @page { size: 15in 9.1in; margin: 2cm; }
   * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   :root { --navy:#16324F; --gold:#B4924E; --gold-soft:#EFE7D6; --ink:#1a1c20; --muted:#6b7280; --line:#e3e6ea; --bg:#ffffff; --panel:#F7F5F1; }
-  body { font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:var(--ink); background:#54606b; }
+  body { font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif; color:var(--ink); background:#54606b; text-transform:uppercase; }
   .slide { width:1280px; height:720px; background:var(--bg); position:relative; overflow:hidden; page-break-after:always; margin:0 auto; }
   .slide:last-child { page-break-after:auto; }
   .pad { padding:54px 64px; height:100%; display:flex; flex-direction:column; }
