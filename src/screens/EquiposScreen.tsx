@@ -89,7 +89,9 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'tipo', label: 'Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
-  { key: 'referencia', label: 'Referencia / Ubicación', type: 'text' },
+  { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
+  { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia' },
+  { key: 'sector', label: 'Sector', type: 'suggest', table: 'machinery', column: 'sector' },
   { key: 'identifier', label: 'Identificador', type: 'text' },
   { key: 'plate', label: 'Placa', type: 'text' },
   { key: 'serial', label: 'Serial', type: 'text' },
@@ -796,6 +798,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+            {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
             {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
@@ -1430,6 +1433,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                       {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+                      {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
                       {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                       {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
