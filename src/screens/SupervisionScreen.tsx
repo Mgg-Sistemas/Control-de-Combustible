@@ -105,6 +105,12 @@ export default function SupervisionScreen({ navigation }: any) {
     assigns.forEach((a) => { const k = a.inspector_name || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(a); });
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [assigns]);
+  // Filtro por inspector (tipo check) para las asignaciones. Vacío = todos.
+  const [asgSel, setAsgSel] = useState<Set<string>>(new Set());
+  const toggleAsgInspector = (name: string) => setAsgSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const asgInspectors = useMemo(() => assignsByInspector.map(([name]) => name), [assignsByInspector]);
+  const asgByInspector = useMemo(() => assignsByInspector.filter(([name]) => asgSel.size === 0 || asgSel.has(name)), [assignsByInspector, asgSel]);
+  const asgCount = useMemo(() => asgByInspector.reduce((n, [, list]) => n + list.length, 0), [asgByInspector]);
 
   // ── Reporte por inspector (día o rango de fechas, con filtro multi-inspector) ──
   const [repOpen, setRepOpen] = useState(false);
@@ -293,9 +299,9 @@ export default function SupervisionScreen({ navigation }: any) {
   // 📄 REPORTE 2: máquinas asignadas por inspector, UBICADAS POR SECTOR, con
   // referencia + serial + placa + empresa. SIN el estado de la máquina.
   const reporteAsignacionesPorSector = async () => {
-    if (assignsByInspector.length === 0) return;
+    if (asgByInspector.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const secciones = assignsByInspector.map(([name, list]) => {
+    const secciones = asgByInspector.map(([name, list]) => {
       // Agrupa las máquinas del inspector por sector (A→Z, "Sin zona" al final).
       const bySector = new Map<string, AssignmentRow[]>();
       list.forEach((a) => { const k = sectorOfAssign(a); if (!bySector.has(k)) bySector.set(k, []); bySector.get(k)!.push(a); });
@@ -317,7 +323,7 @@ export default function SupervisionScreen({ navigation }: any) {
     }).join('');
     const html = pdfDocument({
       title: 'Máquinas asignadas por inspector · por sector',
-      subtitle: `${assigns.length} asignación(es) · ${assignsByInspector.length} inspector(es)`,
+      subtitle: `${asgCount} asignación(es) · ${asgByInspector.length} inspector(es)`,
       extraCss: `table{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
         tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 4px;font-size:14px;color:#16324F}
@@ -370,10 +376,29 @@ export default function SupervisionScreen({ navigation }: any) {
         <EmptyState title="Sin asignaciones" subtitle="Cuando un inspector se asigna una máquina con ✅ CHECK MÁQUINA (teléfono), aparece aquí." />
       ) : (
         <>
+          {/* Filtro por inspector (check para uno o varios; vacío = todos). */}
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginBottom: spacing.xs }}>Inspectores (marca uno o varios · vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {asgInspectors.map((name) => {
+              const on = asgSel.has(name);
+              return (
+                <TouchableOpacity key={name} onPress={() => toggleAsgInspector(name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                  <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {asgSel.size > 0 ? (
+              <TouchableOpacity onPress={() => setAsgSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
           <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF por sector · referencia/serial/placa/empresa ({assigns.length})</Text>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF por sector · referencia/serial/placa/empresa ({asgCount})</Text>
           </TouchableOpacity>
-          {assignsByInspector.map(([name, list]) => (
+          {asgByInspector.map(([name, list]) => (
             <Card key={name}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👮 {name}</Text>
