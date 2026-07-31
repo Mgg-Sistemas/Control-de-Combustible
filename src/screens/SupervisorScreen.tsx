@@ -90,6 +90,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   type SlotInfo = { id: string | null; name: string };
   const [assignMap, setAssignMap] = useState<Record<string, { day?: SlotInfo; night?: SlotInfo }>>({});
   const isAdmin = !!onSistema; // el admin recibe onSistema; puede ver todas las máquinas
+  // SOLO ADMIN: asigna máquinas a un INSPECTOR (no a sí mismo). Lista de inspectores
+  // y el inspector elegido en el modal del CHECK.
+  const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
+  const [checkInspector, setCheckInspector] = useState<{ id: string; name: string } | null>(null);
+  const [inspQuery, setInspQuery] = useState('');
+  // Estado de la jornada por máquina (para el círculo 🟢/🟡/🔴):
+  //   round del día (jornada abierta / horas) + máquinas con avería PARADA pendiente.
+  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
+  const [paradaIds, setParadaIds] = useState<Set<string>>(new Set());
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -198,7 +207,37 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setMachines(list);
     await reloadAssigns();
     setVisits(await myVisitsToday(uid, today));
+    await reloadEstados();
+    // Solo el ADMIN necesita la lista de inspectores para asignarles máquinas.
+    if (isAdmin) {
+      const { data: insp } = await supabase.from('profiles').select('id, full_name, role').neq('role', 'admin').order('full_name');
+      setInspectors(((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim()).map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
+    }
     setLoading(false);
+  };
+
+  // Estado de la jornada por máquina para el círculo de color: rondas del día
+  // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
+  const reloadEstados = async () => {
+    const [{ data: rs }, { data: par }] = await Promise.all([
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
+      supabase.from('maintenance_requests').select('machinery_id').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+    ]);
+    const rmap: Record<string, { open: boolean; worked: number }> = {};
+    ((rs ?? []) as any[]).forEach((r) => {
+      rmap[r.machinery_id] = { open: !!r.jornada_start_at, worked: (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) };
+    });
+    setRoundsById(rmap);
+    setParadaIds(new Set(((par ?? []) as any[]).map((p) => p.machinery_id as string)));
+  };
+  // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
+  // (avería pendiente) · 🔴 jornada finalizada (tuvo horas y ya cerró). Si nada, null.
+  const estadoDe = (id: string): { color: string; icon: string; label: string } | null => {
+    const r = roundsById[id];
+    if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
+    if (r && r.worked > 0) return { color: '#D22B2B', icon: '🔴', label: 'Jornada finalizada' };
+    return null;
   };
 
   // Arma el mapa de asignaciones (quién es DÍA y NOCHE por máquina) y "mis
@@ -215,6 +254,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Sincroniza en vivo: si se asignan/quitan máquinas (aquí o en otro dispositivo),
   // refresca "Mis máquinas" y el mapa de turnos al instante.
   useRealtimeRefresh(['machine_inspectors'], () => { reloadAssigns(); });
+  // Círculos de estado en vivo: jornada (machine_rounds), avería/parada
+  // (maintenance_requests) y visitas.
+  useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
 
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
   const matchQuery = (m: Mach, q: string) => !q
@@ -232,14 +274,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
 
-  // ✅ CHECK MÁQUINA por TURNO: asigna (o quita) al inspector logueado como
-  // inspector de DÍA o de NOCHE de la máquina. Cada máquina → 2 inspectores.
+  // ✅ CHECK MÁQUINA por TURNO (SOLO ADMIN): asigna (o quita) al INSPECTOR ELEGIDO
+  // como inspector de DÍA o de NOCHE de la máquina. Cada máquina → 2 inspectores.
   const assignShift = async (m: Mach, shift: Shift) => {
-    if (!uid || assignBusy) return;
+    const target = checkInspector;
+    if (!target || assignBusy) return;
     const slot = assignMap[m.id]?.[shift];
-    const mineHere = slot?.id === uid;
+    const same = slot?.id === target.id; // ese inspector ya tiene este turno → quitar
     setAssignBusy(m.id + shift); setNotice(null);
-    const res = mineHere ? await unassignInspector(m.id, uid, shift) : await assignInspector(m.id, uid, fullName || 'Inspector', shift);
+    const res = same ? await unassignInspector(m.id, target.id, shift) : await assignInspector(m.id, target.id, target.name, shift);
     setAssignBusy(null);
     if (res.error) {
       setNotice(res.missing
@@ -248,10 +291,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       return;
     }
     await reloadAssigns();
-    if (!mineHere) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)}`); // bitácora
-    setNotice(mineHere
-      ? `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado.`
-      : `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} asignada a ti.`);
+    if (!same) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)} → ${target.name}`); // bitácora
+    setNotice(same
+      ? `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado a ${target.name}.`
+      : `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} asignada a ${target.name}.`);
   };
 
   const openCheckin = (m: Mach) => {
@@ -389,6 +432,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaShift(sh);
     setJornadaStart(now.toISOString());
     logAudit('JORNADA_INICIO', 'machinery', ci.id, ci.code); // bitácora
+    reloadEstados();
     setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftOf(caracasParts(now).hour).label}. Aparece en Inspecciones.`);
   };
 
@@ -412,6 +456,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaStart(null);
     setFinConfirm(false);
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
+    reloadEstados();
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
 
@@ -428,9 +473,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     setCiSaving(false);
     logAudit('PARADA', 'machinery', ci.id, `${ci.code} · ${ciMotivo.trim()}`); // bitácora
+    reloadEstados();
     setNotice(`🟡 ${ci.code} marcada PARADA${avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
     setCiMotivo(''); setParadaOpen(false);
     setCi(null);
+  };
+
+  // 🟢 VOLVER A OPERATIVA: revierte una máquina PARADA. Registra una visita
+  // "trabajando" (Inspecciones) y RESUELVE la avería "MÁQUINA PARADA" pendiente
+  // (Mantenimiento), con lo que Control deja de mostrar "MÁQUINA PARADA".
+  const volverOperativa = async () => {
+    if (!ci || ciSaving) return;
+    setCiSaving(true); setNotice(null);
+    const vis = await registrarVisita('trabajando');
+    const { error: upErr } = await supabase
+      .from('maintenance_requests')
+      .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
+      .eq('machinery_id', ci.id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
+    setCiSaving(false);
+    if (!vis && upErr) { setNotice('❌ No se pudo poner operativa.'); return; }
+    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · vuelve a OPERATIVA`);
+    await reloadEstados();
+    setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr ? ' · ⚠️ la avería no se pudo cerrar' : ' · avería cerrada en Mantenimiento'}.`);
   };
 
   // Escanea el carnet del operador (QR ?empleado=<id>): valida que exista, que su
@@ -488,34 +552,44 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
 
+  // ¿La referencia es un edificio legible? (descarta coordenadas / solo números).
+  const edificioDe = (m: Mach): string | null => {
+    const t = ((m as any).referencia ?? '').trim();
+    return t && !/^[\d.,\s-]+$/.test(t) ? t : null;
+  };
   const renderMachine = (m: Mach) => {
     const v = visits[m.id];
-    const so = v ? STATUS_OPTS.find((o) => o.key === v.status) : null;
+    const est = estadoDe(m.id); // 🟢 trabajando / 🟡 parada / 🔴 finalizada
+    const edif = edificioDe(m);
     return (
       <TouchableOpacity
         key={m.id}
         onPress={() => openCheckin(m)}
-        style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: v ? colors.success : colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}
+        style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: est ? est.color : (v ? colors.success : colors.border), backgroundColor: colors.surface, marginBottom: spacing.xs }}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{m.code}</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+            {/* Círculo de estado de la jornada */}
+            <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: est ? est.color : colors.border }} />
+            <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', flex: 1 }}>{m.code}</Text>
+          </View>
           {v ? (
             <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>✓ {caracasClock(v.visited_at)}</Text>
           ) : (
             <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>⏳ Pendiente</Text>
           )}
         </View>
-        <Text style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
+        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
+        {/* Referencia / edificio de la máquina */}
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>📍 {edif || 'Sin edificio/referencia'}{((m as any).plate || (m as any).serial) ? ` · 🔖 ${(m as any).plate || (m as any).serial}` : ''}</Text>
+        {/* Estado de la jornada (con su color) */}
+        {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}</Text> : null}
+        {/* Inspectores asignados (día / noche) */}
         {(() => {
           const s = assignMap[m.id] || {};
-          const turnos = [s.day?.id === uid ? '☀️ Día' : null, s.night?.id === uid ? '🌙 Noche' : null].filter(Boolean).join(' · ');
-          return turnos ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800', marginTop: 2 }}>Mi turno: {turnos}</Text> : null;
+          const parts = [s.day ? `☀️ ${s.day.name}` : null, s.night ? `🌙 ${s.night.name}` : null].filter(Boolean).join('  ·  ');
+          return parts ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{parts}</Text> : null;
         })()}
-        {v && so ? (
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-            {so.icon} {so.label}{v.distance_m != null ? ` · a ~${v.distance_m} m${v.near ? ' (en sitio)' : ' (lejos)'}` : ''}
-          </Text>
-        ) : null}
       </TouchableOpacity>
     );
   };
@@ -567,18 +641,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
           <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
         </TouchableOpacity>
-        {/* CHECK MÁQUINA: asignarme las máquinas que inspecciono (solo veo las mías). */}
-        <TouchableOpacity
-          onPress={() => { setCheckQuery(''); setCheckOpen(true); }}
-          activeOpacity={0.85}
-          style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
-        >
-          <Text style={{ fontSize: 20 }}>✅</Text>
-          <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
-        </TouchableOpacity>
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-          Asígnate las máquinas que inspeccionas. Solo verás las tuyas.
-        </Text>
+        {/* CHECK MÁQUINA (SOLO ADMIN): asignar máquinas a los inspectores. */}
+        {isAdmin ? (
+          <>
+            <TouchableOpacity
+              onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setCheckOpen(true); }}
+              activeOpacity={0.85}
+              style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
+            >
+              <Text style={{ fontSize: 20 }}>✅</Text>
+              <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
+            </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+              Asigna las máquinas a cada inspector (día / noche). Solo el administrador puede asignar.
+            </Text>
+          </>
+        ) : (
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
+            Aquí ves las máquinas que el administrador te asignó. Tócalas para hacer el check-in.
+          </Text>
+        )}
       </Card>
 
       {notice ? (
@@ -629,63 +711,97 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
       </Modal>
 
-      {/* ✅ CHECK MÁQUINA: asignar/quitar máquinas al inspector logueado. */}
+      {/* ✅ CHECK MÁQUINA (SOLO ADMIN): 1) elegir inspector · 2) asignarle máquinas por turno. */}
       <Modal visible={checkOpen} animationType="slide" onRequestClose={() => setCheckOpen(false)}>
         <Screen>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>✅ CHECK máquina</Text>
-              <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>Asignadas: <Text style={{ color: colors.success, fontWeight: '800' }}>{mineIds.size}</Text></Text>
+              <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>
+                {checkInspector ? <>Inspector: <Text style={{ color: colors.primary, fontWeight: '800' }}>{checkInspector.name}</Text></> : 'Elige el inspector'}
+              </Text>
             </View>
             <TouchableOpacity onPress={() => setCheckOpen(false)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
             </TouchableOpacity>
           </View>
-          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-            Cada máquina tiene DOS inspectores: uno de ☀️ Día y otro de 🌙 Noche. Toca el turno que cubres para asignarte (o de nuevo para quitarte).
-          </Text>
-          <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
-          <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
-            {checkList.slice(0, 200).map((m) => {
-              const slots = assignMap[m.id] || {};
-              const mineDay = slots.day?.id === uid, mineNight = slots.night?.id === uid;
-              const on = mineDay || mineNight;
-              // Botón de un turno: verde si soy yo, gris con el nombre si es otro, punteado si libre.
-              const shiftBtn = (shift: Shift) => {
-                const slot = slots[shift];
-                const mineHere = slot?.id === uid;
-                const taken = !!slot && !mineHere;
-                const busy = assignBusy === m.id + shift;
-                return (
-                  <TouchableOpacity
-                    key={shift}
-                    onPress={() => assignShift(m, shift)}
-                    disabled={busy}
-                    style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderStyle: slot ? 'solid' : 'dashed', borderColor: mineHere ? colors.success : taken ? colors.warning : colors.border, backgroundColor: mineHere ? '#E8F5EC' : colors.surface, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
-                  >
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? '#0F5C2E' : colors.text }}>
-                      {busy ? '⏳ ' : ''}{shiftIcon(shift)} {shiftLabel(shift)}
-                    </Text>
-                    <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.warning : colors.muted, fontWeight: '700' }}>
-                      {mineHere ? '✓ Yo (quitar)' : slot ? slot.name : 'Asignar'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              };
-              return (
-                <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.success : colors.border, backgroundColor: on ? '#F1FAF4' : colors.surface, marginBottom: spacing.xs }}>
-                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{on ? '✅ ' : ''}{m.code}</Text>
-                  <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                    {shiftBtn('day')}
-                    {shiftBtn('night')}
-                  </View>
-                </View>
-              );
-            })}
-            {checkList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
-            <View style={{ height: spacing.xl }} />
-          </ScrollView>
+
+          {!checkInspector ? (
+            // ── PASO 1: elegir a qué inspector se le asignarán máquinas ──────────
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Selecciona el inspector al que le vas a asignar máquinas.</Text>
+              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+              <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+                {inspectors.filter((p) => !inspQuery.trim() || norm(p.name).includes(norm(inspQuery.trim()))).map((p) => {
+                  const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
+                  return (
+                    <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                      <Text style={{ fontSize: 20 }}>👮</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{p.name}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>{p.role || 'inspector'}{count > 0 ? ` · ${count} máquina(s)` : ''}</Text>
+                      </View>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {inspectors.length === 0 ? <EmptyState title="Sin inspectores" subtitle="No hay usuarios (no-admin) para asignar." /> : null}
+                <View style={{ height: spacing.xl }} />
+              </ScrollView>
+            </>
+          ) : (
+            // ── PASO 2: asignar máquinas (día/noche) al inspector elegido ────────
+            <>
+              <TouchableOpacity onPress={() => { setCheckInspector(null); setInspQuery(''); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Cambiar inspector</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Toca ☀️ Día o 🌙 Noche para asignarle la máquina a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text> (o de nuevo para quitársela).
+              </Text>
+              <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar máquina por nombre, serial/placa o empresa…" placeholderTextColor={colors.muted} style={input} />
+              <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+                {checkList.slice(0, 200).map((m) => {
+                  const slots = assignMap[m.id] || {};
+                  const on = slots.day?.id === checkInspector.id || slots.night?.id === checkInspector.id;
+                  const edif = edificioDe(m);
+                  const shiftBtn = (shift: Shift) => {
+                    const slot = slots[shift];
+                    const mineHere = slot?.id === checkInspector.id;
+                    const taken = !!slot && !mineHere;
+                    const busy = assignBusy === m.id + shift;
+                    return (
+                      <TouchableOpacity
+                        key={shift}
+                        onPress={() => assignShift(m, shift)}
+                        disabled={busy}
+                        style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderStyle: slot ? 'solid' : 'dashed', borderColor: mineHere ? colors.success : taken ? colors.warning : colors.border, backgroundColor: mineHere ? '#E8F5EC' : colors.surface, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? '#0F5C2E' : colors.text }}>
+                          {busy ? '⏳ ' : ''}{shiftIcon(shift)} {shiftLabel(shift)}
+                        </Text>
+                        <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.warning : colors.muted, fontWeight: '700' }}>
+                          {mineHere ? '✓ Asignada (quitar)' : slot ? slot.name : 'Asignar'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  };
+                  return (
+                    <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.success : colors.border, backgroundColor: on ? '#F1FAF4' : colors.surface, marginBottom: spacing.xs }}>
+                      <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{on ? '✅ ' : ''}{m.code}</Text>
+                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                        {shiftBtn('day')}
+                        {shiftBtn('night')}
+                      </View>
+                    </View>
+                  );
+                })}
+                {checkList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
+                <View style={{ height: spacing.xl }} />
+              </ScrollView>
+            </>
+          )}
         </Screen>
       </Modal>
 
@@ -819,6 +935,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </TouchableOpacity>
                 </View>
               )}
+
+              {/* Si la máquina está PARADA, permite volver a ponerla OPERATIVA. */}
+              {ci && paradaIds.has(ci.id) ? (
+                <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
+                  <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟢 Volver a OPERATIVA'}</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como parada en Control.</Text>
+                </View>
+              ) : null}
 
               {/* PARADA → avería (Mantenimiento) + inspección (Inspecciones). Pide el motivo. */}
               <TouchableOpacity onPress={() => setParadaOpen((v) => !v)} disabled={ciSaving} style={{ backgroundColor: paradaOpen ? '#D9A200' : colors.surface, borderWidth: 2, borderColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>

@@ -539,17 +539,21 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **Solo el administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
 > desde el teléfono (para volver a Inspectores, recarga la página).
 
-> **✅ CHECK MÁQUINA (asignación por TURNO):** cada máquina tiene **dos inspectores**: uno de
-> **☀️ Día** y otro de **🌙 Noche**. Toca **✅ CHECK MÁQUINA** (debajo del escáner), busca la máquina
-> por **nombre/serial/placa** y toca el **turno que cubres** (☀️ Día o 🌙 Noche). Si el turno ya lo
-> tiene otro inspector, sale su nombre; al tocarlo lo **reemplazas**. Toca de nuevo tu turno para
-> **quitarte**. Cada inspector solo ve en su ronda las máquinas donde es de día o de noche (indica
-> **"Mi turno"**). Queda en la **Auditoría** (✅ *se asignó · Día/Noche*). El **administrador** tiene
-> además **"Ver todas"**.
+> **✅ CHECK MÁQUINA (SOLO ADMINISTRADOR):** solo el **administrador** asigna las máquinas a los
+> inspectores; los inspectores **no se asignan solos** (solo ven las que el admin les puso). El admin
+> toca **✅ CHECK MÁQUINA**, **1)** elige el **inspector** de una lista buscable, y **2)** busca la
+> máquina y toca el **turno** (☀️ Día / 🌙 Noche) para asignársela (o de nuevo para quitársela). Cada
+> máquina tiene **dos inspectores** (día y noche). Queda en la **Auditoría** (✅ *se asignó · Día/Noche
+> → nombre*). El admin tiene además **"Ver todas"**.
+>
+> **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
+> **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
+> **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
+> **🟢 Volver a OPERATIVA** (cierra la avería y quita el "MÁQUINA PARADA" de Control).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
-2. **Asignar:** si la lista está vacía, toca **✅ CHECK MÁQUINA** y asígnate las que inspeccionas.
+2. **Asignar:** si la lista está vacía, el **administrador** debe asignarle máquinas con **✅ CHECK MÁQUINA**.
    También hay un botón **📷** para escanear el QR directo.
 3. **Desde la lista:** toca la máquina y se abre su ficha de inspección (nombre, empresa, serial/placa).
 4. **Escaneando el QR con la CÁMARA del teléfono:** sale una pantalla con el logo y el botón
