@@ -5,7 +5,8 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
-import { listInspectorAssignments, AssignmentRow, shiftLabel } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
+import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
@@ -77,6 +78,9 @@ const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial 
  */
 export default function SupervisionScreen({ navigation }: any) {
   const { colors, typography } = useTheme();
+  // SOLO el admin puede asignar/reasignar el inspector de una máquina (día/noche).
+  const { role } = useAuth();
+  const isAdmin = role === 'admin';
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
   const ALL_SECS = ['asg', 'camiones', 'machjor', 'opjor', 'traza'];
@@ -136,6 +140,67 @@ export default function SupervisionScreen({ navigation }: any) {
   }, [assigns]);
   // Edificio/referencia legible de una asignación (para filtrar y mostrar).
   const edifKey = (a: AssignmentRow): string => { const t = (a.referencia ?? '').trim(); return t && !/^[\d.,\s-]+$/.test(t) ? t : 'Sin edificio'; };
+
+  // ── ASIGNAR / REASIGNAR inspector (SOLO ADMIN) ────────────────────────────
+  // Inspectores asignables: perfiles con rol INSPECTOR ('supervisor') o
+  // COORDINADOR DE PATIO ('coordinador_patio'). Solo se cargan si soy admin.
+  const [inspectors, setInspectors] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    (async () => {
+      const { data } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
+      setInspectors(((data ?? []) as any[])
+        .filter((p) => (p.full_name || '').trim())
+        .map((p) => ({ id: p.id as string, name: p.full_name as string })));
+    })();
+  }, [isAdmin]);
+  // Inspector actual (día/noche) por máquina, a partir de las asignaciones cargadas.
+  const assignByMachine = useMemo(() => {
+    const map = new Map<string, { code: string; companyName: string; day?: { id: string | null; name: string }; night?: { id: string | null; name: string } }>();
+    assigns.forEach((a) => {
+      const cur = map.get(a.machinery_id) || { code: a.code, companyName: a.companyName };
+      cur.code = a.code; cur.companyName = a.companyName;
+      cur[a.shift] = { id: a.inspector_id, name: a.inspector_name };
+      map.set(a.machinery_id, cur);
+    });
+    return map;
+  }, [assigns]);
+  // Estado del modal de asignación (máquina elegida, turno activo, búsqueda…).
+  const [assignFor, setAssignFor] = useState<{ id: string; code: string; companyName: string } | null>(null);
+  const [assignShift, setAssignShift] = useState<Shift>('day');
+  const [inspQuery, setInspQuery] = useState('');
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignNotice, setAssignNotice] = useState<string | null>(null);
+  const openAssign = (a: AssignmentRow) => {
+    setAssignFor({ id: a.machinery_id, code: a.code, companyName: a.companyName });
+    setAssignShift('day'); setInspQuery(''); setAssignNotice(null);
+  };
+  // Inspectores a mostrar en el modal (A→Z natural, filtrados por la búsqueda).
+  const inspShown = useMemo(() => {
+    const q = norm(inspQuery.trim());
+    return [...inspectors].sort((a, b) => cmpText(a.name, b.name)).filter((i) => !q || norm(i.name).includes(q));
+  }, [inspectors, inspQuery]);
+  // Aplica la asignación (upsert directo por máquina+turno) o la quita (insp=null).
+  // Reasignar es un toque; tras cambiar recarga las asignaciones para sincronizar.
+  const applyAssign = async (shift: Shift, insp: { id: string; name: string } | null) => {
+    if (!assignFor || assignBusy) return;
+    setAssignBusy(true); setAssignNotice(null);
+    const curId = assignByMachine.get(assignFor.id)?.[shift]?.id ?? '';
+    const res = insp
+      ? await assignInspector(assignFor.id, insp.id, insp.name, shift)
+      : await unassignInspector(assignFor.id, curId, shift);
+    setAssignBusy(false);
+    if (res.error) {
+      setAssignNotice(res.missing
+        ? '❌ Falta activar la asignación: corre supabase/inspector_asignacion.sql en Supabase.'
+        : '❌ ' + res.error);
+      return;
+    }
+    await loadAssigns();
+    setAssignNotice(insp
+      ? `✅ ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name}`
+      : `➖ ${shiftIcon(shift)} ${shiftLabel(shift)} quitado`);
+  };
   // ── Filtros del reporte de asignaciones ──────────────────────────────────
   const [asgQuery, setAsgQuery] = useState('');                 // búsqueda libre
   const [asgSel, setAsgSel] = useState<Set<string>>(new Set()); // inspectores (check)
@@ -681,6 +746,11 @@ export default function SupervisionScreen({ navigation }: any) {
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{a.shift === 'night' ? '🌙' : '☀️'} {shiftLabel(a.shift)} · 🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}{a.encargado ? ` · 👤 ${a.encargado}` : ''}</Text>
                         <Text style={{ color: colors.muted, fontSize: 11 }}>✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
+                        {isAdmin ? (
+                          <TouchableOpacity onPress={() => openAssign(a)} style={{ marginTop: 4, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>👮 Asignar / reasignar inspector</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
                     ))}
                   </Card>
@@ -1053,6 +1123,79 @@ export default function SupervisionScreen({ navigation }: any) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── 👮 ASIGNAR / REASIGNAR inspector de una máquina (SOLO ADMIN) ── */}
+      {isAdmin ? (
+        <Modal visible={assignFor !== null} transparent animationType="fade" onRequestClose={() => setAssignFor(null)}>
+          <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setAssignFor(null)}>
+            <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: spacing.md }}>
+              {assignFor ? (() => {
+                const current = assignByMachine.get(assignFor.id)?.[assignShift];
+                return (
+                  <>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, flex: 1 }} numberOfLines={1}>👮 Asignar inspector · 🚜 {assignFor.code}</Text>
+                      <TouchableOpacity onPress={() => setAssignFor(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Turno a asignar: Día ☀️ / Noche 🌙 */}
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                      {(['day', 'night'] as Shift[]).map((s) => {
+                        const on = assignShift === s;
+                        return (
+                          <TouchableOpacity key={s} onPress={() => setAssignShift(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{shiftIcon(s)} {shiftLabel(s)}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    {/* Inspector actual del turno elegido (con opción de quitar). */}
+                    <View style={{ paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                      {current ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+                          <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Actual: 👮 {current.name}</Text>
+                          <TouchableOpacity disabled={assignBusy} onPress={() => applyAssign(assignShift, null)} style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, opacity: assignBusy ? 0.5 : 1 }}>
+                            <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>➖ Quitar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>Sin inspector en {shiftLabel(assignShift)}. Elige uno de la lista.</Text>
+                      )}
+                      {assignNotice ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: spacing.xs }}>{assignNotice}</Text> : null}
+                    </View>
+
+                    {/* Buscador de inspectores. */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                      <Text style={{ fontSize: 14 }}>🔎</Text>
+                      <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="Buscar inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+                      {inspQuery ? <TouchableOpacity onPress={() => setInspQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+                    </View>
+
+                    {/* Lista de inspectores: un toque asigna al turno elegido (reasigna directo). */}
+                    <ScrollView style={{ paddingHorizontal: spacing.md }} contentContainerStyle={{ paddingBottom: spacing.xl }} keyboardShouldPersistTaps="handled">
+                      {inspShown.length === 0 ? (
+                        <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>Sin inspectores.</Text>
+                      ) : inspShown.map((i) => {
+                        const sel = current?.id === i.id;
+                        return (
+                          <TouchableOpacity key={i.id} disabled={assignBusy} onPress={() => applyAssign(assignShift, i)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: assignBusy ? 0.5 : 1, backgroundColor: sel ? colors.primary + '12' : 'transparent' }}>
+                            <Text style={{ fontSize: 16 }}>{sel ? '✅' : '👮'}</Text>
+                            <Text style={{ color: colors.text, fontWeight: sel ? '800' : '600', fontSize: 14, flex: 1 }}>{i.name}</Text>
+                            {sel ? <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>asignado</Text> : null}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                );
+              })() : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
     </Screen>
   );
 }
