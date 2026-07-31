@@ -119,8 +119,8 @@ export default function SupervisionScreen({ navigation }: any) {
   const [edifSel, setEdifSel] = useState<Set<string>>(new Set()); // edificios (check)
   const [edifQuery, setEdifQuery] = useState('');               // buscar dentro de los edificios
   const [edifOpen, setEdifOpen] = useState(false);              // desplegable abierto/cerrado
-  const [asgCollapsed, setAsgCollapsed] = useState<Set<string>>(new Set()); // inspectores colapsados (por defecto: abiertos)
-  const toggleAsgCollapsed = (name: string) => setAsgCollapsed((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const [asgExpanded, setAsgExpanded] = useState<Set<string>>(new Set()); // inspectores expandidos (por defecto: colapsados)
+  const toggleAsgCollapsed = (name: string) => setAsgExpanded((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleAsgInspector = (name: string) => setAsgSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleEdif = (e: string) => setEdifSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   // Lista de inspectores y de edificios presentes (para los chips).
@@ -281,8 +281,8 @@ export default function SupervisionScreen({ navigation }: any) {
 
   // ── Jornadas de máquina: búsqueda + agrupación por inspector + colapsable ──
   const [machJorQuery, setMachJorQuery] = useState('');                        // búsqueda libre
-  const [machJorCollapsed, setMachJorCollapsed] = useState<Set<string>>(new Set()); // inspectores colapsados
-  const toggleMachJorCollapsed = (name: string) => setMachJorCollapsed((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const [machJorExpanded, setMachJorExpanded] = useState<Set<string>>(new Set()); // inspectores expandidos (por defecto: colapsados)
+  const toggleMachJorCollapsed = (name: string) => setMachJorExpanded((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const machJornadasByInspector = useMemo(() => {
     const q = machJorQuery.trim().toLowerCase();
     const filtered = q
@@ -525,15 +525,15 @@ export default function SupervisionScreen({ navigation }: any) {
             <>
               {/* Expandir / colapsar todos los inspectores de un toque. */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
-                <TouchableOpacity onPress={() => setAsgCollapsed(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+                <TouchableOpacity onPress={() => setAsgExpanded(new Set(asgByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
                   <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setAsgCollapsed(new Set(asgByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+                <TouchableOpacity onPress={() => setAsgExpanded(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
                   <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
                 </TouchableOpacity>
               </View>
               {asgByInspector.map(([name, list]) => {
-                const collapsed = asgCollapsed.has(name);
+                const collapsed = asgQuery.trim() ? false : !asgExpanded.has(name);
                 return (
                   <Card key={name}>
                     <TouchableOpacity onPress={() => toggleAsgCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
@@ -697,17 +697,17 @@ export default function SupervisionScreen({ navigation }: any) {
           </View>
           {/* Expandir / colapsar todos los inspectores. */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
-            <TouchableOpacity onPress={() => setMachJorCollapsed(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+            <TouchableOpacity onPress={() => setMachJorExpanded(new Set(machJornadasByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setMachJorCollapsed(new Set(machJornadasByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+            <TouchableOpacity onPress={() => setMachJorExpanded(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
             </TouchableOpacity>
           </View>
           {machJornadasByInspector.length === 0 ? (
             <EmptyState title="Sin resultados" subtitle="Ninguna jornada coincide con la búsqueda." />
           ) : machJornadasByInspector.map(([name, list]) => {
-            const collapsed = machJorCollapsed.has(name);
+            const collapsed = machJorQuery.trim() ? false : !machJorExpanded.has(name);
             const enCursoN = list.filter((j) => j.enCurso).length;
             return (
               <Card key={name}>
