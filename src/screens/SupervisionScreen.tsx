@@ -77,13 +77,18 @@ export default function SupervisionScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
+  type RawRound = { machinery_id: string; code: string; companyName: string; startAt: string | null; shift: 'day' | 'night' | null; worked: number; recordedBy: string | null };
+  const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
   // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
+  const [nameById, setNameById] = useState<Record<string, string>>({});
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('profiles').select('id').eq('role', 'admin');
-      setAdminIds(new Set(((data ?? []) as any[]).map((a) => a.id as string)));
+      const { data } = await supabase.from('profiles').select('id, full_name, role');
+      const admins = new Set<string>(); const names: Record<string, string> = {};
+      ((data ?? []) as any[]).forEach((p) => { if (p.role === 'admin') admins.add(p.id); if (p.full_name) names[p.id] = p.full_name; });
+      setAdminIds(admins); setNameById(names);
     })();
   }, []);
   const noAdmin = (v: VisitRow) => !((v as any).supervisor_id && adminIds.has((v as any).supervisor_id));
@@ -205,7 +210,7 @@ export default function SupervisionScreen({ navigation }: any) {
       listVisits(date),
       supabase
         .from('machine_rounds')
-        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, machine:machinery_id(code, company:company_id(name))')
+        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, recorded_by, machine:machinery_id(code, company:company_id(name))')
         .eq('round_date', date),
       supabase
         .from('operator_assignments')
@@ -234,6 +239,20 @@ export default function SupervisionScreen({ navigation }: any) {
       }));
     rounds.sort((a, b) => a.companyName.localeCompare(b.companyName) || a.code.localeCompare(b.code));
     setRounds(rounds);
+    // Jornadas de MÁQUINA del día (las que inicia el inspector con "INICIAR JORNADA"):
+    // en curso (jornada_start_at) o finalizadas (con horas). Guarda crudo; se filtra
+    // el admin y se resuelve el nombre del inspector en un useMemo (según recorded_by).
+    setRawRounds(((rs ?? []) as any[])
+      .filter((r) => r.jornada_start_at || workedOf(r) > 0)
+      .map((r) => ({
+        machinery_id: r.machinery_id as string,
+        code: r.machine?.code ?? '—',
+        companyName: r.machine?.company?.name ?? 'Sin empresa',
+        startAt: (r.jornada_start_at ?? null) as string | null,
+        shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
+        worked: workedOf(r),
+        recordedBy: (r.recorded_by ?? null) as string | null,
+      })));
     setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
@@ -249,6 +268,14 @@ export default function SupervisionScreen({ navigation }: any) {
     d.setDate(d.getDate() + delta);
     setDate(d.toISOString().slice(0, 10));
   };
+
+  // Jornadas de MÁQUINA del día (iniciadas por el inspector): oculta las de admin y
+  // resuelve el nombre del inspector por recorded_by. En curso primero, luego finalizadas.
+  const machJornadas = useMemo(() => rawRounds
+    .filter((r) => !(r.recordedBy && adminIds.has(r.recordedBy)))
+    .map((r) => ({ ...r, inspector: r.recordedBy ? (nameById[r.recordedBy] || '—') : '—', enCurso: !!r.startAt }))
+    .sort((a, b) => (a.enCurso === b.enCurso ? cmpText(a.code, b.code) : a.enCurso ? -1 : 1)),
+    [rawRounds, adminIds, nameById]);
 
   // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
   const cleanVisits = useMemo(() => visits.filter(noAdmin), [visits, adminIds]);
@@ -619,6 +646,31 @@ export default function SupervisionScreen({ navigation }: any) {
           ))
         )}
       </Card>
+
+      {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
+      <SectionTitle>🟢 Jornadas de máquina (inspector)</SectionTitle>
+      {machJornadas.length === 0 ? (
+        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso y finalizadas). Las de usuarios admin no se muestran." />
+      ) : (
+        machJornadas.map((j) => (
+          <Card key={j.machinery_id}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
+                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>👮 {j.inspector}{j.shift ? ` · ${j.shift === 'night' ? '🌙 noche' : '☀️ día'}` : ''}</Text>
+              </View>
+              {j.enCurso ? (
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
+                  {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
+                </View>
+              ) : (
+                <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked} h</Text>
+              )}
+            </View>
+          </Card>
+        ))
+      )}
 
       {/* ── JORNADAS DEL DÍA (operadores) — traza de inicio/fin + ubicación ── */}
       <SectionTitle>🚜 Jornadas de operadores</SectionTitle>
