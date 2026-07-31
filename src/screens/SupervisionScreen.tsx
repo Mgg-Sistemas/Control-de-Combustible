@@ -551,7 +551,7 @@ export default function SupervisionScreen({ navigation }: any) {
   };
 
   return (
-    <Screen>
+    <Screen persistScrollKey="supervision">
       <ConfigBanner />
       <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
 
