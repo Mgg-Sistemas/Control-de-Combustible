@@ -119,6 +119,8 @@ export default function SupervisionScreen({ navigation }: any) {
   const [edifSel, setEdifSel] = useState<Set<string>>(new Set()); // edificios (check)
   const [edifQuery, setEdifQuery] = useState('');               // buscar dentro de los edificios
   const [edifOpen, setEdifOpen] = useState(false);              // desplegable abierto/cerrado
+  const [asgCollapsed, setAsgCollapsed] = useState<Set<string>>(new Set()); // inspectores colapsados (por defecto: abiertos)
+  const toggleAsgCollapsed = (name: string) => setAsgCollapsed((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleAsgInspector = (name: string) => setAsgSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleEdif = (e: string) => setEdifSel((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
   // Lista de inspectores y de edificios presentes (para los chips).
@@ -276,6 +278,24 @@ export default function SupervisionScreen({ navigation }: any) {
     .map((r) => ({ ...r, inspector: r.recordedBy ? (nameById[r.recordedBy] || '—') : '—', enCurso: !!r.startAt }))
     .sort((a, b) => (a.enCurso === b.enCurso ? cmpText(a.code, b.code) : a.enCurso ? -1 : 1)),
     [rawRounds, adminIds, nameById]);
+
+  // ── Jornadas de máquina: búsqueda + agrupación por inspector + colapsable ──
+  const [machJorQuery, setMachJorQuery] = useState('');                        // búsqueda libre
+  const [machJorCollapsed, setMachJorCollapsed] = useState<Set<string>>(new Set()); // inspectores colapsados
+  const toggleMachJorCollapsed = (name: string) => setMachJorCollapsed((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  const machJornadasByInspector = useMemo(() => {
+    const q = machJorQuery.trim().toLowerCase();
+    const filtered = q
+      ? machJornadas.filter((j) => `${j.inspector} ${j.code} ${j.companyName}`.toLowerCase().includes(q))
+      : machJornadas;
+    const map = new Map<string, typeof filtered>();
+    filtered.forEach((j) => {
+      const k = j.inspector || '—';
+      if (!map.has(k)) map.set(k, [] as any);
+      map.get(k)!.push(j);
+    });
+    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  }, [machJornadas, machJorQuery]);
 
   // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
   const cleanVisits = useMemo(() => visits.filter(noAdmin), [visits, adminIds]);
@@ -501,21 +521,37 @@ export default function SupervisionScreen({ navigation }: any) {
           </TouchableOpacity>
           {asgByInspector.length === 0 ? (
             <EmptyState title="Sin resultados" subtitle="Ninguna asignación coincide con los filtros." />
-          ) : asgByInspector.map(([name, list]) => (
-            <Card key={name}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👮 {name}</Text>
-                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} máq.</Text>
+          ) : (
+            <>
+              {/* Expandir / colapsar todos los inspectores de un toque. */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+                <TouchableOpacity onPress={() => setAsgCollapsed(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setAsgCollapsed(new Set(asgByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
+                </TouchableOpacity>
               </View>
-              {list.map((a) => (
-                <View key={a.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{a.shift === 'night' ? '🌙' : '☀️'} {shiftLabel(a.shift)} · 🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}{a.encargado ? ` · 👤 ${a.encargado}` : ''}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11 }}>✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
-                </View>
-              ))}
-            </Card>
-          ))}
+              {asgByInspector.map(([name, list]) => {
+                const collapsed = asgCollapsed.has(name);
+                return (
+                  <Card key={name}>
+                    <TouchableOpacity onPress={() => toggleAsgCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👮 {name}</Text>
+                      <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} máq.</Text>
+                    </TouchableOpacity>
+                    {collapsed ? null : list.map((a) => (
+                      <View key={a.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{a.shift === 'night' ? '🌙' : '☀️'} {shiftLabel(a.shift)} · 🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>📍 {sectorOfAssign(a)}{refOf(a) !== '—' ? ` · ${refOf(a)}` : ''} · 🔖 {a.serial || '—'} / {a.plate || '—'}{a.encargado ? ` · 👤 ${a.encargado}` : ''}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
+                      </View>
+                    ))}
+                  </Card>
+                );
+              })}
+            </>
+          )}
         </>
       )}
 
@@ -652,24 +688,53 @@ export default function SupervisionScreen({ navigation }: any) {
       {machJornadas.length === 0 ? (
         <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso y finalizadas). Las de usuarios admin no se muestran." />
       ) : (
-        machJornadas.map((j) => (
-          <Card key={j.machinery_id}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>👮 {j.inspector}{j.shift ? ` · ${j.shift === 'night' ? '🌙 noche' : '☀️ día'}` : ''}</Text>
-              </View>
-              {j.enCurso ? (
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
-                  {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
-                </View>
-              ) : (
-                <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked} h</Text>
-              )}
-            </View>
-          </Card>
-        ))
+        <>
+          {/* Búsqueda libre: inspector, máquina o empresa. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+            <Text style={{ fontSize: 14 }}>🔎</Text>
+            <TextInput value={machJorQuery} onChangeText={setMachJorQuery} placeholder="Buscar: inspector, máquina o empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+            {machJorQuery ? <TouchableOpacity onPress={() => setMachJorQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+          </View>
+          {/* Expandir / colapsar todos los inspectores. */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+            <TouchableOpacity onPress={() => setMachJorCollapsed(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setMachJorCollapsed(new Set(machJornadasByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
+            </TouchableOpacity>
+          </View>
+          {machJornadasByInspector.length === 0 ? (
+            <EmptyState title="Sin resultados" subtitle="Ninguna jornada coincide con la búsqueda." />
+          ) : machJornadasByInspector.map(([name, list]) => {
+            const collapsed = machJorCollapsed.has(name);
+            const enCursoN = list.filter((j) => j.enCurso).length;
+            return (
+              <Card key={name}>
+                <TouchableOpacity onPress={() => toggleMachJorCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👮 {name}</Text>
+                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} jorn.{enCursoN > 0 ? ` · ${enCursoN} en curso` : ''}</Text>
+                </TouchableOpacity>
+                {collapsed ? null : list.map((j) => (
+                  <View key={j.machinery_id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
+                      {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
+                    </View>
+                    {j.enCurso ? (
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
+                        {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
+                      </View>
+                    ) : (
+                      <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked} h</Text>
+                    )}
+                  </View>
+                ))}
+              </Card>
+            );
+          })}
+        </>
       )}
 
       {/* ── JORNADAS DEL DÍA (operadores) — traza de inicio/fin + ubicación ── */}
