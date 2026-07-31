@@ -956,6 +956,90 @@ function MovimientosTab() {
   }), [movs, items, filter, nqf, fFrom, fTo]);
   const hayFiltro = !!(qFree || fFrom || fTo);
 
+  // Escapa texto para HTML del PDF.
+  const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const hoyDmy = () => { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
+
+  // ── Reporte PDF de UN movimiento (ficha con todos sus detalles) ─────────────
+  const reporteMovimiento = async (m: InventoryMovement) => {
+    const k = MOV_KIND[m.kind] ?? MOV_KIND.ajuste;
+    const valor = m.unit_cost != null ? Number(m.unit_cost) * Number(m.qty) : null;
+    const filas: [string, string][] = [
+      ['Tipo de movimiento', k.label],
+      ['Producto', itemName(m.item_id)],
+      ['Cantidad', `${k.sign}${qtyFmt(m.qty)} ${itemUnit(m.item_id)}`.trim()],
+      ['Costo unitario', m.unit_cost != null ? usd(m.unit_cost) : '—'],
+      ['Valor', valor != null ? usd(valor) : '—'],
+      ['Motivo / nota', m.reason || '—'],
+      ['Origen', m.order_id ? 'Desde orden de compra' : '—'],
+      ['Fecha', fmtDate(m.created_at)],
+    ];
+    const body = `<table class="kv"><tbody>${filas.map(([kk, vv]) => `<tr><td class="k">${esc(kk)}</td><td>${esc(vv)}</td></tr>`).join('')}</tbody></table>`;
+    const html = pdfDocument({
+      title: 'Movimiento de inventario',
+      subtitle: `${esc(itemName(m.item_id))} · ${esc(k.label)} · ${esc(hoyDmy())}`,
+      extraCss: `table.kv{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
+        table.kv td{border:1px solid #c9d2dc;padding:8px 10px;vertical-align:top}
+        table.kv td.k{background:#16324F;color:#fff;font-weight:700;width:190px}
+        table.kv tr:nth-child(even) td:not(.k){background:#f4f7fb}`,
+      body,
+    });
+    await exportPdf(html, `Movimiento - ${itemName(m.item_id)} - ${hoyDmy()}`);
+  };
+
+  // ── Reporte PDF de TODOS los movimientos mostrados (respeta el filtro) ──────
+  const reporteMovimientos = async () => {
+    if (shown.length === 0) return Alert.alert('Aviso', 'No hay movimientos para el reporte.');
+    // Orden natural por fecha (del más antiguo al más reciente) para el reporte.
+    const sorted = [...shown].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    const rows = sorted.map((m, i) => {
+      const k = MOV_KIND[m.kind] ?? MOV_KIND.ajuste;
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(fmtDate(m.created_at))}</td>
+        <td>${esc(itemName(m.item_id))}</td>
+        <td class="c" style="color:${k.color};font-weight:800">${esc(k.label)}</td>
+        <td class="c b">${k.sign}${qtyFmt(m.qty)} ${esc(itemUnit(m.item_id))}</td>
+        <td class="r">${m.unit_cost != null ? usd(m.unit_cost) : '—'}</td>
+        <td>${esc(m.reason || '—')}</td>
+      </tr>`;
+    }).join('');
+    const cont = { entrada: 0, salida: 0, consumo: 0, ajuste: 0 } as Record<string, number>;
+    let totEntradas = 0, totSalidas = 0;
+    sorted.forEach((m) => {
+      cont[m.kind] = (cont[m.kind] ?? 0) + 1;
+      if (m.kind === 'entrada') totEntradas += Number(m.qty) || 0;
+      else if (m.kind === 'salida' || m.kind === 'consumo') totSalidas += Number(m.qty) || 0;
+    });
+    const kindLabel = filter ? (MOV_KIND[filter]?.label ?? filter) : 'Todos los tipos';
+    const rango = fFrom || fTo ? ` · ${fFrom || '…'} a ${fTo || '…'}` : '';
+    const busq = qFree ? ` · "${qFree.trim()}"` : '';
+    const resumen = `
+        <tr><td class="k">📥 Entradas</td><td class="c">${cont.entrada}</td><td class="r b">${qtyFmt(totEntradas)}</td></tr>
+        <tr><td class="k">📤 Salidas</td><td class="c">${cont.salida}</td><td class="r b">${qtyFmt(totSalidas)}</td></tr>
+        <tr><td class="k">🔥 Consumo</td><td class="c">${cont.consumo}</td><td class="r">—</td></tr>
+        <tr><td class="k">🔧 Ajustes</td><td class="c">${cont.ajuste}</td><td class="r">—</td></tr>`;
+    const html = pdfDocument({
+      title: 'Reporte de movimientos',
+      subtitle: `${shown.length} movimiento(s) · ${esc(kindLabel)}${esc(busq)}${esc(rango)} · ${esc(hoyDmy())}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800} tr:nth-child(even) td{background:#f4f7fb}
+        table.tot{width:auto;min-width:280px} table.tot td.k{background:#16324F;color:#fff;font-weight:700}
+        h3{margin:16px 0 0;font-size:13px;color:#16324F}`,
+      body: `
+        <h3>Resumen</h3>
+        <table class="tot"><thead><tr><th>Tipo</th><th class="c" style="width:90px">Cantidad</th><th class="r" style="width:120px">Total (unid.)</th></tr></thead><tbody>${resumen}</tbody></table>
+        <h3>Detalle</h3>
+        <table>
+          <thead><tr><th style="width:30px" class="c">#</th><th style="width:120px">Fecha</th><th>Producto</th>
+            <th class="c">Tipo</th><th class="c">Cantidad</th><th class="r">Costo unit.</th><th>Motivo</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`,
+    });
+    await exportPdf(html, `Reporte de movimientos - ${hoyDmy()}`);
+  };
+
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
@@ -996,6 +1080,12 @@ function MovimientosTab() {
         })}
       </View>
 
+      {shown.length ? (
+        <TouchableOpacity onPress={reporteMovimientos} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de movimientos ({shown.length})</Text>
+        </TouchableOpacity>
+      ) : null}
+
       {shown.length === 0 ? (
         <EmptyState title="Sin movimientos" subtitle="Las entradas, salidas y consumos aparecerán aquí." />
       ) : shown.map((m) => {
@@ -1018,14 +1108,22 @@ function MovimientosTab() {
                 {m.reason ? <Text style={{ color: colors.text, fontSize: 13 }}>{m.reason}</Text> : null}
                 {m.order_id ? <Text style={{ color: '#16A34A', fontSize: 13, fontWeight: '700' }}>🧾 Desde orden de compra</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDate(m.created_at)}</Text>
-                {m.kind === 'salida' ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                   <TouchableOpacity
-                    onPress={() => revertirSalida(m)}
-                    style={{ alignSelf: 'flex-start', marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    onPress={() => reporteMovimiento(m)}
+                    style={{ alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                   >
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>↩️ Revertir al inventario</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 Reporte</Text>
                   </TouchableOpacity>
-                ) : null}
+                  {m.kind === 'salida' ? (
+                    <TouchableOpacity
+                      onPress={() => revertirSalida(m)}
+                      style={{ alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    >
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>↩️ Revertir al inventario</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </>
             }
           />
