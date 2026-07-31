@@ -95,9 +95,10 @@ export default function SupervisionScreen({ navigation }: any) {
   const loadAssigns = useCallback(async () => {
     const { rows, missing } = await listInspectorAssignments();
     setAssignsMissing(missing);
-    // Fuera las asignaciones de usuarios admin (pruebas), igual que las visitas.
-    setAssigns(rows.filter((r) => !(r.inspector_id && adminIds.has(r.inspector_id))));
-  }, [adminIds]);
+    // El CHECK es una acción EXPLÍCITA del inspector: se muestran TODAS las
+    // asignaciones (a diferencia de las visitas, no se filtran las de admin).
+    setAssigns(rows);
+  }, []);
   useEffect(() => { loadAssigns(); }, [loadAssigns]);
   // Agrupadas por inspector (A→Z), cada una con sus máquinas.
   const assignsByInspector = useMemo(() => {

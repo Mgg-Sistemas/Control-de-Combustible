@@ -124,7 +124,7 @@ export async function latestInspectorByMachine(): Promise<Record<string, Inspect
       .eq('active', true);
     const per: Record<string, { day?: { name: string; ts: string }; night?: { name: string; ts: string } }> = {};
     ((asg ?? []) as any[]).forEach((a) => {
-      if (a.inspector_id && adminIds.has(a.inspector_id)) return; // ignora asignaciones de admin
+      // El CHECK es explícito: se respeta aunque sea de un usuario admin (no se filtra).
       const slot: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
       const cur = (per[a.machinery_id] ||= {})[slot];
       if (!cur || String(a.assigned_at) > String(cur.ts)) per[a.machinery_id][slot] = { name: a.inspector_name || '—', ts: a.assigned_at || '' };
