@@ -67,7 +67,10 @@ const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial 
  * cobra). Así el jefe evalúa la cobertura de cada supervisor.
  */
 export default function SupervisionScreen({ navigation }: any) {
-  const { colors } = useTheme();
+  const { colors, typography } = useTheme();
+  // Secciones colapsables del módulo (por defecto: abiertas). Guarda las CERRADAS.
+  const [secClosed, setSecClosed] = useState<Set<string>>(new Set());
+  const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Abre el Catálogo filtrado a ESA máquina (por serial único; si no hay, por código).
   const openMachine = (v: VisitRow) => {
     const term = v.machineSerial || v.machineCode;
@@ -77,7 +80,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
-  type RawRound = { machinery_id: string; code: string; companyName: string; startAt: string | null; shift: 'day' | 'night' | null; worked: number; recordedBy: string | null };
+  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; recordedBy: string | null };
   const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
   // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
@@ -212,7 +215,7 @@ export default function SupervisionScreen({ navigation }: any) {
       listVisits(date),
       supabase
         .from('machine_rounds')
-        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, recorded_by, machine:machinery_id(code, company:company_id(name))')
+        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, recorded_by, machine:machinery_id(code, serial, plate, encargado, company:company_id(name))')
         .eq('round_date', date),
       supabase
         .from('operator_assignments')
@@ -250,6 +253,9 @@ export default function SupervisionScreen({ navigation }: any) {
         machinery_id: r.machinery_id as string,
         code: r.machine?.code ?? '—',
         companyName: r.machine?.company?.name ?? 'Sin empresa',
+        serial: (r.machine?.serial ?? null) as string | null,
+        plate: (r.machine?.plate ?? null) as string | null,
+        encargado: (r.machine?.encargado ?? null) as string | null,
         startAt: (r.jornada_start_at ?? null) as string | null,
         shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
         worked: workedOf(r),
@@ -286,7 +292,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const machJornadasByInspector = useMemo(() => {
     const q = machJorQuery.trim().toLowerCase();
     const filtered = q
-      ? machJornadas.filter((j) => `${j.inspector} ${j.code} ${j.companyName}`.toLowerCase().includes(q))
+      ? machJornadas.filter((j) => `${j.inspector} ${j.code} ${j.companyName} ${j.serial ?? ''} ${j.plate ?? ''} ${j.encargado ?? ''}`.toLowerCase().includes(q))
       : machJornadas;
     const map = new Map<string, typeof filtered>();
     filtered.forEach((j) => {
@@ -418,6 +424,17 @@ export default function SupervisionScreen({ navigation }: any) {
     </View>
   );
 
+  // Cabecera de sección colapsable: mismo look que SectionTitle + flecha ▾/▸.
+  const secHead = (key: string, title: string) => {
+    const closed = secClosed.has(key);
+    return (
+      <TouchableOpacity onPress={() => toggleSec(key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+        <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{closed ? '▸' : '▾'}</Text>
+        <Text style={[typography.title, { marginBottom: spacing.xs, flex: 1 }]}>{title}</Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <Screen>
       <ConfigBanner />
@@ -443,8 +460,8 @@ export default function SupervisionScreen({ navigation }: any) {
       </Card>
 
       {/* ── ✅ MÁQUINAS ASIGNADAS (CHECK del teléfono) — inspector ↔ máquina ── */}
-      <SectionTitle>✅ Máquinas asignadas por inspector (CHECK)</SectionTitle>
-      {assignsMissing ? (
+      {secHead('asg', '✅ Máquinas asignadas por inspector (CHECK)')}
+      {secClosed.has('asg') ? null : assignsMissing ? (
         <Card><Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12 }}>
           ⚠️ Falta activar la asignación: corre <Text style={{ fontWeight: '900' }}>supabase/inspector_asignacion.sql</Text> en Supabase.
         </Text></Card>
@@ -660,7 +677,8 @@ export default function SupervisionScreen({ navigation }: any) {
       </TouchableOpacity>
 
       {/* ── JORNADAS SIN VALIDAR (el operador no cobra) ── */}
-      <SectionTitle>⛔ Jornadas sin validar</SectionTitle>
+      {secHead('sinval', '⛔ Jornadas sin validar')}
+      {secClosed.has('sinval') ? null : (
       <Card>
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
           Máquinas que trabajaron este día pero que <Text style={{ fontWeight: '800', color: colors.danger }}>ningún inspector marcó</Text>. Regla: sin visita, el operador no cobra.
@@ -682,10 +700,11 @@ export default function SupervisionScreen({ navigation }: any) {
           ))
         )}
       </Card>
+      )}
 
       {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
-      <SectionTitle>🟢 Jornadas de máquina (inspector)</SectionTitle>
-      {machJornadas.length === 0 ? (
+      {secHead('machjor', '🟢 Jornadas de máquina (inspector)')}
+      {secClosed.has('machjor') ? null : machJornadas.length === 0 ? (
         <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso y finalizadas). Las de usuarios admin no se muestran." />
       ) : (
         <>
@@ -719,6 +738,7 @@ export default function SupervisionScreen({ navigation }: any) {
                   <View key={j.machinery_id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
                     </View>
                     {j.enCurso ? (
@@ -738,8 +758,8 @@ export default function SupervisionScreen({ navigation }: any) {
       )}
 
       {/* ── JORNADAS DEL DÍA (operadores) — traza de inicio/fin + ubicación ── */}
-      <SectionTitle>🚜 Jornadas de operadores</SectionTitle>
-      {jornadas.length === 0 ? (
+      {secHead('opjor', '🚜 Jornadas de operadores')}
+      {secClosed.has('opjor') ? null : jornadas.length === 0 ? (
         <EmptyState title="Sin jornadas este día" subtitle="Aquí aparece cada jornada que los operadores inician y finalizan al escanear el QR de la máquina." />
       ) : (
         jornadas.map((j) => {
@@ -779,8 +799,8 @@ export default function SupervisionScreen({ navigation }: any) {
       )}
 
       {/* ── TRAZA POR INSPECTOR ── */}
-      <SectionTitle>Traza por inspector</SectionTitle>
-      {bySupervisor.length > 0 ? (
+      {secHead('traza', 'Traza por inspector')}
+      {secClosed.has('traza') ? null : bySupervisor.length > 0 ? (
         <>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Toca una máquina para ver su ficha en el Catálogo.</Text>
           <TouchableOpacity onPress={reporte} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
@@ -788,7 +808,7 @@ export default function SupervisionScreen({ navigation }: any) {
           </TouchableOpacity>
         </>
       ) : null}
-      {bySupervisor.length === 0 ? (
+      {secClosed.has('traza') ? null : bySupervisor.length === 0 ? (
         <EmptyState title="Sin visitas este día" subtitle="Ningún inspector marcó máquinas en la fecha elegida." />
       ) : (
         bySupervisor.map(([name, list]) => {
