@@ -829,7 +829,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Cambiar inspector</Text>
               </TouchableOpacity>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                Toca ☀️ Día o 🌙 Noche para asignarle la máquina a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text> (o de nuevo para quitársela).
+                Toca ☀️ Día o 🌙 Noche para asignarle la máquina a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text> (o de nuevo para quitársela). Si la tiene otro inspector, al tocar se la <Text style={{ fontWeight: '800', color: colors.primary }}>reasignas</Text> al elegido — no hace falta quitarla antes.
               </Text>
               <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
@@ -852,8 +852,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? '#0F5C2E' : colors.text }}>
                           {busy ? '⏳ ' : ''}{shiftIcon(shift)} {shiftLabel(shift)}
                         </Text>
-                        <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.warning : colors.muted, fontWeight: '700' }}>
-                          {mineHere ? '✓ Asignada (quitar)' : slot ? slot.name : 'Asignar'}
+                        {/* Ocupada por OTRO inspector: se ve como acción (reasignar de un toque),
+                            no como bloqueada. No hace falta quitarla antes. */}
+                        <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.primary : colors.muted, fontWeight: '700' }}>
+                          {mineHere ? '✓ Asignada (quitar)' : taken ? `↪ Reasignar (ahora: ${slot!.name})` : '＋ Asignar'}
                         </Text>
                       </TouchableOpacity>
                     );
