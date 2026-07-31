@@ -24,6 +24,7 @@ import OperadoresScreen from '../screens/OperadoresScreen';
 import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
+import FuelDriverScreen from '../screens/FuelDriverScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
 import CocinaScreen from '../screens/CocinaScreen';
 import ComidaScreen from '../screens/ComidaScreen';
@@ -220,6 +221,19 @@ function PatioStack() {
       <Stack.Screen name="PatioHome" component={PatioScreen} options={{ title: 'Coordinador de Patio', headerLeft: () => <HeaderLogoutButton /> }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
+/** Panel del CHOFER DE COMBUSTIBLE (rol dinámico, panel_type 'chofer_combustible').
+ *  Teléfono: escanea/elige la máquina y surte combustible (litros + monto + fotos).
+ *  No ve el resto del sistema. */
+function FuelDriverStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      <Stack.Screen name="FuelDriverHome" component={FuelDriverScreen} options={{ title: 'Surtir combustible', headerLeft: () => <HeaderLogoutButton /> }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
@@ -509,6 +523,11 @@ export default function RootNavigator() {
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator color={colors.primary} />
         </View>
+      ) : appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible' ? (
+        // Rol "Chofer de combustible" (teléfono): panel para SURTIR combustible
+        // (escanear/elegir máquina, litros + monto, fotos). Se intercepta ANTES del
+        // catch-all de teléfono para que no caiga en la vista de Inspectores.
+        <FuelDriverStack />
       ) : phone && role === 'coordinador_patio' ? (
         // TELÉFONO · coordinador de patio: su vista (registra entrada/salida y
         // jornada de camiones por escaneo). No cae en Inspectores de máquinas.
