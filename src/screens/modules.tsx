@@ -52,6 +52,9 @@ export function TanksScreen() {
         { key: 'location', label: 'Ubicación', type: 'text' },
         { key: 'fuel', label: 'Combustible', type: 'select', options: FUEL_OPTIONS, required: true },
         { key: 'capacity_l', label: 'Capacidad (L)', type: 'number', required: true },
+        // Vínculo con la CISTERNA del catálogo (camión cisterna) y su CHOFER.
+        { key: 'machinery_id', label: 'Cisterna del catálogo (opcional)', type: 'lookup', table: 'machinery', labelCol: 'code' },
+        { key: 'chofer', label: 'Chofer de la cisterna', type: 'text' },
       ]}
       renderItem={(t) => (
         <>
@@ -61,6 +64,7 @@ export function TanksScreen() {
           </View>
           {t.location ? <Row label="Ubicación" value={t.location} /> : null}
           <Row label="Capacidad" value={`${Number(t.capacity_l).toLocaleString()} L`} />
+          {t.chofer ? <Row label="Chofer" value={`🧑‍✈️ ${t.chofer}`} /> : null}
           {t.is_mobile ? <Badge label="Móvil" tone="warning" /> : null}
         </>
       )}
