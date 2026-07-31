@@ -36,6 +36,34 @@ export async function assignInspector(machineryId: string, inspectorId: string, 
   return {};
 }
 
+export type AssignmentRow = {
+  id: string; machinery_id: string; inspector_id: string | null; inspector_name: string;
+  assigned_at: string; code: string; serial: string | null; plate: string | null; companyName: string;
+};
+
+/** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina, para el módulo
+ *  de Inspecciones. Más reciente primero. `missing` = falta correr el SQL. */
+export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
+  const { data, error } = await supabase
+    .from('machine_inspectors')
+    .select('id, machinery_id, inspector_id, inspector_name, assigned_at, machine:machinery_id(code, serial, plate, company:company_id(name))')
+    .eq('active', true)
+    .order('assigned_at', { ascending: false });
+  if (error) return { rows: [], missing: isMissingTable(error.message) };
+  const rows = ((data ?? []) as any[]).map((r) => ({
+    id: r.id as string,
+    machinery_id: r.machinery_id as string,
+    inspector_id: (r.inspector_id ?? null) as string | null,
+    inspector_name: (r.inspector_name || '—') as string,
+    assigned_at: r.assigned_at as string,
+    code: r.machine?.code ?? '—',
+    serial: r.machine?.serial ?? null,
+    plate: r.machine?.plate ?? null,
+    companyName: r.machine?.company?.name ?? 'Sin empresa',
+  }));
+  return { rows, missing: false };
+}
+
 /** Quita la asignación de una máquina al inspector. */
 export async function unassignInspector(machineryId: string, inspectorId: string): Promise<{ error?: string; missing?: boolean }> {
   const { error } = await supabase

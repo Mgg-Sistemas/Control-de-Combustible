@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { listVisits, VisitRow } from '../lib/supervisorVisits';
+import { listInspectorAssignments, AssignmentRow } from '../lib/machineInspectors';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
@@ -86,6 +87,24 @@ export default function SupervisionScreen({ navigation }: any) {
     })();
   }, []);
   const noAdmin = (v: VisitRow) => !((v as any).supervisor_id && adminIds.has((v as any).supervisor_id));
+
+  // ── Asignaciones del CHECK (machine_inspectors): qué máquina se asignó cada
+  //    inspector desde el teléfono. Se sincroniza en vivo con el módulo.
+  const [assigns, setAssigns] = useState<AssignmentRow[]>([]);
+  const [assignsMissing, setAssignsMissing] = useState(false);
+  const loadAssigns = useCallback(async () => {
+    const { rows, missing } = await listInspectorAssignments();
+    setAssignsMissing(missing);
+    // Fuera las asignaciones de usuarios admin (pruebas), igual que las visitas.
+    setAssigns(rows.filter((r) => !(r.inspector_id && adminIds.has(r.inspector_id))));
+  }, [adminIds]);
+  useEffect(() => { loadAssigns(); }, [loadAssigns]);
+  // Agrupadas por inspector (A→Z), cada una con sus máquinas.
+  const assignsByInspector = useMemo(() => {
+    const map = new Map<string, AssignmentRow[]>();
+    assigns.forEach((a) => { const k = a.inspector_name || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(a); });
+    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  }, [assigns]);
 
   // ── Reporte por inspector (día o rango de fechas, con filtro multi-inspector) ──
   const [repOpen, setRepOpen] = useState(false);
@@ -188,6 +207,8 @@ export default function SupervisionScreen({ navigation }: any) {
   // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
   // jornada, la supervisión del día se actualiza sola.
   useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments'], () => { load(); });
+  // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
+  useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
   const shiftDay = (delta: number) => {
     const d = new Date(date + 'T12:00:00');
@@ -258,6 +279,32 @@ export default function SupervisionScreen({ navigation }: any) {
     await exportPdf(html, `Supervision ${dmy(date)}`);
   };
 
+  // PDF de las asignaciones del CHECK (inspector → sus máquinas).
+  const reporteAsignaciones = async () => {
+    if (assignsByInspector.length === 0) return;
+    const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const secciones = assignsByInspector.map(([name, list]) => {
+      const filas = list.map((a) => `<tr>
+        <td>${esc(a.code)}</td>
+        <td>${esc(a.plate || a.serial || '—')}</td>
+        <td>${esc(a.companyName)}</td>
+        <td>${esc(`${dmy(a.assigned_at.slice(0, 10))} ${caracasClock(a.assigned_at)}`)}</td>
+      </tr>`).join('');
+      return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>
+        <table><thead><tr><th>Máquina</th><th>Serial/Placa</th><th>Empresa</th><th>Asignada</th></tr></thead>
+          <tbody>${filas}</tbody></table>`;
+    }).join('');
+    const html = pdfDocument({
+      title: 'Máquinas asignadas por inspector (CHECK)',
+      subtitle: `${assigns.length} asignación(es) · ${assignsByInspector.length} inspector(es)`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
+        tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 2px;font-size:14px;color:#16324F}`,
+      body: secciones,
+    });
+    await exportPdf(html, 'Asignaciones de inspectores');
+  };
+
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
 
   const kpi = (label: string, value: React.ReactNode, color: string) => (
@@ -290,6 +337,36 @@ export default function SupervisionScreen({ navigation }: any) {
           {kpi('Sin validar', unvalidated.length, unvalidated.length > 0 ? colors.danger : colors.success)}
         </View>
       </Card>
+
+      {/* ── ✅ MÁQUINAS ASIGNADAS (CHECK del teléfono) — inspector ↔ máquina ── */}
+      <SectionTitle>✅ Máquinas asignadas por inspector (CHECK)</SectionTitle>
+      {assignsMissing ? (
+        <Card><Text style={{ color: colors.warning, fontWeight: '700', fontSize: 12 }}>
+          ⚠️ Falta activar la asignación: corre <Text style={{ fontWeight: '900' }}>supabase/inspector_asignacion.sql</Text> en Supabase.
+        </Text></Card>
+      ) : assignsByInspector.length === 0 ? (
+        <EmptyState title="Sin asignaciones" subtitle="Cuando un inspector se asigna una máquina con ✅ CHECK MÁQUINA (teléfono), aparece aquí." />
+      ) : (
+        <>
+          <TouchableOpacity onPress={reporteAsignaciones} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 PDF de asignaciones ({assigns.length})</Text>
+          </TouchableOpacity>
+          {assignsByInspector.map(([name, list]) => (
+            <Card key={name}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👮 {name}</Text>
+                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} máq.</Text>
+              </View>
+              {list.map((a) => (
+                <View key={a.id} style={{ paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🚜 {a.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {a.companyName}</Text></Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {a.plate || a.serial || '—'} · ✅ asignada {dmy(a.assigned_at.slice(0, 10))} {caracasClock(a.assigned_at)}</Text>
+                </View>
+              ))}
+            </Card>
+          ))}
+        </>
+      )}
 
       {/* ── REPORTE por inspector: día o rango de fechas + filtro multi-inspector ── */}
       <TouchableOpacity onPress={() => setRepOpen((v) => !v)} activeOpacity={0.8}>
