@@ -18,6 +18,7 @@ import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jor
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
@@ -211,6 +212,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
   };
   useEffect(() => { load(); }, [uid]);
+  // Sincroniza en vivo: si se asignan/quitan máquinas (aquí o en otro dispositivo),
+  // refresca "Mis máquinas" y el mapa de turnos al instante.
+  useRealtimeRefresh(['machine_inspectors'], () => { reloadAssigns(); });
 
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
   const matchQuery = (m: Mach, q: string) => !q
