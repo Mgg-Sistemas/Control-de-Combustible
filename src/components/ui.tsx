@@ -9,6 +9,7 @@ import {
   ViewStyle,
   Image,
   ImageSourcePropType,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { spacing, radius, AppColors } from '../theme';
@@ -21,6 +22,7 @@ export function Screen({
   bg,
   bgImage,
   bgImageOpacity = 0.08,
+  persistScrollKey,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
@@ -28,6 +30,7 @@ export function Screen({
   bg?: string; // color de fondo opcional (por defecto usa el del tema)
   bgImage?: ImageSourcePropType; // imagen de fondo (marca de agua) fija detrás del contenido
   bgImageOpacity?: number; // opacidad de la marca de agua (por defecto 0.08 = muy tenue)
+  persistScrollKey?: string; // (web) recuerda la posición de scroll y la restaura al recargar
 }) {
   const { colors } = useTheme();
   const background = bg ?? colors.background;
@@ -37,6 +40,24 @@ export function Screen({
     if (extRef) extRef.current = node;
   };
   const [showTop, setShowTop] = React.useState(false);
+
+  // (Web) Al recargar, mantener la posición de scroll en donde estaba el usuario.
+  // Se guarda mientras se hace scroll y se restaura al montar (varios intentos,
+  // porque el contenido puede crecer al cargar datos). Opt-in con persistScrollKey.
+  const SKEY = persistScrollKey ? `SCREEN_SCROLL_${persistScrollKey}` : '';
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' || !SKEY) return;
+    let y = 0;
+    try { y = Number(localStorage.getItem(SKEY) || '0') || 0; } catch {}
+    if (y <= 0) return;
+    const restore = () => { try { scrollRef.current?.scrollTo({ y, animated: false }); } catch {} };
+    const ts = [0, 120, 300, 600].map((ms) => setTimeout(restore, ms));
+    return () => ts.forEach(clearTimeout);
+  }, [SKEY]);
+  const saveScroll = (y: number) => {
+    if (Platform.OS !== 'web' || !SKEY) return;
+    try { localStorage.setItem(SKEY, String(Math.max(0, Math.round(y)))); } catch {}
+  };
 
   // Marca de agua fija (no scrollea): cubre toda la pantalla, muy atenuada.
   const Watermark = bgImage ? (
@@ -68,6 +89,7 @@ export function Screen({
         onScroll={(e) => {
           const y = e.nativeEvent.contentOffset.y;
           setShowTop((prev) => (prev !== y > 400 ? y > 400 : prev));
+          saveScroll(y);
         }}
       >
         {children}
