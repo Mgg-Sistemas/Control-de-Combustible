@@ -77,7 +77,7 @@ const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'
  */
 export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
-  const { session, signOut } = useAuth();
+  const { session, signOut, role } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
   const consumedRef = useRef(false);
@@ -98,7 +98,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Asignaciones por máquina: quién es el inspector de DÍA y de NOCHE.
   type SlotInfo = { id: string | null; name: string };
   const [assignMap, setAssignMap] = useState<Record<string, { day?: SlotInfo; night?: SlotInfo }>>({});
-  const isAdmin = !!onSistema; // el admin recibe onSistema; puede ver todas las máquinas
+  // SOLO ADMINISTRADORES pueden asignar máquinas a los inspectores (CHECK MÁQUINA).
+  // Se basa en el ROL REAL, no en el prop onSistema: así el admin también asigna
+  // cuando entró por el QR de una máquina (donde no se inyecta onSistema), y ningún
+  // otro rol puede asignar nunca. onSistema queda solo para el botón "SISTEMA".
+  const isAdmin = role === 'admin'; // puede ver todas las máquinas y asignarlas
   // SOLO ADMIN: asigna máquinas a un INSPECTOR (no a sí mismo). Lista de inspectores
   // y el inspector elegido en el modal del CHECK.
   const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
@@ -269,7 +273,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setMineIds(new Set(Object.entries(map).filter(([, s]) => s.day?.id === uid || s.night?.id === uid).map(([mid]) => mid)));
     if (missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
   };
-  useEffect(() => { load(); }, [uid]);
+  useEffect(() => { load(); }, [uid, role]);
   // Sincroniza en vivo: si se asignan/quitan máquinas (aquí o en otro dispositivo),
   // refresca "Mis máquinas" y el mapa de turnos al instante.
   useRealtimeRefresh(['machine_inspectors'], () => { reloadAssigns(); });
