@@ -82,6 +82,9 @@ export default function SupervisionScreen({ navigation }: any) {
   const [rounds, setRounds] = useState<Round[]>([]);
   type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; recordedBy: string | null };
   const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
+  // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
+  type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
+  const [yardLogs, setYardLogs] = useState<YardLog[]>([]);
   const [jornadas, setJornadas] = useState<Jornada[]>([]);
   // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
@@ -211,7 +214,7 @@ export default function SupervisionScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [vs, { data: rs }, { data: js }] = await Promise.all([
+    const [vs, { data: rs }, { data: js }, { data: yl }] = await Promise.all([
       listVisits(date),
       supabase
         .from('machine_rounds')
@@ -222,8 +225,21 @@ export default function SupervisionScreen({ navigation }: any) {
         .select('id, first_name, last_name, cedula, company_name, started_at, ended_at, worked_hours, start_lat, start_lng, end_lat, end_lng, machine:machinery_id(code)')
         .eq('work_date', date)
         .order('started_at', { ascending: true }),
+      supabase
+        .from('truck_yard_logs')
+        .select('machinery_id, machine_code, direction, created_at, machine:machinery_id(company:company_id(name))')
+        .gte('created_at', `${date}T00:00:00-04:00`)
+        .lte('created_at', `${date}T23:59:59.999-04:00`)
+        .order('created_at', { ascending: true }),
     ]);
     setVisits(vs);
+    setYardLogs(((yl ?? []) as any[]).map((r) => ({
+      machinery_id: r.machinery_id as string,
+      code: r.machine_code ?? '—',
+      companyName: r.machine?.company?.name ?? 'Sin empresa',
+      direction: (r.direction === 'entrada' ? 'entrada' : 'salida') as 'entrada' | 'salida',
+      at: r.created_at as string,
+    })));
     setJornadas(((js ?? []) as any[]).map((j) => ({
       id: j.id,
       operator: `${j.first_name ?? ''} ${j.last_name ?? ''}`.trim() || '—',
@@ -267,7 +283,7 @@ export default function SupervisionScreen({ navigation }: any) {
 
   // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
   // jornada, la supervisión del día se actualiza sola.
-  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments'], () => { load(); });
+  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs'], () => { load(); });
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
@@ -302,6 +318,46 @@ export default function SupervisionScreen({ navigation }: any) {
     });
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
   }, [machJornadas, machJorQuery]);
+
+  // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
+  // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
+  const camiones = useMemo(() => {
+    const map = new Map<string, { code: string; companyName: string; salida: string | null; entrada: string | null }>();
+    yardLogs.forEach((l) => {
+      const cur = map.get(l.machinery_id) || { code: l.code, companyName: l.companyName, salida: null, entrada: null };
+      if (l.direction === 'salida') { if (!cur.salida || l.at < cur.salida) cur.salida = l.at; } // primera salida del día
+      else { if (!cur.entrada || l.at > cur.entrada) cur.entrada = l.at; }                        // última entrada del día
+      cur.code = l.code; cur.companyName = l.companyName;
+      map.set(l.machinery_id, cur);
+    });
+    return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
+  }, [yardLogs]);
+  const camPresentes = useMemo(() => camiones.filter((c) => c.salida).length, [camiones]);
+
+  // 📄 Reporte PDF de asistencia de camiones (salida/entrada del día).
+  const reporteCamiones = async () => {
+    if (camiones.length === 0) return;
+    const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const filas = camiones.map((c) => {
+      const estado = c.salida && c.entrada ? '🟢 Regresó' : c.salida ? '🟠 En obra' : '— sin salida';
+      return `<tr>
+        <td>${esc(c.code)}</td>
+        <td>${esc(c.companyName)}</td>
+        <td>${esc(c.salida ? caracasClock(c.salida) : '—')}</td>
+        <td>${esc(c.entrada ? caracasClock(c.entrada) : '—')}</td>
+        <td>${esc(estado)}</td>
+      </tr>`;
+    }).join('');
+    const html = pdfDocument({
+      title: 'Asistencia de camiones',
+      subtitle: `${dmy(date)} · ${camPresentes} con salida (asistencia) de ${camiones.length} con movimiento`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
+        tr:nth-child(even) td{background:#f4f7fb}`,
+      body: `<table><thead><tr><th>Camión</th><th>Empresa</th><th>Salida</th><th>Entrada</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table>`,
+    });
+    await exportPdf(html, `Asistencia camiones ${dmy(date)}`);
+  };
 
   // Visitas SIN las de admin (pruebas): así el admin no aparece como inspector.
   const cleanVisits = useMemo(() => visits.filter(noAdmin), [visits, adminIds]);
@@ -675,6 +731,36 @@ export default function SupervisionScreen({ navigation }: any) {
           </View>
         </Card>
       </TouchableOpacity>
+
+      {/* ── 🚚 CAMIONES (ASISTENCIA): salida al iniciar jornada / entrada al finalizar ── */}
+      {secHead('camiones', '🚚 Camiones (asistencia)')}
+      {secClosed.has('camiones') ? null : camiones.length === 0 ? (
+        <EmptyState title="Sin movimiento de camiones" subtitle="La asistencia se toma sola: al INICIAR la jornada de un camión se registra su SALIDA y al FINALIZAR su ENTRADA." />
+      ) : (
+        <>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            {kpi('Con salida', camPresentes, colors.success)}
+            {kpi('Con movimiento', camiones.length, colors.text)}
+          </View>
+          <TouchableOpacity onPress={reporteCamiones} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Reporte de asistencia de camiones (PDF)</Text>
+          </TouchableOpacity>
+          {camiones.map((c) => {
+            const estado = c.salida && c.entrada ? { t: '🟢 Regresó', col: colors.success } : c.salida ? { t: '🟠 En obra', col: colors.warning } : { t: '— sin salida', col: colors.muted };
+            return (
+              <Card key={c.code}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚚 {c.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {c.companyName}</Text></Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>🟠 Salida: {c.salida ? caracasClock(c.salida) : '—'} · 🟢 Entrada: {c.entrada ? caracasClock(c.entrada) : '—'}</Text>
+                  </View>
+                  <Text style={{ color: estado.col, fontWeight: '800', fontSize: 12 }}>{estado.t}</Text>
+                </View>
+              </Card>
+            );
+          })}
+        </>
+      )}
 
       {/* ── JORNADAS SIN VALIDAR (el operador no cobra) ── */}
       {secHead('sinval', '⛔ Jornadas sin validar')}
