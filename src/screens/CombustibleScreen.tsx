@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { TanksScreen, IntakesScreen, DispatchesScreen, TransfersScreen } from './modules';
+import { TanksScreen, IntakesScreen, DispatchesScreen } from './modules';
 import AuthorizationsScreen from './AuthorizationsScreen';
 
 // Un solo módulo "Combustible" que agrupa lo que antes eran secciones separadas.
@@ -13,7 +13,6 @@ const TABS: { key: string; label: string; icon: string; Comp: React.ComponentTyp
   { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksScreen },
   { key: 'ingresos', label: 'Ingresos', icon: '⬇️', Comp: IntakesScreen },
   { key: 'consumos', label: 'Consumos', icon: '⛽', Comp: DispatchesScreen },
-  { key: 'traslados', label: 'Traslados', icon: '🔄', Comp: TransfersScreen },
   { key: 'autorizaciones', label: 'Solicitudes', icon: '✅', Comp: AuthorizationsScreen },
 ];
 

@@ -108,6 +108,8 @@ export interface Tank {
   is_mobile: boolean;
   active: boolean;
   created_at: string;
+  chofer: string | null;        // chofer de la cisterna (para tanques móviles)
+  machinery_id: string | null;  // vínculo con la cisterna del catálogo (camión cisterna)
 }
 
 export interface TankLevel {
