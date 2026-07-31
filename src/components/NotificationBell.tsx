@@ -13,6 +13,7 @@ const ICON: Record<string, string> = {
   requerimiento: '📝',
   compra: '🛒',
   cierre_control: '🛠️',
+  jornada_tarde: '⏰',
 };
 
 // Nombre del MÓDULO al que pertenece cada aviso (se muestra en el detalle).
@@ -20,6 +21,7 @@ const MODULE_LABEL: Record<string, string> = {
   requerimiento: 'Inventario · Requerimiento',
   compra: 'Compras · Solicitud',
   cierre_control: 'Control de maquinaria · Cierre',
+  jornada_tarde: 'Inspecciones · Jornada declarada tarde',
 };
 
 // A dónde lleva "Ir al módulo" (mejor esfuerzo; si no aplica, no hace nada).
@@ -27,6 +29,7 @@ const DEST: Record<string, { tab?: string; screen: string }> = {
   requerimiento: { tab: 'More', screen: 'Inventario' },
   compra: { tab: 'More', screen: 'Compras' },
   cierre_control: { screen: 'ControlMaquinaria' },
+  jornada_tarde: { screen: 'Supervision' },
 };
 
 /**

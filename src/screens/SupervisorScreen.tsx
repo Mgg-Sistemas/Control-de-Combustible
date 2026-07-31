@@ -14,10 +14,11 @@ import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/super
 import QrScanner from '../components/QrScanner';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
-import { startJornada, isOperatorCargo, shiftOf, caracasParts } from '../lib/jornada';
+import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
+import { notifyAdmins } from '../lib/notify';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -32,6 +33,13 @@ function caracasToday(): string {
 }
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
+}
+/** Retraso legible a partir de minutos: "45 min", "1 h", "1 h 30 min". */
+function retrasoLabel(min: number): string {
+  const m = Math.max(0, Math.round(min));
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h <= 0) return `${r} min`;
+  return r === 0 ? `${h} h` : `${h} h ${r} min`;
 }
 /** Tiempo transcurrido "Xh YYm" entre el inicio (ISO) y ahora (ms). */
 function elapsedLabel(startISO: string, nowMs: number): string {
@@ -119,6 +127,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // máquina); al finalizar se pide el FINAL (que será el inicial de la próxima jornada).
   const [horoIni, setHoroIni] = useState('');
   const [horoFin, setHoroFin] = useState('');
+  // Al iniciar jornada: turno declarado y HORA de inicio (por defecto 7:00am día /
+  // 7:00pm noche). Se acota contra la hora del sistema (alerta si se declara tarde).
+  const [iniShift, setIniShift] = useState<'day' | 'night'>('day');
+  const [iniTime, setIniTime] = useState('07:00');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [paradaOpen, setParadaOpen] = useState(false); // desplegable del motivo de la avería (PARADA)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
@@ -171,6 +183,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); return; }
     setParadaOpen(false); setFinConfirm(false); setHoroFin('');
+    // Turno/hora de inicio por defecto según el momento: día → 07:00, noche → 19:00.
+    const defShift = shiftOf(caracasParts(new Date()).hour).key;
+    setIniShift(defShift);
+    setIniTime(defShift === 'night' ? '19:00' : '07:00');
     (async () => {
       const r = await getMachineRound(ci.id, today);
       const open = (r as any)?.jornada_start_at ?? null;
@@ -209,8 +225,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setVisits(await myVisitsToday(uid, today));
     await reloadEstados();
     // Solo el ADMIN necesita la lista de inspectores para asignarles máquinas.
+    // Solo se ofrecen usuarios con rol INSPECTOR (interno 'supervisor') o
+    // COORDINADOR DE PATIO ('coordinador_patio'); nadie más se puede asignar.
     if (isAdmin) {
-      const { data: insp } = await supabase.from('profiles').select('id, full_name, role').neq('role', 'admin').order('full_name');
+      const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
       setInspectors(((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim()).map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
     }
     setLoading(false);
@@ -421,19 +439,47 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || jornadaBusy) return;
     const hi = Number((horoIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
-    setJornadaBusy(true); setNotice(null);
+    // Hora de inicio DECLARADA (HH:MM). Caracas es UTC-4 fijo (sin horario de verano).
+    const m = /^(\d{1,2}):(\d{2})$/.exec((iniTime || '').trim());
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) { setNotice('❌ Hora de inicio inválida (usa HH:MM, ej. 07:00).'); return; }
+    const hh = m[1].padStart(2, '0'), mm = m[2];
+    const sh = iniShift;
     const now = new Date();
-    const sh = shiftOf(caracasParts(now).hour).key;
+    const nowParts = caracasParts(now);
+    // Instante declarado del inicio (hoy, a la hora escrita).
+    const declaredIso = `${today}T${hh}:${mm}:00-04:00`;
+    // Límite para declarar SIN alerta: 9:30am (día) / 9:30pm (noche). Si el turno de
+    // noche ya pasó la medianoche (hora < 6), el límite fue el día anterior.
+    let limitDay = today;
+    if (sh === 'night' && nowParts.hour < 6) {
+      const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 1);
+      limitDay = caracasParts(d).iso;
+    }
+    const limitIso = sh === 'night' ? `${limitDay}T21:30:00-04:00` : `${limitDay}T09:30:00-04:00`;
+    const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
+
+    setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
-    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: now.toISOString(), jornada_shift: sh, horometro_inicial: hi }, uid || null);
+    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: declaredIso, jornada_shift: sh, horometro_inicial: hi }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
-    setJornadaStart(now.toISOString());
-    logAudit('JORNADA_INICIO', 'machinery', ci.id, ci.code); // bitácora
+    setJornadaStart(declaredIso);
+    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? ` · declarada ${retrasoLabel(retrasoMin)} tarde` : ''}`); // bitácora
+
+    // ⏰ Alerta a los ADMIN si la jornada se declaró TARDE (después del límite).
+    if (retrasoMin > 0) {
+      const turnoTxt = sh === 'night' ? 'noche (límite 9:30pm)' : 'día (límite 9:30am)';
+      notifyAdmins(
+        'jornada_tarde',
+        `Jornada declarada ${retrasoLabel(retrasoMin)} tarde`,
+        `🚜 ${ci.code}${ci.companyName ? ` · ${ci.companyName}` : ''} · inicio declarado ${hh}:${mm} (${turnoTxt}) · registrada por ${fullName || 'inspector'} a las ${caracasClock(now.toISOString())}.`,
+        { machinery_id: ci.id, code: ci.code, retraso_min: retrasoMin, shift: sh, declared_at: declaredIso }
+      );
+    }
     reloadEstados();
-    setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftOf(caracasParts(now).hour).label}. Aparece en Inspecciones.`);
+    setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftFromKey(sh).label} · inicio ${hh}:${mm}.${retrasoMin > 0 ? ` ⏰ Se avisó a admin: declarada ${retrasoLabel(retrasoMin)} tarde.` : ''} Aparece en Inspecciones.`);
   };
 
   // 🏁 FINALIZAR JORNADA: horas = (fin − inicio); se SUMAN al turno (día/noche)
@@ -928,6 +974,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
+                  {/* Turno + HORA de inicio declarada (por defecto 7:00am día / 7:00pm noche). */}
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                    {(['day', 'night'] as const).map((s) => {
+                      const on = iniShift === s;
+                      return (
+                        <TouchableOpacity key={s} onPress={() => { setIniShift(s); setIniTime(s === 'night' ? '19:00' : '07:00'); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hora de inicio (HH:MM) · se acota contra la hora del sistema</Text>
+                  <TextInput value={iniTime} onChangeText={(t) => setIniTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder={iniShift === 'night' ? '19:00' : '07:00'} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[input, { marginBottom: 4 }]} />
+                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:30pm' : '9:30am'}. Si se declara tarde se avisa a los administradores.</Text>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
                   <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                   <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
