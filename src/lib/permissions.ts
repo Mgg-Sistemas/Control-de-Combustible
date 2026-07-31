@@ -43,13 +43,14 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'traslados', label: 'Traslados' },
   { key: 'mapa', label: 'Mapa' },
   { key: 'reportes', label: 'Reportes' },
+  { key: 'asistencia_camiones', label: 'Asistencia de camiones' },
   { key: 'usuarios', label: 'Usuarios' },
 ];
 
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
-  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'inspecciones_maq') return 'none';
+  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'inspecciones_maq') return 'none';
   return 'escritura';
 }
 

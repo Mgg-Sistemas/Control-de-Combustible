@@ -32,6 +32,13 @@ export function equipCategory(code: string): string {
   return ((code || '').trim().split(/\s+/)[0] || '—').toUpperCase();
 }
 
+/** ¿La máquina es un VOLTEO o una VOLQUETA (para la asistencia de camiones)?
+ *  Se detecta por el código/nombre (no hay flag). Incluye TORONTO (volteo). */
+export function isVolteoVolqueta(code: string): boolean {
+  const c = (code || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return c.includes('volteo') || c.includes('volqueta') || c.includes('toronto');
+}
+
 // ── Zona / ubicación a disposición ──────────────────────────────────────────
 // La zona es un campo propio de la máquina (machinery.zona): Gobernación, FANB,
 // CVM, Zona Este… El vacío/nulo se muestra como "Sin zona".

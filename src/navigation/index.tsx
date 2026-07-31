@@ -47,6 +47,7 @@ import NominaScreen from '../screens/NominaScreen';
 import PagoPersonalScreen from '../screens/PagoPersonalScreen';
 import UniformesScreen from '../screens/UniformesScreen';
 import AsistenciaScreen from '../screens/AsistenciaScreen';
+import AsistenciaCamionesScreen from '../screens/AsistenciaCamionesScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
@@ -169,6 +170,7 @@ function MoreStack() {
       <Stack.Screen name="PagoPersonal" component={PagoPersonalScreen} options={{ title: 'Pago a personal' }} />
       <Stack.Screen name="Uniformes" component={UniformesScreen} options={{ title: 'Distribución de uniformes' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
+      <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
@@ -203,6 +205,7 @@ function CoordinadorStack() {
       <Stack.Screen name="ControlMaquinaria" component={ControlMaquinariaScreen} options={{ title: 'Control de maquinaria' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
+      <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
