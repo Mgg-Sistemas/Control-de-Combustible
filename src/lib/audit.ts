@@ -6,7 +6,7 @@
 import { supabase } from './supabase';
 import { deviceLabel } from './device';
 
-export type AuditAction = 'LOGIN' | 'LOGOUT' | 'SCAN' | 'JORNADA_INICIO' | 'JORNADA_FIN' | 'PARADA';
+export type AuditAction = 'LOGIN' | 'LOGOUT' | 'SCAN' | 'CHECK' | 'JORNADA_INICIO' | 'JORNADA_FIN' | 'PARADA';
 
 export async function logAudit(
   action: AuditAction,
