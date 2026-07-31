@@ -180,11 +180,12 @@ export default function SupervisionScreen({ navigation }: any) {
         <td>${esc(v.machineCode)}</td>
         <td>${esc(plateOfVisit(v))}</td>
         <td>${esc(sectorOfVisit(v))}</td>
+        <td>${esc((v.machineEncargado || '').trim() || '—')}</td>
         <td>${esc(v.companyName)}</td>
         <td>${esc(STATUS_META[v.status].label)}</td>
       </tr>`).join('');
       return `<h3>👮 ${esc(name)} · ${list.length} registro(s)</h3>
-        <table><thead><tr><th>Hora inicio</th><th>Máquina</th><th>Serial/Placa</th><th>Sector</th><th>Empresa</th><th>Estado</th></tr></thead>
+        <table><thead><tr><th>Hora inicio</th><th>Máquina</th><th>Serial/Placa</th><th>Sector</th><th>Encargado</th><th>Empresa</th><th>Estado</th></tr></thead>
           <tbody>${filas}</tbody></table>`;
     }).join('');
     const html = pdfDocument({
@@ -570,6 +571,7 @@ export default function SupervisionScreen({ navigation }: any) {
                         <Text style={{ color: colors.muted, fontSize: 12 }}>
                           🔖 {plateOfVisit(v)} · 📍 {sectorOfVisit(v)} · 🏢 {v.companyName}
                         </Text>
+                        {(v.machineEncargado || '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 {v.machineEncargado}</Text> : null}
                       </View>
                     ))}
                   </View>
