@@ -108,6 +108,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
   const [checkInspector, setCheckInspector] = useState<{ id: string; name: string } | null>(null);
   const [inspQuery, setInspQuery] = useState('');
+  // Asignar/reasignar inspector DESDE una máquina (lista "Todas las máquinas", solo
+  // admin). No hay que elegir inspector primero: se abre la máquina y se le pone el
+  // inspector de día/noche. Sincroniza en vivo (machine_inspectors + realtime).
+  const [assignFor, setAssignFor] = useState<Mach | null>(null);
+  const [pickShift, setPickShift] = useState<Shift | null>(null); // turno que se está eligiendo
+  const [assignForQuery, setAssignForQuery] = useState('');
   // Estado de la jornada por máquina (para el círculo 🟢/🟡/🔴):
   //   round del día (jornada abierta / horas) + máquinas con avería PARADA pendiente.
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
@@ -325,6 +331,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setNotice(same
       ? `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado a ${target.name}.`
       : `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} asignada a ${target.name}.`);
+  };
+
+  // ── Asignar/reasignar el inspector de UNA máquina en un turno, DESDE su ficha
+  //    (lista "Todas las máquinas", solo admin). insp=null quita el turno.
+  //    Reasignar es directo (upsert por máquina+turno). Sincroniza en vivo.
+  const setInspectorFor = async (m: Mach, shift: Shift, insp: { id: string; name: string } | null) => {
+    if (assignBusy) return;
+    setAssignBusy(m.id + shift); setNotice(null);
+    const curId = assignMap[m.id]?.[shift]?.id ?? '';
+    const res = insp
+      ? await assignInspector(m.id, insp.id, insp.name, shift)
+      : await unassignInspector(m.id, curId, shift);
+    setAssignBusy(null);
+    if (res.error) { setNotice(res.missing ? '❌ Falta activar la asignación: corre supabase/inspector_turno.sql en Supabase.' : '❌ ' + res.error); return; }
+    await reloadAssigns();
+    if (insp) logAudit('CHECK', 'machinery', m.id, `${m.code} · ${shiftLabel(shift)} → ${insp.name}`);
+    setNotice(insp
+      ? `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name}.`
+      : `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado.`);
+    setPickShift(null);
   };
 
   const openCheckin = (m: Mach) => {
@@ -655,6 +681,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           const parts = [s.day ? `☀️ ${s.day.name}` : null, s.night ? `🌙 ${s.night.name}` : null].filter(Boolean).join('  ·  ');
           return parts ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{parts}</Text> : null;
         })()}
+        {/* SOLO ADMIN: asignar/reasignar el inspector de esta máquina (día/noche). */}
+        {isAdmin ? (
+          <TouchableOpacity
+            onPress={() => { setAssignFor(m); setPickShift(null); setAssignForQuery(''); }}
+            style={{ alignSelf: 'flex-start', marginTop: spacing.xs, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}
+          >
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>👮 Asignar / reasignar inspector</Text>
+          </TouchableOpacity>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -877,6 +912,77 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               </ScrollView>
             </>
           )}
+        </Screen>
+      </Modal>
+
+      {/* 👮 ASIGNAR/REASIGNAR INSPECTOR desde una máquina (SOLO ADMIN). Se elige el
+          inspector de Día y de Noche; reasignar es directo. Sincroniza en vivo. */}
+      <Modal visible={!!assignFor} animationType="slide" onRequestClose={() => { setAssignFor(null); setPickShift(null); }}>
+        <Screen>
+          {assignFor ? (() => {
+            const af = assignFor;
+            return (
+              <>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>👮 Asignar inspector</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code} · {af.companyName}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => { setAssignFor(null); setPickShift(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                  Elige el inspector de <Text style={{ fontWeight: '800', color: colors.text }}>☀️ Día</Text> y <Text style={{ fontWeight: '800', color: colors.text }}>🌙 Noche</Text>. Reasignar es directo (no hace falta quitar antes).
+                </Text>
+                <ScrollView keyboardShouldPersistTaps="handled">
+                  {(['day', 'night'] as Shift[]).map((sh) => {
+                    const cur = assignMap[af.id]?.[sh];
+                    const busy = assignBusy === af.id + sh;
+                    return (
+                      <View key={sh} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, backgroundColor: colors.surface }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={{ color: colors.text, fontWeight: '800' }}>{shiftIcon(sh)} {shiftLabel(sh)}</Text>
+                            <Text numberOfLines={1} style={{ color: cur ? colors.primary : colors.muted, fontWeight: '700', fontSize: 13, marginTop: 2 }}>
+                              {busy ? '⏳ Guardando…' : cur ? cur.name : 'Sin asignar'}
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                            <TouchableOpacity onPress={() => { setPickShift(pickShift === sh ? null : sh); setAssignForQuery(''); }} disabled={busy} style={{ borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: busy ? 0.6 : 1 }}>
+                              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{cur ? '↪ Cambiar' : '＋ Asignar'}</Text>
+                            </TouchableOpacity>
+                            {cur ? (
+                              <TouchableOpacity onPress={() => setInspectorFor(af, sh, null)} disabled={busy} style={{ borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: busy ? 0.6 : 1 }}>
+                                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>Quitar</Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </View>
+                        {pickShift === sh ? (
+                          <View style={{ marginTop: spacing.sm }}>
+                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+                            <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                              {inspectors.filter((p) => !assignForQuery.trim() || norm(p.name).includes(norm(assignForQuery.trim()))).map((p) => (
+                                <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? '#E8F5EC' : colors.surface, marginBottom: spacing.xs }}>
+                                  <Text style={{ fontSize: 18 }}>👮</Text>
+                                  <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
+                                  {cur?.id === p.id ? <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>✓ actual</Text> : null}
+                                </TouchableOpacity>
+                              ))}
+                              {inspectors.length === 0 ? <EmptyState title="Sin inspectores" subtitle="No hay inspectores/coordinadores para asignar." /> : null}
+                            </ScrollView>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                  {notice ? <Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700', marginBottom: spacing.sm }}>{notice}</Text> : null}
+                  <View style={{ height: spacing.xl }} />
+                </ScrollView>
+              </>
+            );
+          })() : null}
         </Screen>
       </Modal>
 
