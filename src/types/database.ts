@@ -853,6 +853,11 @@ export interface Dispatch {
   authorization_id: string | null;
   created_by: string | null;
   created_at: string;
+  /** Monto por litro y monto total del surtido (chofer de combustible). */
+  price_per_liter: number | null;
+  total_amount: number | null;
+  /** Fotos del surtido (URLs del bucket 'machinery'). */
+  photos: string[] | null;
 }
 
 export interface Payroll {
@@ -922,7 +927,7 @@ export interface AppRole {
   /** Tipo de panel del rol: 'modulos' = lista de módulos (por defecto);
    *  'coordinador_qr' = panel de coordinador con escáner QR (surtir gasoil,
    *  avería y marcar máquina lista). */
-  panel_type?: 'modulos' | 'coordinador_qr';
+  panel_type?: 'modulos' | 'coordinador_qr' | 'chofer_combustible';
   created_at: string;
 }
 

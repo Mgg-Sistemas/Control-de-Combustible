@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, Image, Modal, Pressable, ScrollView } from 'react-native';
 import { ListScreen } from '../components/ListScreen';
 import { Field } from '../components/RecordForm';
 import { Badge } from '../components/ui';
@@ -161,47 +161,117 @@ function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
   );
 }
 
-export function DispatchesScreen() {
+/** Formatea un número como monto legible (hasta 2 decimales), coherente con el resto del módulo. */
+const fmtMonto = (n: number) =>
+  (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/** Miniaturas de las fotos del surtido. Al tocar una, abre el visor a pantalla completa. */
+function DispatchPhotos({ photos, onOpen }: { photos: string[]; onOpen: (uri: string) => void }) {
+  const { colors } = useTheme();
   return (
-    <ListScreen<Dispatch>
-      title="Consumos / Despachos"
-      table="dispatches"
-      orderBy="dispatch_date"
-      select="*, machine:machinery_id(code)"
-      editable
-      dateField="dispatch_date"
-      headerExtra={(shown) => <DailyMachineLiters rows={shown} />}
-      emptyTitle="Sin consumos"
-      emptySubtitle="Registra los despachos a vehículos o maquinaria."
-      formTitle="Nuevo consumo"
-      formFields={[
-        { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
-        { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
-        { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-        // Sin createColumn: se ELIGE una máquina existente (no se crea al vuelo) para
-        // no fragmentar el consumo en códigos duplicados. El buscador sigue disponible.
-        { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
-        { key: 'liters', label: 'Litros', type: 'number', required: true },
-        { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
-        { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
-        { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
-        // Tanque OPCIONAL: vacío = carga directa de la bomba (solo litros, no descuenta stock).
-        { key: 'tank_id', label: 'Tanque origen (opcional · vacío = directo de bomba)', type: 'lookup', table: 'tanks', labelCol: 'name' },
-      ]}
-      renderItem={(d) => (
-        <>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <ItemTitle>{Number(d.liters).toLocaleString()} L</ItemTitle>
-            <Badge label={d.asset_kind} />
-          </View>
-          <Row label="Fecha" value={d.dispatch_date} />
-          {(d as any).machine?.code ? <Row label="Máquina" value={(d as any).machine.code} /> : null}
-          {d.driver_operator ? <Row label="Conductor/Operador" value={d.driver_operator} /> : null}
-          {d.odometer_km != null ? <Row label="Odómetro" value={`${d.odometer_km} km`} /> : null}
-          {d.hourmeter_h != null ? <Row label="Horómetro" value={`${d.hourmeter_h} h`} /> : null}
-        </>
-      )}
-    />
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+      {photos.map((uri, i) => (
+        <Pressable key={`${uri}-${i}`} onPress={() => onOpen(uri)}>
+          <Image
+            source={{ uri }}
+            style={{
+              width: 64,
+              height: 64,
+              maxWidth: '100%',
+              borderRadius: radius.sm,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+            }}
+            resizeMode="cover"
+          />
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+export function DispatchesScreen() {
+  const { colors } = useTheme();
+  // Visor de foto a pantalla completa (estado a nivel de pantalla porque renderItem es una función).
+  const [viewPhoto, setViewPhoto] = useState<string | null>(null);
+  return (
+    <>
+      <ListScreen<Dispatch>
+        title="Consumos / Despachos"
+        table="dispatches"
+        orderBy="dispatch_date"
+        select="*, machine:machinery_id(code)"
+        editable
+        dateField="dispatch_date"
+        headerExtra={(shown) => <DailyMachineLiters rows={shown} />}
+        emptyTitle="Sin consumos"
+        emptySubtitle="Registra los despachos a vehículos o maquinaria."
+        formTitle="Nuevo consumo"
+        formFields={[
+          { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
+          { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
+          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
+          // Sin createColumn: se ELIGE una máquina existente (no se crea al vuelo) para
+          // no fragmentar el consumo en códigos duplicados. El buscador sigue disponible.
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'liters', label: 'Litros', type: 'number', required: true },
+          { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
+          { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },
+          { key: 'driver_operator', label: 'Conductor/Operador', type: 'text' },
+          // Tanque OPCIONAL: vacío = carga directa de la bomba (solo litros, no descuenta stock).
+          { key: 'tank_id', label: 'Tanque origen (opcional · vacío = directo de bomba)', type: 'lookup', table: 'tanks', labelCol: 'name' },
+        ]}
+        renderItem={(d) => {
+          const fotos = (d.photos ?? []).filter(Boolean);
+          return (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <ItemTitle>{Number(d.liters).toLocaleString()} L</ItemTitle>
+                <Badge label={d.asset_kind} />
+              </View>
+              <Row label="Fecha" value={d.dispatch_date} />
+              {(d as any).machine?.code ? <Row label="Máquina" value={(d as any).machine.code} /> : null}
+              {d.driver_operator ? <Row label="Conductor/Operador" value={d.driver_operator} /> : null}
+              {d.odometer_km != null ? <Row label="Odómetro" value={`${d.odometer_km} km`} /> : null}
+              {d.hourmeter_h != null ? <Row label="Horómetro" value={`${d.hourmeter_h} h`} /> : null}
+              {d.price_per_liter != null ? <Row label="Monto/L" value={fmtMonto(d.price_per_liter)} /> : null}
+              {d.total_amount != null ? <Row label="Monto total" value={fmtMonto(d.total_amount)} /> : null}
+              {fotos.length > 0 ? (
+                <>
+                  <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.xs }}>Fotos del surtido</Text>
+                  <DispatchPhotos photos={fotos} onOpen={setViewPhoto} />
+                </>
+              ) : null}
+            </>
+          );
+        }}
+      />
+      {/* Visor de foto a pantalla completa. */}
+      <Modal visible={viewPhoto != null} transparent animationType="fade" onRequestClose={() => setViewPhoto(null)}>
+        <Pressable
+          onPress={() => setViewPhoto(null)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center', padding: spacing.md }}
+        >
+          <ScrollView
+            style={{ maxWidth: '100%', maxHeight: '100%' }}
+            contentContainerStyle={{ justifyContent: 'center', alignItems: 'center' }}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+          >
+            {viewPhoto ? (
+              <Image source={{ uri: viewPhoto }} style={{ width: 320, height: 320, maxWidth: '100%' }} resizeMode="contain" />
+            ) : null}
+          </ScrollView>
+          <Pressable
+            onPress={() => setViewPhoto(null)}
+            style={{ position: 'absolute', top: spacing.lg, right: spacing.lg, backgroundColor: colors.surface, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Cerrar ✕</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 

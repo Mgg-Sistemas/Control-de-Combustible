@@ -19,6 +19,13 @@ export type MachineDispatchInput = {
   /** Consumo diario (L) de la máquina — si se define, el tope es 2×. */
   dailyConsumptionL?: number | null;
   createdBy?: string | null;
+  /** Monto por litro (Bs o $ según manejo del negocio). Se usa para el monto total. */
+  pricePerLiter?: number | null;
+  /** URLs de fotos del surtido (bucket 'machinery'). */
+  photos?: string[] | null;
+  /** Si es true, NO aplica el tope de 2× el consumo diario (p. ej. chofer de
+   *  combustible: surtidos autoritativos que pueden superar el estimado). */
+  skipDailyCap?: boolean;
 };
 
 /**
@@ -35,12 +42,17 @@ export async function insertMachineDispatch(
   if (!input.dispatchDate) return { error: 'Selecciona la fecha.' };
 
   // Tope: no se puede solicitar más de 2× el consumo diario de la máquina.
+  // El chofer de combustible (skipDailyCap) NO tiene este tope: su surtido es el real.
   const diario = input.dailyConsumptionL != null ? Number(input.dailyConsumptionL) : null;
-  if (diario != null && diario > 0 && liters > diario * 2) {
+  if (!input.skipDailyCap && diario != null && diario > 0 && liters > diario * 2) {
     return {
       error: `Esta máquina consume ${diario.toLocaleString()} L/día. No se puede surtir más de ${(diario * 2).toLocaleString()} L (2× el consumo diario).`,
     };
   }
+
+  // Monto total = litros × monto por litro (si hay precio).
+  const price = input.pricePerLiter != null && isFinite(Number(input.pricePerLiter)) ? Number(input.pricePerLiter) : null;
+  const total = price != null ? Math.round(price * liters * 100) / 100 : null;
 
   const { error } = await supabase.from('dispatches').insert({
     dispatch_date: input.dispatchDate,
@@ -54,6 +66,9 @@ export async function insertMachineDispatch(
     fuel_start: input.fuelStart ?? null,
     fuel_end: input.fuelEnd ?? null,
     created_by: input.createdBy ?? null,
+    price_per_liter: price,
+    total_amount: total,
+    photos: input.photos && input.photos.length ? input.photos : [],
   });
   if (error) {
     // Traduce los errores más comunes de los triggers a algo legible.

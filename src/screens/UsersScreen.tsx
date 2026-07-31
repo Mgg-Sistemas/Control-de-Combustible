@@ -310,7 +310,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
               return (
                 <TouchableOpacity key={r.id} onPress={() => onPick({ kind: 'app', id: r.id })} style={rowStyle(on)}>
                   <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{r.panel_type === 'coordinador_qr' ? 'Panel coordinador QR' : `${Object.keys(r.modules ?? {}).length} módulo(s)`}</Text>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{r.panel_type === 'coordinador_qr' ? 'Panel coordinador QR' : r.panel_type === 'chofer_combustible' ? 'Panel chofer de combustible' : `${Object.keys(r.modules ?? {}).length} módulo(s)`}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -335,7 +335,7 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
   const [editing, setEditing] = useState(false);       // formulario abierto (crear o editar)
   const [editId, setEditId] = useState<string | null>(null); // null = crear
   const [name, setName] = useState('');
-  const [panelType, setPanelType] = useState<'modulos' | 'coordinador_qr'>('modulos');
+  const [panelType, setPanelType] = useState<'modulos' | 'coordinador_qr' | 'chofer_combustible'>('modulos');
   const [mods, setMods] = useState<Record<string, PermLevel>>({});
   const [busy, setBusy] = useState(false);
 
@@ -346,15 +346,15 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
   const openCreate = () => { resetForm(); setEditing(true); };
   const openEdit = (r: AppRole) => {
     setEditId(r.id); setName(r.name);
-    setPanelType(r.panel_type === 'coordinador_qr' ? 'coordinador_qr' : 'modulos');
+    setPanelType(r.panel_type === 'coordinador_qr' || r.panel_type === 'chofer_combustible' ? r.panel_type : 'modulos');
     setMods((r.modules ?? {}) as Record<string, PermLevel>);
     setEditing(true);
   };
 
   const guardar = async () => {
     if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del rol.'); return; }
-    const modules = panelType === 'coordinador_qr'
-      ? {} // el panel de coordinador QR no usa módulos
+    const modules = panelType !== 'modulos'
+      ? {} // los paneles especiales (coordinador QR / chofer de combustible) no usan módulos
       : Object.fromEntries(Object.entries(mods).filter(([, lv]) => lv && lv !== 'none'));
     if (panelType === 'modulos' && Object.keys(modules).length === 0) { Alert.alert('Aviso', 'Elige al menos un módulo para el rol.'); return; }
     setBusy(true);
@@ -396,7 +396,7 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
 
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Tipo de panel</Text>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 3 }}>
-                {([['modulos', '📋 Módulos'], ['coordinador_qr', '📷 Coordinador QR']] as const).map(([v, l]) => {
+                {([['modulos', '📋 Módulos'], ['coordinador_qr', '📷 Coordinador QR'], ['chofer_combustible', '⛽ Chofer combustible']] as const).map(([v, l]) => {
                   const on = panelType === v;
                   return (
                     <TouchableOpacity key={v} onPress={() => setPanelType(v)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center' }}>
@@ -406,8 +406,10 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                 })}
               </View>
 
-              {panelType === 'coordinador_qr' ? (
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Este rol verá un panel para escanear el QR de la máquina y: ⛽ surtir gasoil, 🛠️ registrar avería y ✅ marcar la máquina lista. No usa módulos.</Text>
+              {panelType !== 'modulos' ? (
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>{panelType === 'coordinador_qr'
+                  ? 'Este rol verá un panel para escanear el QR de la máquina y: ⛽ surtir gasoil, 🛠️ registrar avería y ✅ marcar la máquina lista. No usa módulos.'
+                  : 'Este rol verá el panel de CHOFER DE COMBUSTIBLE (teléfono): escanear o elegir la máquina y surtir combustible (litros + monto por litro + fotos). No usa módulos.'}</Text>
               ) : (
                 <>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Rol fijo: navega por la app normal (pestañas + Más) mostrando SOLO los módulos que marques aquí.</Text>
@@ -444,6 +446,7 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                 {list.map((r) => {
                   const linked = userCounts[r.id] ?? 0;
                   const isQr = r.panel_type === 'coordinador_qr';
+                  const isChofer = r.panel_type === 'chofer_combustible';
                   return (
                     <View key={r.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
@@ -456,7 +459,7 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                         </TouchableOpacity>
                       </View>
                       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                        {isQr ? '📷 Panel coordinador QR (gasoil · avería · lista)' : (Object.keys(r.modules ?? {}).map((k) => MODULES.find((m) => m.key === k)?.label ?? k).join(', ') || 'Sin módulos')}
+                        {isQr ? '📷 Panel coordinador QR (gasoil · avería · lista)' : isChofer ? '⛽ Panel chofer de combustible (surtir)' : (Object.keys(r.modules ?? {}).map((k) => MODULES.find((m) => m.key === k)?.label ?? k).join(', ') || 'Sin módulos')}
                         {linked > 0 ? `  ·  👤 ${linked} usuario(s)` : ''}
                       </Text>
                     </View>
