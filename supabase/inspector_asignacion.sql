@@ -33,6 +33,10 @@ create policy mi_insert on public.machine_inspectors for insert to authenticated
 create policy mi_update on public.machine_inspectors for update to authenticated using (true) with check (true);
 create policy mi_delete on public.machine_inspectors for delete to authenticated using (true);
 
+-- Permisos de tabla (además de la RLS): sin esto, PostgREST no lee/escribe aunque
+-- la policy sea permisiva. Necesario cuando la tabla se crea desde el SQL Editor.
+grant select, insert, update, delete on public.machine_inspectors to anon, authenticated;
+
 create index if not exists idx_mi_inspector on public.machine_inspectors(inspector_id);
 create index if not exists idx_mi_machine   on public.machine_inspectors(machinery_id);
 
