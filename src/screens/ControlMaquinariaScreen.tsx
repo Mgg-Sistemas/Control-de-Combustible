@@ -151,6 +151,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [hoursInput, setHoursInput] = useState<Record<string, string>>({}); // parada en edición (máquina|fecha)
   const [overtimeInput, setOvertimeInput] = useState<Record<string, string>>({}); // extras en edición (máquina|fecha)
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
+  // Filtro por ENCARGADO (multi-selección tipo check, buscable). Vacío = todos.
+  const [encargadoSel, setEncargadoSel] = useState<Set<string>>(new Set());
+  const [encargadoOpen, setEncargadoOpen] = useState(false);
+  const [encargadoQuery, setEncargadoQuery] = useState('');
+  const SIN_ENCARGADO = '(sin encargado)';
+  const toggleEncargado = (name: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
@@ -1241,8 +1247,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // placa aunque esté en otra empresa (p. ej. uno recién agregado). Sin búsqueda, aplica
   // el filtro de empresa normal.
   const matchCompanyOrSearch = (m: Machinery) => (q ? true : matchCompany(m));
+  // Filtro por encargado (multi-check; vacío = todos). Se ignora al BUSCAR (como empresa).
+  const matchEncargado = (m: Machinery) => q ? true : (encargadoSel.size === 0 || encargadoSel.has((m.encargado || '').trim() || SIN_ENCARGADO));
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
-  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchText(m));
+  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m));
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
   const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompanyOrSearch(m) && matchText(m));
   const enEsperaByCompany = (() => {
@@ -1271,6 +1279,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     { label: 'Sin empresa', value: '__none__', count: activasControl.filter((m) => !m.company_id).length },
   ];
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
+  // Opciones de ENCARGADO (distintos, con conteo) — sobre las máquinas del control que
+  // pasan el filtro de empresa. Buscable y multi-check.
+  const encargadoOptions = (() => {
+    const base = activasControl.filter((m) => matchCompany(m));
+    const counts = new Map<string, number>();
+    base.forEach((m) => { const k = (m.encargado || '').trim() || SIN_ENCARGADO; counts.set(k, (counts.get(k) || 0) + 1); });
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name === SIN_ENCARGADO ? 1 : b.name === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
+  })();
+  const encargadoShown = encargadoOptions.filter((o) => !encargadoQuery.trim() || norm(o.name).includes(norm(encargadoQuery.trim())));
   // Empresa seleccionada para sincronizar el reporte (null = todas).
   const reportCompanyName =
     companyFilter === '__all__' ? null : companyFilter === '__none__' ? 'Sin empresa' : companies[companyFilter] ?? null;
@@ -1483,6 +1502,46 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyFilterLabel}</Text>
           <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Filtro por ENCARGADO: lista desplegable buscable con check (multi-selección). */}
+      <View style={{ marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Encargado</Text>
+        <TouchableOpacity
+          onPress={() => setEncargadoOpen((v) => !v)}
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: encargadoOpen ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+        >
+          <Text style={{ color: encargadoSel.size > 0 ? colors.text : colors.muted, fontWeight: '700' }} numberOfLines={1}>
+            👤 {encargadoSel.size === 0 ? 'Todos los encargados' : `${encargadoSel.size} seleccionado(s)`}
+          </Text>
+          <Text style={{ color: colors.primary, fontSize: 16 }}>{encargadoOpen ? '▴' : '▾'}</Text>
+        </TouchableOpacity>
+        {encargadoOpen ? (
+          <View style={{ borderWidth: 1, borderColor: colors.primary, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+              <Text style={{ fontSize: 13 }}>🔎</Text>
+              <TextInput value={encargadoQuery} onChangeText={setEncargadoQuery} placeholder="Buscar encargado…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }} />
+            </View>
+            <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {encargadoShown.map((o) => {
+                const on = encargadoSel.has(o.name);
+                return (
+                  <TouchableOpacity key={o.name} onPress={() => toggleEncargado(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.primary + '12' : 'transparent' }}>
+                    <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
+                    <Text style={{ color: colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{o.count}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {encargadoShown.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text> : null}
+            </ScrollView>
+            {encargadoSel.size > 0 ? (
+              <TouchableOpacity onPress={() => setEncargadoSel(new Set())} style={{ marginTop: spacing.xs, alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar selección</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       {/* ── Sección EN ESPERA (por recibir): máquinas No operativas, agrupadas por empresa.
