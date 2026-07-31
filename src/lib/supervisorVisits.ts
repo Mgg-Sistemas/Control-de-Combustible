@@ -95,9 +95,9 @@ export async function listVisits(fromDate: string, toDate?: string): Promise<Vis
   }));
 }
 
-/** Inspector "asignado" a una máquina = quien hizo el ÚLTIMO check-in (visita).
- *  Las visitas de usuarios ADMIN se IGNORAN (el usuario de sistemas hace pruebas y
- *  no debe quedar asignado como inspector; se usa el último inspector real). */
+/** Inspector "asignado" a una máquina. PRIORIDAD: la asignación explícita del
+ *  CHECK del teléfono (machine_inspectors). Si no hay CHECK, cae al ÚLTIMO
+ *  check-in (visita). Las de usuarios ADMIN se IGNORAN (pruebas de sistemas). */
 export type InspectorInfo = { name: string; date: string; status: VisitStatus; near: boolean | null };
 export async function latestInspectorByMachine(): Promise<Record<string, InspectorInfo>> {
   const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
@@ -113,6 +113,29 @@ export async function latestInspectorByMachine(): Promise<Record<string, Inspect
   });
   const out: Record<string, InspectorInfo> = {};
   Object.entries(acc).forEach(([k, v]) => { out[k] = { name: v.name, date: v.date, status: v.status, near: v.near }; });
+
+  // Superpone la asignación EXPLÍCITA del CHECK (machine_inspectors): tiene
+  // prioridad sobre el último check-in. Si la tabla aún no existe, se ignora.
+  try {
+    const { data: asg } = await supabase
+      .from('machine_inspectors')
+      .select('machinery_id, inspector_id, inspector_name, assigned_at')
+      .eq('active', true);
+    const best: Record<string, any> = {};
+    ((asg ?? []) as any[]).forEach((a) => {
+      if (a.inspector_id && adminIds.has(a.inspector_id)) return; // ignora asignaciones de admin
+      const cur = best[a.machinery_id];
+      if (!cur || String(a.assigned_at) > String(cur.assigned_at)) best[a.machinery_id] = a;
+    });
+    Object.entries(best).forEach(([mid, a]: [string, any]) => {
+      out[mid] = {
+        name: a.inspector_name || out[mid]?.name || '—',
+        date: (a.assigned_at || '').slice(0, 10) || out[mid]?.date || '',
+        status: out[mid]?.status ?? 'trabajando',
+        near: out[mid]?.near ?? null,
+      };
+    });
+  } catch { /* tabla aún no creada: se usa solo el último check-in */ }
   return out;
 }
 
