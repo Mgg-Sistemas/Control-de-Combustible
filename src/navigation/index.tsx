@@ -485,7 +485,15 @@ export default function RootNavigator() {
         // avería, gasoil, etc.). Incluye a los coordinadores de patio, que así
         // tienen su pantalla normal + todo lo de la máquina. El login NORMAL (sin
         // escanear) sigue viendo la app como siempre según su rol.
-        <SupervisorScreen initialMachineId={qrMachineId} />
+        <SupervisorScreen
+          initialMachineId={qrMachineId}
+          onConsumed={() => {
+            // Limpia SOLO la URL (?maquina=) sin tumbar el estado de esta sesión: el
+            // check-in actual se mantiene, pero al RECARGAR/entrar de nuevo ya no
+            // reaparece como si se hubiera escaneado una máquina (bug de Frank y otros).
+            if (Platform.OS === 'web') { try { const w: any = globalThis; w.history.replaceState({}, '', w.location.pathname); } catch {} }
+          }}
+        />
       ) : !showApp ? (
         <LoginScreen />
       ) : locked ? (
