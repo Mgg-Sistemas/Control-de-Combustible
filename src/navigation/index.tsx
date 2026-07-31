@@ -452,7 +452,7 @@ export default function RootNavigator() {
       ) : qrEmployeeId ? (
         // Se abrió por QR de un empleado: ficha del trabajador SIN login (solo
         // lectura). Cocina puede tocar "Soy de cocina" para entrar con su nombre.
-        <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} />
+        <EmployeeCardScreen employeeId={qrEmployeeId} onExit={exitQrEmp} onCocinaLogin={goCocinaLogin} scanned />
       ) : qrMachineId && wantLogin && !loggedInReal ? (
         // Tocó "INICIAR SESIÓN" sin sesión: login (con su nombre) para la máquina.
         <LoginScreen />

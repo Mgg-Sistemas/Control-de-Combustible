@@ -7,6 +7,7 @@ import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } from '../lib/carnet';
 import { fichaEmpleadoHtml } from '../lib/ficha';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
+import { logAudit } from '../lib/audit';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import QrInactive from '../components/QrInactive';
@@ -35,7 +36,7 @@ const STATUS: Record<string, { label: string; color: string }> = {
  * Ficha del trabajador. Se abre al escanear su QR (deep-link ?empleado=<id>) o
  * desde el módulo Empleados. Muestra TODOS los datos + botón para imprimir el carnet.
  */
-export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; onCocinaLogin?: () => void; route?: any; navigation?: any }) {
+export default function EmployeeCardScreen(props: { employeeId?: string; onExit?: () => void; onCocinaLogin?: () => void; scanned?: boolean; route?: any; navigation?: any }) {
   const { colors } = useTheme();
   const employeeId: string = props.employeeId ?? props.route?.params?.employeeId ?? '';
   const onCocinaLogin = props.onCocinaLogin;
@@ -58,6 +59,13 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
         .maybeSingle();
       const e = data ? ({ ...(data as any), companyName: (data as any).company?.name ?? 'Sin empresa' }) : null;
       setEmp(e);
+
+      // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no
+      // desde el módulo Empleados). Así en Auditoría se ve cuándo y a quién se escaneó.
+      if (props.scanned && e) {
+        const nombre = fullName(e) || [e.first_name, e.last_name].filter(Boolean).join(' ') || String(e.cedula ?? '');
+        logAudit('SCAN', 'employees', e.id, `Carnet · ${nombre}${e.cedula ? ` · C.I ${e.cedula}` : ''}`);
+      }
 
       // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
       if (e?.cedula) {
