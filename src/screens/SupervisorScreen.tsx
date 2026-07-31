@@ -278,6 +278,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
 
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
+  // Buscador sobre MIS máquinas asignadas (mismo filtro: nombre/serial/placa/empresa/encargado/edificio).
+  const mineList = useMemo(() => {
+    const q = norm(query.trim());
+    return mine.filter((m) => matchQuery(m, q));
+  }, [mine, query]);
   const matchQuery = (m: Mach, q: string) => !q
     || norm(m.code).includes(q)
     || norm(m.companyName || '').includes(q)
@@ -742,7 +747,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <SectionTitle>Mis máquinas asignadas</SectionTitle>
             {isAdmin ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
           </View>
-          {mine.length > 0 ? mine.map(renderMachine) : (
+          {mine.length > 0 ? (
+            <>
+              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+              <View style={{ marginTop: spacing.xs }}>
+                {mineList.map(renderMachine)}
+                {mineList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Ninguna de tus máquinas coincide con la búsqueda." /> : null}
+              </View>
+            </>
+          ) : (
             <EmptyState title="Aún no tienes máquinas asignadas" subtitle="Toca ✅ CHECK MÁQUINA para asignarte las que inspeccionas." />
           )}
         </>
