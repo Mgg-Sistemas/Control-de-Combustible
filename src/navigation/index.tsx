@@ -304,6 +304,9 @@ function Tabs() {
   );
 }
 
+/** Clave en localStorage para recordar la última pantalla/pestaña (web/PC). */
+const NAV_STATE_KEY = 'NAV_STATE_V1';
+
 /** Lee un parámetro de la URL (solo web) para abrir por QR: ?maquina=<id> o ?empleado=<id>. */
 function useQrParam(name: string): [string | null, () => void] {
   const read = (): string | null => {
@@ -380,6 +383,24 @@ export default function RootNavigator() {
   // Admin en teléfono: cae en Inspectores, pero con el botón SISTEMA salta a la
   // app completa (este flag lo activa). Se reinicia al recargar / cerrar sesión.
   const [sistemaMode, setSistemaMode] = React.useState(false);
+  // PERSISTENCIA DE NAVEGACIÓN (solo PC/web): al recargar la página, se mantiene
+  // la MISMA pantalla/pestaña donde estaba el usuario (no vuelve al inicio). En
+  // teléfono no aplica (allí la vista la fija el rol/dispositivo).
+  const [navInitialState] = React.useState<any>(() => {
+    try {
+      if (Platform.OS !== 'web' || phone) return undefined;
+      const raw = (globalThis as any).localStorage?.getItem(NAV_STATE_KEY);
+      return raw ? JSON.parse(raw) : undefined;
+    } catch { return undefined; }
+  });
+  const onNavStateChange = React.useCallback((state: any) => {
+    if (Platform.OS !== 'web' || phone) return;
+    try {
+      if (state && Array.isArray(state.routes) && state.routes.length) {
+        (globalThis as any).localStorage?.setItem(NAV_STATE_KEY, JSON.stringify(state));
+      }
+    } catch {}
+  }, [phone]);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -404,6 +425,9 @@ export default function RootNavigator() {
       // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
+      // Al recargar en PC/web, vuelve a la misma pantalla donde estaba el usuario.
+      initialState={navInitialState}
+      onStateChange={onNavStateChange}
     >
       {qrComidaId && !loggedInReal ? (
         // QR de DISTRIBUCIÓN DE COMIDA: LOGIN DIRECTO (sin vista anónima).
