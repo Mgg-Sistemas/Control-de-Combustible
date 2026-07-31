@@ -4,6 +4,8 @@ import { ListScreen } from '../components/ListScreen';
 import { Field } from '../components/RecordForm';
 import { Badge } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
+import { spacing, radius } from '../theme';
+import { cmpText } from '../lib/text';
 
 const FUEL_OPTIONS = [
   { label: 'Diésel', value: 'diesel' },
@@ -110,14 +112,65 @@ export function IntakesScreen() {
   );
 }
 
+/** Resumen de combustible surtido a MÁQUINAS: por día y por máquina (top), sobre las
+ *  filas visibles (respeta el filtro de fecha). L/h vive en Control / ficha de Equipos. */
+function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
+  const { colors } = useTheme();
+  const fmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const maq = rows.filter((d) => (d as any).asset_kind === 'maquinaria');
+  if (maq.length === 0) return null;
+  const byDay = new Map<string, number>();
+  const byMachine = new Map<string, number>();
+  maq.forEach((d: any) => {
+    const day = String(d.dispatch_date).slice(0, 10);
+    byDay.set(day, (byDay.get(day) || 0) + (Number(d.liters) || 0));
+    const code = d.machine?.code || '—';
+    byMachine.set(code, (byMachine.get(code) || 0) + (Number(d.liters) || 0));
+  });
+  const days = Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
+  const total = maq.reduce((s, d: any) => s + (Number(d.liters) || 0), 0);
+  const box = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md } as const;
+  const rowLine = { flexDirection: 'row' as const, justifyContent: 'space-between' as const, paddingVertical: 3, borderTopWidth: 1, borderTopColor: colors.border };
+  return (
+    <>
+      <View style={box}>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>⛽ Litros a máquinas por día</Text>
+        {days.slice(0, 12).map(([day, l]) => (
+          <View key={day} style={rowLine}>
+            <Text style={{ color: colors.muted, fontSize: 13 }}>{day}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{fmt(l)} L</Text>
+          </View>
+        ))}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs, marginTop: spacing.xs, borderTopWidth: 2, borderTopColor: colors.border }}>
+          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>Total{days.length > 12 ? ` (${days.length} días)` : ''}</Text>
+          <Text style={{ color: colors.success, fontWeight: '900', fontSize: 14 }}>{fmt(total)} L</Text>
+        </View>
+      </View>
+      <View style={box}>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🚜 Litros por máquina</Text>
+        {machines.slice(0, 15).map(([code, l]) => (
+          <View key={code} style={rowLine}>
+            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{code}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{fmt(l)} L</Text>
+          </View>
+        ))}
+        {machines.length > 15 ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>+{machines.length - 15} máquina(s) más…</Text> : null}
+      </View>
+    </>
+  );
+}
+
 export function DispatchesScreen() {
   return (
     <ListScreen<Dispatch>
       title="Consumos / Despachos"
       table="dispatches"
       orderBy="dispatch_date"
+      select="*, machine:machinery_id(code)"
       editable
       dateField="dispatch_date"
+      headerExtra={(shown) => <DailyMachineLiters rows={shown} />}
       emptyTitle="Sin consumos"
       emptySubtitle="Registra los despachos a vehículos o maquinaria."
       formTitle="Nuevo consumo"
@@ -142,6 +195,7 @@ export function DispatchesScreen() {
             <Badge label={d.asset_kind} />
           </View>
           <Row label="Fecha" value={d.dispatch_date} />
+          {(d as any).machine?.code ? <Row label="Máquina" value={(d as any).machine.code} /> : null}
           {d.driver_operator ? <Row label="Conductor/Operador" value={d.driver_operator} /> : null}
           {d.odometer_km != null ? <Row label="Odómetro" value={`${d.odometer_km} km`} /> : null}
           {d.hourmeter_h != null ? <Row label="Horómetro" value={`${d.hourmeter_h} h`} /> : null}

@@ -47,6 +47,9 @@ type Props<T> = {
   editable?: boolean;
   /** Si se define, muestra un filtro por rango de fecha sobre esta columna (p. ej. intake_date). */
   dateField?: string;
+  /** Contenido extra opcional (resumen, KPIs…) que se muestra arriba de la lista.
+   *  Recibe las filas actualmente visibles (ya filtradas por fecha). */
+  headerExtra?: (shown: T[]) => React.ReactNode;
 };
 
 /** Pantalla genérica que lista filas de una tabla de Supabase y permite crear/editar. */
@@ -63,6 +66,7 @@ export function ListScreen<T extends { id: string }>({
   autoUserField,
   editable = false,
   dateField,
+  headerExtra,
 }: Props<T>) {
   const { colors } = useTheme();
   const { data, loading, refetch } = useTable<T>(table, { orderBy, select });
@@ -134,6 +138,8 @@ export function ListScreen<T extends { id: string }>({
           ) : null}
         </Card>
       ) : null}
+
+      {!loading && headerExtra ? headerExtra(shown) : null}
 
       {loading ? (
         <Loading />
