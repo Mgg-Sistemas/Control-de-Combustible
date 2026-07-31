@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { equipCategory } from '../lib/equipos';
-import { cmpText } from '../lib/text';
+import { cmpText, norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
@@ -36,7 +36,7 @@ function iconFor(cat: string): string {
   return '🔧';
 }
 
-type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string; recorded_by: string | null };
+type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; referencia: string | null; encargado: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string; recorded_by: string | null };
 type RoutePoint = { id: string; latitude: number | null; longitude: number | null; note: string | null; recorded_at: string };
 
 function fmt(ts: string): string {
@@ -63,6 +63,7 @@ export default function MapScreen({ navigation, route }: any) {
   const [pins, setPins] = useState<MapPin[] | null>(null);
   const [refBusy, setRefBusy] = useState(false); // generando el PDF de "Referencias"
   const [trace, setTrace] = useState<TraceRow[]>([]);
+  const [traceQuery, setTraceQuery] = useState(''); // búsqueda en la trazabilidad
   const [recorderNames, setRecorderNames] = useState<Record<string, string>>({}); // uid → nombre (monitoreo)
   const [monitorOpen, setMonitorOpen] = useState(false);
   // Enfoque: ver SOLO una máquina en el mapa (o todas si es null).
@@ -144,7 +145,7 @@ export default function MapScreen({ navigation, route }: any) {
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
       .from('machinery_locations')
-      .select('id, machinery_id, note, latitude, longitude, recorded_at, recorded_by, machinery:machinery_id(code, plate, serial, company:company_id(name))')
+      .select('id, machinery_id, note, latitude, longitude, recorded_at, recorded_by, machinery:machinery_id(code, plate, serial, referencia, encargado, company:company_id(name))')
       .order('recorded_at', { ascending: false })
       .limit(80);
     setTrace(
@@ -155,6 +156,8 @@ export default function MapScreen({ navigation, route }: any) {
         company: r.machinery?.company?.name ?? 'Sin empresa',
         plate: r.machinery?.plate ?? null,
         serial: r.machinery?.serial ?? null,
+        referencia: r.machinery?.referencia ?? null,
+        encargado: r.machinery?.encargado ?? null,
         note: r.note,
         latitude: r.latitude,
         longitude: r.longitude,
@@ -233,6 +236,17 @@ export default function MapScreen({ navigation, route }: any) {
     });
   }, []);
   const recorderName = React.useCallback((uid: string | null) => (uid ? (recorderNames[uid] ?? 'Operador (QR)') : '—'), [recorderNames]);
+  // Trazabilidad filtrada por la búsqueda: máquina, empresa, placa, serial,
+  // referencia/edificio, encargado y quién registró (inspector/operador).
+  const filteredTrace = useMemo(() => {
+    const q = norm(traceQuery.trim());
+    if (!q) return trace;
+    return trace.filter((t) => {
+      const hay = [t.code, t.company, t.plate, t.serial, t.referencia, t.encargado, recorderName(t.recorded_by), t.note]
+        .map((x) => norm(String(x ?? ''))).join(' ');
+      return hay.includes(q);
+    });
+  }, [trace, traceQuery, recorderName]);
 
   useEffect(() => {
     load();
@@ -761,7 +775,15 @@ export default function MapScreen({ navigation, route }: any) {
       {trace.length === 0 ? (
         <EmptyState title="Sin trazabilidad" subtitle="Aquí verás los registros de ubicación y las eliminaciones manuales." />
       ) : (
-        trace.map((t) => {
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+            <Text style={{ fontSize: 14 }}>🔎</Text>
+            <TextInput value={traceQuery} onChangeText={setTraceQuery} placeholder="Buscar: máquina, placa, serial, empresa, encargado, referencia, inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+            {traceQuery ? <TouchableOpacity onPress={() => setTraceQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+          </View>
+          {filteredTrace.length === 0 ? (
+            <EmptyState title="Sin resultados" subtitle="Ninguna ubicación coincide con la búsqueda." />
+          ) : filteredTrace.map((t) => {
           const deleted = !!t.note;
           const focused = focus?.id === t.machinery_id;
           return (
@@ -794,7 +816,8 @@ export default function MapScreen({ navigation, route }: any) {
               </Card>
             </TouchableOpacity>
           );
-        })
+        })}
+        </>
       )}
 
       {/* Mapa en PANTALLA COMPLETA (con ubicación del usuario). */}

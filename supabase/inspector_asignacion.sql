@@ -14,10 +14,12 @@ create table if not exists public.machine_inspectors (
   machinery_id  uuid not null references public.machinery(id) on delete cascade,
   inspector_id  uuid references public.profiles(id) on delete cascade,
   inspector_name text not null,
+  shift         text not null default 'day',   -- 'day' (☀️) | 'night' (🌙)
   assigned_at   timestamptz not null default now(),
-  active        boolean not null default true,
-  unique (machinery_id, inspector_id)   -- una asignación por inspector+máquina (se reactiva)
+  active        boolean not null default true
 );
+-- Un inspector por máquina+turno (día/noche). Cada máquina → 2 inspectores.
+create unique index if not exists mi_machine_shift_key on public.machine_inspectors(machinery_id, shift);
 
 alter table public.machine_inspectors enable row level security;
 
