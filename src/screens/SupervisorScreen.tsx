@@ -103,6 +103,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // cuando entró por el QR de una máquina (donde no se inyecta onSistema), y ningún
   // otro rol puede asignar nunca. onSistema queda solo para el botón "SISTEMA".
   const isAdmin = role === 'admin'; // puede ver todas las máquinas y asignarlas
+  // ADMIN EN EL TELÉFONO: arranca viendo TODAS las máquinas (con buscador), no la
+  // lista vacía "Mis máquinas". Se activa UNA sola vez al detectarse el admin (el
+  // rol puede llegar async); luego el admin puede tocar "Solo las mías" sin que se
+  // vuelva a forzar.
+  const showAllInit = useRef(false);
+  useEffect(() => {
+    if (isAdmin && !showAllInit.current) { showAllInit.current = true; setShowAll(true); }
+  }, [isAdmin]);
   // SOLO ADMIN: asigna máquinas a un INSPECTOR (no a sí mismo). Lista de inspectores
   // y el inspector elegido en el modal del CHECK.
   const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
@@ -325,12 +333,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (s?.night?.id === uid) return 'night';
     return null;
   }, [ci, assignMap, uid]);
-  // ¿El turno del inspector en esta máquina YA se finalizó hoy? (horas > 0 y sin
-  // jornada abierta → no puede reiniciar el mismo día).
-  const shiftDoneToday = useMemo(() => {
-    if (!myShift || jornadaStart) return false;
-    return (myShift === 'day' ? curRoundHours.day : curRoundHours.night) > 0;
-  }, [myShift, jornadaStart, curRoundHours]);
+  // ¿El turno del inspector en esta máquina YA CERRÓ hoy? Se decide por la HORA DE
+  // CIERRE del turno (hora de Caracas), NO por horas>0: así puede INICIAR/REINICIAR
+  // varias veces el mismo día (p.ej. tras una parada) mientras su turno siga abierto,
+  // y solo se bloquea cuando el turno ya cerró (día: 19:00 · noche: 07:00, y sigue
+  // cerrada hasta las 19:00). Recién mañana podrá iniciar de nuevo.
+  const shiftClosed = useMemo(() => {
+    if (!myShift) return false;
+    const h = caracasParts(new Date()).hour;
+    if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
+    return h >= 7 && h < 19;                              // noche cierra a las 7:00am (cerrada hasta las 7:00pm)
+  }, [myShift, nowTick]);
   // Fuerza el turno declarado al turno ASIGNADO del inspector (no puede elegir el otro).
   useEffect(() => {
     if (myShift) { setIniShift(myShift); setIniTime(myShift === 'night' ? '19:00' : '07:00'); }
@@ -504,7 +517,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Regla de turnos: el inspector solo inicia SU turno asignado, y una sola vez
     // por turno por día (tras finalizar, recién puede volver a marcar mañana).
     if (myShift && iniShift !== myShift) { setNotice(`❌ Solo puedes iniciar jornada de ${shiftFromKey(myShift).label} (es tu turno asignado en esta máquina).`); return; }
-    if (shiftDoneToday) { setNotice(`❌ Ya finalizaste tu jornada de ${shiftFromKey(myShift as any).label} hoy en esta máquina. Podrás iniciar otra mañana.`); return; }
+    if (shiftClosed && !jornadaStart) { setNotice(`❌ La jornada de ${shiftFromKey(myShift as any).label} de hoy ya cerró. Podrás iniciar otra mañana.`); return; }
     const hi = Number((horoIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     // Hora de inicio DECLARADA (HH:MM). Caracas es UTC-4 fijo (sin horario de verano).
@@ -593,6 +606,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setCiSaving(true); setNotice(null);
     const vis = await registrarVisita('parada');
     if (!vis) { setCiSaving(false); return; }
+    // ⏱️ Si hay una jornada ABIERTA al marcar la parada, primero BANCA las horas ya
+    // trabajadas para que NO se pierdan (ej.: inició 7am, parada 9am → se guardan esas
+    // 2h). Luego, al reiniciar (2pm) y finalizar (7pm), se suma sobre lo bancado (=7h).
+    if (jornadaStart) {
+      const horas = Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100);
+      const prevRound = await getMachineRound(ci.id, today);
+      const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
+      const base = Number((prevRound as any)?.[key] ?? 0);
+      const total = Math.round((base + horas) * 100) / 100;
+      await upsertMachineRound(ci.id, today, { [key]: total, jornada_start_at: null }, uid || null);
+      setJornadaStart(null);
+      setCurRoundHours((h) => ({ ...h, [jornadaShift === 'night' ? 'night' : 'day']: total }));
+    }
     const { error: avErr } = await supabase.from('maintenance_requests').insert({
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
     });
@@ -1141,10 +1167,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     </TouchableOpacity>
                   )}
                 </View>
-              ) : shiftDoneToday ? (
-                // El inspector ya finalizó su turno hoy en esta máquina: no puede reiniciar hasta mañana.
+              ) : shiftClosed ? (
+                // El turno del inspector YA CERRÓ hoy (por hora): no puede iniciar/reiniciar
+                // hasta mañana. (Antes de cerrar SÍ puede reiniciar para acumular horas.)
                 <View style={{ backgroundColor: '#EAF1FB', borderWidth: 1, borderColor: '#2563EB', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13 }}>✅ Ya finalizaste tu jornada de {shiftFromKey(myShift as any).label} hoy en esta máquina.</Text>
+                  <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
                   <Text style={{ color: '#12356B', fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
                 </View>
               ) : (

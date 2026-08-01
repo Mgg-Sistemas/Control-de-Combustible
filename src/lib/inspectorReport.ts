@@ -3,6 +3,7 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
+import { edificioCanonico } from './edificios';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -15,9 +16,12 @@ import { listVisits } from './supervisorVisits';
  *   separadas por turno → inspector).
  * - Por inspector: sus máquinas con horas de día, de noche y TOTAL; y un desglose
  *   por SECTOR (máquinas agrupadas por `machinery.sector`) con subtotales.
+ * - Por cada máquina se muestra además su UBICACIÓN (coordenadas legibles),
+ *   REFERENCIA (texto libre del catálogo) y EDIFICIO (nombre canónico del catálogo).
  * - Si una máquina CAMBIÓ de ubicación durante la jornada (más de un check-in en
  *   `supervisor_visits` con ubicación distinta), se listan TODAS las ubicaciones.
- * - Al final, líneas de FIRMA para el/los inspector(es).
+ * - Al pie de la sección de CADA inspector va su nombre completo + línea de FIRMA
+ *   con el rótulo "Inspector" (en "Ambos" cada turno/inspector con su firma).
  * - Se filtra a los usuarios ADMIN (mismo criterio que la Supervisión).
  */
 export type InspectorShift = 'day' | 'night' | 'both';
@@ -27,8 +31,8 @@ const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 type Turno = 'day' | 'night';
-type Mach = { id: string; code: string; company: string; sector: string; dayH: number; nightH: number };
-type LocInfo = { key: string; label: string; at: string };
+type Mach = { id: string; code: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number };
+type LocInfo = { key: string; label: string; at: string; lat: number | null; lng: number | null };
 
 /** Etiqueta legible + clave para deduplicar una ubicación (GPS del check-in + edificio/referencia). */
 function locLabel(lat: number | null, lng: number | null, ref: string | null): { key: string; label: string } {
@@ -69,7 +73,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   // 2) Jornadas de inspección del día (machine_rounds con recorded_by = inspector).
   const rounds = await selectAllRows(
     'machine_rounds',
-    'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, company:company_id(name))',
+    'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))',
     (q) => q.eq('round_date', date)
   );
 
@@ -81,15 +85,24 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const lng = (v.lng ?? v.machineLng ?? null) as number | null;
     const { key, label } = locLabel(lat, lng, v.machineRef ?? null);
     const arr = locByMachine.get(v.machinery_id) ?? [];
-    if (!arr.some((x) => x.key === key)) arr.push({ key, label, at: v.visited_at });
+    if (!arr.some((x) => x.key === key)) arr.push({ key, label, at: v.visited_at, lat, lng });
     locByMachine.set(v.machinery_id, arr);
   });
   const machineLocs = (id: string): LocInfo[] =>
     (locByMachine.get(id) ?? []).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)));
 
+  // Coordenadas de la máquina: primero las del catálogo; si no, el último check-in con GPS.
+  const machCoords = (m: Mach): { lat: number | null; lng: number | null } => {
+    if (m.lat != null && m.lng != null) return { lat: m.lat, lng: m.lng };
+    const withGps = machineLocs(m.id).filter((l) => l.lat != null && l.lng != null);
+    const last = withGps[withGps.length - 1];
+    return last ? { lat: last.lat, lng: last.lng } : { lat: null, lng: null };
+  };
+  const coordTxt = (lat: number | null, lng: number | null): string =>
+    lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '—';
+
   // 4) Agregación: turno → inspector → máquina (suma horas día/noche por máquina).
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
-  const inspectorsAll = new Set<string>();
   ((rounds ?? []) as any[]).forEach((r) => {
     const rb = (r.recorded_by ?? null) as string | null;
     if (!rb || adminIds.has(rb)) return; // solo jornadas de inspector; sin admins
@@ -109,17 +122,21 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     data.set(turno, tMap);
     const iMap = tMap.get(insp) ?? new Map<string, Mach>();
     tMap.set(insp, iMap);
+    const referencia = (mm.referencia && String(mm.referencia).trim()) || '';
     const cur = iMap.get(r.machinery_id) ?? {
       id: r.machinery_id as string,
       code: mm.code ?? '—',
       company,
       sector: (mm.sector && String(mm.sector).trim()) || 'Sin sector',
+      referencia,
+      edificio: edificioCanonico(referencia) || '',
+      lat: mm.latitude != null ? Number(mm.latitude) : null,
+      lng: mm.longitude != null ? Number(mm.longitude) : null,
       dayH: 0,
       nightH: 0,
     };
     cur.dayH += dayH; cur.nightH += nightH;
     iMap.set(r.machinery_id, cur);
-    inspectorsAll.add(insp);
   });
 
   // ── HTML ──────────────────────────────────────────────────────────────────
@@ -135,9 +152,10 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const tot = r2(m.dayH + m.nightH);
       tD += m.dayH; tN += m.nightH;
       const moved = machineLocs(m.id).length > 1;
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td></tr>`;
+      const { lat, lng } = machCoords(m);
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.referencia || '—')}</td><td>${esc(m.edificio || '—')}</td><td class="coord">${esc(coordTxt(lat, lng))}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Empresa</th><th>Sector</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="4">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Empresa</th><th>Sector</th><th>Referencia</th><th>Edificio</th><th>Ubicación</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="7">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales.
     const bySec = new Map<string, { c: number; d: number; n: number }>();
@@ -155,7 +173,10 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
         }).join('')}</ul>`
       : '';
 
-    return `<div class="insp">👷 Inspector: <b>${esc(insp)}</b> <span class="cnt">${list.length} equipo(s)</span></div>${machTable}${secTable}${locHtml}`;
+    // Firma del inspector de ESTA sección (nombre completo + línea + rótulo).
+    const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(insp)}</div><div class="frole">Inspector</div></div>`;
+
+    return `<div class="insp">👷 Inspector: <b>${esc(insp)}</b> <span class="cnt">${list.length} equipo(s)</span></div>${machTable}${secTable}${locHtml}${firmaInsp}`;
   };
 
   const renderTurno = (turno: Turno): string => {
@@ -172,16 +193,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   const turnos: Turno[] = shift === 'day' ? ['day'] : shift === 'night' ? ['night'] : ['day', 'night'];
   const hasAny = turnos.some((t) => (data.get(t)?.size ?? 0) > 0);
 
-  // Firmas: una línea por inspector (A→Z), con su nombre.
-  const firmas = [...inspectorsAll].sort(cmpText);
-  const firmaHtml = firmas.length
-    ? `<div class="firmas"><div class="sub">✍️ Firmas de los inspectores</div><div class="firmarow">${firmas.map((n) =>
-        `<div class="firma"><div class="line"></div><div class="fname">${esc(n)}</div><div class="frole">Inspector</div></div>`).join('')}</div></div>`
-    : '';
+  // Nota: la firma va al pie de la sección de CADA inspector (ver renderInspector),
+  // por lo que en "Ambos" cada turno/inspector queda con su propia línea de firma.
 
   const shiftTxt = shift === 'day' ? 'Turno día ☀️' : shift === 'night' ? 'Turno noche 🌙' : 'Ambos turnos ☀️ 🌙';
   const body = hasAny
-    ? `${turnos.map(renderTurno).join('')}${firmaHtml}`
+    ? turnos.map(renderTurno).join('')
     : `<p class="none">Sin jornadas de inspección para el día ${dmy(date)}${shift === 'both' ? '' : ` (${shift === 'day' ? 'turno día' : 'turno noche'})`}.</p>`;
 
   const extraCss = `
@@ -195,6 +212,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     table.ir th{background:#1E3A5F;color:#fff}
     table.ir td.r,table.ir th.r{text-align:right}
     table.ir td.b{font-weight:800}
+    table.ir td.coord{white-space:nowrap;font-size:10.5px;color:#374151}
     table.ir tfoot td{background:#EEF2F7;font-weight:800}
     .moved{color:#B45309;font-size:10px;font-weight:700}
     ul.locs{margin:4px 0 10px;padding-left:18px;font-size:11.5px;color:#374151}
@@ -202,12 +220,10 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     ul.locs .loc{white-space:nowrap}
     ul.locs .arr{color:#B45309;font-weight:700}
     .none{color:#6B7280;font-size:12px}
-    .firmas{margin-top:26px;page-break-inside:avoid}
-    .firmarow{display:flex;flex-wrap:wrap;gap:26px;margin-top:12px}
-    .firma{width:220px;margin-top:26px}
-    .firma .line{border-top:1px solid #333;margin-bottom:4px}
-    .firma .fname{font-size:12px;font-weight:700;color:#111}
-    .firma .frole{font-size:10px;color:#6B7280}
+    .firma-insp{width:260px;margin:34px 0 8px;page-break-inside:avoid}
+    .firma-insp .line{border-top:1px solid #333;margin-bottom:4px}
+    .firma-insp .fname{font-size:12px;font-weight:700;color:#111}
+    .firma-insp .frole{font-size:10px;color:#6B7280}
   `;
 
   const html = pdfDocument({

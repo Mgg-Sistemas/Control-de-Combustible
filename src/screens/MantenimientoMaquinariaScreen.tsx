@@ -9,6 +9,7 @@ import { captureAndUploadPhoto } from '../lib/photo';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { supabase } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
+import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius } from '../theme';
@@ -33,8 +34,16 @@ function fmtDT(iso: string | null): string {
   const p = (n: number) => `${n}`.padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+// Coordenadas legibles (o null si la máquina no tiene GPS).
+const coordText = (lat?: number | null, lng?: number | null): string | null =>
+  (lat != null && lng != null && isFinite(lat) && isFinite(lng)) ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : null;
+// Edificio / sector: por la ubicación GPS; si no cae en zona, usa la referencia.
+const edificioText = (lat?: number | null, lng?: number | null, referencia?: string | null): string => {
+  const s = sectorLabel(sectorOf(lat, lng));
+  return s && s !== 'Sin zona' ? s : ((referencia || '').trim() || 'Sin zona');
+};
 
-type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean };
+type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean };
 
@@ -111,12 +120,16 @@ export default function MantenimientoMaquinariaScreen() {
 
   const load = async () => {
     setLoading(true);
-    const [{ data: mr }, { data: rp }, { data: mac }] = await Promise.all([
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, machinery:machinery_id(code, tipo, plate, serial, last_horometro, operational, company:company_id(name))').order('created_at', { ascending: false }),
+    const [{ data: mr }, { data: rp }, { data: mac }, { data: profs }] = await Promise.all([
+      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, company:company_id(name)').eq('active', true).order('code'),
+      supabase.from('profiles').select('id, full_name'),
     ]);
-    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false })));
+    // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
+    const nameById = new Map<string, string>();
+    (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
+    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false })));
     setLoading(false);
@@ -405,12 +418,28 @@ export default function MantenimientoMaquinariaScreen() {
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
+                    {(() => {
+                      // Datos de la máquina (comunes a todas sus averías): placa/serial, ubicación, referencia, edificio.
+                      const mi = mm.items[0];
+                      const ident = [mi.plate, mi.serial].filter(Boolean).join(' · ');
+                      const coords = coordText(mi.latitude, mi.longitude);
+                      const edif = edificioText(mi.latitude, mi.longitude, mi.referencia);
+                      return (
+                        <View style={{ marginTop: 2, gap: 1 }}>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Placa / Serial: <Text style={{ color: colors.text, fontWeight: '600' }}>{ident || '—'}</Text></Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>📍 Ubicación: <Text style={{ color: colors.text, fontWeight: '600' }}>{coords || '—'}</Text></Text>
+                          {mi.referencia ? <Text style={{ color: colors.muted, fontSize: 12 }}>🧭 Referencia: <Text style={{ color: colors.text, fontWeight: '600' }}>{mi.referencia}</Text></Text> : null}
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Edificio / sector: <Text style={{ color: colors.text, fontWeight: '600' }}>{edif}</Text></Text>
+                        </View>
+                      );
+                    })()}
                     {mm.items.map((r) => (
                       <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ fontSize: 24 }}>{MAT_ICON[r.material] ?? '🔧'}</Text>
                         <TouchableOpacity activeOpacity={0.7} onPress={() => setDetailReq(r)} style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}{r.photo_url ? '  📷' : ''}</Text>
                           {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.notes}</Text> : null}
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>👮 Reportó: <Text style={{ color: colors.text, fontWeight: '600' }}>{r.requestedByName || '—'}</Text></Text>
                           <Text style={{ color: colors.primary, fontSize: 11 }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
@@ -710,6 +739,9 @@ export default function MantenimientoMaquinariaScreen() {
                   {detailReq.tipo ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔧 Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.tipo}</Text></Text> : null}
                   {detailReq.plate ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.plate}</Text></Text> : null}
                   {detailReq.serial ? <Text style={{ color: colors.muted, fontSize: 13 }}>#️⃣ Serial: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.serial}</Text></Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>📍 Ubicación: <Text style={{ color: colors.text, fontWeight: '700' }}>{coordText(detailReq.latitude, detailReq.longitude) || '—'}</Text></Text>
+                  {detailReq.referencia ? <Text style={{ color: colors.muted, fontSize: 13 }}>🧭 Referencia: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.referencia}</Text></Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>🏢 Edificio / sector: <Text style={{ color: colors.text, fontWeight: '700' }}>{edificioText(detailReq.latitude, detailReq.longitude, detailReq.referencia)}</Text></Text>
                   {detailReq.last_horometro != null ? <Text style={{ color: colors.muted, fontSize: 13 }}>⏱️ Último horómetro: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.last_horometro}</Text></Text> : null}
                 </View>
 
@@ -717,6 +749,7 @@ export default function MantenimientoMaquinariaScreen() {
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 3 }}>
                   <Text style={{ color: colors.muted, fontSize: 13 }}>Necesita: <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(detailReq.material)}{detailReq.quantity != null ? ` · ${detailReq.quantity.toLocaleString()}` : ''}</Text></Text>
                   {detailReq.notes ? <Text style={{ color: colors.muted, fontSize: 13 }}>Nota: <Text style={{ color: colors.text }}>{detailReq.notes}</Text></Text> : null}
+                  <Text style={{ color: colors.muted, fontSize: 13 }}>👮 Reportó: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.requestedByName || '—'}</Text></Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Reportada: {fmtDT(detailReq.created_at)}</Text>
                 </View>
 
