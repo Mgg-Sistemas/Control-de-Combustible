@@ -161,6 +161,10 @@ function MoreStack() {
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
+      {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
+          Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
+          mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
+      <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)' }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />

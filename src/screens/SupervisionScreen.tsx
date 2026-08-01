@@ -8,6 +8,7 @@ import { listVisits, VisitRow } from '../lib/supervisorVisits';
 import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { generateEstadoReport } from '../lib/inspectorEstadoReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
@@ -97,7 +98,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
-  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null };
+  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null; lat: number | null; lng: number | null; sector: string | null; referencia: string | null };
   const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
   // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
   type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
@@ -300,7 +301,7 @@ export default function SupervisionScreen({ navigation }: any) {
       listVisits(date),
       supabase
         .from('machine_rounds')
-        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, encargado, company:company_id(name))')
+        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, encargado, latitude, longitude, sector, referencia, company:company_id(name))')
         .eq('round_date', date),
       supabase
         .from('operator_assignments')
@@ -360,6 +361,10 @@ export default function SupervisionScreen({ navigation }: any) {
         horoIni: (r.horometro_inicial ?? null) as number | null,
         horoFin: (r.horometro_final ?? null) as number | null,
         recordedBy: (r.recorded_by ?? null) as string | null,
+        lat: (r.machine?.latitude ?? null) as number | null,
+        lng: (r.machine?.longitude ?? null) as number | null,
+        sector: (r.machine?.sector ?? null) as string | null,
+        referencia: (r.machine?.referencia ?? null) as string | null,
       })));
     // Combustible surtido por máquina en el día (para mostrar ⛽ L y L/h en la jornada).
     loadFuelByMachine(date).then(setFuelDay).catch(() => setFuelDay({}));
@@ -494,6 +499,8 @@ export default function SupervisionScreen({ navigation }: any) {
   const [kpiModal, setKpiModal] = useState<null | 'iniciadas' | 'averiadas' | 'terminadas' | 'pendientes'>(null);
   const [kpiShift, setKpiShift] = useState<null | 'day' | 'night'>(null);
   const [kpiQuery, setKpiQuery] = useState('');
+  // Detalle de una jornada de máquina (al tocar la tarjeta): bottom-sheet con todo.
+  const [detailJorn, setDetailJorn] = useState<any | null>(null);
 
   // Traza agrupada por supervisor.
   const bySupervisor = useMemo(() => {
@@ -672,6 +679,19 @@ export default function SupervisionScreen({ navigation }: any) {
           {resumenCard('☀️ Resumen DÍA', dayS, 'day')}
           {resumenCard('🌙 Resumen NOCHE', nightS, 'night')}
         </View>
+        {/* 📄 Reporte de estado del día (4 secciones): iniciadas · pendientes · averiadas · finalizadas. */}
+        <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📄 Reporte de estado (iniciadas · pendientes · averiadas · finalizadas)</Text>
+        </TouchableOpacity>
+        {/* 📱 Vista de inspector (teléfono) en la PC — SOLO ADMIN. */}
+        {isAdmin ? (
+          <>
+            <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector (como en el teléfono)</Text>
+            </TouchableOpacity>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
+          </>
+        ) : null}
       </Card>
 
       {/* ── ✅ MÁQUINAS ASIGNADAS (CHECK del teléfono) — inspector ↔ máquina ── */}
@@ -960,12 +980,12 @@ export default function SupervisionScreen({ navigation }: any) {
                 </TouchableOpacity>
                 {collapsed ? null : list.map((j) => {
                   const late = lateMap[j.machinery_id] || 0;               // minutos de desfase (si hubo)
-                  const finalizada = !j.enCurso;                          // finalizada → tocar lleva al Mapa
+                  const finalizada = !j.enCurso;                          // en curso o finalizada → tocar abre el DETALLE
                   return (
                   <TouchableOpacity
                     key={j.machinery_id}
-                    activeOpacity={finalizada ? 0.6 : 1}
-                    onPress={finalizada ? () => navigation?.navigate?.('Map', { focus: { id: j.machinery_id, code: j.code } }) : undefined}
+                    activeOpacity={0.6}
+                    onPress={() => setDetailJorn(j)}
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}
                   >
                     <View style={{ flex: 1, minWidth: 0 }}>
@@ -975,7 +995,7 @@ export default function SupervisionScreen({ navigation }: any) {
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
                       {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
-                      {finalizada ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>📍 Ver ubicación en el mapa ›</Text> : null}
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👁️ Ver detalle ›</Text>
                     </View>
                     {j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
@@ -1156,6 +1176,76 @@ export default function SupervisionScreen({ navigation }: any) {
                 </>
               );
             })()}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── 👁️ DETALLE de una jornada de máquina (al tocar la tarjeta) ── */}
+      <Modal visible={detailJorn !== null} transparent animationType="fade" onRequestClose={() => setDetailJorn(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }} onPress={() => setDetailJorn(null)}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: spacing.md }}>
+            {detailJorn ? (() => {
+              const j = detailJorn;
+              // Ubicación: zona por coordenadas; si no hay, sector/referencia guardados.
+              const zona = sectorLabel(sectorOf(j.lat, j.lng));
+              const sectorTxt = zona && zona !== 'Sin zona' ? zona : (j.sector || j.referencia || 'Sin zona');
+              const tieneCoords = j.lat != null && j.lng != null;
+              // Edificio: referencia legible (descarta valores solo numéricos/coordenadas).
+              const refTxt = (j.referencia ?? '').trim();
+              const edificio = refTxt && !/^[\d.,\s-]+$/.test(refTxt) ? refTxt : '';
+              // Horas trabajadas y, si está en curso, el transcurrido desde el inicio.
+              const elapsedH = j.enCurso && j.startAt
+                ? Math.max(0, Math.round(((Date.now() - new Date(j.startAt).getTime()) / 3_600_000) * 10) / 10)
+                : null;
+              // Parada: si la máquina tiene una avería (parada) registrada hoy, muéstrala.
+              const parada = averiadaList.find((v) => v.machinery_id === j.machinery_id) || null;
+              const fuel = fuelDay[j.machinery_id];
+              const row = (label: string, value: React.ReactNode) => (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <Text style={{ color: colors.muted, fontSize: 12, flexShrink: 0 }}>{label}</Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1, textAlign: 'right' }}>{value}</Text>
+                </View>
+              );
+              return (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, flex: 1 }} numberOfLines={1}>🚜 {j.code}</Text>
+                    <TouchableOpacity onPress={() => setDetailJorn(null)} style={{ paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView style={{ paddingHorizontal: spacing.md }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
+                    {row('Estado', j.enCurso ? '● En curso' : '🏁 Finalizada')}
+                    {row('Empresa', j.companyName || '—')}
+                    {row('Serial / Placa', `${j.serial || '—'} / ${j.plate || '—'}`)}
+                    {row('Encargado', j.encargado || '—')}
+                    {row('Inspector', j.inspector || '—')}
+                    {row('Turno', j.shift ? (j.shift === 'night' ? '🌙 Noche' : '☀️ Día') : '—')}
+                    {row('Hora iniciada', j.startAt ? caracasClock(j.startAt) : '—')}
+                    {row('Horas trabajadas', j.enCurso
+                      ? (elapsedH != null ? `${elapsedH} h (transcurridas)` : '—')
+                      : `${j.worked} h`)}
+                    {row('Horas paradas', parada
+                      ? `Parada desde ${caracasClock(parada.visited_at)}${parada.note ? ` · “${parada.note}”` : ''}`
+                      : '—')}
+                    {row('Ubicación', `📍 ${sectorTxt}${edificio ? ` · 🏢 ${edificio}` : ''}`)}
+                    {row('Coordenadas', tieneCoords ? `${j.lat}, ${j.lng}` : 'sin coordenadas')}
+                    {row('Horómetro', `${j.horoIni ?? '—'} → ${j.horoFin ?? '—'}`)}
+                    {row('Combustible del día', fuel?.liters
+                      ? `⛽ ${litersLabel(fuel.liters)} L${j.worked > 0 ? ` · ${lphOf(fuel.liters, j.worked)} L/h` : ''}`
+                      : '—')}
+                    {tieneCoords ? (
+                      <TouchableOpacity onPress={() => openUrl(mapsUrl(j.lat, j.lng))} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🌐 Abrir en Google Maps ↗</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity onPress={() => { setDetailJorn(null); navigation?.navigate?.('Map', { focus: { id: j.machinery_id, code: j.code } }); }} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📍 Ver ubicación en el mapa</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </>
+              );
+            })() : null}
           </Pressable>
         </Pressable>
       </Modal>

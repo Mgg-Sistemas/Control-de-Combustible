@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Alert } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { EDIFICIOS } from '../lib/edificios';
-import { Machinery, SupervisorVisit, VisitStatus } from '../types/database';
+import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { saveVisit, myVisitsToday, haversineM, VISIT_NEAR_M } from '../lib/supervisorVisits';
@@ -20,6 +20,7 @@ import { listInspectorAssignments, assignInspector, unassignInspector, Shift, sh
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
+import { markAttendance, pairMarks, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -77,10 +78,13 @@ const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'
  */
 export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
-  const { session, signOut, role } = useAuth();
+  const { session, signOut, role, canSee } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
   const consumedRef = useRef(false);
+  // Solo los usuarios con permiso del módulo 'asistencia' pueden marcar la
+  // asistencia del personal desde esta vista (botón + modal más abajo).
+  const canAsistencia = canSee('asistencia');
 
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(true);
@@ -128,6 +132,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [paradaIds, setParadaIds] = useState<Set<string>>(new Set());
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
+
+  // ── ASISTENCIA DEL PERSONAL (solo usuarios con permiso 'asistencia') ────────
+  // Modal en esta misma pantalla: escanea el carnet o busca al empleado, y marca
+  // ENTRADA/SALIDA inteligente (según su última marca de hoy). No hay reporte aquí.
+  type AsisEmp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url'>;
+  const ASIS_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url';
+  const asisFullName = (e?: AsisEmp | null) => (e ? `${e.first_name} ${e.last_name}`.trim() : '');
+  const [asisOpen, setAsisOpen] = useState(false);
+  const [asisScan, setAsisScan] = useState(false);
+  const [asisEmp, setAsisEmp] = useState<AsisEmp | null>(null);
+  const [asisToday, setAsisToday] = useState<Attendance[]>([]); // marcas de HOY del empleado elegido
+  const [asisBusy, setAsisBusy] = useState(false);
+  const [asisQuery, setAsisQuery] = useState('');
+  const [asisResults, setAsisResults] = useState<AsisEmp[]>([]);
+  const [asisNotice, setAsisNotice] = useState<string | null>(null);
 
   // ── Check-in ──────────────────────────────────────────────────────────────
   const [ci, setCi] = useState<Mach | null>(null);
@@ -699,6 +718,79 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setOpHoroPhoto(r.url ?? null);
   };
 
+  // ── ASISTENCIA: cargar marcas de HOY del empleado (para el botón inteligente) ──
+  const asisLoadToday = async (employeeId: string) => {
+    const { data } = await supabase
+      .from('attendance')
+      .select('id, employee_id, ts, work_date, kind, recorded_by, created_at')
+      .eq('employee_id', employeeId)
+      .eq('work_date', today)
+      .order('ts', { ascending: true });
+    setAsisToday((data ?? []) as Attendance[]);
+  };
+  // Elige un empleado (por escaneo o búsqueda) y carga sus marcas de hoy.
+  const asisPick = async (employeeId: string) => {
+    setAsisQuery(''); setAsisResults([]);
+    const { data, error } = await supabase.from('employees').select(ASIS_COLS).eq('id', employeeId).maybeSingle();
+    if (error || !data) { setAsisNotice('❌ No se encontró ese empleado. Verifica el carnet.'); return; }
+    setAsisEmp(data as AsisEmp);
+    setAsisNotice(null);
+    await asisLoadToday(employeeId);
+  };
+  const asisOnScanned = (text: string) => {
+    setAsisScan(false);
+    const id = parseEmployeeId(text);
+    if (!id) { setAsisNotice('❌ Ese QR no es un carnet de empleado válido.'); return; }
+    asisPick(id);
+  };
+  // Búsqueda por nombre/cédula (debounce simple) mientras el modal esté abierto.
+  useEffect(() => {
+    if (!asisOpen) return;
+    const term = norm(asisQuery.trim());
+    if (term.length < 2) { setAsisResults([]); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('employees').select(ASIS_COLS)
+        .or(`first_name.ilike.*${asisQuery.trim()}*,last_name.ilike.*${asisQuery.trim()}*,cedula.ilike.*${asisQuery.trim()}*`)
+        .order('first_name').limit(20);
+      if (alive) setAsisResults((data ?? []) as AsisEmp[]);
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [asisQuery, asisOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const asisLastKind = asisToday.length ? asisToday[asisToday.length - 1].kind : null;
+  const asisWillMark = nextKind(asisLastKind);
+  // Marca ENTRADA/SALIDA (decide sola). Si toca SALIDA se pide confirmación para
+  // evitar registrar una salida por un doble escaneo del mismo carnet.
+  const asisMarcar = async () => {
+    if (!asisEmp) return;
+    if (asisWillMark === 'salida') {
+      const lastIn = [...asisToday].reverse().find((m) => m.kind === 'entrada');
+      const minsSince = lastIn ? Math.round((Date.now() - new Date(lastIn.ts).getTime()) / 60000) : null;
+      const dobleEscaneo = minsSince !== null && minsSince < 2;
+      const ok = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          dobleEscaneo ? '¿Doble escaneo?' : '¿Registrar SALIDA?',
+          dobleEscaneo
+            ? `La ENTRADA de ${asisFullName(asisEmp)} fue hace ${minsSince! < 1 ? 'menos de 1 minuto' : `${minsSince} min`}. Parece un doble escaneo del carnet, no una salida real. ¿Registrar la SALIDA de todas formas?`
+            : `¿Seguro que quieres registrar la SALIDA de ${asisFullName(asisEmp)}?` + (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
+          [
+            { text: dobleEscaneo ? 'No, fue doble escaneo' : 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Sí, registrar salida', style: 'destructive', onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!ok) return;
+    }
+    setAsisBusy(true);
+    const r = await markAttendance(asisEmp.id, uid || null);
+    setAsisBusy(false);
+    if (!r.ok) { setAsisNotice('❌ ' + r.error); return; }
+    await asisLoadToday(asisEmp.id);
+    setAsisNotice(`${r.kind === 'entrada' ? '➡️ ENTRADA' : '⬅️ SALIDA'} de ${asisFullName(asisEmp)} registrada a las ${fmtHora(r.ts)} (${SHIFT_LABEL[shiftOfTs(r.ts)]}).`);
+  };
+  const asisTotal = useMemo(() => pairMarks(asisToday), [asisToday]);
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
@@ -801,6 +893,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
           <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
         </TouchableOpacity>
+        {/* MARCAR ASISTENCIA DEL PERSONAL: solo los usuarios con permiso del
+            módulo 'asistencia' pueden verlo. Abre un modal para escanear/buscar
+            al empleado y marcar su ENTRADA/SALIDA. */}
+        {canAsistencia ? (
+          <TouchableOpacity
+            onPress={() => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); }}
+            activeOpacity={0.85}
+            style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: '#0EA5E9', borderRadius: radius.md, paddingVertical: spacing.md }}
+          >
+            <Text style={{ fontSize: 20 }}>🕒</Text>
+            <Text style={{ color: '#0EA5E9', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>MARCAR ASISTENCIA DEL PERSONAL</Text>
+          </TouchableOpacity>
+        ) : null}
         {/* CHECK MÁQUINA (SOLO ADMIN): asignar máquinas a los inspectores. */}
         {isAdmin ? (
           <>
@@ -1344,6 +1449,96 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       <Modal visible={opScanOpen} animationType="slide" onRequestClose={() => setOpScanOpen(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <QrScanner onClose={() => setOpScanOpen(false)} onDetected={onOperatorCarnet} />
+        </View>
+      </Modal>
+
+      {/* 🕒 MARCAR ASISTENCIA DEL PERSONAL (solo permiso 'asistencia'): escanear/
+          buscar al empleado y marcar ENTRADA/SALIDA inteligente. */}
+      <Modal visible={asisOpen} animationType="slide" onRequestClose={() => setAsisOpen(false)}>
+        <Screen>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🕒 Asistencia del personal</Text>
+              <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>Escanea el carnet o busca por nombre/cédula.</Text>
+            </View>
+            <TouchableOpacity onPress={() => setAsisOpen(false)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {/* Escanear carnet */}
+            <TouchableOpacity onPress={() => { setAsisNotice(null); setAsisScan(true); }} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+              <Text style={{ fontSize: 20 }}>📷</Text>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>Escanear carnet</Text>
+            </TouchableOpacity>
+
+            {/* Búsqueda por nombre/cédula */}
+            <TextInput value={asisQuery} onChangeText={setAsisQuery} placeholder="🔎 …o busca por nombre o cédula" placeholderTextColor={colors.muted} style={{ ...input, marginTop: spacing.sm }} />
+            {asisResults.length ? (
+              <Card>
+                {asisResults.map((r) => (
+                  <TouchableOpacity key={r.id} onPress={() => asisPick(r.id)} style={{ paddingVertical: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{asisFullName(r)}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{[r.cargo, r.cedula ? `C.I. ${r.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
+                  </TouchableOpacity>
+                ))}
+              </Card>
+            ) : null}
+
+            {asisNotice ? (
+              <Card><Text style={{ color: asisNotice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{asisNotice}</Text></Card>
+            ) : null}
+
+            {/* Empleado elegido + marca inteligente */}
+            {asisEmp ? (
+              <Card>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                  {asisEmp.photo_url ? (
+                    <Image source={{ uri: asisEmp.photo_url }} style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.surfaceAlt }} />
+                  ) : (
+                    <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 24 }}>🪪</Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{asisFullName(asisEmp)}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{asisEmp.cargo || 'Sin cargo'}</Text>
+                    {asisEmp.cedula ? <Text style={{ color: colors.muted, fontSize: 12 }}>C.I. {asisEmp.cedula}</Text> : null}
+                  </View>
+                  <TouchableOpacity onPress={() => { setAsisEmp(null); setAsisToday([]); }} style={{ padding: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Estado de hoy */}
+                <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>
+                    Hoy: {asisToday.length ? `${asisToday.length} marca(s)${asisTotal.open ? ' · jornada abierta' : ''}` : 'sin marcas todavía'}
+                  </Text>
+                  {asisToday.map((m) => (
+                    <Text key={m.id} style={{ color: m.kind === 'entrada' ? colors.success : colors.danger, fontSize: 13, fontWeight: '700', marginTop: 2 }}>
+                      {m.kind === 'entrada' ? '➡️ Entrada' : '⬅️ Salida'} · {fmtHora(m.ts)} · {SHIFT_LABEL[shiftOfTs(m.ts)]}
+                    </Text>
+                  ))}
+                </View>
+
+                <TouchableOpacity onPress={asisMarcar} disabled={asisBusy} style={{ marginTop: spacing.sm, backgroundColor: asisWillMark === 'entrada' ? colors.success : colors.danger, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: asisBusy ? 0.7 : 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                    {asisBusy ? 'Guardando…' : asisWillMark === 'entrada' ? '➡️ Marcar ENTRADA' : '⬅️ Marcar SALIDA'}
+                  </Text>
+                </TouchableOpacity>
+              </Card>
+            ) : null}
+            <View style={{ height: spacing.xl }} />
+          </ScrollView>
+        </Screen>
+      </Modal>
+
+      {/* Escáner del carnet para la asistencia (QR ?empleado=<id>). */}
+      <Modal visible={asisScan} animationType="slide" onRequestClose={() => setAsisScan(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <QrScanner onClose={() => setAsisScan(false)} onDetected={asisOnScanned} />
         </View>
       </Modal>
     </Screen>
