@@ -25,6 +25,7 @@ import { cmpText, norm } from '../lib/text';
 import { normalizeDept } from '../lib/personal';
 import { sectorOf, SUBSECTORS, sectorLabel } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
+import { generateInspectorReport, InspectorShift } from '../lib/inspectorReport';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -422,7 +423,9 @@ export default function ReportsScreen({ route }: any) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [preview, setPreview] = useState(false);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion'>('fuel');
+  const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
+  // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
+  const [inspShift, setInspShift] = useState<InspectorShift>('both');
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
@@ -2009,6 +2012,7 @@ export default function ReportsScreen({ route }: any) {
           { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
           { v: 'inspeccion', label: '🔍 Inspección equipos' },
+          { v: 'inspectores', label: '👷 Inspectores' },
         ] as const).map((t) => {
           const active = mode === t.v;
           return (
@@ -2023,6 +2027,8 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Inspección de equipos: reporte de UN día; arranca en HOY.
                 if (t.v === 'inspeccion') { setFrom(isoDaysAgo(0)); }
+                // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
+                if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
               }}
               style={{
                 flexGrow: 1,
@@ -2079,6 +2085,43 @@ export default function ReportsScreen({ route }: any) {
             </Text>
             <Text style={styles.lbl}>Día</Text>
             <DateField value={from} onChange={setFrom} />
+          </View>
+        ) : mode === 'inspectores' ? (
+          <View>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.xs }}>
+              Reporte de INSPECTORES (jornadas de inspección): agrupado por inspector, con sus máquinas,
+              horas de día/noche/total, desglose por sector y las ubicaciones cuando una máquina cambió de sitio.
+              La jornada de día es de un inspector y la de noche de otro. Al final, líneas para firmar.
+            </Text>
+            <Text style={styles.lbl}>Día</Text>
+            <DateField value={from} onChange={setFrom} />
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Turno</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {([
+                { v: 'day', label: '☀️ Día' },
+                { v: 'night', label: '🌙 Noche' },
+                { v: 'both', label: '☀️🌙 Ambos' },
+              ] as const).map((s) => {
+                const on = inspShift === s.v;
+                return (
+                  <TouchableOpacity
+                    key={s.v}
+                    onPress={() => setInspShift(s.v)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: spacing.sm,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: on ? colors.primary : colors.border,
+                      backgroundColor: on ? colors.primary : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
         ) : (
         <>
@@ -2202,6 +2245,8 @@ export default function ReportsScreen({ route }: any) {
               ? generateConteo()
               : mode === 'inspeccion'
               ? generateInspeccion(from)
+              : mode === 'inspectores'
+              ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies }); } finally { setLoading(false); } })()
               : generateCamiones()
           }
           disabled={loading}
@@ -2219,6 +2264,8 @@ export default function ReportsScreen({ route }: any) {
               ? '📊 Ver conteo de equipos'
               : mode === 'inspeccion'
               ? '🔍 Generar INSPECCIÓN DE EQUIPOS (PDF)'
+              : mode === 'inspectores'
+              ? '👷 Generar REPORTE DE INSPECTORES (PDF)'
               : '🚛 Ver camiones Entradas/Salidas del mes'}
           </Text>
         </TouchableOpacity>
