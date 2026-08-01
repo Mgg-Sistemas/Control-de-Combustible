@@ -134,6 +134,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [jornadaShift, setJornadaShift] = useState<'day' | 'night'>('day');
   const [jornadaBusy, setJornadaBusy] = useState(false);
   const [finConfirm, setFinConfirm] = useState(false); // aviso de confirmación antes de finalizar
+  // Horas ya registradas hoy en el round de la máquina abierta (para saber si el
+  // turno del inspector ya se cumplió hoy → no puede reiniciarlo el mismo día).
+  const [curRoundHours, setCurRoundHours] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
   // Horómetro: al iniciar se pide el INICIAL (precargado con el último final de la
   // máquina); al finalizar se pide el FINAL (que será el inicial de la próxima jornada).
   const [horoIni, setHoroIni] = useState('');
@@ -200,6 +203,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setIniTime(defShift === 'night' ? '19:00' : '07:00');
     (async () => {
       const r = await getMachineRound(ci.id, today);
+      setCurRoundHours({ day: Number((r as any)?.day_hours) || 0, night: Number((r as any)?.night_hours) || 0 });
       const open = (r as any)?.jornada_start_at ?? null;
       setJornadaStart(open);
       setJornadaShift((((r as any)?.jornada_shift as any) ?? shiftOf(caracasParts(new Date()).hour).key));
@@ -309,6 +313,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const q = norm(checkQuery.trim());
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
+
+  // ── REGLA DE TURNOS DEL INSPECTOR ──────────────────────────────────────────
+  // El inspector solo puede iniciar jornada de SU turno asignado (día/noche) en
+  // esta máquina, y solo una por turno por día (tras finalizar, vuelve a poder
+  // mañana). `myShift` = el turno donde el inspector logueado está asignado.
+  const myShift = useMemo<Shift | null>(() => {
+    if (!ci) return null;
+    const s = assignMap[ci.id];
+    if (s?.day?.id === uid) return 'day';
+    if (s?.night?.id === uid) return 'night';
+    return null;
+  }, [ci, assignMap, uid]);
+  // ¿El turno del inspector en esta máquina YA se finalizó hoy? (horas > 0 y sin
+  // jornada abierta → no puede reiniciar el mismo día).
+  const shiftDoneToday = useMemo(() => {
+    if (!myShift || jornadaStart) return false;
+    return (myShift === 'day' ? curRoundHours.day : curRoundHours.night) > 0;
+  }, [myShift, jornadaStart, curRoundHours]);
+  // Fuerza el turno declarado al turno ASIGNADO del inspector (no puede elegir el otro).
+  useEffect(() => {
+    if (myShift) { setIniShift(myShift); setIniTime(myShift === 'night' ? '19:00' : '07:00'); }
+  }, [myShift, ci?.id]);
 
   // ✅ CHECK MÁQUINA por TURNO (SOLO ADMIN): asigna (o quita) al INSPECTOR ELEGIDO
   // como inspector de DÍA o de NOCHE de la máquina. Cada máquina → 2 inspectores.
@@ -475,6 +501,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // como "trabajando" en Inspecciones. El botón pasa a "Finalizar jornada".
   const iniciarJornada = async () => {
     if (!ci || jornadaBusy) return;
+    // Regla de turnos: el inspector solo inicia SU turno asignado, y una sola vez
+    // por turno por día (tras finalizar, recién puede volver a marcar mañana).
+    if (myShift && iniShift !== myShift) { setNotice(`❌ Solo puedes iniciar jornada de ${shiftFromKey(myShift).label} (es tu turno asignado en esta máquina).`); return; }
+    if (shiftDoneToday) { setNotice(`❌ Ya finalizaste tu jornada de ${shiftFromKey(myShift as any).label} hoy en esta máquina. Podrás iniciar otra mañana.`); return; }
     const hi = Number((horoIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
     // Hora de inicio DECLARADA (HH:MM). Caracas es UTC-4 fijo (sin horario de verano).
@@ -1111,20 +1141,34 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     </TouchableOpacity>
                   )}
                 </View>
+              ) : shiftDoneToday ? (
+                // El inspector ya finalizó su turno hoy en esta máquina: no puede reiniciar hasta mañana.
+                <View style={{ backgroundColor: '#EAF1FB', borderWidth: 1, borderColor: '#2563EB', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13 }}>✅ Ya finalizaste tu jornada de {shiftFromKey(myShift as any).label} hoy en esta máquina.</Text>
+                  <Text style={{ color: '#12356B', fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
-                  {/* Turno + HORA de inicio declarada (por defecto 7:00am día / 7:00pm noche). */}
+                  {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
+                      se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-                    {(['day', 'night'] as const).map((s) => {
-                      const on = iniShift === s;
-                      return (
-                        <TouchableOpacity key={s} onPress={() => { setIniShift(s); setIniTime(s === 'night' ? '19:00' : '07:00'); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  {myShift ? (
+                    <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{myShift === 'night' ? '🌙 Noche' : '☀️ Día'} · tu turno asignado</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Solo puedes iniciar jornada de tu turno.</Text>
+                    </View>
+                  ) : (
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                      {(['day', 'night'] as const).map((s) => {
+                        const on = iniShift === s;
+                        return (
+                          <TouchableOpacity key={s} onPress={() => { setIniShift(s); setIniTime(s === 'night' ? '19:00' : '07:00'); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hora de inicio (HH:MM) · se acota contra la hora del sistema</Text>
                   <TextInput value={iniTime} onChangeText={(t) => setIniTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder={iniShift === 'night' ? '19:00' : '07:00'} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[input, { marginBottom: 4 }]} />
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:30pm' : '9:30am'}. Si se declara tarde se avisa a los administradores.</Text>
