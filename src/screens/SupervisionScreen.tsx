@@ -97,7 +97,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
-  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; recordedBy: string | null };
+  type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null };
   const [rawRounds, setRawRounds] = useState<RawRound[]>([]);
   // Movimientos de patio de camiones del día (salida al iniciar jornada / entrada al finalizar).
   type YardLog = { machinery_id: string; code: string; companyName: string; direction: 'entrada' | 'salida'; at: string };
@@ -300,7 +300,7 @@ export default function SupervisionScreen({ navigation }: any) {
       listVisits(date),
       supabase
         .from('machine_rounds')
-        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, recorded_by, machine:machinery_id(code, serial, plate, encargado, company:company_id(name))')
+        .select('machinery_id, day_hours, night_hours, day_operator, night_operator, jornada_start_at, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, encargado, company:company_id(name))')
         .eq('round_date', date),
       supabase
         .from('operator_assignments')
@@ -357,6 +357,8 @@ export default function SupervisionScreen({ navigation }: any) {
         startAt: (r.jornada_start_at ?? null) as string | null,
         shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
         worked: workedOf(r),
+        horoIni: (r.horometro_inicial ?? null) as number | null,
+        horoFin: (r.horometro_final ?? null) as number | null,
         recordedBy: (r.recorded_by ?? null) as string | null,
       })));
     // Combustible surtido por máquina en el día (para mostrar ⛽ L y L/h en la jornada).
@@ -470,6 +472,8 @@ export default function SupervisionScreen({ navigation }: any) {
 
   // KPIs pedidos: jornadas iniciadas (total), máquinas averiadas y jornadas terminadas.
   const jornadasTerminadasList = useMemo(() => machJornadas.filter((j) => !j.enCurso), [machJornadas]);
+  // Jornadas EN CURSO (no finalizadas): pendientes por finalizar (A→Z natural por código).
+  const pendientesList = useMemo(() => machJornadas.filter((j) => j.enCurso).sort((a, b) => cmpText(a.code, b.code)), [machJornadas]);
   // Máquinas averiadas (parada): última visita 'parada' por máquina (para la lista).
   const averiadaList = useMemo(() => {
     const map = new Map<string, VisitRow>();
@@ -479,12 +483,16 @@ export default function SupervisionScreen({ navigation }: any) {
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.machineCode || '', b.machineCode || ''));
   }, [cleanVisits]);
-  const jornadasIniciadas = machJornadas.length;                                    // en curso + finalizadas
-  const jornadasTerminadas = jornadasTerminadasList.length;
   const maquinasAveriadas = averiadaList.length;
+  // Resumen por TURNO (día/noche): iniciadas, terminadas y pendientes por finalizar.
+  const dayJorn = useMemo(() => machJornadas.filter((j) => j.shift === 'day'), [machJornadas]);
+  const nightJorn = useMemo(() => machJornadas.filter((j) => j.shift === 'night'), [machJornadas]);
+  const dayS = useMemo(() => ({ ini: dayJorn.length, fin: dayJorn.filter((j) => !j.enCurso).length, pend: dayJorn.filter((j) => j.enCurso).length }), [dayJorn]);
+  const nightS = useMemo(() => ({ ini: nightJorn.length, fin: nightJorn.filter((j) => !j.enCurso).length, pend: nightJorn.filter((j) => j.enCurso).length }), [nightJorn]);
 
-  // Tarjeta KPI tocada → abre la lista con detalle y buscador.
-  const [kpiModal, setKpiModal] = useState<null | 'iniciadas' | 'averiadas' | 'terminadas'>(null);
+  // Tarjeta KPI tocada → abre la lista con detalle y buscador. `kpiShift` filtra por turno.
+  const [kpiModal, setKpiModal] = useState<null | 'iniciadas' | 'averiadas' | 'terminadas' | 'pendientes'>(null);
+  const [kpiShift, setKpiShift] = useState<null | 'day' | 'night'>(null);
   const [kpiQuery, setKpiQuery] = useState('');
 
   // Traza agrupada por supervisor.
@@ -608,6 +616,25 @@ export default function SupervisionScreen({ navigation }: any) {
       : <View style={style}>{inner}</View>;
   };
 
+  // Mini-métrica dentro de una tarjeta de Resumen (tocable → abre el modal del turno).
+  const miniStat = (label: string, value: React.ReactNode, color: string, onPress: () => void) => (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+      <Text style={{ color, fontSize: 18, fontWeight: '900' }}>{value}</Text>
+      <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>{label} ›</Text>
+    </TouchableOpacity>
+  );
+  // Tarjeta de RESUMEN por turno (Día / Noche): iniciadas · terminadas · pendientes.
+  const resumenCard = (title: string, s: { ini: number; fin: number; pend: number }, shift: 'day' | 'night') => (
+    <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+      <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, textAlign: 'center', marginBottom: 4 }}>{title}</Text>
+      <View style={{ flexDirection: 'row' }}>
+        {miniStat('Iniciadas', s.ini, colors.success, () => { setKpiQuery(''); setKpiShift(shift); setKpiModal('iniciadas'); })}
+        {miniStat('Terminadas', s.fin, '#2563EB', () => { setKpiQuery(''); setKpiShift(shift); setKpiModal('terminadas'); })}
+        {miniStat('Pendientes', s.pend, s.pend > 0 ? '#D9A200' : colors.success, () => { setKpiQuery(''); setKpiShift(shift); setKpiModal('pendientes'); })}
+      </View>
+    </View>
+  );
+
   // Cabecera de sección colapsable: mismo look que SectionTitle + flecha ▾/▸.
   const secHead = (key: string, title: string) => {
     const closed = secClosed.has(key);
@@ -636,10 +663,14 @@ export default function SupervisionScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
+        {/* Máquinas averiadas (total del día). */}
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Jornadas iniciadas', jornadasIniciadas, colors.success, () => { setKpiQuery(''); setKpiModal('iniciadas'); })}
-          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiModal('averiadas'); })}
-          {kpi('Jornadas terminadas', jornadasTerminadas, '#2563EB', () => { setKpiQuery(''); setKpiModal('terminadas'); })}
+          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiShift(null); setKpiModal('averiadas'); })}
+        </View>
+        {/* Resumen por TURNO: ☀️ Día y 🌙 Noche (iniciadas · terminadas · pendientes por finalizar). */}
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          {resumenCard('☀️ Resumen DÍA', dayS, 'day')}
+          {resumenCard('🌙 Resumen NOCHE', nightS, 'night')}
         </View>
       </Card>
 
@@ -940,6 +971,7 @@ export default function SupervisionScreen({ navigation }: any) {
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>⏲️ Horómetro: {j.horoIni ?? '—'} → {j.horoFin ?? '—'}</Text>
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
                       {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
@@ -1065,8 +1097,11 @@ export default function SupervisionScreen({ navigation }: any) {
           <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.background, borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: spacing.md }}>
             {(() => {
               const q = kpiQuery.trim().toLowerCase();
-              const title = kpiModal === 'iniciadas' ? '🟢 Jornadas iniciadas' : kpiModal === 'averiadas' ? '🟡 Máquinas averiadas' : '🏁 Jornadas terminadas';
-              const jList = (kpiModal === 'terminadas' ? jornadasTerminadasList : machJornadas).filter((j) =>
+              const shiftTxt = kpiShift === 'day' ? ' ☀️ Día' : kpiShift === 'night' ? ' 🌙 Noche' : '';
+              const title = (kpiModal === 'iniciadas' ? '🟢 Jornadas iniciadas' : kpiModal === 'averiadas' ? '🟡 Máquinas averiadas' : kpiModal === 'pendientes' ? '⏳ Pendientes por finalizar' : '🏁 Jornadas terminadas') + shiftTxt;
+              const jSourceBase = kpiModal === 'terminadas' ? jornadasTerminadasList : kpiModal === 'pendientes' ? pendientesList : machJornadas;
+              const jSource = kpiShift ? jSourceBase.filter((j) => j.shift === kpiShift) : jSourceBase;
+              const jList = jSource.filter((j) =>
                 !q || `${j.code} ${j.companyName} ${j.inspector} ${j.serial ?? ''} ${j.plate ?? ''} ${j.encargado ?? ''}`.toLowerCase().includes(q));
               const aList = averiadaList.filter((v) =>
                 !q || `${v.machineCode ?? ''} ${v.companyName ?? ''} ${v.supervisor_name ?? ''} ${v.note ?? ''}`.toLowerCase().includes(q));
@@ -1106,6 +1141,7 @@ export default function SupervisionScreen({ navigation }: any) {
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
                             <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {j.inspector}{j.shift ? ` · ${j.shift === 'night' ? '🌙 noche' : '☀️ día'}` : ''}</Text>
                             <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }}>⏲️ Horómetro: {j.horoIni ?? '—'} → {j.horoFin ?? '—'}</Text>
                             {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado)</Text> : null}
                             {j.enCurso ? (
                               <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>● En curso{j.startAt ? ` desde ${caracasClock(j.startAt)}` : ''}</Text>
