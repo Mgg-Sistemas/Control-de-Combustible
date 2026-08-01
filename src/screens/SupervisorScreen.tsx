@@ -529,17 +529,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
-    const hf = Number((horoFin || '').replace(',', '.'));
-    if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
-    const hi = Number((horoIni || '').replace(',', '.'));
-    if (isFinite(hi) && hf < hi) { setNotice('❌ El horómetro final no puede ser menor que el inicial.'); return; }
+    // El horómetro final es OPCIONAL y NUNCA debe impedir finalizar la jornada: las
+    // horas se cuentan por TIEMPO (inicio → fin), no por horómetro. Si lo ponen y es
+    // un número válido (≥0) se guarda; si lo dejan vacío, igual se finaliza. Antes un
+    // horómetro vacío o menor al inicial hacía un early-return y la jornada quedaba
+    // "en curso" para siempre (los inspectores "finalizaban" pero no se reflejaba).
+    const hfRaw = (horoFin || '').replace(',', '.').trim();
+    const hfNum = hfRaw === '' ? NaN : Number(hfRaw);
+    const hfValid = isFinite(hfNum) && hfNum >= 0;
     setJornadaBusy(true); setNotice(null);
     const ms = Date.now() - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
     const prev = await getMachineRound(ci.id, today);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaStart(null);
@@ -1081,7 +1085,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: '#12356B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
-                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final{horoIni ? ` (inicial: ${horoIni})` : ''}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (opcional){horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Este horómetro final será el inicial de la próxima jornada.</Text>
                       {(() => {
