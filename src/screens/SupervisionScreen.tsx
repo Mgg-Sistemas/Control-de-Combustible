@@ -452,35 +452,68 @@ export default function SupervisionScreen({ navigation }: any) {
   const toggleMachJorCollapsed = (name: string) => setMachJorExpanded((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const machJornadasByInspector = useMemo(() => {
     const q = machJorQuery.trim().toLowerCase();
-    // Jornadas del día + máquinas PARADAS sin jornada (para que salgan TODAS).
-    const jItems = machJornadas.map((j) => ({ ...j, kind: 'jornada' as const }));
+    // Objetivo: por inspector se ven TODAS sus máquinas con su estado real —
+    // en curso · parada · pendiente por iniciar · finalizada. Se combinan 3 fuentes:
+    //  1) JORNADAS iniciadas (agrupan por quien las inició, recorded_by).
+    //  2) PARADAS sin jornada → agrupan por el INSPECTOR ASIGNADO (para que el
+    //     conteo "a ese nivel" cuadre); si no está asignada, por quien la marcó.
+    //  3) PENDIENTES POR INICIAR: máquinas ASIGNADAS (machine_inspectors) sin
+    //     jornada y sin parada — el inspector aún no ha iniciado su turno.
     const jIds = new Set(machJornadas.map((j) => j.machinery_id));
+    const paradaIds = new Set(paradaList.filter((p) => p.status === 'pendiente').map((p) => p.machinery_id));
+
+    const jItems = machJornadas.map((j) => ({ ...j, kind: 'jornada' as const, pendiente: false }));
     const pItems = paradaList
       .filter((p) => p.status === 'pendiente' && !jIds.has(p.machinery_id))
-      .map((p) => ({
-        machinery_id: p.machinery_id, code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate,
-        encargado: null as string | null, startAt: null as string | null, shift: null as 'day' | 'night' | null, worked: 0,
+      .map((p) => {
+        const asg = assignByMachine.get(p.machinery_id);
+        const owner = asg?.day?.name || asg?.night?.name || p.byName || '—';
+        return {
+          machinery_id: p.machinery_id, code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate,
+          encargado: null as string | null, startAt: null as string | null, shift: null as 'day' | 'night' | null, worked: 0,
+          horoIni: null as number | null, horoFin: null as number | null, recordedBy: null as string | null,
+          lat: null as number | null, lng: null as number | null, sector: null as string | null, referencia: null as string | null,
+          inspector: owner, enCurso: false, parada: true, paradaMotivo: p.motivo, kind: 'parada' as const, pendiente: false,
+        };
+      });
+    // Asignadas sin jornada ni parada → pendientes por iniciar (dedup inspector+máquina).
+    const pendSeen = new Set<string>();
+    const dItems = assigns
+      .filter((a) => !jIds.has(a.machinery_id) && !paradaIds.has(a.machinery_id))
+      .filter((a) => { const k = `${a.inspector_name || '—'}|${a.machinery_id}`; if (pendSeen.has(k)) return false; pendSeen.add(k); return true; })
+      .map((a) => ({
+        machinery_id: a.machinery_id, code: a.code, companyName: a.companyName, serial: a.serial, plate: a.plate,
+        encargado: (a.encargado ?? null) as string | null, startAt: null as string | null, shift: a.shift as 'day' | 'night' | null, worked: 0,
         horoIni: null as number | null, horoFin: null as number | null, recordedBy: null as string | null,
-        lat: null as number | null, lng: null as number | null, sector: null as string | null, referencia: null as string | null,
-        inspector: p.byName || '—', enCurso: false, parada: true, paradaMotivo: p.motivo, kind: 'parada' as const,
+        lat: null as number | null, lng: null as number | null, sector: null as string | null, referencia: (a.referencia ?? null) as string | null,
+        inspector: a.inspector_name || '—', enCurso: false, parada: false, paradaMotivo: '', kind: 'pendiente' as const, pendiente: true,
       }));
-    const all = [...jItems, ...pItems];
+
+    // Dedup por inspector+máquina con prioridad: jornada > parada > pendiente.
+    const rankKind = (x: any) => (x.kind === 'jornada' ? 0 : x.kind === 'parada' ? 1 : 2);
+    const byKey = new Map<string, any>();
+    [...jItems, ...pItems, ...dItems].forEach((x) => {
+      const k = `${x.inspector || '—'}|${x.machinery_id}`;
+      const cur = byKey.get(k);
+      if (!cur || rankKind(x) < rankKind(cur)) byKey.set(k, x);
+    });
+    const all = Array.from(byKey.values());
     const filtered = q
       ? all.filter((x) => `${x.inspector} ${x.code} ${x.companyName} ${x.serial ?? ''} ${x.plate ?? ''} ${x.encargado ?? ''}`.toLowerCase().includes(q))
       : all;
-    const map = new Map<string, typeof filtered>();
+    const map = new Map<string, any[]>();
     filtered.forEach((x) => {
       const k = x.inspector || '—';
-      if (!map.has(k)) map.set(k, [] as any);
+      if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(x);
     });
-    // Dentro de cada inspector: PARADA primero, luego en curso, luego finalizadas (A→Z).
+    // Dentro de cada inspector: en curso · parada · pendiente por iniciar · finalizada (A→Z).
     map.forEach((list) => list.sort((a, b) => {
-      const rank = (x: any) => (x.parada ? 0 : x.enCurso ? 1 : 2);
+      const rank = (x: any) => (x.enCurso ? 0 : x.parada ? 1 : x.pendiente ? 2 : 3);
       return rank(a) - rank(b) || cmpText(a.code, b.code);
     }));
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
-  }, [machJornadas, paradaList, machJorQuery]);
+  }, [machJornadas, paradaList, assigns, assignByMachine, machJorQuery]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
@@ -1012,8 +1045,8 @@ export default function SupervisionScreen({ navigation }: any) {
 
       {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
       {secHead('machjor', '🟢 Jornadas de máquina (inspector)')}
-      {secClosed.has('machjor') ? null : (machJornadas.length === 0 && paradaList.length === 0) ? (
-        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso, finalizadas y paradas). Las de usuarios admin no se muestran." />
+      {secClosed.has('machjor') ? null : (machJornadas.length === 0 && paradaList.length === 0 && assigns.length === 0) ? (
+        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso, finalizadas, paradas y pendientes por iniciar). Las de usuarios admin no se muestran." />
       ) : (
         <>
           {/* Búsqueda libre: inspector, máquina o empresa. */}
@@ -1037,6 +1070,7 @@ export default function SupervisionScreen({ navigation }: any) {
             const collapsed = machJorQuery.trim() ? false : !machJorExpanded.has(name);
             const enCursoN = list.filter((j) => j.enCurso).length;
             const paradaN = list.filter((j) => (j as any).parada).length;
+            const pendN = list.filter((j) => (j as any).pendiente).length;
             return (
               <Card key={name}>
                 <TouchableOpacity onPress={() => toggleMachJorCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
@@ -1044,6 +1078,7 @@ export default function SupervisionScreen({ navigation }: any) {
                   <Text style={{ fontSize: 12, fontWeight: '800' }}>
                     <Text style={{ color: colors.text }}>{list.length} máq</Text>
                     {paradaN > 0 ? <Text style={{ color: colors.warning }}> · 🟡 {paradaN} parada{paradaN > 1 ? 's' : ''}</Text> : null}
+                    {pendN > 0 ? <Text style={{ color: '#D9A200' }}> · ⏳ {pendN} por iniciar</Text> : null}
                     {enCursoN > 0 ? <Text style={{ color: colors.success }}> · {enCursoN} en curso</Text> : null}
                   </Text>
                 </TouchableOpacity>
@@ -1065,10 +1100,13 @@ export default function SupervisionScreen({ navigation }: any) {
                       {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
                       {(j as any).parada ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🟡 PARADA{(j as any).paradaMotivo ? ` · ${(j as any).paradaMotivo}` : ''}</Text> : null}
+                      {(j as any).pendiente ? <Text style={{ color: '#D9A200', fontSize: 11, fontWeight: '800' }}>⏳ PENDIENTE POR INICIAR JORNADA</Text> : null}
                       <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👁️ Ver detalle ›</Text>
                     </View>
                     {(j as any).parada ? (
                       <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 12 }}>🟡 PARADA</Text>
+                    ) : (j as any).pendiente ? (
+                      <Text style={{ color: '#D9A200', fontWeight: '900', fontSize: 12 }}>⏳ Por iniciar</Text>
                     ) : j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
