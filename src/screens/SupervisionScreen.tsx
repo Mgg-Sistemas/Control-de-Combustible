@@ -111,6 +111,11 @@ export default function SupervisionScreen({ navigation }: any) {
   // IDs de usuarios ADMIN: sus visitas (pruebas) NO cuentan como inspección.
   const [adminIds, setAdminIds] = useState<Set<string>>(new Set());
   const [nameById, setNameById] = useState<Record<string, string>>({});
+  // Máquinas PARADA (averiadas) del día: se leen de maintenance_requests (MÁQUINA
+  // PARADA) — así aparecen AUNQUE no tengan jornada iniciada, y traen su MOTIVO
+  // (por qué está parada) + quién la reportó. El nombre se resuelve en un useMemo.
+  type ParadaRaw = { id: string; machinery_id: string; code: string; serial: string | null; plate: string | null; companyName: string; motivo: string; by: string | null; at: string; status: string };
+  const [paradaRaw, setParadaRaw] = useState<ParadaRaw[]>([]);
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from('profiles').select('id, full_name, role');
@@ -297,7 +302,7 @@ export default function SupervisionScreen({ navigation }: any) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [vs, { data: rs }, { data: js }, { data: yl }] = await Promise.all([
+    const [vs, { data: rs }, { data: js }, { data: yl }, { data: mr }] = await Promise.all([
       listVisits(date),
       supabase
         .from('machine_rounds')
@@ -314,8 +319,28 @@ export default function SupervisionScreen({ navigation }: any) {
         .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: true }),
+      // Máquinas PARADA reportadas ese día (con su MOTIVO y quién la marcó).
+      supabase
+        .from('maintenance_requests')
+        .select('id, machinery_id, notes, status, requested_by, created_at, machine:machinery_id(code, serial, plate, company:company_id(name))')
+        .eq('material', 'MÁQUINA PARADA')
+        .gte('created_at', `${date}T00:00:00-04:00`)
+        .lte('created_at', `${date}T23:59:59.999-04:00`)
+        .order('created_at', { ascending: false }),
     ]);
     setVisits(vs);
+    setParadaRaw(((mr ?? []) as any[]).map((r) => ({
+      id: r.id as string,
+      machinery_id: r.machinery_id as string,
+      code: r.machine?.code ?? '—',
+      serial: (r.machine?.serial ?? null) as string | null,
+      plate: (r.machine?.plate ?? null) as string | null,
+      companyName: r.machine?.company?.name ?? 'Sin empresa',
+      motivo: String(r.notes ?? '').trim(),
+      by: (r.requested_by ?? null) as string | null,
+      at: r.created_at as string,
+      status: String(r.status ?? 'pendiente'),
+    })));
     setYardLogs(((yl ?? []) as any[]).map((r) => ({
       machinery_id: r.machinery_id as string,
       code: r.machine_code ?? '—',
@@ -382,7 +407,7 @@ export default function SupervisionScreen({ navigation }: any) {
 
   // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
   // jornada, la supervisión del día se actualiza sola.
-  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs'], () => { load(); });
+  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs', 'maintenance_requests'], () => { load(); });
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
@@ -488,7 +513,14 @@ export default function SupervisionScreen({ navigation }: any) {
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.machineCode || '', b.machineCode || ''));
   }, [cleanVisits]);
-  const maquinasAveriadas = averiadaList.length;
+  // Paradas del día (una por máquina, la más reciente) con motivo + inspector.
+  // Fuente: maintenance_requests (así salen aunque no tengan jornada iniciada).
+  const paradaList = useMemo(() => {
+    const map = new Map<string, ParadaRaw & { byName: string }>();
+    paradaRaw.forEach((p) => { if (!map.has(p.machinery_id)) map.set(p.machinery_id, { ...p, byName: p.by ? (nameById[p.by] || '—') : '—' }); });
+    return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
+  }, [paradaRaw, nameById]);
+  const maquinasAveriadas = paradaList.length;
   // Resumen por TURNO (día/noche): iniciadas, terminadas y pendientes por finalizar.
   const dayJorn = useMemo(() => machJornadas.filter((j) => j.shift === 'day'), [machJornadas]);
   const nightJorn = useMemo(() => machJornadas.filter((j) => j.shift === 'night'), [machJornadas]);
@@ -1123,8 +1155,8 @@ export default function SupervisionScreen({ navigation }: any) {
               const jSource = kpiShift ? jSourceBase.filter((j) => j.shift === kpiShift) : jSourceBase;
               const jList = jSource.filter((j) =>
                 !q || `${j.code} ${j.companyName} ${j.inspector} ${j.serial ?? ''} ${j.plate ?? ''} ${j.encargado ?? ''}`.toLowerCase().includes(q));
-              const aList = averiadaList.filter((v) =>
-                !q || `${v.machineCode ?? ''} ${v.companyName ?? ''} ${v.supervisor_name ?? ''} ${v.note ?? ''}`.toLowerCase().includes(q));
+              const aList = paradaList.filter((p) =>
+                !q || `${p.code} ${p.companyName} ${p.byName} ${p.motivo} ${p.serial ?? ''} ${p.plate ?? ''}`.toLowerCase().includes(q));
               const total = kpiModal === 'averiadas' ? aList.length : jList.length;
               return (
                 <>
@@ -1143,12 +1175,13 @@ export default function SupervisionScreen({ navigation }: any) {
                     {total === 0 ? (
                       <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>Sin resultados.</Text>
                     ) : kpiModal === 'averiadas' ? (
-                      aList.map((v) => (
-                        <TouchableOpacity key={v.id} onPress={() => { setKpiModal(null); openMachine(v); }} activeOpacity={0.6} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🟡 {v.machineCode} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {v.companyName}</Text></Text>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {v.supervisor_name || '—'} · 🕒 {caracasClock(v.visited_at)}</Text>
-                          {v.note ? <Text style={{ color: colors.muted, fontSize: 12, fontStyle: 'italic' }}>“{v.note}”</Text> : null}
-                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>🔧 Ver en Mantenimiento ›</Text>
+                      aList.map((p) => (
+                        <TouchableOpacity key={p.id} onPress={() => { setKpiModal(null); navigation?.navigate?.('MantenimientoMaquinaria', { q: String(p.serial || p.code || '') }); }} activeOpacity={0.6} style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🟡 {p.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {p.companyName}</Text></Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {p.serial || '—'} / {p.plate || '—'}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {p.byName} · 🕒 {caracasClock(p.at)}{p.status !== 'pendiente' ? ' · ✅ resuelta' : ''}</Text>
+                          <Text style={{ color: '#B45309', fontSize: 13, fontWeight: '700' }}>🔧 Motivo: {p.motivo || '—'}</Text>
+                          <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Ver en Mantenimiento ›</Text>
                         </TouchableOpacity>
                       ))
                     ) : (
