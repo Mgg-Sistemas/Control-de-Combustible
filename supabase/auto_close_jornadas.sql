@@ -1,18 +1,17 @@
--- ⚠️ DESACTIVADO el 2026-08-02: este auto-cierre cerraba jornadas antes de tiempo
---    y los inspectores perdían horas (a las 12 h del día y 24 h del corrido). Se
---    revirtió quitando el job del cron — ver supabase/auto_close_disable.sql. El
---    cierre de jornadas es ahora MANUAL. NO volver a programar este cron sin antes
---    corregir la lógica (no truncar corridos, no pisar horas ya guardadas).
 -- ============================================================================
--- AUTO-CIERRE de jornadas de inspección (hora Caracas, UTC-4):
---   • Jornada de DÍA cierra a las 7:00pm.
+-- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — VERSIÓN CORREGIDA (2026-08-02):
+--   • Jornada de DÍA  cierra a las 7:00pm.
 --   • Jornada de NOCHE cierra a las 7:00am (del día siguiente).
 -- Excepto VOLTEO / TORONTO / VOLQUETAS (usan el flujo de patio de camiones).
--- Corre CADA HORA con pg_cron y cierra cualquier jornada abierta cuyo fin de turno
--- ya pasó: suma las horas trabajadas (inicio → fin del turno) al turno y limpia
--- jornada_start_at. Idempotente. Correr una vez en Supabase.
+-- Corre CADA 10 MIN con pg_cron.
 --
--- NOTA: pg_cron debe estar habilitado (Supabase → Database → Extensions → pg_cron).
+-- FIX vs la versión anterior (que "perdía horas"): ahora SOLO cierra la jornada si
+-- su INICIO es ANTERIOR al fin del turno (`jornada_start_at < end_ts`). Antes, una
+-- jornada iniciada fuera de su ventana daba horas = max(0, negativo) = 0 y se
+-- cerraba EN BLANCO (perdiendo el segmento). Las horas ya guardadas nunca se pisan
+-- (siempre se SUMA con coalesce). Idempotente. Correr una vez en Supabase.
+--
+-- NOTA: pg_cron debe estar habilitado (Database → Extensions → pg_cron).
 -- ============================================================================
 create extension if not exists pg_cron;
 
@@ -33,9 +32,10 @@ begin
     else
       end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
-    -- Solo cerrar si el fin del turno YA pasó.
-    if now() >= end_ts then
-      hrs := round(greatest(0, extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
+    -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
+    -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
+    if now() >= end_ts and r.jornada_start_at < end_ts then
+      hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
       if r.jornada_shift = 'night' then
         update public.machine_rounds
           set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
@@ -49,7 +49,6 @@ begin
   end loop;
 end $$;
 
--- Programa (o reprograma) el auto-cierre para que corra CADA 10 MINUTOS, así el
--- cierre de las 7pm (día) / 7am (noche) ocurre casi de inmediato (máx. ~10 min).
+-- Programa (o reprograma) el auto-cierre para que corra cada 10 minutos.
 do $$ begin perform cron.unschedule('auto-close-jornadas'); exception when others then null; end $$;
 select cron.schedule('auto-close-jornadas', '*/10 * * * *', $$select public.auto_close_jornadas();$$);
