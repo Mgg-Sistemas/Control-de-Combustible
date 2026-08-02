@@ -332,15 +332,14 @@ export default function SupervisionScreen({ navigation }: any) {
         .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: true }),
-      // Máquinas PARADA del DÍA (pendientes marcadas ESE día): es "por día", no se
-      // arrastran las de días anteriores. El teléfono usa el MISMO filtro por día,
-      // así ambos muestran lo mismo para todos los inspectores. Con MOTIVO y marcador.
+      // Máquinas PARADA VIGENTES: TODAS las pendientes hasta ese día (SIN piso de
+      // fecha) — se ARRASTRAN de un día a otro hasta que el inspector las reactive.
+      // Mismo criterio que el teléfono. Con su MOTIVO y quién la marcó.
       supabase
         .from('maintenance_requests')
         .select('id, machinery_id, notes, status, requested_by, created_at, machine:machinery_id(code, serial, plate, company:company_id(name))')
         .eq('material', 'MÁQUINA PARADA')
         .eq('status', 'pendiente')
-        .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: false }),
     ]);
@@ -478,9 +477,10 @@ export default function SupervisionScreen({ navigation }: any) {
     const buildRow = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
       const rd = roundByMachine.get(machinery_id);
       const par = paradaByMachine.get(machinery_id);
-      // La parada cuenta SOLO para el turno en que se marcó: una parada de DÍA no le
-      // sale como parada al inspector de NOCHE (para él la máquina está "por iniciar").
-      const parada = !!par && (shiftCtx == null || par.shift === shiftCtx);
+      // La PARADA se muestra para el inspector (día Y noche) hasta que la REACTIVE
+      // (volver a operativa / iniciar jornada). Se arrastra de un día a otro; no se
+      // filtra por turno. El "en curso", en cambio, sí es por turno (más abajo).
+      const parada = !!par;
       // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
       const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
@@ -514,11 +514,15 @@ export default function SupervisionScreen({ navigation }: any) {
       if (!byKey.has(k)) byKey.set(k, buildRow(insp, machinery_id, base, shiftCtx));
     };
 
-    // 1) Columna vertebral: TODAS las máquinas ASIGNADAS, con el TURNO del inspector.
-    assigns.forEach((a) => put(a.inspector_name || '—', a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
-    // 2) Máquinas con jornada iniciada por un inspector real, aunque no le estén
-    //    asignadas (escaneo suelto / reasignación) — bajo quien la inició, en su turno.
+    // 1) PRIMERO las jornadas REALES iniciadas por un inspector, con el TURNO de la
+    //    jornada (no el de la asignación). Así lo que el inspector inició de verdad
+    //    manda sobre el estado derivado de la asignación (si no, una jornada de NOCHE
+    //    recién iniciada no se reflejaba porque la asignación la pisaba). Bajo quien
+    //    la inició, aunque la máquina no le esté asignada (escaneo suelto/reasignación).
     machJornadas.forEach((j) => put(j.inspector || '—', j.machinery_id, j, (j.shift as 'day' | 'night' | null) ?? null));
+    // 2) Columna vertebral: TODAS las máquinas ASIGNADAS (las que aún no tienen una
+    //    jornada del inspector se agregan con el TURNO de la asignación).
+    assigns.forEach((a) => put(a.inspector_name || '—', a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
     // 3) Paradas vigentes SIN asignación NI jornada de inspector → bajo quien la marcó.
     const assignedIds = new Set(assigns.map((a) => a.machinery_id));
     const jornInspIds = new Set(machJornadas.map((j) => j.machinery_id));
