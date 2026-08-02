@@ -1,3 +1,8 @@
+-- ⚠️ DESACTIVADO el 2026-08-02: este auto-cierre cerraba jornadas antes de tiempo
+--    y los inspectores perdían horas (a las 12 h del día y 24 h del corrido). Se
+--    revirtió quitando el job del cron — ver supabase/auto_close_disable.sql. El
+--    cierre de jornadas es ahora MANUAL. NO volver a programar este cron sin antes
+--    corregir la lógica (no truncar corridos, no pisar horas ya guardadas).
 -- ============================================================================
 -- AUTO-CIERRE de jornadas de inspección (hora Caracas, UTC-4):
 --   • Jornada de DÍA cierra a las 7:00pm.
