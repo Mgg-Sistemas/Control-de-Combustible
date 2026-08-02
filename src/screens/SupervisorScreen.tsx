@@ -389,10 +389,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const s = assignMap[ci.id] || {};
     return [s.day ? `☀️ ${s.day.name}` : null, s.night ? `🌙 ${s.night.name}` : null].filter(Boolean).join('  ·  ');
   }, [ci, assignMap]);
-  // Fuerza el turno declarado al turno ASIGNADO del inspector (no puede elegir el otro).
+  // Turno GLOBAL del inspector (según TODAS sus asignaciones): un inspector de DÍA
+  // solo tiene 'day'; uno de NOCHE solo 'night'. Sirve para impedir que inicie el
+  // turno que no le toca AUNQUE la máquina no esté asignada a él (REMBERTO, día, no
+  // puede iniciar jornadas de noche).
+  const myGlobalShifts = useMemo<Set<Shift>>(() => {
+    const set = new Set<Shift>();
+    Object.values(assignMap).forEach((s: any) => {
+      if (s?.day?.id === uid) set.add('day');
+      if (s?.night?.id === uid) set.add('night');
+    });
+    return set;
+  }, [assignMap, uid]);
+  const puedeCualquierTurno = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+  // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
+  // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
+  const fixedShift = useMemo<Shift | null>(() => {
+    if (myShift) return myShift;
+    if (!puedeCualquierTurno && myGlobalShifts.size === 1) return Array.from(myGlobalShifts)[0];
+    return null;
+  }, [myShift, myGlobalShifts, puedeCualquierTurno]);
+  // Fuerza el turno declarado al turno del inspector (no puede elegir el otro).
   useEffect(() => {
-    if (myShift) { setIniShift(myShift); setIniTime(myShift === 'night' ? '19:00' : '07:00'); }
-  }, [myShift, ci?.id]);
+    if (fixedShift) { setIniShift(fixedShift); setIniTime(fixedShift === 'night' ? '19:00' : '07:00'); }
+  }, [fixedShift, ci?.id]);
 
   // ✅ CHECK MÁQUINA por TURNO (SOLO ADMIN): asigna (o quita) al INSPECTOR ELEGIDO
   // como inspector de DÍA o de NOCHE de la máquina. Cada máquina → 2 inspectores.
@@ -568,9 +588,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const deOtro = (!!slots.day?.id && slots.day.id !== uid) || (!!slots.night?.id && slots.night.id !== uid);
       if (!mia && deOtro) { setNotice('❌ Esta máquina está asignada a OTRO inspector. No puedes iniciar su jornada.'); return; }
     }
-    // Regla de turnos: el inspector solo inicia SU turno asignado, y una sola vez
-    // por turno por día (tras finalizar, recién puede volver a marcar mañana).
-    if (myShift && iniShift !== myShift) { setNotice(`❌ Solo puedes iniciar jornada de ${shiftFromKey(myShift).label} (es tu turno asignado en esta máquina).`); return; }
+    // Regla de turnos: un inspector solo inicia jornadas de SU turno (día o noche).
+    // Vale aunque la máquina NO esté asignada a él: su turno sale de sus asignaciones
+    // globales. Un inspector de día NO puede iniciar jornadas de noche (ni al revés).
+    if (!puedeCualquiera) {
+      const allowed = myShift ? new Set<Shift>([myShift]) : myGlobalShifts;
+      if (allowed.size > 0 && !allowed.has(iniShift)) {
+        const lbl = Array.from(allowed).map((s) => shiftFromKey(s).label).join(' / ');
+        setNotice(`❌ Solo puedes iniciar jornada de ${lbl}. Un inspector de día no puede iniciar jornadas de noche (ni al revés).`);
+        return;
+      }
+    }
     if (shiftClosed && !jornadaStart) { setNotice(`❌ La jornada de ${shiftFromKey(myShift as any).label} de hoy ya cerró. Podrás iniciar otra mañana.`); return; }
     const hi = Number((horoIni || '').replace(',', '.'));
     if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
@@ -1328,10 +1356,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   {/* Turno de la jornada. Si el inspector tiene turno ASIGNADO (día/noche),
                       se FIJA a su turno (no puede elegir el otro); si no está asignado, elige. */}
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Turno de la jornada</Text>
-                  {myShift ? (
+                  {fixedShift ? (
                     <View style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{myShift === 'night' ? '🌙 Noche' : '☀️ Día'} · tu turno asignado</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Solo puedes iniciar jornada de tu turno.</Text>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fixedShift === 'night' ? '🌙 Noche' : '☀️ Día'} · tu turno</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Solo puedes iniciar jornada de tu turno (un inspector de día no inicia jornadas de noche).</Text>
                     </View>
                   ) : (
                     <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
