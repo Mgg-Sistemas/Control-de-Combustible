@@ -137,32 +137,12 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
   const finalizadas: MRow[] = [];
   finalizadasMap.forEach((v, mid) => { if (!startedIds.has(mid)) finalizadas.push(v); });
 
-  // ── Sección 2: pendientes por iniciar (asignadas y sin jornada hoy) ──────────
-  type Asg = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; inspectors: { shift: string; name: string }[] };
-  const assignedByMachine = new Map<string, Asg>();
-  assignments.forEach((a) => {
-    const cur = assignedByMachine.get(a.machinery_id) ?? {
-      code: a.code,
-      plate: a.plate,
-      serial: a.serial,
-      lugar: lugarOf(a.latitude, a.longitude, a.referencia),
-      edificio: edificioOf(a.referencia),
-      inspectors: [],
-    };
-    cur.inspectors.push({ shift: a.shift, name: a.inspector_name });
-    assignedByMachine.set(a.machinery_id, cur);
-  });
-  const pendientes: MRow[] = [];
-  assignedByMachine.forEach((v, mid) => {
-    if (startedIds.has(mid) || finalizedIds.has(mid)) return; // ya iniciada o finalizada hoy
-    const insp = v.inspectors.map((i) => `${i.shift === 'night' ? '🌙' : '☀️'} ${i.name}`).join(' · ');
-    pendientes.push({ code: v.code, plate: v.plate, serial: v.serial, lugar: v.lugar, edificio: v.edificio, inspector: insp || '—', hora: '—' });
-  });
-
-  // ── Sección 3: averiadas (avería pendiente del día o visita 'parada') ────────
+  // ── Sección 3: averiadas (avería pendiente VIGENTE hasta ese día, o visita 'parada') ──
+  // Se calcula ANTES que las pendientes para excluir de "pendientes por iniciar"
+  // las máquinas que en realidad están AVERIADAS (si no, saldrían en ambas).
   const averiadasMap = new Map<string, ARow>();
   ((maint ?? []) as any[]).forEach((m) => {
-    if (caracasDate(m.created_at) !== date) return; // solo averías reportadas ese día
+    if (caracasDate(m.created_at) > date) return; // no contar averías reportadas DESPUÉS del día
     const mm = m.machine || {};
     const lat = mm.latitude != null ? Number(mm.latitude) : null;
     const lng = mm.longitude != null ? Number(mm.longitude) : null;
@@ -191,6 +171,30 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
     });
   });
   const averiadas = [...averiadasMap.values()];
+
+  // ── Sección 2: pendientes por iniciar (asignadas y sin jornada NI avería hoy) ─
+  type Asg = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; inspectors: { shift: string; name: string }[] };
+  const assignedByMachine = new Map<string, Asg>();
+  assignments.forEach((a) => {
+    const cur = assignedByMachine.get(a.machinery_id) ?? {
+      code: a.code,
+      plate: a.plate,
+      serial: a.serial,
+      lugar: lugarOf(a.latitude, a.longitude, a.referencia),
+      edificio: edificioOf(a.referencia),
+      inspectors: [],
+    };
+    cur.inspectors.push({ shift: a.shift, name: a.inspector_name });
+    assignedByMachine.set(a.machinery_id, cur);
+  });
+  const pendientes: MRow[] = [];
+  assignedByMachine.forEach((v, mid) => {
+    // Excluye iniciadas/finalizadas hoy Y las AVERIADAS (parada vigente): esas van
+    // en su propia sección, no como "pendiente por iniciar".
+    if (startedIds.has(mid) || finalizedIds.has(mid) || averiadasMap.has(mid)) return;
+    const insp = v.inspectors.map((i) => `${i.shift === 'night' ? '🌙' : '☀️'} ${i.name}`).join(' · ');
+    pendientes.push({ code: v.code, plate: v.plate, serial: v.serial, lugar: v.lugar, edificio: v.edificio, inspector: insp || '—', hora: '—' });
+  });
 
   // ── HTML ────────────────────────────────────────────────────────────────────
   const tableBasic = (list: MRow[]): string => {
