@@ -261,6 +261,12 @@ export default function SupervisionScreen({ navigation }: any) {
     setRepLoading(false);
   };
   const repInspectors = useMemo(() => Array.from(new Set(repVisits.map((v) => v.supervisor_name || '—'))).sort(cmpText), [repVisits]);
+  // Lista de inspectores para elegir ANTES de generar: los asignados (siempre
+  // disponibles) + los que aparezcan tras generar (unión), A→Z, sin "—".
+  const repPickInspectors = useMemo(
+    () => Array.from(new Set([...asgInspectors, ...repInspectors])).filter((n) => n && n !== '—').sort(cmpText),
+    [asgInspectors, repInspectors]
+  );
   const repRows = useMemo(() => repVisits.filter((v) => repSel.size === 0 || repSel.has(v.supervisor_name || '—')), [repVisits, repSel]);
   const repByInspector = useMemo(() => {
     const map = new Map<string, VisitRow[]>();
@@ -417,13 +423,28 @@ export default function SupervisionScreen({ navigation }: any) {
     setDate(d.toISOString().slice(0, 10));
   };
 
+  // Paradas del día (una por máquina, la más reciente) con motivo + inspector.
+  // Fuente: maintenance_requests (así salen aunque no tengan jornada). Se define
+  // ANTES de machJornadas para poder marcar el estado (parada/no) de cada máquina.
+  const paradaList = useMemo(() => {
+    const map = new Map<string, ParadaRaw & { byName: string }>();
+    paradaRaw.forEach((p) => { if (!map.has(p.machinery_id)) map.set(p.machinery_id, { ...p, byName: p.by ? (nameById[p.by] || '—') : '—' }); });
+    return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
+  }, [paradaRaw, nameById]);
+  // Máquinas PARADA PENDIENTES por id → motivo + quién la marcó (para el estado).
+  const paradaByMachine = useMemo(() => {
+    const m = new Map<string, { motivo: string; byName: string }>();
+    paradaList.forEach((p) => { if (p.status === 'pendiente') m.set(p.machinery_id, { motivo: p.motivo, byName: p.byName }); });
+    return m;
+  }, [paradaList]);
+
   // Jornadas de MÁQUINA del día (iniciadas por el inspector): oculta las de admin y
   // resuelve el nombre del inspector por recorded_by. En curso primero, luego finalizadas.
   const machJornadas = useMemo(() => rawRounds
     .filter((r) => !(r.recordedBy && adminIds.has(r.recordedBy)))
-    .map((r) => ({ ...r, inspector: r.recordedBy ? (nameById[r.recordedBy] || '—') : '—', enCurso: !!r.startAt }))
+    .map((r) => ({ ...r, inspector: r.recordedBy ? (nameById[r.recordedBy] || '—') : '—', enCurso: !!r.startAt, parada: paradaByMachine.has(r.machinery_id), paradaMotivo: paradaByMachine.get(r.machinery_id)?.motivo ?? '' }))
     .sort((a, b) => (a.enCurso === b.enCurso ? cmpText(a.code, b.code) : a.enCurso ? -1 : 1)),
-    [rawRounds, adminIds, nameById]);
+    [rawRounds, adminIds, nameById, paradaByMachine]);
 
   // ── Jornadas de máquina: búsqueda + agrupación por inspector + colapsable ──
   const [machJorQuery, setMachJorQuery] = useState('');                        // búsqueda libre
@@ -431,17 +452,35 @@ export default function SupervisionScreen({ navigation }: any) {
   const toggleMachJorCollapsed = (name: string) => setMachJorExpanded((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const machJornadasByInspector = useMemo(() => {
     const q = machJorQuery.trim().toLowerCase();
+    // Jornadas del día + máquinas PARADAS sin jornada (para que salgan TODAS).
+    const jItems = machJornadas.map((j) => ({ ...j, kind: 'jornada' as const }));
+    const jIds = new Set(machJornadas.map((j) => j.machinery_id));
+    const pItems = paradaList
+      .filter((p) => p.status === 'pendiente' && !jIds.has(p.machinery_id))
+      .map((p) => ({
+        machinery_id: p.machinery_id, code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate,
+        encargado: null as string | null, startAt: null as string | null, shift: null as 'day' | 'night' | null, worked: 0,
+        horoIni: null as number | null, horoFin: null as number | null, recordedBy: null as string | null,
+        lat: null as number | null, lng: null as number | null, sector: null as string | null, referencia: null as string | null,
+        inspector: p.byName || '—', enCurso: false, parada: true, paradaMotivo: p.motivo, kind: 'parada' as const,
+      }));
+    const all = [...jItems, ...pItems];
     const filtered = q
-      ? machJornadas.filter((j) => `${j.inspector} ${j.code} ${j.companyName} ${j.serial ?? ''} ${j.plate ?? ''} ${j.encargado ?? ''}`.toLowerCase().includes(q))
-      : machJornadas;
+      ? all.filter((x) => `${x.inspector} ${x.code} ${x.companyName} ${x.serial ?? ''} ${x.plate ?? ''} ${x.encargado ?? ''}`.toLowerCase().includes(q))
+      : all;
     const map = new Map<string, typeof filtered>();
-    filtered.forEach((j) => {
-      const k = j.inspector || '—';
+    filtered.forEach((x) => {
+      const k = x.inspector || '—';
       if (!map.has(k)) map.set(k, [] as any);
-      map.get(k)!.push(j);
+      map.get(k)!.push(x);
     });
+    // Dentro de cada inspector: PARADA primero, luego en curso, luego finalizadas (A→Z).
+    map.forEach((list) => list.sort((a, b) => {
+      const rank = (x: any) => (x.parada ? 0 : x.enCurso ? 1 : 2);
+      return rank(a) - rank(b) || cmpText(a.code, b.code);
+    }));
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
-  }, [machJornadas, machJorQuery]);
+  }, [machJornadas, paradaList, machJorQuery]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
@@ -513,13 +552,6 @@ export default function SupervisionScreen({ navigation }: any) {
     });
     return Array.from(map.values()).sort((a, b) => cmpText(a.machineCode || '', b.machineCode || ''));
   }, [cleanVisits]);
-  // Paradas del día (una por máquina, la más reciente) con motivo + inspector.
-  // Fuente: maintenance_requests (así salen aunque no tengan jornada iniciada).
-  const paradaList = useMemo(() => {
-    const map = new Map<string, ParadaRaw & { byName: string }>();
-    paradaRaw.forEach((p) => { if (!map.has(p.machinery_id)) map.set(p.machinery_id, { ...p, byName: p.by ? (nameById[p.by] || '—') : '—' }); });
-    return Array.from(map.values()).sort((a, b) => cmpText(a.code, b.code));
-  }, [paradaRaw, nameById]);
   const maquinasAveriadas = paradaList.length;
   // Resumen por TURNO (día/noche): iniciadas, terminadas y pendientes por finalizar.
   const dayJorn = useMemo(() => machJornadas.filter((j) => j.shift === 'day'), [machJornadas]);
@@ -879,7 +911,26 @@ export default function SupervisionScreen({ navigation }: any) {
               <DateField value={repTo} onChange={setRepTo} maxISO={caracasToday()} />
             </>
           ) : null}
-          <TouchableOpacity onPress={generarReporte} disabled={repLoading} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: repLoading ? 0.6 : 1 }}>
+          {/* Inspectores a incluir: se eligen ANTES de generar (vacío = todos). */}
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Inspectores (marca uno o varios · vacío = todos)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {repPickInspectors.map((name) => {
+              const on = repSel.has(name);
+              return (
+                <TouchableOpacity key={name} onPress={() => toggleRepInspector(name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                  <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {repSel.size > 0 ? (
+              <TouchableOpacity onPress={() => setRepSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <TouchableOpacity onPress={generarReporte} disabled={repLoading} style={{ marginTop: spacing.xs, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: repLoading ? 0.6 : 1 }}>
             <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{repLoading ? 'Buscando…' : '🔎 Generar'}</Text>
           </TouchableOpacity>
 
@@ -888,26 +939,7 @@ export default function SupervisionScreen({ navigation }: any) {
               <View style={{ marginTop: spacing.md }}><EmptyState title="Sin inspecciones" subtitle="No hay registros para ese día o rango." /></View>
             ) : (
               <>
-                {/* Filtro por inspector (check para seleccionar varios o uno; vacío = todos). */}
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>Inspectores (marca uno o varios · vacío = todos)</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
-                  {repInspectors.map((name) => {
-                    const on = repSel.has(name);
-                    return (
-                      <TouchableOpacity key={name} onPress={() => toggleRepInspector(name)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary + '18' : colors.surface, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
-                        <Text style={{ fontSize: 13 }}>{on ? '☑️' : '⬜'}</Text>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{name}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                  {repSel.size > 0 ? (
-                    <TouchableOpacity onPress={() => setRepSel(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <TouchableOpacity onPress={reportePorInspector} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <TouchableOpacity onPress={reportePorInspector} style={{ marginTop: spacing.md, marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                   <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Descargar PDF ({repRows.length})</Text>
                 </TouchableOpacity>
 
@@ -980,8 +1012,8 @@ export default function SupervisionScreen({ navigation }: any) {
 
       {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
       {secHead('machjor', '🟢 Jornadas de máquina (inspector)')}
-      {secClosed.has('machjor') ? null : machJornadas.length === 0 ? (
-        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso y finalizadas). Las de usuarios admin no se muestran." />
+      {secClosed.has('machjor') ? null : (machJornadas.length === 0 && paradaList.length === 0) ? (
+        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso, finalizadas y paradas). Las de usuarios admin no se muestran." />
       ) : (
         <>
           {/* Búsqueda libre: inspector, máquina o empresa. */}
@@ -1004,11 +1036,16 @@ export default function SupervisionScreen({ navigation }: any) {
           ) : machJornadasByInspector.map(([name, list]) => {
             const collapsed = machJorQuery.trim() ? false : !machJorExpanded.has(name);
             const enCursoN = list.filter((j) => j.enCurso).length;
+            const paradaN = list.filter((j) => (j as any).parada).length;
             return (
               <Card key={name}>
                 <TouchableOpacity onPress={() => toggleMachJorCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👮 {name}</Text>
-                  <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>{list.length} jorn.{enCursoN > 0 ? ` · ${enCursoN} en curso` : ''}</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '800' }}>
+                    <Text style={{ color: colors.text }}>{list.length} máq</Text>
+                    {paradaN > 0 ? <Text style={{ color: colors.warning }}> · 🟡 {paradaN} parada{paradaN > 1 ? 's' : ''}</Text> : null}
+                    {enCursoN > 0 ? <Text style={{ color: colors.success }}> · {enCursoN} en curso</Text> : null}
+                  </Text>
                 </TouchableOpacity>
                 {collapsed ? null : list.map((j) => {
                   const late = lateMap[j.machinery_id] || 0;               // minutos de desfase (si hubo)
@@ -1027,9 +1064,12 @@ export default function SupervisionScreen({ navigation }: any) {
                       {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
                       {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
+                      {(j as any).parada ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🟡 PARADA{(j as any).paradaMotivo ? ` · ${(j as any).paradaMotivo}` : ''}</Text> : null}
                       <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👁️ Ver detalle ›</Text>
                     </View>
-                    {j.enCurso ? (
+                    {(j as any).parada ? (
+                      <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 12 }}>🟡 PARADA</Text>
+                    ) : j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
                         {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
