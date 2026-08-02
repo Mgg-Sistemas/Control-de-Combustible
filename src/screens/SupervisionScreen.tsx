@@ -1302,6 +1302,11 @@ export default function SupervisionScreen({ navigation }: any) {
                             style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
                             <Text style={{ color: colors.muted, fontSize: 12 }}>👮 {j.inspector}{j.shift ? ` · ${j.shift === 'night' ? '🌙 noche' : '☀️ día'}` : ''}</Text>
+                            {(() => {
+                              const a = assignByMachine.get(j.machinery_id);
+                              const asg = (j.shift === 'night' ? a?.night?.name : j.shift === 'day' ? a?.day?.name : null) || a?.day?.name || a?.night?.name || null;
+                              return <Text style={{ color: asg ? colors.primary : colors.warning, fontSize: 12, fontWeight: '700' }}>🎯 Inspector asignado: {asg || 'SIN ASIGNAR'}</Text>;
+                            })()}
                             <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
                             <Text style={{ color: colors.muted, fontSize: 11 }}>⏲️ Horómetro: {j.horoIni ?? '—'} → {j.horoFin ?? '—'}</Text>
                             {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado)</Text> : null}
