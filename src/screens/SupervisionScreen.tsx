@@ -391,6 +391,8 @@ export default function SupervisionScreen({ navigation }: any) {
         startAt: (r.jornada_start_at ?? null) as string | null,
         shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
         worked: workedOf(r),
+        dayH: Number(r.day_hours) || 0,
+        nightH: Number(r.night_hours) || 0,
         horoIni: (r.horometro_inicial ?? null) as number | null,
         horoFin: (r.horometro_final ?? null) as number | null,
         recordedBy: (r.recorded_by ?? null) as string | null,
@@ -462,12 +464,18 @@ export default function SupervisionScreen({ navigation }: any) {
     const roundByMachine = new Map<string, any>();
     rawRounds.forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
 
-    const buildRow = (inspector: string, machinery_id: string, base: any) => {
+    // El ESTADO se resuelve según el TURNO del inspector (shiftCtx): un inspector de
+    // NOCHE no está "en curso" porque otro tenga abierta la jornada de DÍA en su
+    // máquina — para él está "por iniciar" hasta que arranque su turno de noche.
+    const buildRow = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
       const rd = roundByMachine.get(machinery_id);
       const par = paradaByMachine.get(machinery_id);
       const parada = !!par;
-      const enCurso = !parada && !!rd?.startAt;
-      const finalizada = !parada && !enCurso && (rd?.worked ?? 0) > 0;
+      // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
+      const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
+      const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
+      const enCurso = !parada && openForShift;
+      const finalizada = !parada && !enCurso && hoursForShift > 0;
       const pendiente = !parada && !enCurso && !finalizada;
       return {
         machinery_id,
@@ -476,9 +484,9 @@ export default function SupervisionScreen({ navigation }: any) {
         serial: rd?.serial ?? base?.serial ?? null,
         plate: rd?.plate ?? base?.plate ?? null,
         encargado: rd?.encargado ?? base?.encargado ?? null,
-        startAt: rd?.startAt ?? null,
-        shift: rd?.shift ?? base?.shift ?? null,
-        worked: rd?.worked ?? 0,
+        startAt: enCurso ? (rd?.startAt ?? null) : null,
+        shift: shiftCtx ?? rd?.shift ?? base?.shift ?? null,
+        worked: hoursForShift,
         horoIni: rd?.horoIni ?? null,
         horoFin: rd?.horoFin ?? null,
         recordedBy: rd?.recordedBy ?? null,
@@ -490,24 +498,24 @@ export default function SupervisionScreen({ navigation }: any) {
     };
 
     const byKey = new Map<string, any>();
-    const put = (inspector: string, machinery_id: string, base: any) => {
+    const put = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
       const insp = inspector || '—';
       const k = `${insp}|${machinery_id}`;
-      if (!byKey.has(k)) byKey.set(k, buildRow(insp, machinery_id, base));
+      if (!byKey.has(k)) byKey.set(k, buildRow(insp, machinery_id, base, shiftCtx));
     };
 
-    // 1) Columna vertebral: TODAS las máquinas ASIGNADAS (día y noche).
-    assigns.forEach((a) => put(a.inspector_name || '—', a.machinery_id, a));
+    // 1) Columna vertebral: TODAS las máquinas ASIGNADAS, con el TURNO del inspector.
+    assigns.forEach((a) => put(a.inspector_name || '—', a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
     // 2) Máquinas con jornada iniciada por un inspector real, aunque no le estén
-    //    asignadas (escaneo suelto / reasignación) — se muestran bajo quien la inició.
-    machJornadas.forEach((j) => put(j.inspector || '—', j.machinery_id, j));
+    //    asignadas (escaneo suelto / reasignación) — bajo quien la inició, en su turno.
+    machJornadas.forEach((j) => put(j.inspector || '—', j.machinery_id, j, (j.shift as 'day' | 'night' | null) ?? null));
     // 3) Paradas vigentes SIN asignación NI jornada de inspector → bajo quien la marcó.
     const assignedIds = new Set(assigns.map((a) => a.machinery_id));
     const jornInspIds = new Set(machJornadas.map((j) => j.machinery_id));
     paradaList.forEach((p) => {
       if (p.status !== 'pendiente') return;
       if (assignedIds.has(p.machinery_id) || jornInspIds.has(p.machinery_id)) return;
-      put(p.byName || '—', p.machinery_id, { code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate });
+      put(p.byName || '—', p.machinery_id, { code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate }, null);
     });
 
     const all = Array.from(byKey.values());

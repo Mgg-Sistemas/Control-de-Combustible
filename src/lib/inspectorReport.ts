@@ -147,7 +147,11 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const dayH = Number(rd?.day_hours) || 0;
     const nightH = Number(rd?.night_hours) || 0;
     const parada = paradaMotivo.has(id);
-    const estado: EstadoKey = parada ? 'parada' : rd?.jornada_start_at ? 'encurso' : (dayH + nightH) > 0 ? 'finalizada' : 'pendiente';
+    // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
+    // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
+    const hoursForShift = turno === 'night' ? nightH : dayH;
+    const openForShift = !!rd?.jornada_start_at && rd?.jornada_shift === turno;
+    const estado: EstadoKey = parada ? 'parada' : openForShift ? 'encurso' : hoursForShift > 0 ? 'finalizada' : 'pendiente';
     iMap.set(id, {
       id,
       code: base.code,
