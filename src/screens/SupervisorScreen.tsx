@@ -130,6 +130,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   //   round del día (jornada abierta / horas) + máquinas con avería PARADA pendiente.
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
   const [paradaIds, setParadaIds] = useState<Set<string>>(new Set());
+  const [paradaMotivos, setParadaMotivos] = useState<Record<string, string>>({}); // por qué está parada (por máquina)
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -281,7 +282,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const reloadEstados = async () => {
     const [{ data: rs }, { data: par }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
-      supabase.from('maintenance_requests').select('machinery_id').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
@@ -289,6 +290,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     setRoundsById(rmap);
     setParadaIds(new Set(((par ?? []) as any[]).map((p) => p.machinery_id as string)));
+    // Motivo (por qué está parada) por máquina: el más reciente (viene ordenado desc).
+    const mot: Record<string, string> = {};
+    ((par ?? []) as any[]).forEach((p) => { const id = p.machinery_id as string; if (!(id in mot)) mot[id] = String(p.notes ?? '').trim(); });
+    setParadaMotivos(mot);
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente) · 🔴 jornada finalizada (tuvo horas y ya cerró). Si nada, null.
@@ -843,7 +848,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         {/* Referencia / edificio de la máquina */}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>📍 {edif || 'Sin edificio/referencia'}{((m as any).plate || (m as any).serial) ? ` · 🔖 ${(m as any).plate || (m as any).serial}` : ''}</Text>
         {/* Estado de la jornada (con su color) */}
-        {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}</Text> : null}
+        {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivos[m.id] ? ` · ${paradaMotivos[m.id]}` : ''}</Text> : null}
         {/* Inspectores asignados (día / noche) */}
         {(() => {
           const s = assignMap[m.id] || {};
@@ -1343,6 +1348,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {ci && paradaIds.has(ci.id) ? (
                 <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                   <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
+                  {paradaMotivos[ci.id] ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivos[ci.id]}</Text> : null}
                   <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟢 Volver a OPERATIVA'}</Text>
                   </TouchableOpacity>

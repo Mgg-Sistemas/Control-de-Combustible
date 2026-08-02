@@ -23,8 +23,10 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   // !important para ganarle a las clases atómicas de react-native-web.
   style.textContent =
     `* { font-family: ${FONT_FAMILY} !important; text-transform: uppercase !important; }` +
-    // Los campos de escritura muestran EXACTO lo que se teclea (contraseñas, etc.).
-    ` input, textarea { text-transform: none !important; }` +
+    // Al ESCRIBIR también se ve en MAYÚSCULA (input/textarea), como pidió el cliente.
+    ` input, textarea { text-transform: uppercase !important; }` +
+    // EXCEPCIÓN: las CONTRASEÑAS nunca se transforman (deben respetar mayús/minús).
+    ` input[type="password"] { text-transform: none !important; }` +
     ` input::placeholder, textarea::placeholder { text-transform: uppercase; }`;
   document.head.appendChild(style);
 } else {
