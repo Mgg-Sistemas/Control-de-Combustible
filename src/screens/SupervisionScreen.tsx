@@ -507,38 +507,45 @@ export default function SupervisionScreen({ navigation }: any) {
       };
     };
 
+    // Se agrupa por INSPECTOR ASIGNADO (por ID, igual que el teléfono), NO por quien
+    // registró la jornada o marcó la parada. Así una jornada que un inspector inició
+    // en la máquina de OTRO cuelga del DUEÑO (asignado), no de quien la inició → el
+    // teléfono y la PC muestran las mismas máquinas por inspector.
+    const idName = new Map<string, string>();
+    assigns.forEach((a) => { if (a.inspector_id) idName.set(a.inspector_id, a.inspector_name || '—'); });
+    machJornadas.forEach((j) => { if (j.recordedBy && !idName.has(j.recordedBy)) idName.set(j.recordedBy, j.inspector || '—'); });
+    paradaList.forEach((p) => { if (p.by && !idName.has(p.by)) idName.set(p.by, p.byName || '—'); });
+
     const byKey = new Map<string, any>();
-    const put = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
-      const insp = inspector || '—';
-      const k = `${insp}|${machinery_id}`;
-      if (!byKey.has(k)) byKey.set(k, buildRow(insp, machinery_id, base, shiftCtx));
+    const put = (inspId: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
+      const k = `${inspId}|${machinery_id}`;
+      if (byKey.has(k)) return;
+      const row = buildRow(idName.get(inspId) || '—', machinery_id, base, shiftCtx);
+      (row as any).inspectorId = inspId;
+      byKey.set(k, row);
     };
 
-    // 1) PRIMERO las jornadas REALES iniciadas por un inspector, con el TURNO de la
-    //    jornada (no el de la asignación). Así lo que el inspector inició de verdad
-    //    manda sobre el estado derivado de la asignación (si no, una jornada de NOCHE
-    //    recién iniciada no se reflejaba porque la asignación la pisaba). Bajo quien
-    //    la inició, aunque la máquina no le esté asignada (escaneo suelto/reasignación).
-    machJornadas.forEach((j) => put(j.inspector || '—', j.machinery_id, j, (j.shift as 'day' | 'night' | null) ?? null));
-    // 2) Columna vertebral: TODAS las máquinas ASIGNADAS (las que aún no tienen una
-    //    jornada del inspector se agregan con el TURNO de la asignación).
-    assigns.forEach((a) => put(a.inspector_name || '—', a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
-    // 3) Paradas vigentes SIN asignación NI jornada de inspector → bajo quien la marcó.
     const assignedIds = new Set(assigns.map((a) => a.machinery_id));
-    const jornInspIds = new Set(machJornadas.map((j) => j.machinery_id));
+    const jornIds = new Set(machJornadas.map((j) => j.machinery_id));
+    // 1) Columna vertebral: TODAS las máquinas ASIGNADAS, por inspector (ID) y turno.
+    assigns.forEach((a) => { if (a.inspector_id) put(a.inspector_id, a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'); });
+    // 2) Jornadas de máquinas SIN asignación (escaneo suelto) → bajo quien la inició.
+    machJornadas.forEach((j) => { if (j.recordedBy && !assignedIds.has(j.machinery_id)) put(j.recordedBy, j.machinery_id, j, (j.shift as 'day' | 'night' | null) ?? null); });
+    // 3) Paradas vigentes SIN asignación NI jornada → bajo quien la marcó.
     paradaList.forEach((p) => {
-      if (p.status !== 'pendiente') return;
-      if (assignedIds.has(p.machinery_id) || jornInspIds.has(p.machinery_id)) return;
-      put(p.byName || '—', p.machinery_id, { code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate }, null);
+      if (p.status !== 'pendiente' || !p.by) return;
+      if (assignedIds.has(p.machinery_id) || jornIds.has(p.machinery_id)) return;
+      put(p.by, p.machinery_id, { code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate }, null);
     });
 
     const all = Array.from(byKey.values());
     const filtered = q
       ? all.filter((x) => `${x.inspector} ${x.code} ${x.companyName} ${x.serial ?? ''} ${x.plate ?? ''} ${x.encargado ?? ''}`.toLowerCase().includes(q))
       : all;
+    // Agrupa por inspectorId; el rótulo es el nombre. (dedup por ID evita el "fantasma".)
     const map = new Map<string, any[]>();
     filtered.forEach((x) => {
-      const k = x.inspector || '—';
+      const k = x.inspectorId || '—';
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(x);
     });
@@ -547,7 +554,9 @@ export default function SupervisionScreen({ navigation }: any) {
       const rank = (x: any) => (x.enCurso ? 0 : x.parada ? 1 : x.pendiente ? 2 : 3);
       return rank(a) - rank(b) || cmpText(a.code, b.code);
     }));
-    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+    return Array.from(map.values())
+      .map((list) => [list[0]?.inspector || '—', list] as [string, any[]])
+      .sort((a, b) => cmpText(a[0], b[0]));
   }, [assigns, machJornadas, rawRounds, paradaList, paradaByMachine, machJorQuery]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
