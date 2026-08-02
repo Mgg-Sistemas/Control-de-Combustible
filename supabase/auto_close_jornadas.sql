@@ -44,6 +44,7 @@ begin
   end loop;
 end $$;
 
--- Programa (o reprograma) el auto-cierre para que corra cada hora al minuto :05.
+-- Programa (o reprograma) el auto-cierre para que corra CADA 10 MINUTOS, así el
+-- cierre de las 7pm (día) / 7am (noche) ocurre casi de inmediato (máx. ~10 min).
 do $$ begin perform cron.unschedule('auto-close-jornadas'); exception when others then null; end $$;
-select cron.schedule('auto-close-jornadas', '5 * * * *', $$select public.auto_close_jornadas();$$);
+select cron.schedule('auto-close-jornadas', '*/10 * * * *', $$select public.auto_close_jornadas();$$);
