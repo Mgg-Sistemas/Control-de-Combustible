@@ -363,6 +363,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
     return h >= 7 && h < 19;                              // noche cierra a las 7:00am (cerrada hasta las 7:00pm)
   }, [myShift, nowTick]);
+  // ── REGLA DE CIERRE POR HORA ────────────────────────────────────────────────
+  // La jornada de DÍA solo se puede FINALIZAR a partir de las 7:00pm; la de NOCHE
+  // a partir de las 7:00am (hora Caracas). Antes de esa hora el botón se bloquea
+  // (a esa hora, además, se cierra SOLA por el auto-cierre del servidor). Se basa
+  // en el turno de la jornada ABIERTA (jornadaShift). nowTick la reevalúa cada 30s.
+  const canFinalize = useMemo(() => {
+    const h = caracasParts(new Date()).hour;
+    return jornadaShift === 'night' ? (h >= 7 && h < 19) : (h >= 19);
+  }, [jornadaShift, nowTick]);
   // Fuerza el turno declarado al turno ASIGNADO del inspector (no puede elegir el otro).
   useEffect(() => {
     if (myShift) { setIniShift(myShift); setIniTime(myShift === 'night' ? '19:00' : '07:00'); }
@@ -591,6 +600,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
+    // Regla: DÍA solo finaliza desde las 7:00pm; NOCHE solo desde las 7:00am (Caracas).
+    if (!canFinalize) {
+      setNotice(jornadaShift === 'night'
+        ? '❌ La jornada de NOCHE solo se puede finalizar a partir de las 7:00am (hora Caracas). A esa hora se cierra sola.'
+        : '❌ La jornada de DÍA solo se puede finalizar a partir de las 7:00pm (hora Caracas). A esa hora se cierra sola.');
+      setFinConfirm(false);
+      return;
+    }
     // El horómetro final es OPCIONAL y NUNCA debe impedir finalizar la jornada: las
     // horas se cuentan por TIEMPO (inicio → fin), no por horómetro. Si lo ponen y es
     // un número válido (≥0) se guarda; si lo dejan vacío, igual se finaliza. Antes un
@@ -1265,6 +1282,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                           <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
                         </TouchableOpacity>
                       </View>
+                    </View>
+                  ) : !canFinalize ? (
+                    // Aún no es la hora de cierre: la jornada de DÍA finaliza a las 7:00pm y
+                    // la de NOCHE a las 7:00am (Caracas). Antes no se puede finalizar; se
+                    // cerrará sola a esa hora (auto-cierre del servidor).
+                    <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#D9A200', borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: '#8A5A00', fontWeight: '800', fontSize: 12, textAlign: 'center' }}>
+                        ⏳ La jornada de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} se finaliza a las {jornadaShift === 'night' ? '7:00am' : '7:00pm'} (hora Caracas).
+                      </Text>
+                      <Text style={{ color: '#8A5A00', fontSize: 11, textAlign: 'center', marginTop: 2 }}>No se puede finalizar antes; se cerrará sola a esa hora.</Text>
                     </View>
                   ) : (
                     <TouchableOpacity onPress={() => setFinConfirm(true)} disabled={jornadaBusy} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
