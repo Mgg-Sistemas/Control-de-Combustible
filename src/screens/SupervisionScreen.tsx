@@ -27,6 +27,13 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+/** Hora (0-23) en Caracas de un instante ISO. Para saber si una parada se marcó
+ *  en el turno de DÍA (7–19) o de NOCHE (resto). */
+function caracasHourOf(iso: string): number {
+  try { return parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: CARACAS_TZ, hour: '2-digit', hour12: false }).format(new Date(iso)), 10) || 0; } catch { return 0; }
+}
+/** Turno (day/night) al que pertenece una parada según la hora Caracas en que se marcó. */
+const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasHourOf(iso); return h >= 7 && h < 19 ? 'day' : 'night'; };
 /** Suma día+noche (0/6/12) del round como horas trabajadas. */
 const workedOf = (r: any) => (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
 /** Retraso legible a partir de minutos: "45 min", "1 h", "1 h 30 min". */
@@ -438,8 +445,8 @@ export default function SupervisionScreen({ navigation }: any) {
   }, [paradaRaw, nameById]);
   // Máquinas PARADA PENDIENTES por id → motivo + quién la marcó (para el estado).
   const paradaByMachine = useMemo(() => {
-    const m = new Map<string, { motivo: string; byName: string }>();
-    paradaList.forEach((p) => { if (p.status === 'pendiente') m.set(p.machinery_id, { motivo: p.motivo, byName: p.byName }); });
+    const m = new Map<string, { motivo: string; byName: string; shift: 'day' | 'night' }>();
+    paradaList.forEach((p) => { if (p.status === 'pendiente') m.set(p.machinery_id, { motivo: p.motivo, byName: p.byName, shift: paradaShiftOf(p.at) }); });
     return m;
   }, [paradaList]);
 
@@ -471,7 +478,9 @@ export default function SupervisionScreen({ navigation }: any) {
     const buildRow = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
       const rd = roundByMachine.get(machinery_id);
       const par = paradaByMachine.get(machinery_id);
-      const parada = !!par;
+      // La parada cuenta SOLO para el turno en que se marcó: una parada de DÍA no le
+      // sale como parada al inspector de NOCHE (para él la máquina está "por iniciar").
+      const parada = !!par && (shiftCtx == null || par.shift === shiftCtx);
       // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
       const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
@@ -1066,7 +1075,7 @@ export default function SupervisionScreen({ navigation }: any) {
       )}
 
       {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
-      {secHead('machjor', '🟢 Jornadas de máquina (inspector)')}
+      {secHead('machjor', `🟢 Jornadas de máquina (inspector) · 📅 ${dmy(date)}`)}
       {secClosed.has('machjor') ? null : (machJornadas.length === 0 && paradaList.length === 0 && assigns.length === 0) ? (
         <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso, finalizadas, paradas y pendientes por iniciar). Las de usuarios admin no se muestran." />
       ) : (

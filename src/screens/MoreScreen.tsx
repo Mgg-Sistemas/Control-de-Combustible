@@ -20,6 +20,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Mantenimiento de Maquinaria', route: 'MantenimientoMaquinaria', desc: 'Averías por máquina, enviar a reparación (salida, tiempo, cambios) y retorno operativo', icon: '🛠️', module: 'mantenimiento' },
   { label: 'Operadores', route: 'Operadores', desc: 'Operadores por semana, con la máquina asignada y su empresa (reporte PDF)', icon: '👷', module: 'operadores' },
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado) y jornadas sin validar', icon: '🪖', module: 'supervision' },
+  { label: 'Histórico por inspector', route: 'HistoricoJornadas', desc: 'Jornadas FINALIZADAS por inspector (rango de fechas), con detalle de máquina, turno, horas y horómetro; PDF', icon: '📚', module: 'supervision' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
