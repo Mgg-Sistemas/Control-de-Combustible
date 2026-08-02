@@ -282,7 +282,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const reloadEstados = async () => {
     const [{ data: rs }, { data: par }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
-      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
+      // Paradas del DÍA (mismo criterio que la PC): solo las marcadas HOY, así el
+      // teléfono y el módulo (PC) muestran EXACTAMENTE lo mismo para cada inspector.
+      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').gte('created_at', `${today}T00:00:00-04:00`).lte('created_at', `${today}T23:59:59.999-04:00`).order('created_at', { ascending: false }),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {

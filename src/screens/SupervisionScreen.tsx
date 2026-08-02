@@ -325,14 +325,15 @@ export default function SupervisionScreen({ navigation }: any) {
         .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: true }),
-      // Máquinas PARADA VIGENTES (pendientes) hasta ese día — SIN piso de fecha,
-      // para que una parada arrastrada de días anteriores siga contando, igual que
-      // en el teléfono (allí no se filtra por fecha). Con su MOTIVO y quién la marcó.
+      // Máquinas PARADA del DÍA (pendientes marcadas ESE día): es "por día", no se
+      // arrastran las de días anteriores. El teléfono usa el MISMO filtro por día,
+      // así ambos muestran lo mismo para todos los inspectores. Con MOTIVO y marcador.
       supabase
         .from('maintenance_requests')
         .select('id, machinery_id, notes, status, requested_by, created_at, machine:machinery_id(code, serial, plate, company:company_id(name))')
         .eq('material', 'MÁQUINA PARADA')
         .eq('status', 'pendiente')
+        .gte('created_at', `${date}T00:00:00-04:00`)
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: false }),
     ]);
