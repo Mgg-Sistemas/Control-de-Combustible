@@ -78,7 +78,7 @@ const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'
  */
 export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
-  const { session, signOut, role, canSee } = useAuth();
+  const { session, signOut, role, canSee, appRole } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
   const consumedRef = useRef(false);
@@ -377,6 +377,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const h = caracasParts(new Date()).hour;
     return jornadaShift === 'night' ? (h >= 7 && h < 19) : (h >= 19);
   }, [jornadaShift, nowTick]);
+  // ¿Esta máquina está asignada a OTRO inspector (no a mí)? Entonces no puedo
+  // iniciarle jornada. Excepción: admin y coordinador (pueden con cualquiera).
+  const maquinaDeOtro = useMemo(() => {
+    if (!ci) return false;
+    if (isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
+    const s = assignMap[ci.id] || {};
+    const mia = s.day?.id === uid || s.night?.id === uid;
+    const deOtro = (!!s.day?.id && s.day.id !== uid) || (!!s.night?.id && s.night.id !== uid);
+    return !mia && deOtro;
+  }, [ci, assignMap, uid, isAdmin, role, appRole]);
+  // Nombre del/los inspector(es) dueños (para el aviso).
+  const duenoTxt = useMemo(() => {
+    if (!ci) return '';
+    const s = assignMap[ci.id] || {};
+    return [s.day ? `☀️ ${s.day.name}` : null, s.night ? `🌙 ${s.night.name}` : null].filter(Boolean).join('  ·  ');
+  }, [ci, assignMap]);
   // Fuerza el turno declarado al turno ASIGNADO del inspector (no puede elegir el otro).
   useEffect(() => {
     if (myShift) { setIniShift(myShift); setIniTime(myShift === 'night' ? '19:00' : '07:00'); }
@@ -547,6 +563,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // como "trabajando" en Inspecciones. El botón pasa a "Finalizar jornada".
   const iniciarJornada = async () => {
     if (!ci || jornadaBusy) return;
+    // Regla: NO puedes iniciar la jornada de una máquina asignada a OTRO inspector.
+    // Excepción: admin y coordinador (pueden iniciar cualquier máquina).
+    const puedeCualquiera = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    if (!puedeCualquiera) {
+      const slots = assignMap[ci.id] || {};
+      const mia = slots.day?.id === uid || slots.night?.id === uid;
+      const deOtro = (!!slots.day?.id && slots.day.id !== uid) || (!!slots.night?.id && slots.night.id !== uid);
+      if (!mia && deOtro) { setNotice('❌ Esta máquina está asignada a OTRO inspector. No puedes iniciar su jornada.'); return; }
+    }
     // Regla de turnos: el inspector solo inicia SU turno asignado, y una sola vez
     // por turno por día (tras finalizar, recién puede volver a marcar mañana).
     if (myShift && iniShift !== myShift) { setNotice(`❌ Solo puedes iniciar jornada de ${shiftFromKey(myShift).label} (es tu turno asignado en esta máquina).`); return; }
@@ -1250,7 +1275,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
               {/* ── Jornada de la máquina: INICIAR → FINALIZAR (cuenta las horas) ── */}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Jornada de la máquina</Text>
-              {jornadaStart ? (
+              {maquinaDeOtro ? (
+                <View style={{ backgroundColor: '#FDECEC', borderWidth: 1, borderColor: '#D22B2B', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: '#8A1C1C', fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
+                  <Text style={{ color: '#8A1C1C', fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
+                </View>
+              ) : jornadaStart ? (
                 <View style={{ marginBottom: spacing.sm }}>
                   <View style={{ backgroundColor: '#E8F5EC', borderWidth: 1, borderColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
                     <Text style={{ color: '#0F5C2E', fontWeight: '800', fontSize: 12 }}>
