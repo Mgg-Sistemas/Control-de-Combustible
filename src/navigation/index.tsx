@@ -26,6 +26,7 @@ import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
 import FuelDriverScreen from '../screens/FuelDriverScreen';
 import SupervisionScreen from '../screens/SupervisionScreen';
+import HistoricoJornadasScreen from '../screens/HistoricoJornadasScreen';
 import CocinaScreen from '../screens/CocinaScreen';
 import ComidaScreen from '../screens/ComidaScreen';
 import FoodCompanyScreen from '../screens/FoodCompanyScreen';
@@ -161,6 +162,7 @@ function MoreStack() {
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
+      <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
           Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
           mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
