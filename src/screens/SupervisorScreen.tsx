@@ -282,9 +282,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const reloadEstados = async () => {
     const [{ data: rs }, { data: par }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
-      // Paradas del DÍA (mismo criterio que la PC): solo las marcadas HOY, así el
-      // teléfono y el módulo (PC) muestran EXACTAMENTE lo mismo para cada inspector.
-      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').gte('created_at', `${today}T00:00:00-04:00`).lte('created_at', `${today}T23:59:59.999-04:00`).order('created_at', { ascending: false }),
+      // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
+      // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
+      // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
+      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
@@ -298,13 +299,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setParadaMotivos(mot);
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
-  // (avería pendiente) · 🔴 jornada finalizada (tuvo horas y ya cerró). Si nada, null.
+  // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
+  // vuelve a estado NORMAL (sin marca): la pantalla queda "en 0", solo quedan las
+  // paradas pendientes por inspector para reactivar al día siguiente.
   const estadoDe = (id: string): { color: string; icon: string; label: string } | null => {
     const r = roundsById[id];
     if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
     if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
-    if (r && r.worked > 0) return { color: '#D22B2B', icon: '🔴', label: 'Jornada finalizada' };
-    return null;
+    return null; // finalizada → NORMAL (no se marca)
   };
 
   // Arma el mapa de asignaciones (quién es DÍA y NOCHE por máquina) y "mis
