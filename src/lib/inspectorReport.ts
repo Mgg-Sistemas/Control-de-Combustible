@@ -36,6 +36,17 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 // Mismo criterio que la app: la parada pertenece al TURNO en que se marcó.
 const caracasHour = (iso: string): number => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h; };
 const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasHour(iso); return h >= 7 && h < 19 ? 'day' : 'night'; };
+const CARACAS_TZ = 'America/Caracas';
+// Fecha+hora (Caracas) legible de un check-in, para la tabla de cambio de ubicación.
+const dmyHm = (iso: string): string => {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    const fecha = d.toLocaleDateString('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit' });
+    const hora = d.toLocaleTimeString('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true });
+    return `${fecha} ${hora}`;
+  } catch { return '—'; }
+};
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'encurso' | 'parada' | 'finalizada' | 'pendiente';
@@ -47,6 +58,12 @@ const ESTADO_META: Record<EstadoKey, { txt: string; color: string }> = {
   pendiente: { txt: '⏳ Por iniciar', color: '#6B7280' },
 };
 type LocInfo = { key: string; label: string; at: string; lat: number | null; lng: number | null };
+type InspectorData = {
+  data: Map<Turno, Map<string, Map<string, Mach>>>;
+  machineLocs: (id: string) => LocInfo[];
+  machCoords: (m: Mach) => { lat: number | null; lng: number | null };
+  coordTxt: (lat: number | null, lng: number | null) => string;
+};
 
 /** Etiqueta legible + clave para deduplicar una ubicación (GPS del check-in + edificio/referencia). */
 function locLabel(lat: number | null, lng: number | null, ref: string | null): { key: string; label: string } {
@@ -66,17 +83,16 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
 }
 
 /**
- * Genera y exporta el PDF del reporte de inspectores para un día y un turno.
- * @param date  día ISO "AAAA-MM-DD"
- * @param shift 'day' | 'night' | 'both'
+ * Reúne y agrega los datos del reporte de inspectores (turno → inspector → máquina)
+ * para un día, SIN filtrar por turno ni por inspector — eso lo hace quien consuma el
+ * resultado (el PDF o el selector de inspectores de la pantalla). Es la única fuente
+ * de verdad: así el selector de checkboxes de la pantalla siempre muestra EXACTAMENTE
+ * los inspectores que después saldrán en el PDF.
+ * @param date día ISO "AAAA-MM-DD"
  * @param companies (opcional) filtra por nombre de empresa (vacío/null = todas)
- * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateInspectorReport(opts: { date: string; shift: InspectorShift; companies?: string[] | null }): Promise<boolean> {
-  const { date, shift } = opts;
-  const cos = opts.companies && opts.companies.length ? opts.companies : null;
-  const wantDay = shift === 'day' || shift === 'both';
-  const wantNight = shift === 'night' || shift === 'both';
+async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
+  const cos = companies && companies.length ? companies : null;
 
   // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
   const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
@@ -147,8 +163,6 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
   const putMach = (turno: Turno, insp: string, id: string, base: { code: string; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
-    if (turno === 'day' && !wantDay) return;
-    if (turno === 'night' && !wantNight) return;
     if (cos && !cos.includes(base.company)) return;
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
     data.set(turno, tMap);
@@ -215,6 +229,38 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     });
   });
 
+  return { data, machineLocs, machCoords, coordTxt };
+}
+
+/**
+ * Nombres de inspectores disponibles para un día, separados por turno (día/noche),
+ * calculados con la MISMA agregación que el PDF (`computeInspectorData`). Sirve para
+ * poblar el selector dinámico de checkboxes de la pantalla de Reportes: al elegir el
+ * turno, se listan solo los inspectores que realmente tienen algo que reportar ese día.
+ * @param date día ISO "AAAA-MM-DD"
+ * @param companies (opcional) filtra por nombre de empresa (vacío/null = todas)
+ */
+export async function listInspectorNames(date: string, companies?: string[] | null): Promise<{ day: string[]; night: string[] }> {
+  const { data } = await computeInspectorData(date, companies);
+  const day = [...(data.get('day')?.keys() ?? [])].sort(cmpText);
+  const night = [...(data.get('night')?.keys() ?? [])].sort(cmpText);
+  return { day, night };
+}
+
+/**
+ * Genera y exporta el PDF del reporte de inspectores para un día y un turno.
+ * @param date  día ISO "AAAA-MM-DD"
+ * @param shift 'day' | 'night' | 'both'
+ * @param companies (opcional) filtra por nombre de empresa (vacío/null = todas)
+ * @param inspectors (opcional) nombres de inspectores marcados en la pantalla
+ *   (vacío/null = todos los del turno, igual que "companies")
+ * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
+ */
+export async function generateInspectorReport(opts: { date: string; shift: InspectorShift; companies?: string[] | null; inspectors?: string[] | null }): Promise<boolean> {
+  const { date, shift } = opts;
+  const inspFilter = opts.inspectors && opts.inspectors.length ? new Set(opts.inspectors) : null;
+  const { data, machineLocs, machCoords, coordTxt } = await computeInspectorData(date, opts.companies);
+
   // ── HTML ──────────────────────────────────────────────────────────────────
   const turnoMeta: Record<Turno, { icon: string; label: string }> = {
     day: { icon: '☀️', label: 'Jornada de día' },
@@ -244,12 +290,22 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const secTable = `<div class="sub">📍 Desglose por sector</div><table class="ir"><thead><tr><th>Sector</th><th class="r">Equipos</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${secRows}</tbody></table>`;
 
     // Ubicaciones múltiples: solo máquinas que cambiaron de sitio en la jornada.
+    // Una fila por CADA transición consecutiva (origen → destino), con sector,
+    // referencia y coordenadas de cada punto (ya incluidos en `label`) y la
+    // fecha/hora (Caracas) en que se registró la ubicación nueva.
     const moved = list.filter((m) => machineLocs(m.id).length > 1);
-    const locHtml = moved.length
-      ? `<div class="sub">🗺️ Máquinas que cambiaron de ubicación (todas sus ubicaciones)</div><ul class="locs">${moved.map((m) => {
-          const locs = machineLocs(m.id);
-          return `<li><b>${esc(m.code)}</b>: ${locs.map((l, i) => `<span class="loc">${i + 1}. ${esc(l.label)}</span>`).join(' <span class="arr">→</span> ')}</li>`;
-        }).join('')}</ul>`
+    const locRows = moved.flatMap((m) => {
+      const locs = machineLocs(m.id);
+      const trs: string[] = [];
+      for (let i = 0; i < locs.length - 1; i++) {
+        const prev = locs[i];
+        const next = locs[i + 1];
+        trs.push(`<tr><td><b>${esc(m.code)}</b></td><td>${esc(prev.label)}</td><td>${esc(next.label)}</td><td class="coord">${esc(dmyHm(next.at))}</td></tr>`);
+      }
+      return trs;
+    });
+    const locHtml = locRows.length
+      ? `<div class="sub">🗺️ Máquinas que cambiaron de ubicación</div><table class="ir loc-table"><thead><tr><th>Máquina / Equipo</th><th>Ubicación anterior</th><th>Ubicación nueva</th><th>Hora / Fecha</th></tr></thead><tbody>${locRows.join('')}</tbody></table>`
       : '';
 
     // Firma del inspector de ESTA sección (nombre completo + línea + rótulo).
@@ -277,12 +333,19 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       // Solo se muestra el encabezado vacío cuando el usuario pidió ese turno explícito o "ambos".
       return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">Sin jornadas de inspección en este turno.</p>`;
     }
-    const inspNames = [...tMap.keys()].sort(cmpText);
+    const inspNames = [...tMap.keys()].filter((n) => !inspFilter || inspFilter.has(n)).sort(cmpText);
+    if (!inspNames.length) {
+      return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">Sin inspectores seleccionados en este turno.</p>`;
+    }
     return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${inspNames.length} inspector(es)</span></h2>${inspNames.map((n) => renderInspector(n, tMap.get(n)!)).join('')}`;
   };
 
   const turnos: Turno[] = shift === 'day' ? ['day'] : shift === 'night' ? ['night'] : ['day', 'night'];
-  const hasAny = turnos.some((t) => (data.get(t)?.size ?? 0) > 0);
+  const hasAny = turnos.some((t) => {
+    const tMap = data.get(t);
+    if (!tMap || !tMap.size) return false;
+    return [...tMap.keys()].some((n) => !inspFilter || inspFilter.has(n));
+  });
 
   // Nota: la firma va al pie de la sección de CADA inspector (ver renderInspector),
   // por lo que en "Ambos" cada turno/inspector queda con su propia línea de firma.
@@ -307,10 +370,10 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     table.ir td.coord{white-space:nowrap;font-size:10.5px;color:#374151}
     table.ir tfoot td{background:#EEF2F7;font-weight:800}
     .moved{color:#B45309;font-size:10px;font-weight:700}
-    ul.locs{margin:4px 0 10px;padding-left:18px;font-size:11.5px;color:#374151}
-    ul.locs li{margin:3px 0}
-    ul.locs .loc{white-space:nowrap}
-    ul.locs .arr{color:#B45309;font-weight:700}
+    table.loc-table{font-size:11px}
+    table.loc-table th{background:#B45309}
+    table.loc-table td{page-break-inside:avoid}
+    table.loc-table tr{page-break-inside:avoid;page-break-after:auto}
     .none{color:#6B7280;font-size:12px}
     .firma-insp{width:260px;margin:34px 0 8px;page-break-inside:avoid}
     .firma-insp .line{border-top:1px solid #333;margin-bottom:4px}

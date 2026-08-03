@@ -14,6 +14,7 @@ import { CompanyPayment, PaymentDetail, Payroll, PriceTariff } from '../types/da
 import { matchTariffModelo } from '../lib/tariffs';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { caracasParts } from '../lib/jornada';
 
 // ── Utilidades de fecha (semana lunes→domingo, rangos de 7 días) ──────────────
 function toISO(d: Date): string {
@@ -47,7 +48,8 @@ function periodEndISO(start: string): string {
   return start === FLEET_HOURS_START ? FLEET_HOURS_CUTOFF : addDaysISO(start, 6);
 }
 function todayISO(): string {
-  return toISO(new Date());
+  // Fecha de HOY según la hora de Caracas (no la zona horaria del dispositivo).
+  return caracasParts(new Date()).iso;
 }
 /** Días entre dos fechas ISO (b − a). Mismo día = 0. */
 function daysBetween(aISO: string, bISO: string): number {
@@ -649,7 +651,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [groups, payments]);
 
-  const isMonday = new Date().getDay() === 1;
+  const isMonday = new Date(`${caracasParts(new Date()).iso}T12:00:00`).getDay() === 1;
   const canAlert = role === 'admin' || role === 'supervisor';
   const showMondayAlert = isMonday && canAlert && outstandingByCompany.length > 0;
 

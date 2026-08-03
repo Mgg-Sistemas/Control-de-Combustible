@@ -25,7 +25,7 @@ import { cmpText, norm } from '../lib/text';
 import { normalizeDept } from '../lib/personal';
 import { sectorOf, SUBSECTORS, sectorLabel } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
-import { generateInspectorReport, InspectorShift } from '../lib/inspectorReport';
+import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -426,6 +426,12 @@ export default function ReportsScreen({ route }: any) {
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
+  // Inspectores disponibles para el día/turno/empresas actuales (se recalcula dinámicamente,
+  // con la MISMA agregación que usa el PDF, para que la lista siempre calce con lo que sale).
+  const [inspAvailable, setInspAvailable] = useState<string[]>([]);
+  // Inspectores marcados para el reporte (vacío = todos, igual convención que repCompanies).
+  const [inspSelected, setInspSelected] = useState<string[]>([]);
+  const [inspLoadingList, setInspLoadingList] = useState(false);
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
@@ -479,6 +485,24 @@ export default function ReportsScreen({ route }: any) {
   const [fleetTypes, setFleetTypes] = useState<string[]>([]); // tipos marcados (vacío = todos)
   // Empresas marcadas para filtrar CUALQUIER reporte (vacío = todas / general).
   const [repCompanies, setRepCompanies] = useState<string[]>([]);
+  // Lista dinámica de inspectores del reporte de INSPECTORES: se recalcula cada vez que
+  // cambia el día, el turno o las empresas marcadas, con la MISMA agregación que el PDF
+  // (`listInspectorNames`), para que el selector siempre calce con lo que saldría impreso.
+  useEffect(() => {
+    if (mode !== 'inspectores') return;
+    let cancelled = false;
+    setInspLoadingList(true);
+    listInspectorNames(from, repCompanies)
+      .then(({ day, night }) => {
+        if (cancelled) return;
+        const names =
+          inspShift === 'day' ? day : inspShift === 'night' ? night : Array.from(new Set([...day, ...night])).sort(cmpText);
+        setInspAvailable(names);
+        setInspSelected([]); // al cambiar día/turno/empresa, vuelve a "todos" por seguridad
+      })
+      .finally(() => { if (!cancelled) setInspLoadingList(false); });
+    return () => { cancelled = true; };
+  }, [mode, from, inspShift, repCompanies]);
   // Estado de la flota (para el bloque final del informe por jornada).
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
@@ -2122,6 +2146,50 @@ export default function ReportsScreen({ route }: any) {
                 );
               })}
             </View>
+
+            {/* Inspectores del turno elegido (checks, dinámico según día/turno/empresa) */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Inspectores (marca uno o varios)</Text>
+              {inspSelected.length > 0 ? (
+                <TouchableOpacity onPress={() => setInspSelected([])}>
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {inspLoadingList ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Buscando inspectores…</Text>
+            ) : inspAvailable.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
+                Sin jornadas de inspección para esta fecha/turno/empresa.
+              </Text>
+            ) : (
+              <View style={{ marginTop: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setInspSelected([])}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+                >
+                  <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: inspSelected.length === 0 ? colors.primary : colors.border, backgroundColor: inspSelected.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                    {inspSelected.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                  </View>
+                  <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>👷 Todos</Text>
+                </TouchableOpacity>
+                {inspAvailable.map((n) => {
+                  const checked = inspSelected.includes(n);
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      onPress={() => setInspSelected((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
+                    >
+                      <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                      </View>
+                      <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
         ) : (
         <>
@@ -2246,7 +2314,7 @@ export default function ReportsScreen({ route }: any) {
               : mode === 'inspeccion'
               ? generateInspeccion(from)
               : mode === 'inspectores'
-              ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies }); } finally { setLoading(false); } })()
+              ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies, inspectors: inspSelected }); } finally { setLoading(false); } })()
               : generateCamiones()
           }
           disabled={loading}

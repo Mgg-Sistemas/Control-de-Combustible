@@ -16,13 +16,11 @@ import { parseMachineId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import { caracasParts } from '../lib/jornada';
 
-/** Fecha local de hoy en "AAAA-MM-DD". */
+/** Fecha de hoy en Caracas (AAAA-MM-DD), independiente de la zona horaria del dispositivo. */
 function todayISO(): string {
-  const d = new Date();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+  return caracasParts(new Date()).iso;
 }
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 

@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { EDIFICIOS } from '../lib/edificios';
+import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
 import { captureAndUploadPhoto } from '../lib/photo';
@@ -70,6 +71,18 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
   { key: 'repuesto', label: 'Repuesto', icon: '🔩' },
 ];
 const avNumOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
+// Igual que arriba + "Otro" (falla libre): se usa en el camino "PARADA · por avería"
+// para describir fallas que no calzan en los materiales predeterminados.
+const PARADA_AV_MATERIALS: { key: string; label: string; icon: string }[] = [
+  ...AV_MATERIALS,
+  { key: 'otro', label: 'Otro', icon: '✏️' },
+];
+const matLabelOf = (key: string) => PARADA_AV_MATERIALS.find((m) => m.key === key)?.label ?? key;
+// Edificio/sector legible a partir de coordenadas (o la referencia escrita a mano si no cae en zona).
+const edificioTextOf = (lat: number, lng: number, referencia?: string): string => {
+  const s = sectorLabel(sectorOf(lat, lng));
+  return s && s !== 'Sin zona' ? s : ((referencia || '').trim() || 'Sin zona');
+};
 
 /**
  * Vista del SUPERVISOR: sale a revisar máquinas. Por cada una hace un check-in
@@ -182,6 +195,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [iniTime, setIniTime] = useState('07:00');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [paradaOpen, setParadaOpen] = useState(false); // desplegable del motivo de la avería (PARADA)
+  // 🟡 PARADA: dos caminos seleccionables — "por avería" (crea solicitud en
+  // Mantenimiento con el material) o "no trabajó" (motivo fijo + ubicación, solo
+  // se refleja en Inspecciones, no toca Mantenimiento).
+  const [paradaTab, setParadaTab] = useState<'averia' | 'no_trabajo'>('averia');
+  const [paMaterial, setPaMaterial] = useState<string | null>(null); // material que necesita (camino "por avería")
+  const [paQty, setPaQty] = useState('');
+  const [paPhoto, setPaPhoto] = useState<string | null>(null);
+  const [paPhotoUp, setPaPhotoUp] = useState(false);
+  const [ntBusy, setNtBusy] = useState(false); // obteniendo la ubicación GPS (camino "no trabajó")
+  const [ntCoords, setNtCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [ntReferencia, setNtReferencia] = useState('');
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
   const [refOpen, setRefOpen] = useState(false);  // desplegable de edificios abierto
@@ -232,6 +256,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useEffect(() => {
     if (!ci) { setJornadaStart(null); setParadaOpen(false); setFinConfirm(false); return; }
     setParadaOpen(false); setFinConfirm(false); setHoroFin('');
+    // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
+    setParadaTab('averia'); setCiMotivo('');
+    setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
+    setNtCoords(null); setNtReferencia(''); setNtBusy(false);
     // Turno/hora de inicio por defecto según el momento: día → 07:00, noche → 19:00.
     const defShift = shiftOf(caracasParts(new Date()).hour).key;
     setIniShift(defShift);
@@ -751,17 +779,33 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
 
-  // 🟡 PARADA: marca la máquina parada en INSPECCIONES y crea la AVERÍA en el
-  // módulo de Mantenimiento (con el motivo obligatorio). Control mostrará "MÁQUINA PARADA".
-  const marcarParada = async () => {
-    if (!ci || ciSaving) return;
-    if (!ciMotivo.trim()) { setNotice('⚠️ Escribe el motivo de la avería (la máquina está parada).'); return; }
-    setCiSaving(true); setNotice(null);
+  // Sube una foto de referencia para la avería del camino "PARADA · por avería".
+  const subirFotoParadaAveria = async () => {
+    if (!ci) return;
+    setPaPhotoUp(true);
+    const r = await captureAndUploadPhoto(ci.id, 'averias');
+    setPaPhotoUp(false);
+    if (r.ok && r.url) setPaPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
+
+  // Ubicación GPS del inspector para el camino "PARADA · no trabajó" (dirección aproximada).
+  const capturarUbicacionNoTrabajo = async () => {
+    setNtBusy(true);
+    const r = await getCurrentCoords();
+    setNtBusy(false);
+    if (!r.ok || r.lat == null || r.lng == null) { setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
+    setNtCoords({ lat: r.lat, lng: r.lng });
+  };
+
+  // 🟡 PARADA (base común a los 2 caminos): registra la visita "parada" en
+  // INSPECCIONES y, si hay una jornada ABIERTA, primero BANCA las horas ya
+  // trabajadas para que NO se pierdan (ej.: inició 7am, parada 9am → se guardan
+  // esas 2h). Luego, al reiniciar y finalizar, se suma sobre lo bancado.
+  const registrarParadaBase = async (): Promise<boolean> => {
+    if (!ci) return false;
     const vis = await registrarVisita('parada');
-    if (!vis) { setCiSaving(false); return; }
-    // ⏱️ Si hay una jornada ABIERTA al marcar la parada, primero BANCA las horas ya
-    // trabajadas para que NO se pierdan (ej.: inició 7am, parada 9am → se guardan esas
-    // 2h). Luego, al reiniciar (2pm) y finalizar (7pm), se suma sobre lo bancado (=7h).
+    if (!vis) return false;
     if (jornadaStart) {
       const horas = Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100);
       const prevRound = await getMachineRound(ci.id, today);
@@ -772,14 +816,58 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       setJornadaStart(null);
       setCurRoundHours((h) => ({ ...h, [jornadaShift === 'night' ? 'night' : 'day']: total }));
     }
-    const { error: avErr } = await supabase.from('maintenance_requests').insert({
-      machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim(), status: 'pendiente', requested_by: uid || null,
+    return true;
+  };
+
+  // 🟡 PARADA · POR AVERÍA: crea la solicitud en Mantenimiento de Maquinaria con
+  // el material real (caucho/aceite/filtro/repuesto/otro, igual patrón que el QR
+  // del operador) y, además, deja la máquina marcada PARADA (amarillo) en
+  // Inspecciones (vía un registro paralelo "MÁQUINA PARADA", igual que antes).
+  const marcarParadaAveria = async () => {
+    if (!ci || ciSaving) return;
+    if (!paMaterial) { setNotice('⚠️ Elige el material que necesita la máquina.'); return; }
+    if (paMaterial === 'otro' && !ciMotivo.trim()) { setNotice('⚠️ Describe la falla para registrar "Otro".'); return; }
+    setCiSaving(true); setNotice(null);
+    const ok = await registrarParadaBase();
+    if (!ok) { setCiSaving(false); return; }
+    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+      supabase.from('maintenance_requests').insert({
+        machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty),
+        notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto,
+      }),
+      // Registro paralelo: es lo que hace que Inspecciones/Control sigan mostrando
+      // la máquina como PARADA hasta que se pulse "Volver a OPERATIVA".
+      supabase.from('maintenance_requests').insert({
+        machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null,
+      }),
+    ]);
+    setCiSaving(false);
+    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}`); // bitácora
+    reloadEstados();
+    setNotice(`🟡 ${ci.code} marcada PARADA${(e1 || e2) ? ' · ⚠️ no se pudo registrar todo' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
+    setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
+    setCi(null);
+  };
+
+  // 🟡 PARADA · NO TRABAJÓ: motivo fijo "NO TRABAJÓ LA MÁQUINA" + ubicación GPS y
+  // dirección (edificio/referencia/sector) guardada en `notes`. NO crea ni afecta
+  // nada en Mantenimiento de Maquinaria: solo se refleja en Inspecciones/Control.
+  const marcarParadaNoTrabajo = async () => {
+    if (!ci || ciSaving) return;
+    if (!ntCoords) { setNotice('⚠️ Captura la ubicación GPS antes de confirmar.'); return; }
+    setCiSaving(true); setNotice(null);
+    const ok = await registrarParadaBase();
+    if (!ok) { setCiSaving(false); return; }
+    const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
+    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'} · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}`;
+    const { error } = await supabase.from('maintenance_requests').insert({
+      machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null,
     });
     setCiSaving(false);
-    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · ${ciMotivo.trim()}`); // bitácora
+    logAudit('PARADA', 'machinery', ci.id, `${ci.code} · no trabajó · ${edificio}`); // bitácora
     reloadEstados();
-    setNotice(`🟡 ${ci.code} marcada PARADA${avErr ? ' · ⚠️ no se pudo crear la avería' : ' · 🔧 avería registrada (Mantenimiento)'}. Aparece en Inspecciones.`);
-    setCiMotivo(''); setParadaOpen(false);
+    setNotice(`🟡 ${ci.code} marcada PARADA · NO TRABAJÓ LA MÁQUINA${error ? ' · ⚠️ no se pudo guardar todo' : ''}. Aparece en Inspecciones.`);
+    setNtCoords(null); setNtReferencia(''); setParadaOpen(false);
     setCi(null);
   };
 
@@ -998,7 +1086,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
         {/* Fila 2: acciones (se acomodan en varias líneas si no caben). */}
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-          {/* Solo ADMIN (en teléfono): ir a la app completa (SISTEMA). */}
+          {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
           {onSistema ? (
             <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗂️ SISTEMA</Text>
@@ -1521,18 +1609,71 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
               ) : null}
 
-              {/* PARADA → avería (Mantenimiento) + inspección (Inspecciones). Pide el motivo. */}
+              {/* PARADA → 2 caminos: "por avería" (Mantenimiento + Inspecciones) o
+                  "no trabajó" (motivo fijo + ubicación, solo Inspecciones). */}
               <TouchableOpacity onPress={() => setParadaOpen((v) => !v)} disabled={ciSaving} style={{ backgroundColor: paradaOpen ? '#D9A200' : colors.surface, borderWidth: 2, borderColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
-                <Text style={{ color: paradaOpen ? '#fff' : '#8A6A00', fontWeight: '800' }}>🟡 PARADA (marcar avería)</Text>
+                <Text style={{ color: paradaOpen ? '#fff' : '#8A6A00', fontWeight: '800' }}>🟡 PARADA (marcar máquina parada)</Text>
               </TouchableOpacity>
               {paradaOpen ? (
                 <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Motivo de la avería (obligatorio)</Text>
-                  <TextInput value={ciMotivo} onChangeText={setCiMotivo} placeholder="Ej: falla hidráulica, sin arranque, cauchos…" placeholderTextColor={colors.muted} style={input} />
-                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea una avería en Mantenimiento y aparece en Inspecciones. En Control saldrá “MÁQUINA PARADA”.</Text>
-                  <TouchableOpacity onPress={marcarParada} disabled={ciSaving} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+                    {(['averia', 'no_trabajo'] as const).map((t) => {
+                      const on = paradaTab === t;
+                      return (
+                        <TouchableOpacity key={t} onPress={() => setParadaTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? '#8A6A00' : '#F0C36D', backgroundColor: on ? '#8A6A00' : 'transparent' }}>
+                          <Text style={{ color: on ? '#fff' : '#7A4A0B', fontWeight: '800', fontSize: 12 }}>{t === 'averia' ? '🔧 Por avería' : '📍 Parada / No trabajó'}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {paradaTab === 'averia' ? (
+                    <>
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>¿Qué material necesita?</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                        {PARADA_AV_MATERIALS.map((mt) => {
+                          const on = paMaterial === mt.key;
+                          return (
+                            <TouchableOpacity key={mt.key} onPress={() => setPaMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? '#8A6A00' : colors.surface, borderWidth: 1, borderColor: on ? '#8A6A00' : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                              <Text>{mt.icon}</Text>
+                              <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{mt.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Texto de la falla{paMaterial === 'otro' ? ' (obligatorio)' : ' (opcional)'}</Text>
+                      <TextInput value={ciMotivo} onChangeText={setCiMotivo} placeholder="Ej: falla hidráulica, sin arranque, cauchos…" placeholderTextColor={colors.muted} style={input} />
+                      {paMaterial && paMaterial !== 'otro' ? (
+                        <>
+                          <Text style={{ color: '#7A4A0B', fontSize: 12, marginTop: spacing.xs }}>Cantidad (opcional)</Text>
+                          <TextInput value={paQty} onChangeText={(t) => setPaQty(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                        </>
+                      ) : null}
+                      {paMaterial ? (
+                        <TouchableOpacity onPress={subirFotoParadaAveria} disabled={paPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: paPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                          <Text style={{ color: paPhoto ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{paPhotoUp ? 'Subiendo…' : paPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea la solicitud en Mantenimiento con el material y sigue marcándose PARADA en Inspecciones (Control saldrá “MÁQUINA PARADA”).</Text>
+                      <TouchableOpacity onPress={marcarParadaAveria} disabled={ciSaving || !paMaterial} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !paMaterial) ? 0.6 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>Motivo: NO TRABAJÓ LA MÁQUINA</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm }}>Deja constancia de dónde estaba con tu ubicación GPS. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
+                      <TouchableOpacity onPress={capturarUbicacionNoTrabajo} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : '#F0C36D', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                        <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Obteniendo ubicación…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Capturar mi ubicación GPS'}</Text>
+                      </TouchableOpacity>
+                      {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio/sector: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia)}</Text></Text> : null}
+                      <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 2 }}>Referencia (opcional, ej. “cerca de…”)</Text>
+                      <TextInput value={ntReferencia} onChangeText={setNtReferencia} placeholder="Ej: al lado de la cancha…" placeholderTextColor={colors.muted} style={input} />
+                      <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving || !ntCoords} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !ntCoords) ? 0.6 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA (no trabajó)'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               ) : null}
 

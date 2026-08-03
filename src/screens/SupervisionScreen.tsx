@@ -9,11 +9,13 @@ import { listInspectorAssignments, assignInspector, unassignInspector, Assignmen
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { generateEstadoReport } from '../lib/inspectorEstadoReport';
+import { generateSummaryReport } from '../lib/inspectorSummaryReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { cmpText, norm } from '../lib/text';
+import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -48,6 +50,11 @@ const STATUS_META: Record<VisitStatus, { icon: string; label: string; color: str
   parada: { icon: '🟡', label: 'Parada', color: '#D9A200' },
   no_esta: { icon: '🔴', label: 'No está', color: '#D22B2B' },
 };
+// Color de "POR INICIAR" en Jornadas de máquina: antes usaba el mismo tono
+// amarillo/ámbar que PARADA (#D9A200 ≈ colors.warning) y se confundían. Se usa un
+// azul (distinto de verde = EN CURSO y ámbar = PARADA) para dar alto contraste
+// entre los 3 estados, en claro y oscuro.
+const POR_INICIAR_COLOR = '#2563EB';
 
 type Round = { machinery_id: string; worked: number; code: string; companyName: string; operator: string | null };
 type Jornada = {
@@ -132,6 +139,28 @@ export default function SupervisionScreen({ navigation }: any) {
     })();
   }, []);
   const noAdmin = (v: VisitRow) => !((v as any).supervisor_id && adminIds.has((v as any).supervisor_id));
+
+  // ── Alertas por HORÓMETRO (mantenimiento preventivo): independiente del día
+  //    elegido arriba — es el estado ACTUAL del horómetro de cada máquina.
+  const [horoOpen, setHoroOpen] = useState(false);
+  type HoroMach = { id: string; code: string; serial: string | null; plate: string | null; companyName: string; last_horometro: number | null; horometro_base: number | null };
+  const [machList, setMachList] = useState<HoroMach[]>([]);
+  const loadMachList = useCallback(async () => {
+    const { data } = await supabase.from('machinery').select('id, code, serial, plate, last_horometro, horometro_base, active, company:company_id(name)').eq('active', true);
+    setMachList(((data ?? []) as any[]).map((m) => ({
+      id: m.id, code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null,
+      companyName: m.company?.name ?? 'Sin empresa',
+      last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null,
+      horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null,
+    })));
+  }, []);
+  useEffect(() => { loadMachList(); }, [loadMachList]);
+  useRealtimeRefresh(['machinery'], () => { loadMachList(); });
+  const horometroAlertas = useMemo(() => machList
+    .map((m) => ({ m, alerta: horometroAlertaDe(m.last_horometro, m.horometro_base) }))
+    .filter((x): x is { m: HoroMach; alerta: HorometroAlerta } => !!x.alerta)
+    .sort((a, b) => NIVEL_RANK[a.alerta.nivel] - NIVEL_RANK[b.alerta.nivel] || b.alerta.horas - a.alerta.horas),
+  [machList]);
 
   // ── Asignaciones del CHECK (machine_inspectors): qué máquina se asignó cada
   //    inspector desde el teléfono. Se sincroniza en vivo con el módulo.
@@ -822,6 +851,22 @@ export default function SupervisionScreen({ navigation }: any) {
         ) : null}
       </Card>
 
+      {/* ── ⏱️ Alertas por HORÓMETRO: máquinas próximas a mantenimiento ── */}
+      {horometroAlertas.length > 0 ? (
+        <TouchableOpacity activeOpacity={0.8} onPress={() => setHoroOpen((v) => !v)}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: horometroAlertas[0].alerta.color }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⏱️ {horometroAlertas.length} máquina(s) próxima(s) a mantenimiento {horoOpen ? '▾' : '▸'}</Text>
+            {horoOpen ? horometroAlertas.map(({ m, alerta }) => (
+              <TouchableOpacity key={m.id} activeOpacity={0.7} onPress={() => navigation?.navigate?.('MantenimientoMaquinaria', { q: String(m.serial || m.code || '') })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🚜 {m.code}{m.serial ? ` · #️⃣ ${m.serial}` : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.companyName}</Text>
+                <Text style={{ color: alerta.color, fontWeight: '800', fontSize: 12, marginTop: 2 }}>Próxima a mantenimiento · {alerta.label} · {alerta.horas} h acumuladas</Text>
+              </TouchableOpacity>
+            )) : null}
+          </Card>
+        </TouchableOpacity>
+      ) : null}
+
       {/* ── ✅ MÁQUINAS ASIGNADAS (CHECK del teléfono) — inspector ↔ máquina ── */}
       {secHead('asg', '✅ Máquinas asignadas por inspector (CHECK)')}
       {secClosed.has('asg') ? null : assignsMissing ? (
@@ -1086,13 +1131,16 @@ export default function SupervisionScreen({ navigation }: any) {
             <TextInput value={machJorQuery} onChangeText={setMachJorQuery} placeholder="Buscar: inspector, máquina o empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
             {machJorQuery ? <TouchableOpacity onPress={() => setMachJorQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
           </View>
-          {/* Expandir / colapsar todos los inspectores. */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+          {/* Expandir / colapsar todos los inspectores + reporte resumen (PDF). */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xs }}>
             <TouchableOpacity onPress={() => setMachJorExpanded(new Set(machJornadasByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => setMachJorExpanded(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => generateSummaryReport({ date })} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.primary }}>
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>📄 Reporte resumen por inspector</Text>
             </TouchableOpacity>
           </View>
           {machJornadasByInspector.length === 0 ? (
@@ -1109,7 +1157,7 @@ export default function SupervisionScreen({ navigation }: any) {
                   <Text style={{ fontSize: 12, fontWeight: '800' }}>
                     <Text style={{ color: colors.text }}>{list.length} máq</Text>
                     {paradaN > 0 ? <Text style={{ color: colors.warning }}> · 🟡 {paradaN} parada{paradaN > 1 ? 's' : ''}</Text> : null}
-                    {pendN > 0 ? <Text style={{ color: '#D9A200' }}> · ⏳ {pendN} por iniciar</Text> : null}
+                    {pendN > 0 ? <Text style={{ color: POR_INICIAR_COLOR }}> · ⏳ {pendN} por iniciar</Text> : null}
                     {enCursoN > 0 ? <Text style={{ color: colors.success }}> · {enCursoN} en curso</Text> : null}
                   </Text>
                 </TouchableOpacity>
@@ -1131,13 +1179,13 @@ export default function SupervisionScreen({ navigation }: any) {
                       {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
                       {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
                       {(j as any).parada ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🟡 PARADA{(j as any).paradaMotivo ? ` · ${(j as any).paradaMotivo}` : ''}</Text> : null}
-                      {(j as any).pendiente ? <Text style={{ color: '#D9A200', fontSize: 11, fontWeight: '800' }}>⏳ PENDIENTE POR INICIAR JORNADA</Text> : null}
+                      {(j as any).pendiente ? <Text style={{ color: POR_INICIAR_COLOR, fontSize: 11, fontWeight: '800' }}>⏳ PENDIENTE POR INICIAR JORNADA</Text> : null}
                       <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👁️ Ver detalle ›</Text>
                     </View>
                     {(j as any).parada ? (
                       <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 12 }}>🟡 PARADA</Text>
                     ) : (j as any).pendiente ? (
-                      <Text style={{ color: '#D9A200', fontWeight: '900', fontSize: 12 }}>⏳ Por iniciar</Text>
+                      <Text style={{ color: POR_INICIAR_COLOR, fontWeight: '900', fontSize: 12 }}>⏳ Por iniciar</Text>
                     ) : j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>● En curso</Text>

@@ -15,10 +15,11 @@ import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { caracasParts } from '../lib/jornada';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
-function todayISO(): string { const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; }
+function todayISO(): string { return caracasParts(new Date()).iso; }
 const sumLines = (l: PayrollLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const netOf = (base: number, add: PayrollLine[], ded: PayrollLine[]) => Math.round((base + sumLines(add) - sumLines(ded)) * 100) / 100;
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };

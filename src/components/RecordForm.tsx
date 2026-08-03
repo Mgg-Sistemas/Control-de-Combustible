@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { norm, cmpText, onlyDigits, onlyDecimal } from '../lib/text';
+import { caracasParts } from '../lib/jornada';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { DateField } from './DateField';
@@ -67,11 +68,8 @@ function shortLabel(label: string): string {
 }
 
 function todayISO() {
-  // Evita Date.now(); usa la fecha local del dispositivo a través del input.
-  const d = new Date();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+  // Fecha de HOY según la hora de Caracas (no la zona horaria del dispositivo).
+  return caracasParts(new Date()).iso;
 }
 
 export function RecordForm({
@@ -459,30 +457,42 @@ function SearchSelect({
           autoCapitalize="characters"
         />
       ) : null}
-      <View style={styles.grid}>
-        {filtered.slice(0, 30).map((o) => {
-          const active = o.value === value;
-          return (
-            <TouchableOpacity
+      {filtered.length === 0 && q ? (
+        <Text style={typography.muted}>Sin resultados para "{query.trim()}".</Text>
+      ) : filtered.length === 0 ? null : filtered.length <= 4 ? (
+        // Pocas opciones: se ven centradas/naturales, sin necesidad de scroll.
+        <View style={styles.ssGridWrap}>
+          {filtered.map((o) => (
+            <SearchSelectChip
               key={o.value}
-              onPress={() => onChange(o.value)}
-              style={[styles.gridBtn, active && styles.gridBtnActive]}
-            >
-              <Text
-                numberOfLines={2}
-                style={{
-                  color: active ? colors.primaryContrast : colors.text,
-                  fontSize: 15,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                }}
-              >
-                {shortLabel(o.label)}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+              option={o}
+              active={o.value === value}
+              colors={colors}
+              styles={styles}
+              onPress={onChange}
+            />
+          ))}
+        </View>
+      ) : (
+        // Carrusel horizontal: tarjetas espaciadas, se recorren con scroll.
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.ssGridScroll}
+          contentContainerStyle={styles.ssGridScrollContent}
+        >
+          {filtered.slice(0, 30).map((o) => (
+            <SearchSelectChip
+              key={o.value}
+              option={o}
+              active={o.value === value}
+              colors={colors}
+              styles={styles}
+              onPress={onChange}
+            />
+          ))}
+        </ScrollView>
+      )}
       {createColumn && query.trim() && !exactExists ? (
         <TouchableOpacity onPress={create} disabled={creating} style={styles.createBtn}>
           <Text style={{ color: colors.primary, fontWeight: '700' }}>
@@ -492,6 +502,41 @@ function SearchSelect({
       ) : null}
       {!options.length ? <Text style={typography.muted}>Escribe para crear el primero.</Text> : null}
     </View>
+  );
+}
+
+/** Tarjeta/chip individual de `SearchSelect`, compartida entre el modo
+ *  "pocas opciones" (envuelve en fila) y el carrusel horizontal. */
+function SearchSelectChip({
+  option,
+  active,
+  colors,
+  styles,
+  onPress,
+}: {
+  option: Option;
+  active: boolean;
+  colors: AppColors;
+  styles: ReturnType<typeof makeStyles>;
+  onPress: (v: string) => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={() => onPress(option.value)}
+      style={[styles.ssChip, active && styles.ssChipActive]}
+    >
+      <Text
+        numberOfLines={2}
+        style={{
+          color: active ? colors.primaryContrast : colors.text,
+          fontSize: 15,
+          fontWeight: '600',
+          textAlign: 'center',
+        }}
+      >
+        {shortLabel(option.label)}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -747,6 +792,40 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   gridBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  // --- SearchSelect: carrusel de chips (ver componente SearchSelectChip) ---
+  // Opciones pocas (<=4): fila que envuelve, centrada y sin forzar ancho de carrusel.
+  ssGridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  // Carrusel horizontal (muchas opciones filtradas): se recorre con scroll.
+  ssGridScroll: {
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  ssGridScrollContent: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  ssChip: {
+    width: 104,
+    minHeight: 56,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  ssChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   selectedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

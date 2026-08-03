@@ -9,9 +9,11 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { canonicalCargo } from '../lib/cargos';
 import { useTable } from '../hooks/useTable';
+import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { Employee, StaffPersonPayment } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { caracasParts } from '../lib/jornada';
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -31,7 +33,8 @@ const parseNum = (t: string): number => {
   return isFinite(n) ? n : 0;
 };
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
-const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
+// Fecha de hoy en Caracas, independiente de la zona horaria del dispositivo.
+const todayISO = () => caracasParts(new Date()).iso;
 const addDaysISO = (iso: string, n: number) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; };
 const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
 /** Rango de días que abarca por defecto cada frecuencia (para sugerir el "Hasta"). */
@@ -83,6 +86,9 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
 
   const { data: employees, loading: empLoading } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: pays, loading: payLoading, refetch: refetchPays } = useTable<StaffPersonPayment>('staff_payments', { orderBy: 'fecha', ascending: false });
+  const { rate: bcvRate } = useBcvRate();
+  // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
+  const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
 
   const [q, setQ] = useState('');
   const [soloActivos, setSoloActivos] = useState(true);
@@ -123,13 +129,19 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const [fPrecio, setFPrecio] = useState('0');
   const [fMonto, setFMonto] = useState('0');
   const [montoTocado, setMontoTocado] = useState(false);
+  // Moneda en la que se muestra/edita el campo "Monto": US$ (por defecto) o Bs (tasa BCV
+  // del día). El monto SIEMPRE se guarda en US$; al escribir en Bs se convierte con
+  // usdFromBs() al vuelo.
+  const [montoCur, setMontoCur] = useState<'USD' | 'VES'>('USD');
+  // Fija el monto SUGERIDO (cantidad × precio, calculado en US$) respetando la moneda activa.
+  const setMontoFromUsd = (usdValue: number) => setFMonto(String(round2(montoCur === 'USD' ? usdValue : bsFromUsd(usdValue, bcvRate || 0))));
   const [fMetodo, setFMetodo] = useState('efectivo');
   const [fConcepto, setFConcepto] = useState('');
   const [fNota, setFNota] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const recalcSimple = (cant: string, precio: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(cant) * parseNum(precio)))); };
-  const recalcDiario = (dc: string, dp: string, nc: string, np: string) => { if (!montoTocado) setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); };
+  const recalcSimple = (cant: string, precio: string) => { if (!montoTocado) setMontoFromUsd(parseNum(cant) * parseNum(precio)); };
+  const recalcDiario = (dc: string, dp: string, nc: string, np: string) => { if (!montoTocado) setMontoFromUsd(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)); };
 
   // Nº de días que abarca el rango Desde→Hasta (inclusive). En "diario", día+noche
   // no puede pasar de este total (7 jornadas si el rango es de 7 días).
@@ -163,7 +175,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     if (d > nd) d = nd;
     if (d + n > nd) n = Math.max(0, nd - d);
     setFDiaCant(String(d)); setFNocheCant(String(n));
-    if (!montoTocado) setFMonto(String(round2(d * parseNum(fDiaPrecio) + n * parseNum(fNochePrecio))));
+    if (!montoTocado) setMontoFromUsd(d * parseNum(fDiaPrecio) + n * parseNum(fNochePrecio));
   };
 
   const abrirNuevo = () => {
@@ -174,13 +186,13 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const tieneUlt = last && (Number(last.cantidad_dia) || Number(last.cantidad_noche));
     const dc = tieneUlt ? String(Number(last.cantidad_dia) || 0) : '1';
     const nc = tieneUlt ? String(Number(last.cantidad_noche) || 0) : '0';
-    setEditing(null); setFFecha(todayISO()); setFHasta(todayISO()); setFFrec('diario');
+    setEditing(null); setFFecha(todayISO()); setFHasta(todayISO()); setFFrec('diario'); setMontoCur('USD');
     setFDiaCant(dc); setFDiaPrecio(dp); setFNocheCant(nc); setFNochePrecio(np);
     setFCant('1'); setFPrecio(dp); setFMonto(String(round2(parseNum(dc) * parseNum(dp) + parseNum(nc) * parseNum(np)))); setMontoTocado(false);
     setFMetodo('efectivo'); setFConcepto(''); setFNota(''); setPayOpen(true);
   };
   const abrirEditar = (p: StaffPersonPayment) => {
-    setEditing(p); setFFecha(p.fecha); setFHasta(p.fecha_hasta || p.fecha); setFFrec(p.frecuencia);
+    setEditing(p); setFFecha(p.fecha); setFHasta(p.fecha_hasta || p.fecha); setFFrec(p.frecuencia); setMontoCur('USD');
     const { dc, nc, dp, np } = dayNight(p);
     setFDiaCant(String(dc)); setFDiaPrecio(String(dp || sel?.precio_dia || 0)); setFNocheCant(String(nc)); setFNochePrecio(String(np || sel?.precio_noche || 0));
     setFCant(String(p.cantidad)); setFPrecio(String(p.precio_unit)); setFMonto(String(p.monto)); setMontoTocado(true);
@@ -193,16 +205,17 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     if (frec === 'diario') {
       const dp = String(sel.precio_dia || 0), np = String(sel.precio_noche || 0);
       setFDiaPrecio(dp); setFNochePrecio(np);
-      if (!montoTocado) setFMonto(String(round2(parseNum(fDiaCant) * parseNum(dp) + parseNum(fNocheCant) * parseNum(np))));
+      if (!montoTocado) setMontoFromUsd(parseNum(fDiaCant) * parseNum(dp) + parseNum(fNocheCant) * parseNum(np));
     } else {
       const pr = tarifaFor(sel, frec, 'dia'); setFPrecio(String(pr));
-      if (!montoTocado) setFMonto(String(round2(parseNum(fCant) * pr)));
+      if (!montoTocado) setMontoFromUsd(parseNum(fCant) * pr);
     }
   };
 
   const guardar = async () => {
     if (!sel) return;
-    const monto = parseNum(fMonto);
+    // El monto siempre se guarda en US$: si el campo está en Bs, se convierte con la tasa BCV.
+    const monto = round2(montoCur === 'USD' ? parseNum(fMonto) : usdFromBs(parseNum(fMonto), bcvRate || 0));
     if (monto <= 0) { Alert.alert('Monto', 'Indica un monto mayor a 0.'); return; }
     const esDiario = fFrec === 'diario';
     setSaving(true);
@@ -255,7 +268,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
         <tr><td class="k">Período</td><td>${rangoFecha(p)}</td><td class="k">Frecuencia</td><td>${detalle(p)}</td></tr>
         <tr><td class="k">Método</td><td>${p.metodo || '—'}</td><td class="k">Concepto</td><td>${p.concepto || '—'}</td></tr>
       </tbody></table>
-      <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b></div>
+      <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b>${bcvRate ? `<br/><span style="font-size:13px">≈ ${fmtBs(bsFromUsd(p.monto, bcvRate))} (tasa BCV ${fmtBs(bcvRate)}/US$)</span>` : ''}</div>
       ${p.nota ? `<div class="nota"><b>Nota:</b> ${p.nota}</div>` : ''}
       <div class="firmas"><div class="firma">Recibí conforme<br/>${fullName(e)}</div><div class="firma">Entregó<br/>SOS LA GUAIRA</div></div>`;
     exportPdf(pdfDocument({ title: 'Recibo de pago', subtitle: `${fullName(e)} · ${fmtDMY(p.fecha)}`, body, extraCss: RECIBO_CSS }), `Recibo - ${fullName(e)} - ${p.fecha}`);
@@ -267,10 +280,11 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const rows = list.map((p, i) => `<tr>
       <td class="c">${i + 1}</td><td class="c">${rangoFecha(p)}</td><td>${detalle(p)}</td>
       <td>${p.metodo || '—'}</td><td>${p.concepto || '—'}</td><td class="r">${usd(p.monto)}</td></tr>`).join('');
+    const tasaTxt = bcvRate ? ` · Tasa BCV: ${fmtBs(bcvRate)}/US$ · Total ≈ ${fmtBs(bsFromUsd(total, bcvRate))}` : '';
     const body = `
       <h3 class="sec">Datos del trabajador</h3>${datosPersona(e)}
       <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
-      <h3 class="sec">Historial de pagos</h3>
+      <h3 class="sec">Historial de pagos${tasaTxt}</h3>
       <table class="hist"><thead><tr><th class="c">#</th><th class="c">Período</th><th>Detalle</th><th>Método</th><th>Concepto</th><th class="r">Monto</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6">Sin pagos registrados</td></tr>'}</tbody>
         <tfoot><tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${usd(total)}</b></td></tr></tfoot></table>`;
@@ -302,7 +316,10 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
             <Card>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
-                <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>{usd(totalOf(e))}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>{usd(totalOf(e))}</Text>
+                  {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(totalOf(e))}</Text> : null}
+                </View>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cedula, e.cargo ? canonicalCargo(e.cargo) : ''].filter(Boolean).join(' · ') || '—'}</Text>
@@ -338,8 +355,10 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
             <Card>
               <Text style={{ color: colors.primary, fontWeight: '800', marginBottom: 4 }}>💲 Tarifas</Text>
               <Text style={{ color: colors.text, fontSize: 13 }}>☀️ Día {usd(sel.precio_dia || 0)}   ·   🌙 Noche {usd(sel.precio_noche || 0)}</Text>
-              <Text style={{ color: colors.text, fontSize: 13 }}>Semana {usd(sel.precio_semana || 0)}   ·   Quincena {usd(sel.precio_quincena || 0)}   ·   Mes {usd(sel.precio_mes || 0)}</Text>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Los precios se definen en el "🏷️ Tabulador" por cargo.</Text>
+              {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12 }}>☀️ Día {bsTxt(sel.precio_dia || 0)}   ·   🌙 Noche {bsTxt(sel.precio_noche || 0)}</Text> : null}
+              <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>Semana {usd(sel.precio_semana || 0)}   ·   Quincena {usd(sel.precio_quincena || 0)}   ·   Mes {usd(sel.precio_mes || 0)}</Text>
+              {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12 }}>Semana {bsTxt(sel.precio_semana || 0)}   ·   Quincena {bsTxt(sel.precio_quincena || 0)}   ·   Mes {bsTxt(sel.precio_mes || 0)}</Text> : null}
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Los precios se definen en el "🏷️ Tabulador" por cargo{bcvRate ? ` · Tasa BCV hoy: ${fmtBs(bcvRate)}/US$` : ''}.</Text>
             </Card>
 
             {canEdit ? (
@@ -349,7 +368,10 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
             ) : null}
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.lg }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>Historial · {usd(selTotal)}</Text>
+              <View>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>Historial · {usd(selTotal)}</Text>
+                {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{bsTxt(selTotal)}</Text> : null}
+              </View>
               {selPays.length ? (
                 <TouchableOpacity onPress={() => historico(sel)} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🖨️ Imprimir histórico</Text>
@@ -363,7 +385,10 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
               <Card key={p.id}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{rangoFecha(p)}</Text>
-                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.monto)}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.monto)}</Text>
+                    {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(p.monto)}</Text> : null}
+                  </View>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{detalle(p)} · {p.metodo || '—'}{p.concepto ? ` · ${p.concepto}` : ''}</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
@@ -439,8 +464,14 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
                       El rango Desde→Hasta cubre {diasRango} día(s). Días + noches = {parseNum(fDiaCant) + parseNum(fNocheCant)} / {diasRango} (no puede pasar del total).
                     </Text>
                     <View style={{ marginTop: spacing.sm }}>
-                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>Monto ({montoCur === 'USD' ? 'US$' : 'Bs'})</Text>
+                        <TouchableOpacity onPress={() => setMontoCur(montoCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                          <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{montoCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
+                        </TouchableOpacity>
+                      </View>
                       <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
+                      {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {montoCur === 'USD' ? bsTxt(parseNum(fMonto)) : usd(usdFromBs(parseNum(fMonto), bcvRate))}</Text> : null}
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Monto sugerido = (días × precio día) + (noches × precio noche). Editable. Las cantidades quedan guardadas para el próximo pago.</Text>
                   </>
@@ -456,8 +487,14 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
                         <TextInput value={fPrecio} onChangeText={(t) => { const v = onlyDecimal(t); setFPrecio(v); recalcSimple(fCant, v); }} keyboardType="decimal-pad" style={input} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Monto</Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>Monto ({montoCur === 'USD' ? 'US$' : 'Bs'})</Text>
+                          <TouchableOpacity onPress={() => setMontoCur(montoCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{montoCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
+                          </TouchableOpacity>
+                        </View>
                         <TextInput value={fMonto} onChangeText={(t) => { setMontoTocado(true); setFMonto(onlyDecimal(t)); }} keyboardType="decimal-pad" style={{ ...input, fontWeight: '800' }} />
+                        {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {montoCur === 'USD' ? bsTxt(parseNum(fMonto)) : usd(usdFromBs(parseNum(fMonto), bcvRate))}</Text> : null}
                       </View>
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>El monto se sugiere solo (cantidad × precio); puedes cambiarlo a mano.</Text>
