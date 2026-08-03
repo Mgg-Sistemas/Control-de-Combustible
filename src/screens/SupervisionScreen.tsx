@@ -806,6 +806,10 @@ export default function SupervisionScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📄 Reporte de estado (iniciadas · pendientes · averiadas · finalizadas)</Text>
         </TouchableOpacity>
+        {/* 📚 Histórico de jornadas FINALIZADAS por inspector (rango de fechas + PDF). */}
+        <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector (jornadas finalizadas)</Text>
+        </TouchableOpacity>
         {/* 📱 Vista de inspector (teléfono) en la PC — SOLO ADMIN. */}
         {isAdmin ? (
           <>
