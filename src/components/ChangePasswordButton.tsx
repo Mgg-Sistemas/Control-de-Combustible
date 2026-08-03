@@ -76,10 +76,10 @@ export function ChangePasswordButton({ variant = 'chip' }: { variant?: 'chip' | 
               </Text>
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Nueva contraseña</Text>
-              <TextInput value={p1} onChangeText={setP1} secureTextEntry={!show} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" />
+              <TextInput value={p1} onChangeText={setP1} secureTextEntry={!show} placeholder="Nueva contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4, marginTop: spacing.sm }}>Repetir contraseña</Text>
-              <TextInput value={p2} onChangeText={setP2} secureTextEntry={!show} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" />
+              <TextInput value={p2} onChangeText={setP2} secureTextEntry={!show} placeholder="Repite la contraseña" placeholderTextColor={colors.muted} style={input} autoCapitalize="none" autoCorrect={false} spellCheck={false} />
 
               <TouchableOpacity onPress={() => setShow((v) => !v)} style={{ marginTop: spacing.sm }}>
                 <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{show ? '🙈 Ocultar contraseñas' : '👁️ Mostrar contraseñas'}</Text>
