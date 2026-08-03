@@ -17,6 +17,7 @@ import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { caracasParts } from '../lib/jornada';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -91,10 +92,8 @@ export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (
 
 /** Campo de fecha con calendario: en web usa <input type="date">; en nativo, texto. */
 function todayISO(): string {
-  const d = new Date();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+  // Fecha de HOY según la hora de Caracas (no la zona horaria del dispositivo).
+  return caracasParts(new Date()).iso;
 }
 /** Fecha + hora (Caracas) legible, p. ej. "08/07/2026 07:35". */
 function fmtDateTime(iso?: string | null): string {

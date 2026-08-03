@@ -18,6 +18,7 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
+import { caracasParts } from '../lib/jornada';
 import { generalCompanies } from '../lib/companies';
 import MachineQuickScreen from './MachineQuickScreen';
 import { useAuth } from '../context/AuthContext';
@@ -394,11 +395,9 @@ export default function EquiposScreen({ navigation, route }: any) {
     });
   }, []);
 
-  // Fecha de hoy en ISO (para el valor por defecto del calendario).
-  const todayISO = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
-  };
+  // Fecha de hoy en Caracas (para el valor por defecto del calendario), independiente
+  // de la zona horaria del dispositivo.
+  const todayISO = () => caracasParts(new Date()).iso;
 
   const abrirRegistro = () => {
     setRegDate(todayISO());

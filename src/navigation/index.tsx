@@ -356,7 +356,18 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, signOut } = useAuth();
+  const { session, configured, locked, role, appRole, fullName, signOut } = useAuth();
+  // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
+  // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
+  // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
+  // admin. Comparación case-insensitive/trim para no fallar por tildes o espacios.
+  const isJesusLozada = React.useMemo(() => {
+    // NFD separa la tilde de la letra (é → e + acento); el rango ̀-ͯ
+    // son las marcas diacríticas combinantes, que se descartan para comparar
+    // "JESUS LOZADA" sin importar tildes.
+    const n = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+    return n.includes('JESUS LOZADA');
+  }, [fullName]);
   const [qrMachineId, clearQr] = useQrParam('maquina');
   const [qrMachineSerial] = useQrParam('s'); // serial sellado del QR (para vencer QR viejos)
   const [qrEmployeeId, clearQrEmp] = useQrParam('empleado');
@@ -539,14 +550,17 @@ export default function RootNavigator() {
         // TELÉFONO · coordinador de patio: su vista (registra entrada/salida y
         // jornada de camiones por escaneo). No cae en Inspectores de máquinas.
         <PatioStack />
-      ) : phone && role === 'admin' && sistemaMode ? (
-        // TELÉFONO · admin que tocó "SISTEMA": ve la app completa.
+      ) : phone && (role === 'admin' || isJesusLozada) && sistemaMode ? (
+        // TELÉFONO · admin (o Jesús Lozada, excepción puntual) que tocó "SISTEMA":
+        // ve la app completa.
         <Tabs />
       ) : phone ? (
         // TELÉFONO · cualquier otro rol: cae en el módulo de INSPECTORES (vista de
         // inspección de máquinas: escanear QR, iniciar/finalizar jornada, avería…).
-        // El admin ve además el botón SISTEMA para saltar a la app completa.
-        <SupervisorTabs onSistema={role === 'admin' ? goSistema : undefined} />
+        // El admin ve además el botón SISTEMA para saltar a la app completa. Jesús
+        // Lozada sigue entrando aquí igual que cualquier rol (no se toca su
+        // enrutamiento), pero también recibe el botón SISTEMA por excepción puntual.
+        <SupervisorTabs onSistema={(role === 'admin' || isJesusLozada) ? goSistema : undefined} />
       ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
         // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />

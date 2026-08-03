@@ -27,13 +27,6 @@ function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number):
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-function todayISO(): string {
-  const d = new Date();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
-  const day = `${d.getDate()}`.padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
 // ── Hora real de Caracas (America/Caracas, UTC−4, sin horario de verano) ──────
 const CARACAS_TZ = 'America/Caracas';
 /** Fecha ISO y hora (0–23) del momento `d` en Caracas. */
@@ -43,6 +36,10 @@ function caracasParts(d: Date): { iso: string; hour: number; minute: number } {
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   }).formatToParts(d).reduce((a: any, x) => { a[x.type] = x.value; return a; }, {});
   return { iso: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24, minute: Number(p.minute) };
+}
+/** Fecha ISO (AAAA-MM-DD) del día actual, según la hora de Caracas (no la del dispositivo). */
+function todayISO(): string {
+  return caracasParts(new Date()).iso;
 }
 /** Reloj de Caracas en formato 12 h con a. m./p. m. (ej. "06:45 p. m."). */
 function caracasClock(d: Date): string {

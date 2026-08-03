@@ -90,7 +90,7 @@
   <p class="sec-note">Lo que acabas de pedir. Hoy “parada” es un solo motivo libre en <code>maintenance_requests</code> (SupervisorScreen ~700). Propuesta: dividir en dos caminos.</p>
 
   <div class="card feat">
-    <h3>Dos opciones al marcar parada <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <h3>Dos opciones al marcar parada <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
     <div class="flow">
       <div class="branch averia">
         <h4>🔧 Por avería</h4>
@@ -111,6 +111,23 @@
       </div>
     </div>
     <p class="fix"><b>Cómo:</b> selector de tipo en el modal de parada; avería → material + <code>machinery_repairs</code>/mantenimiento; no-trabajó → dirección + coords en <code>notes</code> y marca que lo excluye del módulo de mantenimiento. Requiere confirmar contigo la lista de materiales y cómo se vincula exactamente al módulo de mantenimiento antes de codificar.</p>
+  </div>
+
+  <div class="done" style="border:1.5px solid var(--done)">
+    <h3>✓ Implementado en sesión multi-agente — 03/08/2026</h3>
+    <ul>
+      <li><b>00 Marcar máquina parada</b>: los 2 caminos de arriba ya están codificados (Por avería con selector de material + foto → crea solicitud en Mantenimiento; Parada/No trabajó con GPS + edificio/referencia → solo se ve en Inspecciones). <i>Pendiente: revisión visual tuya en el navegador.</i></li>
+      <li><b>Reportes › Inspectores</b>: filtro por checkboxes de inspector (según turno Día/Noche/Ambos) — el PDF sale solo con los marcados; la lista plana de "cambio de ubicación" se reemplazó por una tabla (Máquina · Ubicación anterior · Ubicación nueva · Hora/Fecha).</li>
+      <li><b>Inspecciones › Jornadas de máquina</b>: nuevo botón "📄 Reporte resumen por inspector" (iniciadas / averiadas-paradas / por iniciar, con detalle de Edificio, Modelo, Serial/Placa, Sector, Referencia y Empresa de las que faltaron por iniciar).</li>
+      <li><b>Sincronización en vivo (parcial)</b>: <code>machine_inspectors</code> y <code>truck_yard_logs</code> ya se agregaron a la publicación <code>supabase_realtime</code> (SQL ejecutado en producción el 03/08/2026). El resto de tablas de la sección <a href="#realtime-incompleto">"Realtime incompleto"</a> más abajo sigue pendiente.</li>
+      <li><b>RBAC</b>: el usuario Jesús Lozada tiene un botón "🗂️ SISTEMA" en su Vista de Inspector para saltar al módulo administrativo general, sin cambiar su punto de entrada habitual (match por <code>profiles.full_name</code>, a confirmar si se prefiere por cédula).</li>
+      <li><b>Horómetro</b>: alertas por umbral 200h (baja) / 220h (media) / 250h (alta) con banner en Mantenimiento e Inspecciones + notificación por campana (dedup diario) + botón "Confirmar mantenimiento y reiniciar horómetro". SQL ejecutado en producción el 03/08/2026.</li>
+      <li><b>Colores de estado</b>: "POR INICIAR" pasó de ámbar a azul en Jornadas de máquina, para no confundirse con "PARADA" (ámbar) ni "EN CURSO" (verde).</li>
+      <li><b>Nómina / Pago a Personal</b>: equivalentes en Bs (tasa BCV del día) en Por persona, Por período y Abonar, con switch $↔Bs; botón "🔄 Actualizar tasa BCV" (conecta a la tasa oficial vía <code>ve.dolarapi.com</code>, con histórico diario en <code>bcv_rates</code>). El Excel se movió de Empleados a "Por período" y ahora exporta lo trabajado/devengado/bonos/deducciones/total/pagado/saldo por persona (ya NO exporta tarifas del empleado).</li>
+      <li><b>Selector "lookup"</b> (Cisterna del catálogo y cualquier otro campo de búsqueda con catálogo): rediseñado como carrusel horizontal en vez de la pared de botones pegados.</li>
+      <li><b>Zona horaria</b>: 12 pantallas que calculaban "hoy" con la hora del dispositivo (incluida la app móvil que usan operadores/inspectores en su teléfono) ahora usan consistentemente la hora de Caracas.</li>
+    </ul>
+    <p class="why" style="margin-top:10px"><b>Pendiente de esta sesión:</b> probar visualmente en el navegador (<code>npm run web</code>) los flujos nuevos; confirmar si Jesús Lozada debe matchearse por nombre o por cédula/ID de perfil; versionar en un <code>.sql</code> del repo la definición de <code>truck_yard_logs</code> (hoy solo existe en producción); si cambian los umbrales de horómetro hay que editar <code>supabase/horometro_alertas.sql</code> y <code>src/lib/horometroAlertas.ts</code> juntos.</p>
   </div>
 
   <h2><span class="n">01</span> Efecto visual / UX</h2>
@@ -174,10 +191,11 @@
     <p class="why">Se le hace <code>alter/enable RLS</code> pero nunca se crea la tabla → el script aborta. Además hay deriva: <code>profiles.cedula</code>, <code>machinery.viajes</code>, <code>truck_yard_logs</code> existen solo en la BD real, no en el repo.</p>
     <p class="fix"><b>Fix:</b> crear la tabla y regenerar el schema/tipos con <code>supabase db pull</code> + <code>gen types</code> para que el repo reproduzca la BD.</p>
   </div>
-  <div class="card">
+  <div class="card" id="realtime-incompleto">
     <h3>Realtime incompleto → pantallas que no se refrescan solas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why">Fuera de la publicación: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, compras, nómina… y <code>attendance</code> falla al publicarse en instalación limpia (orden de creación).</p>
     <p class="fix"><b>Fix:</b> mover el bloque de publicación al final del schema y añadir las tablas operativas que usan <code>useTable</code>.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Parcial (03/08/2026):</b> <code>machine_inspectors</code> y <code>truck_yard_logs</code> ya se agregaron a la publicación (<code>supabase/fix_realtime_publication.sql</code>, ya ejecutado). Sigue pendiente el resto de la lista de arriba.</p>
   </div>
   <div class="card">
     <h3><code>useTable</code> no pagina → se corta en 1000 filas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
@@ -203,7 +221,7 @@
 
   <h2><span class="n">04</span> Orden sugerido</h2>
   <ol class="order">
-    <li><b>Máquina parada — avería vs no trabajó</b> (lo que pediste). Confirmamos lista de materiales + vínculo a mantenimiento y lo codifico.</li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Máquina parada — avería vs no trabajó</b></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
     <li><b>Seguridad BD</b>: cerrar PII a la sesión anónima + arreglar <code>staff_pay_config</code>. Rápido y crítico.</li>
     <li><b>Cierre de jornada nocturna</b> contra su <code>round_date</code> (evita descuadres).</li>
     <li><b>ToastProvider</b> + arreglar modo oscuro de los paneles fijos.</li>
@@ -212,6 +230,7 @@
   </ol>
 
   <footer>
-    Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones). Dime por cuál arrancamos — sugiero el punto 00.
+    Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones).
+    <br>Última actualización: 03/08/2026 — el punto 00 y varias piezas de las secciones 01–03 (ver bloque "✓ Implementado") ya están en el código, en la rama <code>feature/plan-mejoras-multiagente</code>. Lo que sigue abierto: seguridad RLS de nómina (PII expuesta a sesión anónima), <code>staff_pay_config</code> faltante en <code>schema.sql</code>, cierre de jornada nocturna cruzando medianoche, ToastProvider/modo oscuro, resto de tablas de Realtime, paginado de <code>useTable</code> y la condición de carrera de stock.
   </footer>
 </div>
