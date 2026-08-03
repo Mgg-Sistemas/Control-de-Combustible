@@ -153,7 +153,7 @@ const MOV_KIND: Record<string, { label: string; color: string; sign: string }> =
 function Pill({ label, color }: { label: string; color: string }) {
   return (
     <View style={{ borderWidth: 1, borderColor: color, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
-      <Text style={{ color, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+      <Text style={{ color, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>{label}</Text>
     </View>
   );
 }
@@ -1407,7 +1407,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
 // entradas con el precio real). Solo los administradores aprueban/rechazan/reciben.
 type ReqRow = { key: string; product_id: string | null; name: string; unit: string; qty: string; price: string; currency: 'USD' | 'VES'; note: string };
 const REQ_STATUS: Record<string, { label: string; color: string; short: string }> = {
-  pendiente: { label: '⏳ Pendiente', color: '#D97706', short: 'Pendiente' },
+  pendiente: { label: '⏳ Pendiente por aprobación del Gerente General', color: '#D97706', short: 'Pendiente' },
   aprobado: { label: '✅ Aprobado', color: '#2563EB', short: 'Aprobado' },
   rechazado: { label: '❌ Rechazado', color: '#DC2626', short: 'Rechazado' },
   recibido: { label: '📦 Recibido', color: '#16A34A', short: 'Recibido' },
@@ -1427,6 +1427,9 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
+  // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio'>('todos');
+  const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name', ascending: true });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
@@ -1723,11 +1726,36 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         Pide productos del inventario o nuevos para que el jefe apruebe la compra. Si se compra, se recibe en el inventario con su precio. {rate ? `Tasa hoy: ${fmtBs(rate)}/US$.` : ''}
       </Text>
 
-      {reqs.length === 0 ? (
-        <EmptyState title="Sin requerimientos" subtitle="Crea uno con ➕ Nuevo para pasárselo al jefe." />
-      ) : reqs.map((r) => {
+      {/* Filtro por estatus */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {([
+          { k: 'todos', label: 'Todos', color: colors.primary },
+          { k: 'pendiente', label: '⏳ Pendientes', color: '#D97706' },
+          { k: 'sin_precio', label: '❗ Sin precio', color: '#DC2626' },
+          { k: 'aprobado', label: '✅ Aprobados', color: '#2563EB' },
+          { k: 'rechazado', label: '❌ Rechazados', color: '#DC2626' },
+          { k: 'recibido', label: '📦 Recibidos', color: '#16A34A' },
+        ] as const).map((f) => {
+          const on = filterStatus === f.k;
+          const n = f.k === 'todos' ? reqs.length : f.k === 'sin_precio' ? reqs.filter(faltaPrecioDe).length : reqs.filter((r) => r.status === f.k).length;
+          return (
+            <TouchableOpacity key={f.k} onPress={() => setFilterStatus(f.k)} style={{ borderWidth: 1.5, borderColor: f.color, backgroundColor: on ? f.color : 'transparent', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+              <Text style={{ color: on ? '#fff' : f.color, fontWeight: '800', fontSize: 12 }}>{f.label} ({n})</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {(() => {
+        const filteredReqs = filterStatus === 'todos' ? reqs
+          : filterStatus === 'sin_precio' ? reqs.filter(faltaPrecioDe)
+          : reqs.filter((r) => r.status === filterStatus);
+        return filteredReqs.length === 0 ? (
+        <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'No hay requerimientos con ese estatus.'} />
+      ) : filteredReqs.map((r) => {
         const st = REQ_STATUS[r.status] ?? REQ_STATUS.pendiente;
         const tUsd = totalUsdDe(r);
+        const faltaPrecio = faltaPrecioDe(r);
         return (
           <ExpandableCard
             key={r.id}
@@ -1737,7 +1765,10 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                   <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
                 </View>
-                <Pill label={st.label} color={st.color} />
+                <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
+                  <Pill label={st.label} color={st.color} />
+                  {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color="#DC2626" /> : null}
+                </View>
               </View>
             }
             detail={
@@ -1814,7 +1845,8 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
           />
         );
-      })}
+      });
+      })()}
 
       {/* ── Crear requerimiento ── */}
       <Modal visible={createOpen} animationType="slide" onRequestClose={() => { setCreateOpen(false); setEditId(null); }}>
