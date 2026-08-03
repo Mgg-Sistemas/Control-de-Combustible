@@ -48,14 +48,26 @@ export function addDaysISO(iso: string, delta: number): string {
   const dd = `${dt.getUTCDate()}`.padStart(2, '0');
   return `${dt.getUTCFullYear()}-${mm}-${dd}`;
 }
-/** Horas trabajadas del día = (turno día + turno noche) − parada + extras (mín. 0 antes de extras). */
+/**
+ * REDONDEO AL TURNO: cada jornada (día o noche) se lleva al turno más cercano, para
+ * que las horas y el $ salgan "redondos" (sin decimales) y consistentes en Control,
+ * Pagos e Informe (todos usan esta función):
+ *   • 0 si no trabajó · ≤ 9 h = MEDIO (6 h) · > 9 h = COMPLETO (12 h)
+ * Tolera decimales del horómetro (11.6 → 12, 5.8 → 6).
+ */
+export const turnoH = (h: number): 0 | 6 | 12 => {
+  const v = Number(h) || 0;
+  if (v <= 0.01) return 0;
+  return v <= 9 ? 6 : 12;
+};
+/** Horas trabajadas del día = (turno día + turno noche, redondeados) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
-  Math.max(0, (Number(dayH) || 0) + (Number(nightH) || 0) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
+  Math.max(0, turnoH(dayH) + turnoH(nightH) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
 /** Fracción de jornada según las horas (proporcional): 12 h = 1, 6 h = 0.5, 10 h = 0.833… (horas ÷ 12). */
 export const shiftPayUnits = (h: number): number => (Number(h) || 0) / 12;
-/** Jornadas del día = (horas día + horas noche) ÷ 12. Monto = precio por jornada × jornadas. */
+/** Jornadas del día = (turno día + turno noche, redondeados) ÷ 12. Monto = precio por jornada × jornadas. */
 export const payUnitsFromShifts = (dayH: number, nightH: number): number =>
-  ((Number(dayH) || 0) + (Number(nightH) || 0)) / 12;
+  (turnoH(dayH) + turnoH(nightH)) / 12;
 /** Precio por HORA trabajada = precio de la jornada de 12 h ÷ 12. */
 export const pricePerHour = (jornadaPrice: number): number => (Number(jornadaPrice) || 0) / 12;
 /**
@@ -72,7 +84,7 @@ export function shiftLabel(totalShiftHours: number): string {
   if (h === 12) return 'Turno completo';
   if (h === 18) return 'Turno y medio';
   if (h === 24) return 'Dos turnos';
-  return `${(h / 12).toLocaleString()} turno(s)`;
+  return `${Math.round(h / 12)} turno(s)`;
 }
 /** Compat: horas trabajadas asumiendo turno completo (para datos viejos sin turnos). */
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
@@ -1671,7 +1683,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }}>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>📊 Total del rango (empresa)</Text>
                     <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>
-                      {Number(compTot.hours.toFixed(2)).toLocaleString()} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {Math.round(compTot.hours)} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </Text>
                   </View>
                 );
@@ -1740,7 +1752,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     {m.entry_at && !m.exit_at ? '▶ En obra' : '⏹ Sin entrada activa'}
                   </Text>
                   <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 14 }}>
-                    {weekWorked} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ''}
+                    {Math.round(weekWorked)} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ''}
                   </Text>
                 </View>
               ) : null}
@@ -1801,7 +1813,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <View style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                 <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>📊 Total del rango</Text>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>
-                  {weekWorked} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ' · sin precio'}
+                  {Math.round(weekWorked)} h{weekAmount != null ? ` · ${usdMach(weekAmount)}` : ' · sin precio'}
                 </Text>
               </View>
 
@@ -1832,7 +1844,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <Text style={{ color: colors.warning, fontSize: 10, fontWeight: '800' }}>🔒 cerrado</Text>
                           ) : null}
                         </View>
-                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13 }}>{worked} h · {shiftLabel(dayH + nightH)}</Text>
+                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13 }}>{Math.round(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
@@ -1844,7 +1856,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
                               <Text style={{ width: 20, fontSize: 14, textAlign: 'center' }}>{which === 'day' ? '☀️' : '🌙'}</Text>
                               {SHIFT_OPTS.map((opt) => {
-                                const active = cur === opt.hours;
+                                const active = turnoH(cur) === opt.hours;   // hidrata el turno tolerando decimales (11.6 → Completo)
                                 const activeBg = opt.hours === 0 ? colors.danger : colors.success;
                                 return (
                                   <TouchableOpacity
@@ -1909,7 +1921,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
               <View style={{ marginTop: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Total del bloque ({dayCount} día(s))</Text>
-                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16 }}>{weekWorked} h</Text>
+                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16 }}>{Math.round(weekWorked)} h</Text>
               </View>
               </>) : null}
             </Card>
@@ -2243,12 +2255,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Horas trabajadas del bloque</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>{Number(workedH.toFixed(2))} h</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{Math.round(workedH)} h</Text>
                   </View>
                   {stoppedH > 0 ? (
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                       <Text style={{ color: colors.warning, fontSize: 13 }}>⏸ Horas paradas (descontadas)</Text>
-                      <Text style={{ color: colors.warning, fontWeight: '700' }}>−{Number(stoppedH.toFixed(2))} h</Text>
+                      <Text style={{ color: colors.warning, fontWeight: '700' }}>−{Math.round(stoppedH)} h</Text>
                     </View>
                   ) : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
