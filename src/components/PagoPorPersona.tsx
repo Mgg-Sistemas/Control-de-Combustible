@@ -4,6 +4,7 @@ import { Card, EmptyState, Loading } from './ui';
 import { DateField } from './DateField';
 import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { exportPersonaHistoricoXlsx } from '../lib/staffXlsx';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
@@ -291,6 +292,20 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     exportPdf(pdfDocument({ title: 'Histórico de pagos', subtitle: `${fullName(e)} · ${list.length} pago(s)`, body, extraCss: HIST_CSS }), `Histórico - ${fullName(e)}`);
   };
 
+  const historicoExcel = (e: Employee) => {
+    const list = paysOf(e).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+    const rows = list.map((p) => ({
+      fecha: fmtDMY(p.fecha),
+      fechaHasta: p.fecha_hasta ? fmtDMY(p.fecha_hasta) : '',
+      detalle: detalle(p),
+      metodo: p.metodo || '',
+      concepto: p.concepto || '',
+      monto: Number(p.monto) || 0,
+    }));
+    const ok = exportPersonaHistoricoXlsx(fullName(e), e.cedula || '', rows, bcvRate);
+    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel (la descarga se hace desde el navegador).');
+  };
+
   // ── UI ─────────────────────────────────────────────────────────────────────
   if ((empLoading || payLoading) && employees.length === 0) return <Loading />;
 
@@ -373,9 +388,14 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
                 {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{bsTxt(selTotal)}</Text> : null}
               </View>
               {selPays.length ? (
-                <TouchableOpacity onPress={() => historico(sel)} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🖨️ Imprimir histórico</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <TouchableOpacity onPress={() => historicoExcel(sel)} style={{ backgroundColor: '#16A34A', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => historico(sel)} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🖨️ Imprimir histórico</Text>
+                  </TouchableOpacity>
+                </View>
               ) : null}
             </View>
 

@@ -206,3 +206,99 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], bcvRate: num
   XLSX.utils.book_append_sheet(wb, ws, 'Pago de personal');
   return downloadWorkbook(wb, `Pago de personal - ${meta.periodo}`);
 }
+
+// ── Excel del historial de pagos de UNA persona ("Pago a Personal → Por persona") ──
+
+export type PersonaXlsxRow = {
+  fecha: string;       // dd/mm/aaaa (desde)
+  fechaHasta: string;  // dd/mm/aaaa (hasta, o '' si es igual a fecha)
+  detalle: string;     // ej. "Diario · ☀️ 3 × $45 · 🌙 2 × $50"
+  metodo: string;
+  concepto: string;
+  monto: number;       // US$
+};
+
+const PERSONA_COLS = ['Período', 'Detalle', 'Método', 'Concepto', 'Monto (US$)', 'Monto (Bs)'] as const;
+const PERSONA_META_ROW = 0;
+const PERSONA_TASA_ROW = 1;
+const PERSONA_HEADER_ROW = 3;
+const PERSONA_FIRST_DATA_ROW = 4;
+
+/**
+ * Genera y descarga el historial de pagos de UN empleado (vista "Por persona"),
+ * con el mismo patrón de tasa BCV editable + fórmula en Bs que el resto de los
+ * Excel de este archivo.
+ */
+export function exportPersonaHistoricoXlsx(
+  nombre: string,
+  cedula: string,
+  rows: PersonaXlsxRow[],
+  bcvRate: number | null,
+): boolean {
+  const wb = XLSX.utils.book_new();
+  const nCols = PERSONA_COLS.length;
+  const blankRow = (n: number) => new Array(n).fill('');
+
+  const aoa: any[][] = [];
+  aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}`, ...blankRow(nCols - 2)];
+  aoa[PERSONA_TASA_ROW] = ['Tasa BCV del día (Bs/US$):', bcvRate ?? 0, ...blankRow(nCols - 2)];
+  aoa[2] = blankRow(nCols);
+  aoa[PERSONA_HEADER_ROW] = [...PERSONA_COLS];
+  rows.forEach((r, i) => {
+    const periodo = r.fechaHasta && r.fechaHasta !== r.fecha ? `${r.fecha} → ${r.fechaHasta}` : r.fecha;
+    aoa[PERSONA_FIRST_DATA_ROW + i] = [periodo, r.detalle || '', r.metodo || '', r.concepto || '', r.monto || 0, 0];
+  });
+  const totalRow = PERSONA_FIRST_DATA_ROW + rows.length;
+  aoa[totalRow] = ['TOTAL', `${rows.length} pago(s)`, '', '', 0, 0];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  for (let c = 0; c < nCols; c++) {
+    const ref = XLSX.utils.encode_cell({ r: PERSONA_HEADER_ROW, c });
+    const cell = (ws as any)[ref];
+    if (cell) (cell as any).s = HEADER_STYLE;
+  }
+  const metaLabelRef = XLSX.utils.encode_cell({ r: PERSONA_META_ROW, c: 0 });
+  if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
+  const labelRef = XLSX.utils.encode_cell({ r: PERSONA_TASA_ROW, c: 0 });
+  const rateRef = XLSX.utils.encode_cell({ r: PERSONA_TASA_ROW, c: 1 });
+  if ((ws as any)[labelRef]) (ws as any)[labelRef].s = TASA_LABEL_STYLE;
+  if ((ws as any)[rateRef]) { (ws as any)[rateRef].s = TASA_VALUE_STYLE; (ws as any)[rateRef].z = MONEY_FMT; }
+
+  // Monto US$ (col 4) + fórmula en Bs (col 5) referenciando la tasa en $B$2.
+  rows.forEach((_r, i) => {
+    const row = PERSONA_FIRST_DATA_ROW + i;
+    const usdRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+    const usdCell = (ws as any)[usdRef];
+    if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
+    const bsRef = XLSX.utils.encode_cell({ r: row, c: 5 });
+    (ws as any)[bsRef] = { t: 'n', z: MONEY_FMT, f: `E${row + 1}*$B$${PERSONA_TASA_ROW + 1}` };
+  });
+
+  // Fila TOTAL: suma de US$ y Bs.
+  if (rows.length) {
+    const firstExcelRow = PERSONA_FIRST_DATA_ROW + 1;
+    const lastExcelRow = PERSONA_FIRST_DATA_ROW + rows.length;
+    [4, 5].forEach((c) => {
+      const colLetter = XLSX.utils.encode_col(c);
+      const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+      (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    });
+  }
+  for (let c = 0; c < nCols; c++) {
+    const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+    const cell = (ws as any)[ref];
+    if (cell) (cell as any).s = { ...(cell as any).s, ...TOTAL_STYLE };
+    else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
+  }
+
+  ws['!cols'] = [{ wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 13 }, { wch: 13 }];
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
+  ws['!merges'] = [
+    { s: { r: PERSONA_META_ROW, c: 1 }, e: { r: PERSONA_META_ROW, c: nCols - 1 } },
+    { s: { r: PERSONA_TASA_ROW, c: 2 }, e: { r: PERSONA_TASA_ROW, c: nCols - 1 } },
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Historial de pagos');
+  return downloadWorkbook(wb, `Historial de pagos - ${nombre}`);
+}
