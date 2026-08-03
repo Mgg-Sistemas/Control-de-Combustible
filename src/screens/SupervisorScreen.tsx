@@ -310,8 +310,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // paradas pendientes por inspector para reactivar al día siguiente.
   const estadoDe = (id: string): { color: string; icon: string; label: string } | null => {
     const r = roundsById[id];
-    if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    // La PARADA tiene prioridad sobre "trabajando": si la máquina tiene una avería/parada
+    // VIGENTE se muestra 🟡 aunque su jornada siga abierta (así el tlf coincide con la PC,
+    // donde parada gana). Solo se ve 🟢 Trabajando cuando NO está parada y la jornada está abierta.
     if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
+    if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
     return null; // finalizada → NORMAL (no se marca)
   };
 
