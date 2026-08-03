@@ -478,10 +478,11 @@ export default function SupervisionScreen({ navigation }: any) {
     const buildRow = (inspector: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
       const rd = roundByMachine.get(machinery_id);
       const par = paradaByMachine.get(machinery_id);
-      // La PARADA se muestra para el inspector (día Y noche) hasta que la REACTIVE
-      // (volver a operativa / iniciar jornada). Se arrastra de un día a otro; no se
-      // filtra por turno. El "en curso", en cambio, sí es por turno (más abajo).
-      const parada = !!par;
+      // La PARADA es POR TURNO: la que marca el inspector de DÍA no afecta al de NOCHE
+      // y viceversa (misma máquina, 2 inspectores). Se muestra SOLO para el inspector
+      // del mismo turno en que se marcó (por hora Caracas), y se arrastra de un día a
+      // otro para ESE turno hasta que la reactive. El "en curso" también es por turno.
+      const parada = !!par && (shiftCtx == null || par.shift === shiftCtx);
       // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
       const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
@@ -504,7 +505,7 @@ export default function SupervisionScreen({ navigation }: any) {
         lat: rd?.lat ?? null, lng: rd?.lng ?? null,
         sector: rd?.sector ?? base?.sector ?? null,
         referencia: rd?.referencia ?? base?.referencia ?? null,
-        inspector, enCurso, parada, paradaMotivo: par?.motivo ?? '', pendiente,
+        inspector, enCurso, parada, paradaMotivo: parada ? (par?.motivo ?? '') : '', pendiente,
       };
     };
 

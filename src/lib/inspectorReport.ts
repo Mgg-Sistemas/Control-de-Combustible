@@ -32,6 +32,10 @@ export type InspectorShift = 'day' | 'night' | 'both';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
 const r2 = (n: number) => Math.round(n * 100) / 100;
+// Hora Caracas (UTC-4) del ISO y turno de la PARADA según esa hora (día 7-19, noche resto).
+// Mismo criterio que la app: la parada pertenece al TURNO en que se marcó.
+const caracasHour = (iso: string): number => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h; };
+const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasHour(iso); return h >= 7 && h < 19 ? 'day' : 'night'; };
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'encurso' | 'parada' | 'finalizada' | 'pendiente';
@@ -98,8 +102,16 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     .eq('status', 'pendiente')
     .lte('created_at', `${date}T23:59:59.999-04:00`)
     .order('created_at', { ascending: false });
-  const paradaMotivo = new Map<string, string>();
-  ((maint ?? []) as any[]).forEach((m) => { const id = m.machinery_id as string; if (!paradaMotivo.has(id)) paradaMotivo.set(id, String(m.notes ?? '').trim()); });
+  // Parada POR TURNO: machine → turno → motivo. Así la parada del inspector de DÍA no
+  // afecta al de NOCHE (misma máquina, 2 inspectores) ni tapa la jornada del otro turno.
+  const paradaByShift = new Map<string, Map<Turno, string>>();
+  ((maint ?? []) as any[]).forEach((m) => {
+    const id = m.machinery_id as string;
+    const sh = paradaShiftOf(m.created_at);
+    const mm = paradaByShift.get(id) ?? new Map<Turno, string>();
+    if (!mm.has(sh)) mm.set(sh, String(m.notes ?? '').trim());
+    paradaByShift.set(id, mm);
+  });
 
   // 4) Ubicaciones por máquina (todos los check-in del día, ubicaciones distintas).
   const visits = await listVisits(date);
@@ -146,7 +158,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const rd = roundByMachine.get(id);
     const dayH = Number(rd?.day_hours) || 0;
     const nightH = Number(rd?.night_hours) || 0;
-    const parada = paradaMotivo.has(id);
+    // Parada del MISMO turno del inspector (la del otro turno no le aplica).
+    const parMot = paradaByShift.get(id)?.get(turno);
+    const parada = parMot != null;
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;
@@ -164,7 +178,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       dayH,
       nightH,
       estado,
-      motivo: parada ? (paradaMotivo.get(id) || '') : '',
+      motivo: parada ? (parMot || '') : '',
     });
   };
 
