@@ -192,6 +192,7 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   // Marcar como pagada
   const [payFor, setPayFor] = useState<Group | null>(null);
+  const [payError, setPayError] = useState(''); // error EN LÍNEA del modal (los confirm() quedan tapados)
   const [payAmount, setPayAmount] = useState('');
   const [payCurrency, setPayCurrency] = useState('USD');
   // Método de pago: efectivo ($) / usdt / bs. Para Bs se captura monto en Bs + tasa del día.
@@ -673,6 +674,7 @@ export default function ControlPagosScreen({ navigation }: any) {
   // ── Registrar abono (pago parcial o total) ───────────────────────────────────
   const openPay = (g: Group) => {
     setPayFor(g);
+    setPayError('');
     // Por defecto el abono cubre el saldo pendiente (paga todo lo que resta).
     setPayAmount(g.saldo ? String(g.saldo) : '');
     setPayCurrency('USD');
@@ -681,17 +683,18 @@ export default function ControlPagosScreen({ navigation }: any) {
 
   const confirmPay = async () => {
     if (!payFor) return;
+    setPayError('');
     const isBs = payMetodo === 'bs';
     const tasa = Number(payTasa.replace(',', '.')) || 0;
     const montoBs = Number(payMontoBs.replace(',', '.')) || 0;
     // El ledger siempre en $. En Bs: monto en $ = monto Bs ÷ tasa del día.
     const amount = isBs ? (tasa > 0 ? round2(montoBs / tasa) : 0) : (Number(payAmount.replace(',', '.')) || 0);
     if (isBs && (montoBs <= 0 || tasa <= 0)) {
-      await confirm({ title: 'Datos en Bs incompletos', message: 'Para pago en Bs ingresa el monto en Bs y la tasa (Bs/$) del día.', confirmText: 'Entendido', cancelText: ' ' });
+      setPayError('Para pago en Bs ingresa el monto en Bs y la tasa (Bs/$) del día.');
       return;
     }
     if (amount <= 0) {
-      await confirm({ title: 'Monto inválido', message: 'Ingresa un monto mayor a 0 para el abono.', confirmText: 'Entendido', cancelText: ' ' });
+      setPayError('Ingresa un monto mayor a 0 para el abono.');
       return;
     }
     const uid = session?.user?.id ?? null;
@@ -733,15 +736,18 @@ export default function ControlPagosScreen({ navigation }: any) {
     }
     setSaving(false);
     if (error) {
-      await confirm({ title: 'Error', message: error.message, confirmText: 'Entendido', cancelText: ' ' });
+      // El error del servidor se muestra EN LÍNEA (el confirm queda tapado por el modal).
+      setPayError(`No se registró el abono: ${error.message}`);
       return;
     }
-    // Resumen de cómo se distribuyó el pago.
+    // Resumen de cómo se distribuyó el pago (por el banner, ya visible al cerrar el modal).
     const semanasCubiertas = rows.filter((r) => !r.detail?.credit).length;
-    if (semanasCubiertas > 1 || remaining > 0) {
-      const extra = remaining > 0 ? `  ·  💚 Saldo a favor: ${payCurrency} ${money(round2(remaining))}` : '';
-      await confirm({ title: 'Pago distribuido', message: `El pago se aplicó a ${semanasCubiertas} semana(s) de ${payFor.company}.${extra}`, confirmText: 'Entendido', cancelText: ' ' });
-    }
+    const montoTxt = `${isBs ? 'Bs ' + money(round2(montoBs)) : '$' + money(round2(amount))}`;
+    const extra = remaining > 0
+      ? ` · 💚 saldo a favor ${money(round2(remaining))} aplicado a otra(s) semana(s)`
+      : semanasCubiertas > 1 ? ` · repartido en ${semanasCubiertas} semanas` : '';
+    setNotice(`✅ Abono registrado (${montoTxt}) en ${payFor.company} · semana ${payFor.weekStart}${extra}`);
+    setPayError('');
     setPayFor(null);
     setSelected(null);
     load();
@@ -1585,8 +1591,14 @@ export default function ControlPagosScreen({ navigation }: any) {
               </>
             )}
 
+            {payError ? (
+              <View style={{ marginTop: spacing.md, backgroundColor: '#FDECEC', borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, padding: spacing.sm }}>
+                <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '700' }}>⚠️ {payError}</Text>
+              </View>
+            ) : null}
+
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPayFor(null)}>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => { setPayFor(null); setPayError(''); }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={confirmPay} disabled={saving}>
