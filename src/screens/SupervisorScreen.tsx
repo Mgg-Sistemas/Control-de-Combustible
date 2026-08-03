@@ -677,25 +677,44 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
+    // ¿La máquina venía AVERIADA? Si estuvo PARADA hoy (pendiente o reactivada hoy),
+    // el inicio tardío es NORMAL (arrancó tarde porque estaba parada) → NO es tardanza
+    // y NO genera alerta. Se detecta por la parada vigente o una avería resuelta hoy.
+    let veniaAveriada = paradaIds.has(ci.id);
+    if (!veniaAveriada) {
+      try {
+        const { data: av } = await supabase
+          .from('maintenance_requests')
+          .select('id')
+          .eq('machinery_id', ci.id)
+          .eq('material', 'MÁQUINA PARADA')
+          .or(`status.eq.pendiente,resolved_at.gte.${today}T00:00:00-04:00`)
+          .limit(1);
+        veniaAveriada = (av?.length ?? 0) > 0;
+      } catch {}
+    }
+    // Retraso que SÍ cuenta como alerta: 0 si venía averiada.
+    const alertaRetraso = veniaAveriada ? 0 : retrasoMin;
     // Guarda el desfase (minutos) para que Inspecciones muestre "inició tarde".
     // Best-effort: si la columna jornada_late_min no existe aún, se ignora el error.
-    supabase.from('machine_rounds').update({ jornada_late_min: retrasoMin > 0 ? retrasoMin : null }).eq('machinery_id', ci.id).eq('round_date', today).then(() => {}, () => {});
-    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? ` · declarada ${retrasoLabel(retrasoMin)} tarde` : ''}`); // bitácora
+    supabase.from('machine_rounds').update({ jornada_late_min: alertaRetraso > 0 ? alertaRetraso : null }).eq('machinery_id', ci.id).eq('round_date', today).then(() => {}, () => {});
+    logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? (veniaAveriada ? ' · inicio tardío por avería (sin alerta)' : ` · declarada ${retrasoLabel(retrasoMin)} tarde`) : ''}`); // bitácora
     // Camión: al INICIAR la jornada, se registra su SALIDA del patio.
     logTruckYardIfTruck(ci.id, ci.code, 'salida', uid || null, fullName || null);
 
-    // ⏰ Alerta a los ADMIN si la jornada se declaró TARDE (después del límite).
-    if (retrasoMin > 0) {
+    // ⏰ Alerta a los ADMIN si la jornada se declaró TARDE (después del límite) y NO
+    // venía de una avería/parada (en ese caso el inicio tardío es esperado).
+    if (alertaRetraso > 0) {
       const turnoTxt = sh === 'night' ? 'noche (límite 9:30pm)' : 'día (límite 9:30am)';
       notifyAdmins(
         'jornada_tarde',
-        `Jornada declarada ${retrasoLabel(retrasoMin)} tarde`,
+        `Jornada declarada ${retrasoLabel(alertaRetraso)} tarde`,
         `🚜 ${ci.code}${ci.companyName ? ` · ${ci.companyName}` : ''} · inicio declarado ${hh}:${mm} (${turnoTxt}) · registrada por ${fullName || 'inspector'} a las ${caracasClock(now.toISOString())}.`,
-        { machinery_id: ci.id, code: ci.code, retraso_min: retrasoMin, shift: sh, declared_at: declaredIso }
+        { machinery_id: ci.id, code: ci.code, retraso_min: alertaRetraso, shift: sh, declared_at: declaredIso }
       );
     }
     reloadEstados();
-    setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftFromKey(sh).label} · inicio ${hh}:${mm}.${retrasoMin > 0 ? ` ⏰ Se avisó a admin: declarada ${retrasoLabel(retrasoMin)} tarde.` : ''} Aparece en Inspecciones.`);
+    setNotice(`🟢 Jornada iniciada en ${ci.code} · ${shiftFromKey(sh).label} · inicio ${hh}:${mm}.${alertaRetraso > 0 ? ` ⏰ Se avisó a admin: declarada ${retrasoLabel(alertaRetraso)} tarde.` : veniaAveriada && retrasoMin > 0 ? ' (inicio tardío por avería — sin alerta).' : ''} Aparece en Inspecciones.`);
   };
 
   // 🏁 FINALIZAR JORNADA: horas = (fin − inicio); se SUMAN al turno (día/noche)
