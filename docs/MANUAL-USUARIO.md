@@ -1153,6 +1153,44 @@ queden 100% operativas:
     matchear por **cédula/ID de perfil** en vez de `full_name` (el nombre podría cambiar si se
     edita el perfil).
 
+### Seguridad: fuga de sueldos/datos bancarios a sesión anónima (cerrada)
+
+Se encontró y cerró una fuga real: `EmployeeCardScreen.tsx` (la "Ficha del trabajador" que se abre
+al escanear el QR de un carnet, **sin login**) leía la fila completa de `employees`, exponiendo
+`base_salary`, `bank_account`, `bank_holder`, `bank_cedula` en la respuesta y en el PDF "Ficha
+completa" (sección "🏦 Datos bancarios"). `src/lib/jornada.ts` y `MachineQuickScreen.tsx` (inicio de
+jornada por cédula, escaneo de carnet de operador) tenían el mismo patrón.
+
+- Los 3 flujos ahora usan la función RPC pública `employee_public_lookup()` (solo columnas no
+  sensibles) en vez de leer `employees` directo.
+- **🔴 OBLIGATORIO — si no se ha ejecutado ya:** `supabase/fix_rls_anon_nomina.sql` en producción
+  (crea la función + restringe `employees_read`, `staff_pay_items`, `staff_payments`,
+  `company_payments`, `payrolls`). **El código ya está desplegado asumiendo que esa función
+  existe** — si por algún motivo se revierte esa migración, se rompe el escaneo de QR en campo.
+- **🔴 OBLIGATORIO — nuevo:** `supabase/fix_rls_anon_nomina_v2.sql` (follow-up, tablas sin uso
+  anónimo: `staff_pay_periods`, `staff_pay_payments`, `staff_cargo_tariffs`, `staff_pay_config`,
+  `payroll_periods`, `payroll_items`). Puro SQL, sin dependencia de código.
+
+### Ronda de cierre de auditoría (03/08/2026)
+
+- **🔴 OBLIGATORIO** — `supabase/fix_realtime_publication_v2.sql`: completa la sincronización en
+  vivo para `dispatches`, `fuel_intakes`, `transfers`, `stock_movements`, `tanks`, compras
+  (`purchase_requests`, `purchase_orders`, `suppliers`) y nómina (`payroll_periods`,
+  `staff_pay_periods`).
+- **🔴 OBLIGATORIO** — `supabase/staff_pay_config.sql`: crea la tabla que faltaba (rompía la
+  instalación en limpio de `schema.sql`). **Ejecutar antes de que `schema.sql` vuelva a correrse**
+  (o volver a aplicar la policy después), porque `schema.sql` línea ~1770 todavía recrea la policy
+  de esa tabla en modo abierto (`using(true)`).
+- **Opcional/documentación** — `supabase/schema_drift.sql`: deja versionadas dos columnas que ya
+  existían en producción pero no en el repo (`profiles.cedula`, `machinery.viajes`/`precio_viaje`).
+- **⚠️ Probar antes de confiar ciegamente** — `supabase/fix_stock_race_condition.sql`: agrega
+  bloqueo (`select ... for update`) al validar stock disponible en despachos/traslados, para evitar
+  que dos despachos concurrentes dejen un tanque en negativo. Se recomienda probar con dos
+  despachos simultáneos en un entorno de prueba antes de confiar en producción.
+- **Ya en el código, sin SQL pendiente:** el cierre manual de jornada nocturna ahora cierra contra
+  la fecha en que se inició (no contra "hoy"); el horómetro final ya no acepta un valor menor al
+  inicial; el reporte "Estado de máquinas" ya trae totales y firma del responsable.
+
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones

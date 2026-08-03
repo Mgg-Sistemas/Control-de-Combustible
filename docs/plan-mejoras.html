@@ -158,19 +158,22 @@
   <p class="sec-note">Huecos de negocio y casos borde detectados en jornadas, reportes y notificaciones.</p>
 
   <div class="card">
-    <h3>Jornada de noche cruzando medianoche cierra en el día equivocado <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <h3>Jornada de noche cruzando medianoche cierra en el día equivocado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
     <p class="why">El cierre manual usa <code>caracasToday()</code> (SupervisorScreen ~676): si inicia 22:00 y finaliza 01:00, suma horas al día siguiente y el round original queda “en curso”, luego el cron descuadra.</p>
     <p class="fix"><b>Fix:</b> finalizar contra el <code>round_date</code> en que se inició (como ya hace el cron), no contra hoy.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>finalizarJornada</code> en <code>SupervisorScreen.tsx</code> ahora calcula <code>round_date</code> desde la hora Caracas del INICIO de la jornada, igual que el auto-cierre del servidor.</p>
   </div>
   <div class="card">
-    <h3>Horómetro final sin validar ≥ inicial <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <h3>Horómetro final sin validar ≥ inicial <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why">Acepta un final menor al inicial y lo arrastra como inicial de la próxima jornada → dato basura que se propaga.</p>
     <p class="fix"><b>Fix:</b> avisar/validar <code>final ≥ inicial</code> al iniciar y cerrar; marcar la anomalía en Histórico.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> mismo mensaje/validación que ya usaba <code>MachineQuickScreen.tsx</code>, replicado en el cierre manual de <code>SupervisorScreen.tsx</code> (solo bloquea si el inspector sí escribió un horómetro final menor al inicial; dejarlo vacío sigue permitiendo cerrar).</p>
   </div>
   <div class="card">
-    <h3>Reporte “Estado de máquinas” sin firma ni totales <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <h3>Reporte “Estado de máquinas” sin firma ni totales <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why"><code>inspectorEstadoReport.ts</code> no lleva firma ni total consolidado (el reporte por inspector sí).</p>
     <p class="fix"><b>Fix:</b> totales por sección + total del día + bloque de firma del responsable.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> agregada tabla de totales (Iniciadas/Pendientes/Averiadas/Finalizadas + total general) y bloque de firma del responsable, mismo patrón visual que <code>inspectorReport.ts</code>.</p>
   </div>
   <div class="card">
     <h3>Notificaciones solo in-app · exportar Excel casi ausente <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ L</span></span></h3>
@@ -182,30 +185,34 @@
   <p class="sec-note">Lo más delicado. La sesión anónima del QR es rol <code>authenticated</code>, y varias políticas usan <code>using(true)</code>.</p>
 
   <div class="card">
-    <h3>⚠️ Sueldos y datos bancarios visibles para la sesión anónima <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <h3>⚠️ Sueldos y datos bancarios visibles para la sesión anónima <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why"><code>employees_read</code>, <code>staff_pay_items/payments</code>, <code>staff_payments</code>, <code>company_payments</code> usan <code>using(true)</code> → quien escanea un QR (anónimo) puede leer <code>base_salary</code>, <code>bank_account</code>, montos.</p>
     <p class="fix"><b>Fix:</b> cambiar esas políticas a <code>using (not public.is_anon())</code>, como ya hace <code>payrolls</code>.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/fix_rls_anon_nomina.sql</code> ya ejecutado en producción (cierra <code>employees</code>, <code>staff_pay_items</code>, <code>staff_payments</code>, <code>company_payments</code>, y <code>payrolls</code> — esta última en realidad seguía abierta pese a lo que decía esta auditoría). Se creó la función pública <code>employee_public_lookup()</code> y se migró el código de <code>jornada.ts</code>/<code>MachineQuickScreen.tsx</code>/<code>EmployeeCardScreen.tsx</code> para usarla en vez de leer <code>employees</code> directo — el hallazgo más grave (PDF de "Ficha completa" con datos bancarios descargable por QR anónimo) ya está cerrado. <code>supabase/fix_rls_anon_nomina_v2.sql</code> (nuevo) cierra las 6 tablas restantes que quedaron como follow-up (<code>staff_pay_periods</code>, <code>staff_pay_payments</code>, <code>staff_cargo_tariffs</code>, <code>staff_pay_config</code>, <code>payroll_periods</code>, <code>payroll_items</code>) — pendiente de ejecutar.</p>
   </div>
   <div class="card">
-    <h3>⚠️ <code>schema.sql</code> no instala en limpio (<code>staff_pay_config</code> falta) <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <h3>⚠️ <code>schema.sql</code> no instala en limpio (<code>staff_pay_config</code> falta) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why">Se le hace <code>alter/enable RLS</code> pero nunca se crea la tabla → el script aborta. Además hay deriva: <code>profiles.cedula</code>, <code>machinery.viajes</code>, <code>truck_yard_logs</code> existen solo en la BD real, no en el repo.</p>
     <p class="fix"><b>Fix:</b> crear la tabla y regenerar el schema/tipos con <code>supabase db pull</code> + <code>gen types</code> para que el repo reproduzca la BD.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/staff_pay_config.sql</code> (nuevo) crea la tabla (inferida de <code>docs/superpowers/specs/2026-07-17-control-pago-personal-design.md</code> §10.1, nadie en <code>src/</code> la usaba todavía). <code>supabase/schema_drift.sql</code> (nuevo) documenta <code>profiles.cedula</code> y <code>machinery.viajes</code>/<code>precio_viaje</code> (ya estaban en <code>src/types/database.ts</code>, solo faltaba el <code>.sql</code>); <code>truck_yard_logs</code> ya se versionó antes en <code>supabase/truck_yard_logs.sql</code>. <b>Ojo:</b> <code>staff_pay_config.sql</code> debe ejecutarse ANTES que <code>schema.sql</code> (o después, pero re-ejecutando la policy correcta) porque la línea 1770 de <code>schema.sql</code> todavía recrea <code>spc_all</code> con <code>using(true)</code> — no se tocó <code>schema.sql</code> directamente por estar fuera de alcance, queda como decisión pendiente.</p>
   </div>
   <div class="card" id="realtime-incompleto">
     <h3>Realtime incompleto → pantallas que no se refrescan solas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why">Fuera de la publicación: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, compras, nómina… y <code>attendance</code> falla al publicarse en instalación limpia (orden de creación).</p>
     <p class="fix"><b>Fix:</b> mover el bloque de publicación al final del schema y añadir las tablas operativas que usan <code>useTable</code>.</p>
-    <p class="fix" style="color:var(--done)"><b>✓ Parcial (03/08/2026):</b> <code>machine_inspectors</code> y <code>truck_yard_logs</code> ya se agregaron a la publicación (<code>supabase/fix_realtime_publication.sql</code>, ya ejecutado). Sigue pendiente el resto de la lista de arriba.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>machine_inspectors</code> y <code>truck_yard_logs</code> agregadas en <code>supabase/fix_realtime_publication.sql</code> (ya ejecutado). <code>supabase/fix_realtime_publication_v2.sql</code> (nuevo) agrega el resto: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, <code>tanks</code>, <code>purchase_requests</code>, <code>purchase_orders</code>, <code>suppliers</code>, <code>payroll_periods</code>, <code>staff_pay_periods</code> — y re-agrega <code>attendance</code> de forma idempotente (el bug de orden en instalación limpia sigue ahí porque no se reordenó <code>schema.sql</code>, ver nota en el archivo). Pendiente de ejecutar en producción.</p>
   </div>
   <div class="card">
-    <h3><code>useTable</code> no pagina → se corta en 1000 filas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <h3><code>useTable</code> no pagina → se corta en 1000 filas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
     <p class="why">PostgREST corta en ~1000; en <code>machine_rounds</code>, <code>attendance</code>, <code>staff_payments</code> las listas y totales salen por debajo de lo real, en silencio.</p>
     <p class="fix"><b>Fix:</b> paginar dentro de <code>useTable</code> (o usar <code>selectAllRows</code>) para tablas que crecen.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>src/hooks/useTable.ts</code> ahora encadena páginas de 1000 filas con <code>.range()</code> hasta traer todo (tope de seguridad 20.000 filas), sin cambiar la forma en que las pantallas ya llaman al hook.</p>
   </div>
   <div class="card">
-    <h3>Stock: condición de carrera en despacho/traslado <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ M</span></span></h3>
+    <h3>Stock: condición de carrera en despacho/traslado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ M</span></span></h3>
     <p class="why">Dos despachos concurrentes pueden pasar ambos la validación de stock y dejar el tanque negativo; falta índice <code>(source_table, source_id)</code> en <code>stock_movements</code>.</p>
     <p class="fix"><b>Fix:</b> <code>select … for update</code> del tanque en el trigger + índice.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (03/08/2026):</b> <code>supabase/fix_stock_race_condition.sql</code> (nuevo) reemplaza <code>mv_dispatch()</code> y <code>mv_transfer()</code> agregando <code>select ... for update</code> sobre el tanque antes de validar stock, misma lógica de negocio intacta. Agrega el índice <code>(source_table, source_id)</code> en <code>stock_movements</code>. <b>Recomendado probar con dos despachos concurrentes en un entorno de prueba antes de confiar en producción</b> — toca integridad de datos de combustible.</p>
   </div>
 
   <div class="done">
@@ -222,15 +229,16 @@
   <h2><span class="n">04</span> Orden sugerido</h2>
   <ol class="order">
     <li><span style="opacity:.55;text-decoration:line-through"><b>Máquina parada — avería vs no trabajó</b></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
-    <li><b>Seguridad BD</b>: cerrar PII a la sesión anónima + arreglar <code>staff_pay_config</code>. Rápido y crítico.</li>
-    <li><b>Cierre de jornada nocturna</b> contra su <code>round_date</code> (evita descuadres).</li>
-    <li><b>ToastProvider</b> + arreglar modo oscuro de los paneles fijos.</li>
-    <li><b>Realtime</b> completo + <code>useTable</code> paginado.</li>
-    <li><b>Pulido</b>: StatusBadge, skeletons, pull-to-refresh, Excel en Pagos/Nómina.</li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Seguridad BD</b>: cerrar PII a la sesión anónima + arreglar <code>staff_pay_config</code></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Cierre de jornada nocturna</b> contra su <code>round_date</code></span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><b>ToastProvider</b> + arreglar modo oscuro de los paneles fijos. <i>(sin empezar — refactor grande, 174 sitios, requiere QA visual)</i></li>
+    <li><span style="opacity:.55;text-decoration:line-through"><b>Realtime</b> completo + <code>useTable</code> paginado</span> <span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ hecho 03/08/2026</span></li>
+    <li><b>Pulido</b>: StatusBadge, skeletons, pull-to-refresh, Excel en Pagos/Nómina. <i>(Excel de Pago a Personal ya existe; StatusBadge/skeletons/pull-to-refresh sin empezar)</i></li>
   </ol>
 
   <footer>
     Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones).
-    <br>Última actualización: 03/08/2026 — el punto 00 y varias piezas de las secciones 01–03 (ver bloque "✓ Implementado") ya están en el código, en la rama <code>feature/plan-mejoras-multiagente</code>. Lo que sigue abierto: seguridad RLS de nómina (PII expuesta a sesión anónima), <code>staff_pay_config</code> faltante en <code>schema.sql</code>, cierre de jornada nocturna cruzando medianoche, ToastProvider/modo oscuro, resto de tablas de Realtime, paginado de <code>useTable</code> y la condición de carrera de stock.
+    <br>Última actualización: 03/08/2026 — de las secciones 00, 02 y 03, todo quedó implementado en código salvo el refactor grande de UI/UX (sección 01: ToastProvider, modo oscuro sistemático, StatusBadge, skeletons/pull-to-refresh) y push notifications, que se dejaron fuera a propósito por su tamaño/riesgo sin poder hacer QA visual real.
+    <br><b>SQL pendientes de ejecutar en producción</b> (Supabase SQL Editor): <code>supabase/fix_realtime_publication_v2.sql</code>, <code>supabase/staff_pay_config.sql</code> (antes que <code>schema.sql</code> vuelva a correr, ver nota arriba), <code>supabase/schema_drift.sql</code>, <code>supabase/fix_rls_anon_nomina_v2.sql</code>, y <code>supabase/fix_stock_race_condition.sql</code> (probar con despachos concurrentes antes de confiar en producción).
   </footer>
 </div>
