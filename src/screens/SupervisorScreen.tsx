@@ -134,8 +134,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina (para el círculo 🟢/🟡/🔴):
   //   round del día (jornada abierta / horas) + máquinas con avería PARADA pendiente.
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
-  const [paradaIds, setParadaIds] = useState<Set<string>>(new Set());
-  const [paradaMotivos, setParadaMotivos] = useState<Record<string, string>>({}); // por qué está parada (por máquina)
+  // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
+  // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
+  const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string }[]>([]);
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -298,11 +299,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       rmap[r.machinery_id] = { open: !!r.jornada_start_at, worked: (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) };
     });
     setRoundsById(rmap);
-    setParadaIds(new Set(((par ?? []) as any[]).map((p) => p.machinery_id as string)));
-    // Motivo (por qué está parada) por máquina: el más reciente (viene ordenado desc).
-    const mot: Record<string, string> = {};
-    ((par ?? []) as any[]).forEach((p) => { const id = p.machinery_id as string; if (!(id in mot)) mot[id] = String(p.notes ?? '').trim(); });
-    setParadaMotivos(mot);
+    // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
+    // turno del inspector se hace en los memos paradaIds/paradaMotivos (más abajo).
+    const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasParts(new Date(iso)).hour; return h >= 7 && h < 19 ? 'day' : 'night'; };
+    setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim() })));
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
@@ -435,6 +435,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return set;
   }, [assignMap, uid]);
   const puedeCualquierTurno = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+  // PARADAS que le aplican a ESTE inspector: solo las de SU turno (una parada marcada
+  // de noche no afecta al inspector de día y viceversa). Admin/coordinador (o sin
+  // asignación conocida) ven todas. Se deriva de las paradas crudas + sus turnos.
+  const paradaIds = useMemo(() => {
+    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
+    const s = new Set<string>();
+    paradaRawList.forEach((p) => { if (verTodos || myGlobalShifts.has(p.shift)) s.add(p.id); });
+    return s;
+  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
+  const paradaMotivos = useMemo(() => {
+    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
+    const mot: Record<string, string> = {};
+    paradaRawList.forEach((p) => { if ((verTodos || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
+    return mot;
+  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
   // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {
