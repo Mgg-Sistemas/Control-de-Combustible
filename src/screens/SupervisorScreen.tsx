@@ -761,13 +761,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const hfRaw = (horoFin || '').replace(',', '.').trim();
     const hfNum = hfRaw === '' ? NaN : Number(hfRaw);
     const hfValid = isFinite(hfNum) && hfNum >= 0;
+    // El horómetro final NUNCA puede ser menor al inicial (si no, ese valor se
+    // arrastraría como horómetro inicial erróneo de la próxima jornada). Solo se
+    // valida si SÍ escribieron un horómetro final (vacío sigue siendo opcional y
+    // no bloquea el cierre — ver nota arriba).
+    if (hfValid) {
+      const hi = Number((horoIni || '').replace(',', '.'));
+      if (isFinite(hi) && hfNum < hi) { setNotice(`❌ El horómetro final (${hfNum}) no puede ser menor al inicial (${hi}).`); return; }
+    }
     setJornadaBusy(true); setNotice(null);
     const ms = Date.now() - new Date(jornadaStart).getTime();
     const horas = Math.max(0, Math.round((ms / 3600000) * 100) / 100);
-    const prev = await getMachineRound(ci.id, today);
+    // La jornada se cierra contra el round_date en que se INICIÓ (no el de "hoy"):
+    // una jornada de noche que arranca 22:00 y termina 01:00 sigue perteneciendo al
+    // round del día en que empezó (mismo criterio que el auto-cierre del servidor,
+    // ver supabase/auto_close_jornadas.sql). Usar "today" aquí cerraba el round del
+    // día EQUIVOCADO y dejaba el round original "en curso" para siempre.
+    const roundDate = caracasParts(new Date(jornadaStart)).iso;
+    const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(ci.id, today, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(ci.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaStart(null);

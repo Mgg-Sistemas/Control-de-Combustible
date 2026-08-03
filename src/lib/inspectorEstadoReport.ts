@@ -25,6 +25,11 @@ import { listInspectorAssignments } from './machineInspectors';
  * Cada fila muestra: fecha, hora (de inicio de jornada), lugar (sector/ubicación),
  * edificio, placa/serial e inspector. Se EXCLUYEN los usuarios ADMIN (mismo
  * criterio que el reporte de inspectores). Todo A→Z por código de máquina.
+ *
+ * Al final del PDF (mismo patrón que `inspectorReport.ts`):
+ * - Tabla de TOTALES CONSOLIDADOS: una fila por cada una de las 4 categorías
+ *   (equipos) + fila de TOTAL GENERAL del día (y horas totales finalizadas).
+ * - Línea de FIRMA del responsable que emite/valida el reporte.
  */
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -218,23 +223,47 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
   const section = (icon: string, title: string, count: number, table: string): string =>
     `<h2 class="turno">${icon} ${title} <span class="tcnt">${count} equipo(s)</span></h2>${count ? table : '<p class="none">Sin registros para este día.</p>'}`;
 
+  // Totales consolidados: una fila por categoría/sección + total general del día
+  // (misma idea que el "desglose por sector" del reporte de inspectores).
+  const resumenRows: { icon: string; label: string; n: number }[] = [
+    { icon: '🟢', label: 'Iniciadas (jornada en curso)', n: iniciadas.length },
+    { icon: '🕓', label: 'Pendientes por iniciar jornada', n: pendientes.length },
+    { icon: '🔴', label: 'Averiadas', n: averiadas.length },
+    { icon: '✅', label: 'Con jornada finalizada', n: finalizadas.length },
+  ];
+  const totalGeneral = resumenRows.reduce((s, r) => s + r.n, 0);
+  const totalHorasFinal = r2(finalizadas.reduce((s, m) => s + (m.horas || 0), 0));
+  const resumenTable = `<div class="sub">📊 Totales consolidados del día</div><table class="ir"><thead><tr><th>Categoría</th><th class="r">Equipos</th></tr></thead><tbody>${resumenRows
+    .map((r) => `<tr><td>${r.icon} ${esc(r.label)}</td><td class="r b">${r.n}</td></tr>`)
+    .join('')}</tbody><tfoot><tr><td>Total general del día</td><td class="r b">${totalGeneral} equipo(s)${totalHorasFinal ? ` · ${totalHorasFinal} h finalizadas` : ''}</td></tr></tfoot></table>`;
+
+  // Firma del responsable que emite/valida el reporte (línea + rótulo, al final del PDF).
+  const firmaHtml = `<div class="firma-insp"><div class="line"></div><div class="fname">Firma del responsable</div></div>`;
+
   const body = [
     section('🟢', 'Máquinas iniciadas (jornada en curso)', iniciadas.length, tableBasic(iniciadas)),
     section('🕓', 'Máquinas pendientes por iniciar jornada', pendientes.length, tableBasic(pendientes)),
     section('🔴', 'Máquinas averiadas', averiadas.length, tableAver(averiadas)),
     section('✅', 'Máquinas con jornada finalizada', finalizadas.length, tableFinal(finalizadas)),
+    resumenTable,
+    firmaHtml,
   ].join('');
 
   const extraCss = `
     h2.turno{font-size:15px;color:#1E3A5F;margin:20px 0 6px;padding-bottom:6px;border-bottom:2px solid #1E3A5F}
     h2.turno .tcnt{font-size:11px;color:#6B7280;font-weight:600}
+    .sub{margin:18px 0 2px;font-size:12px;font-weight:700;color:#374151}
     table.ir{width:100%;border-collapse:collapse;margin:4px 0 10px;font-size:11.5px}
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
     table.ir td.r,table.ir th.r{text-align:right}
     table.ir td.b{font-weight:800}
     table.ir td.coord{white-space:nowrap;font-size:10.5px;color:#374151}
+    table.ir tfoot td{background:#EEF2F7;font-weight:800}
     .none{color:#6B7280;font-size:12px}
+    .firma-insp{width:260px;margin:34px 0 8px;page-break-inside:avoid}
+    .firma-insp .line{border-top:1px solid #333;margin-bottom:4px}
+    .firma-insp .fname{font-size:12px;font-weight:700;color:#111}
   `;
 
   const subtitle = `Estado de máquinas · ${fecha} · 🟢 ${iniciadas.length} en curso · 🕓 ${pendientes.length} pendientes · 🔴 ${averiadas.length} averiadas · ✅ ${finalizadas.length} finalizadas`;

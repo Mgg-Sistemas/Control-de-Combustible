@@ -6,8 +6,17 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 // el mismo nombre rompen con "cannot add postgres_changes after subscribe()").
 let rtSeq = 0;
 
+// PostgREST/Supabase corta cada respuesta en ~1000 filas por defecto. Sin paginar,
+// las tablas grandes (machine_rounds, attendance, staff_payments, etc.) se leían
+// truncadas EN SILENCIO: listas y totales por debajo de lo real y sin error visible.
+// PAGE_SIZE: filas por request. MAX_ROWS: tope de seguridad para no entrar en loop
+// infinito si algún día un bug hace que .range() no avance (20000 filas = 20 páginas).
+const PAGE_SIZE = 1000;
+const MAX_ROWS = 20000;
+
 /** Lee una tabla/vista de Supabase con estado de carga, error y refetch.
- *  Se sincroniza en tiempo real: si otro usuario cambia los datos, se refresca solo. */
+ *  Se sincroniza en tiempo real: si otro usuario cambia los datos, se refresca solo.
+ *  Trae TODAS las filas (pagina internamente en bloques de 1000; ver PAGE_SIZE arriba). */
 export function useTable<T = any>(
   table: string,
   opts: { select?: string; orderBy?: string; ascending?: boolean; realtimeFrom?: string | string[] } = {}
@@ -32,12 +41,27 @@ export function useTable<T = any>(
       return;
     }
     if (!silent) setLoading(true);
-    let query = supabase.from(table).select(select);
-    if (orderBy) query = query.order(orderBy, { ascending });
-    const { data: rows, error } = await query;
-    if (error) setError(error.message);
+    // Paginado con .range(): un solo request de Supabase corta en ~1000 filas, así
+    // que encadenamos requests hasta que una página vuelva incompleta (o hasta el
+    // tope de seguridad MAX_ROWS). Se agrega 'id' como orden secundario estable
+    // (salvo que ya sea el orden pedido) para que el rango no salte/duplique filas
+    // entre páginas — mismo patrón que `selectAllRows` en `src/lib/supabase.ts`.
+    const rows: any[] = [];
+    let fetchError: { message: string } | null = null;
+    for (let from = 0; from < MAX_ROWS; from += PAGE_SIZE) {
+      let query = supabase.from(table).select(select);
+      if (orderBy) query = query.order(orderBy, { ascending });
+      if (orderBy !== 'id') query = query.order('id', { ascending: true });
+      query = query.range(from, from + PAGE_SIZE - 1);
+      const { data: page, error } = await query;
+      if (error) { fetchError = error; break; }
+      const pageRows = page ?? [];
+      rows.push(...pageRows);
+      if (pageRows.length < PAGE_SIZE) break;
+    }
+    if (fetchError) setError(fetchError.message);
     else {
-      setData((rows ?? []) as T[]);
+      setData(rows as T[]);
       setError(null);
     }
     if (!silent) setLoading(false);
