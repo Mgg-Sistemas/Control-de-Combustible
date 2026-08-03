@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { exportPagoPersonalXlsx } from '../lib/staffXlsx';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
+import { caracasParts } from '../lib/jornada';
+import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
 import { TabuladorCargos } from '../components/TabuladorCargos';
@@ -24,7 +27,7 @@ const sumLines = (l: StaffPayLine[]) => (l || []).reduce((s, x) => s + (Number(x
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 
 function toISO(d: Date): string { return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`; }
-function todayISO(): string { return toISO(new Date()); }
+function todayISO(): string { return caracasParts(new Date()).iso; }
 function addDaysISO(iso: string, n: number): string { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return toISO(d); }
 /** Domingo→sábado que contiene la fecha. */
 function weekRange(iso: string): { from: string; to: string } {
@@ -93,6 +96,17 @@ export default function PagoPersonalScreen() {
   // (Antes se calculaba con el rol base: un usuario con FULL CONTROL en Nómina pero rol
   //  base "analista" quedaba bloqueado y no le salía el botón "Generar pago".)
   const puedeTarifa = levelMeets(moduleLevel('nomina'), 'escritura');
+  const { rate: bcvRate, date: bcvDate, source: bcvSource, loading: bcvLoading, refresh: refreshBcv } = useBcvRate();
+  // Bs equivalente de un monto en US$ (o '' si no hay tasa del día).
+  const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
+  // Texto de la tasa vigente: "Tasa BCV: Bs 45,20/US$ · 03/08/2026 · BCV" (o "manual").
+  const bcvInfoTxt = bcvRate
+    ? `Tasa BCV: ${fmtBs(bcvRate)}/US$ · ${fmtDMY(bcvDate)} · ${bcvSource === 'manual' ? 'manual' : 'BCV'}`
+    : (bcvLoading ? 'Cargando tasa BCV…' : 'Sin tasa BCV');
+  const onRefreshBcv = async () => {
+    try { await refreshBcv(); }
+    catch { Alert.alert('Tasa BCV', 'No se pudo actualizar la tasa del BCV. Intenta de nuevo más tarde.'); }
+  };
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -152,6 +166,9 @@ export default function PagoPersonalScreen() {
   const [pMonto, setPMonto] = useState('');
   const [pMetodo, setPMetodo] = useState('efectivo');
   const [pFecha, setPFecha] = useState(todayISO());
+  // Moneda del campo "Monto del abono": US$ (por defecto) o Bs (tasa BCV del día). Se
+  // guarda siempre en US$; si se edita en Bs se convierte con usdFromBs() al vuelo.
+  const [pMontoCur, setPMontoCur] = useState<'USD' | 'VES'>('USD');
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -355,10 +372,11 @@ export default function PagoPersonalScreen() {
   const paidOf = (itemId: string) => round2(pays.filter((p) => p.item_id === itemId).reduce((s, p) => s + (Number(p.monto) || 0), 0));
   const saldoOf = (it: StaffPayItem) => Math.max(0, round2(Number(it.total) - paidOf(it.id)));
 
-  const openPay = (it: StaffPayItem) => { setPayFor(it); setPMonto(String(saldoOf(it) || '')); setPMetodo('efectivo'); setPFecha(todayISO()); };
+  const openPay = (it: StaffPayItem) => { setPayFor(it); setPMonto(String(saldoOf(it) || '')); setPMetodo('efectivo'); setPFecha(todayISO()); setPMontoCur('USD'); };
   const confirmPay = async () => {
     if (!payFor) return;
-    const monto = parseNum(pMonto);
+    // El abono siempre se guarda en US$: si el campo está en Bs, se convierte con la tasa BCV.
+    const monto = round2(pMontoCur === 'USD' ? parseNum(pMonto) : usdFromBs(parseNum(pMonto), bcvRate || 0));
     if (monto <= 0) return Alert.alert('Aviso', 'Ingresa un monto mayor a 0.');
     const { data, error } = await supabase.from('staff_pay_payments').insert({
       item_id: payFor.id, monto, metodo: pMetodo, fecha: pFecha, created_by: session?.user?.id ?? null,
@@ -441,8 +459,9 @@ export default function PagoPersonalScreen() {
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
-        <div class="net" style="color:#111827">Total: ${usd(it.total)}</div>
-        <div class="net">Saldo cancelado: ${usd(saldo)}</div>
+        <div class="net" style="color:#111827">Total: ${usd(it.total)}${bcvRate ? ` <span style="font-size:14px;color:#0F766E">≈ ${bsTxt(it.total)}</span>` : ''}</div>
+        <div class="net">Saldo cancelado: ${usd(saldo)}${bcvRate ? ` <span style="font-size:14px;color:#0F766E">≈ ${bsTxt(saldo)}</span>` : ''}</div>
+        ${bcvRate ? `<div style="text-align:right;color:#666;font-size:11px;margin-top:2px">Tasa BCV del día: ${fmtBs(bcvRate)}/US$</div>` : ''}
         <div class="firmas">
           <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
           <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>
@@ -492,23 +511,54 @@ export default function PagoPersonalScreen() {
     const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
     const saldoT = round2(base.reduce((s, it) => s + saldoOf(it), 0));
     const filtroNote = cargoSel.size ? ` · Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
+    const tasaNote = bcvRate ? ` · Tasa BCV: ${fmtBs(bcvRate)}/US$` : '';
     const html = pdfDocument({
       title: 'Control de pago a personal',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}${tasaNote}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tr.depto td{background:#1E3A5F;color:#fff;font-weight:800;text-transform:uppercase}
         tr.sub td{background:#EEF2F7;font-weight:700}
-        tfoot td{background:#DDE6F0;font-weight:800}`,
+        tfoot td{background:#DDE6F0;font-weight:800}
+        tfoot tr.bs td{background:#ECFDF5;color:#0F766E;font-weight:700}`,
       body: `
         <table><thead><tr><th>Persona</th><th>Cargo</th><th style="text-align:right">Precio</th><th style="text-align:center">Cant.</th>
           <th style="text-align:right">Devengado</th><th style="text-align:right">Bonos</th><th style="text-align:right">Deducc.</th>
           <th style="text-align:right">Total</th><th style="text-align:right">Pagado</th><th style="text-align:right">Saldo</th></tr></thead>
         <tbody>${secciones || '<tr><td colspan="10" style="text-align:center">Sin personal</td></tr>'}</tbody>
         <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${base.length} persona(s))</td>
-          <td style="text-align:right">${usd(total)}</td><td style="text-align:right">${usd(pagadoT)}</td><td style="text-align:right">${usd(saldoT)}</td></tr></tfoot></table>`,
+          <td style="text-align:right">${usd(total)}</td><td style="text-align:right">${usd(pagadoT)}</td><td style="text-align:right">${usd(saldoT)}</td></tr>
+          ${bcvRate ? `<tr class="bs"><td colspan="7" style="text-align:right">TOTAL en Bs (tasa ${fmtBs(bcvRate)}/US$)</td>
+          <td style="text-align:right">${bsTxt(total)}</td><td style="text-align:right">${bsTxt(pagadoT)}</td><td style="text-align:right">${bsTxt(saldoT)}</td></tr>` : ''}
+        </tfoot></table>`,
     });
     await exportPdf(html, `Pago personal - ${sel.name}`);
+  };
+
+  // ── Excel: pagos del período abierto ────────────────────────────────────────
+  // Lista por PERSONA lo trabajado y lo PAGADO/adeudado (no tarifas del empleado,
+  // eso se ve en "Empleados"). Respeta el filtro de cargo activo. Los montos en Bs
+  // son fórmulas referenciando la tasa BCV del día (celda editable).
+  const exportarExcel = () => {
+    if (!sel) return;
+    if (Platform.OS !== 'web') { Alert.alert('Aviso', 'La descarga de Excel se hace desde el navegador (versión web).'); return; }
+    const base = cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    const ok = exportPagoPersonalXlsx(
+      base.map((it) => ({
+        nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
+        dias: Number(it.dias) || 0, dias_noche: Number(it.dias_noche) || 0, horas: Number(it.horas) || 0, semanas: Number(it.semanas) || 0,
+        devengado: devengadoOf(it, sel.mode), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
+        total: Number(it.total) || 0, pagado: paidOf(it.id), saldo: saldoOf(it),
+      })),
+      bcvRate,
+      {
+        periodo: sel.name, tipo: TYPE_LABEL[sel.period_type], desde: fmtDMY(sel.date_from), hasta: fmtDMY(sel.date_to),
+        modo: MODE_LABEL[sel.mode], estado: sel.status.charAt(0).toUpperCase() + sel.status.slice(1),
+        empresa: companyName(sel.company_id),
+        cargoFiltro: cargoSel.size ? [...cargoSel].sort((a, b) => cmpText(a, b)).join(', ') : undefined,
+      }
+    );
+    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel.');
   };
 
   // Agrupar períodos por empresa.
@@ -583,6 +633,17 @@ export default function PagoPersonalScreen() {
           ) : null}
         </View>
       </View>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', flex: 1 }}>{bcvInfoTxt}</Text>
+        <TouchableOpacity
+          onPress={onRefreshBcv}
+          disabled={bcvLoading}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, opacity: bcvLoading ? 0.6 : 1 }}
+        >
+          {bcvLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔄 Actualizar tasa BCV</Text>
+        </TouchableOpacity>
+      </View>
       <TabuladorCargos visible={tabOpen} onClose={() => setTabOpen(false)} canEdit={puedeTarifa} onSynced={refetch} />
 
       {/* Cambio de vista: Por persona (ledger) / Por período (nóminas). */}
@@ -625,7 +686,10 @@ export default function PagoPersonalScreen() {
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
-                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
+                            {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(p.total_amount)}</Text> : null}
+                          </View>
                         </View>
                       </Card>
                     </TouchableOpacity>
@@ -716,12 +780,16 @@ export default function PagoPersonalScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[sel.period_type]} · {fmtDMY(sel.date_from)} → {fmtDMY(sel.date_to)} · {MODE_LABEL[sel.mode]}{sel.only_validated ? ' · solo validadas' : ''}</Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
                   <Text style={{ color: (STATUS_META[sel.status] ?? STATUS_META.borrador).color, fontWeight: '800' }}>{(STATUS_META[sel.status] ?? STATUS_META.borrador).label}</Text>
-                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
+                    {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{bsTxt(sel.total_amount)}</Text> : null}
+                  </View>
                 </View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-                  <Text style={{ color: '#087443', fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}</Text>
-                  {totalSaldo > 0 ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text> : null}
+                  <Text style={{ color: '#087443', fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}{bcvRate ? ` · ${bsTxt(totalPagado)}` : ''}</Text>
+                  {totalSaldo > 0 ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}{bcvRate ? ` · ${bsTxt(totalSaldo)}` : ''}</Text> : null}
                 </View>
+                {bcvRate ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Tasa BCV del día: {fmtBs(bcvRate)}/US$</Text> : null}
               </Card>
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -748,6 +816,9 @@ export default function PagoPersonalScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>↩ Reabrir</Text>
                   </TouchableOpacity>
                 ) : null}
+                <TouchableOpacity onPress={exportarExcel} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel</Text>
+                </TouchableOpacity>
                 <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#111827' }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
                 </TouchableOpacity>
@@ -830,6 +901,7 @@ export default function PagoPersonalScreen() {
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{usd(it.total)}</Text>
+                          {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(it.total)}</Text> : null}
                           {pagado > 0 ? <Text style={{ color: saldo > 0 ? colors.danger : '#087443', fontSize: 11, fontWeight: '700' }}>{saldo > 0 ? `saldo ${usd(saldo)}` : '✓ pagado'}</Text> : null}
                         </View>
                       </View>
@@ -976,9 +1048,16 @@ export default function PagoPersonalScreen() {
             {payFor ? (
               <>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Abonar a {payFor.person_name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Total {usd(payFor.total)} · saldo {usd(saldoOf(payFor))}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto del abono ($)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Total {usd(payFor.total)} · saldo {usd(saldoOf(payFor))}</Text>
+                {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginBottom: spacing.sm }}>≈ {bsTxt(payFor.total)} · saldo {bsTxt(saldoOf(payFor))} (tasa BCV {fmtBs(bcvRate)}/US$)</Text> : <View style={{ marginBottom: spacing.sm }} />}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Monto del abono ({pMontoCur === 'USD' ? '$' : 'Bs'})</Text>
+                  <TouchableOpacity onPress={() => setPMontoCur(pMontoCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{pMontoCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
+                  </TouchableOpacity>
+                </View>
                 <TextInput value={pMonto} onChangeText={(t) => setPMonto(onlyDecimal(t))} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {pMontoCur === 'USD' ? bsTxt(parseNum(pMonto)) : usd(usdFromBs(parseNum(pMonto), bcvRate))}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Método</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                   {METODOS.map((m) => (

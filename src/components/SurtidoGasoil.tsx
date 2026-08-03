@@ -4,9 +4,11 @@ import { supabase } from '../lib/supabase';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { caracasParts } from '../lib/jornada';
 
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
-const todayISO = () => { const d = new Date(); const p = (n: number) => `${n}`.padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+// Fecha de hoy en Caracas, independiente de la zona horaria del dispositivo.
+const todayISO = () => caracasParts(new Date()).iso;
 
 type MachInfo = {
   id: string; code: string;

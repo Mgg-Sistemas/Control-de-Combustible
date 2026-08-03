@@ -303,6 +303,13 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 Paga al **personal**. Tiene **dos vistas** (se cambian arriba): **👤 Por persona** (la
 principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Control de pago a personal**.
 
+> **💵 Tasa BCV vigente:** justo debajo del encabezado de "Pago a personal" se muestra una fila
+> con la **tasa BCV vigente** (el monto, la **fecha** y si viene del **BCV** o fue puesta a mano
+> ("manual")) junto al botón **"🔄 Actualizar tasa BCV"**, que refresca la tasa oficial desde
+> **ve.dolarapi.com**. Mientras carga, el botón se **deshabilita** y muestra un pequeño
+> **spinner**; si la actualización falla (sin internet, servicio caído, etc.) avisa con una
+> **alerta**. Esta es la misma tasa que se usa para todos los equivalentes en Bs de esta pantalla.
+
 > **👤 Por persona (vista principal):** un **listado de empleados**. Abre a una persona y verás
 > sus **datos personales**, sus **datos bancarios** y sus **tarifas**. Con **"➕ Generar pago"**
 > registras un pago por **frecuencia** — **Diario**, **Semanal**, **Quincenal** o **Mensual**. En
@@ -313,6 +320,14 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > **historial** de esa persona con el total, se puede **🖨️ Imprimir** (histórico por persona) y
 > cada movimiento se puede **✏️ Editar** o **🗑️ Borrar**. Las tarifas **Quincena** y **Mes** se
 > definen en el **🏷️ Tabulador** (igual que día/noche/semana) y se sincronizan a los empleados.
+
+> **💵 Equivalente en Bs (tasa BCV del día):** junto a cada monto en US$ —el **total** del
+> empleado, las **tarifas** de la ficha, el **total del historial** y **cada pago individual**— se
+> muestra también su equivalente en **Bs** con la tasa BCV del día. Al **"➕ Generar/Editar pago"**,
+> el campo **"Monto"** tiene un botón **"$→Bs" / "Bs→$"** para cambiar en qué moneda escribes: si
+> escribes en **Bs**, el sistema **convierte a US$ automáticamente** al guardar (siempre se guarda
+> en US$) y muestra debajo el equivalente en la otra moneda (**"≈ …"**). El **📄 Recibo** y el
+> **histórico PDF** de "Por persona" incluyen el equivalente en Bs y la tasa BCV usada.
 
 **📅 Por período (nóminas):** calcula y paga por **PRECIO por hora, día o semana**, definido **por
 trabajador**.
@@ -355,9 +370,25 @@ trabajador**.
 - **Bonos** y **Deducciones** por persona (concepto + monto): ej. *Bono producción*,
   *Adelanto*, *Préstamo*.
 - **Abonos:** con el período aprobado, **💵 Abonar** registra pagos parciales o totales
-  (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**.
+  (efectivo, pago móvil, transferencia…). Se ve el **Pagado** y el **Saldo pendiente**. En el modal
+  **"Abonar"**, el campo de **monto** también tiene el botón **"$→Bs" / "Bs→$"** con conversión
+  automática (se guarda siempre en US$), y muestra el **total/saldo** también en **Bs** (con la
+  tasa BCV del día visible).
 - **Reportes:** **🧾 Recibo** por persona y **⬇️ Reporte** del período, ambos en **PDF**.
-  El **recibo** muestra el **Total** y el **"Saldo cancelado"**.
+  El **recibo** muestra el **Total** y el **"Saldo cancelado"**. Ambos documentos incluyen además
+  los **montos equivalentes en Bs** y la **tasa BCV del día** usada.
+- **📥 Excel del período:** dentro del detalle de un período abierto, junto al botón
+  **"⬇️ Reporte"**, hay un botón verde **"📥 Excel"** (mismo alcance: respeta el **filtro de cargo**
+  activo del período). Descarga un Excel con, **por persona**, lo **trabajado** (días/noches/horas/
+  semanas), el **devengado**, los **bonos**, las **deducciones**, el **total**, lo **pagado** y el
+  **saldo** — en **US$ y en Bs** (los Bs con **fórmula real** contra la tasa BCV del día, en una
+  **celda editable**: si la cambias, todos los Bs se recalculan solos). Incluye una fila con el
+  **contexto del período** (nombre, tipo, rango de fechas, modo de pago, estado, empresa y el
+  filtro de cargo si aplica) y una fila **TOTAL** con fórmulas `SUM`. Este Excel **ya no lista
+  tarifas** del empleado (eso se retiró de Empleados, ver 4.6d).
+- **💵 Equivalente en Bs (tasa BCV del día):** los **totales de cada período**, el del **período
+  abierto** (total/pagado/saldo) y el **de cada persona** muestran también su equivalente en **Bs**
+  (con la tasa BCV del día visible).
 - **💼 Filtrar por cargo:** dentro del período hay una **lista desplegable con casillas**
   ("💼 Filtrar por cargo"). Tildas uno o varios **cargos** y la **lista de personas** y el
   **⬇️ Reporte PDF** salen **solo de esos cargos**, además **agrupados por cargo** con su
@@ -475,6 +506,10 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 
 > El reporte respeta TODO lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.
 
+> El Excel con tarifas por empleado que existía antes en esta pantalla se retiró: no correspondía
+> aquí (exportaba tarifas del empleado). El Excel de nómina ahora vive en **Nómina → Control de
+> pago a personal → Por período**, junto al **⬇️ Reporte** del período (ver 4.6b).
+
 > **Estado del empleado — "Otro":** además de **Activo / Inactivo / Suspendido**, un empleado puede
 > quedar en estado **"Otro"**. Los empleados en **"Otro"** **NO entran al control de pago**: no se
 > precargan al crear una nómina/período y **no aparecen** en **Pago a personal → Por persona** (ni
@@ -483,7 +518,10 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
-  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. Al reportar por QR,
+  material, cantidad, nota, fecha). Se marca **✓ Realizado** cuando se atiende. **Ya no muestra**
+  los tickets internos **"MÁQUINA PARADA"** (el marcador que usa Inspecciones/Control para pintar
+  una máquina como parada): esta lista trae **solo averías reales**, sin mezclarse con ese marcador.
+  Al reportar por QR,
   además de los materiales predeterminados (**🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto**) hay
   un botón **✏️ Otro** para **describir a mano** una falla distinta (ej. “no arranca”, “fuga de aceite”).
   Cada **empresa se muestra colapsada** (toca su encabezado para abrir/cerrar sus máquinas) y arriba
@@ -513,6 +551,20 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **🔧 En reparación:** máquinas que salieron a reparación.
 - **✓ Historial:** reparaciones ya cerradas.
 
+**⏱️ Alerta por horómetro (mantenimiento preventivo):** cuando una máquina acumula horas desde su
+**último mantenimiento confirmado**, aparece arriba un banner colapsable **"⏱️ N máquina(s)
+próxima(s) a mantenimiento ▸/▾"** (toca para abrir/cerrar). Los niveles son:
+- **🟡 BAJA** — 200 h acumuladas.
+- **🟠 MEDIA** — 220 h acumuladas.
+- **🔴 ALTA (máxima)** — 250 h acumuladas.
+
+Cada máquina en alerta muestra su **Serial/Código**, su **Empresa** y el **nivel de severidad**, con
+el botón **"✓ Confirmar mantenimiento y reiniciar horómetro"**: al confirmar, reinicia el conteo de
+horas acumuladas (NO toca el horómetro físico de la máquina). Esta misma alerta también sale en
+**Inspecciones**. Además, se genera una **notificación por la campana 🔔** (para admin y
+supervisor) apenas una máquina cruza un umbral, sin duplicarse el mismo día por máquina; deja de
+generarse en cuanto se confirma el mantenimiento.
+
 **Enviar una máquina a reparación:** toca **"🔧 Enviar una máquina a reparación"** (o el botón en la
 tarjeta de la máquina). Indica: **tipo** (correctivo/preventivo), **fecha de salida**, **por cuánto
 tiempo** (días estimados) y, si quieres, **qué se le va a cambiar**. Al enviarla, la máquina queda
@@ -536,8 +588,15 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > en el módulo de **Inspectores** (esta pantalla). Desde una **PC** cada quien ve la app normal
 > según su rol y la **sesión se mantiene iniciada**. El **coordinador de patio** en teléfono ve su
 > propia pantalla (jornada de camiones), no la de máquinas.
-> **Solo el administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
-> desde el teléfono (para volver a Inspectores, recarga la página).
+> **El administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
+> desde el teléfono (para volver a Inspectores, recarga la página). **Jesús Lozada** también ve
+> ese mismo botón **🗂️ SISTEMA** dentro de su Vista de Inspector (excepción puntual, igual que el
+> administrador), aunque su forma de entrar a la app en el teléfono no cambia (sigue entrando a
+> Inspectores como siempre).
+
+> **🔄 Sincronización en vivo:** las pantallas de **CHECK MÁQUINA** (asignación de máquina) y la de
+> **entrada/salida de camiones en el patio** se actualizan solas al instante en todos los
+> dispositivos, sin necesidad de refrescar a mano.
 
 > **✅ CHECK MÁQUINA (SOLO ADMINISTRADOR):** solo el **administrador** asigna las máquinas a los
 > inspectores; los inspectores **no se asignan solos** (solo ven las que el admin les puso). El admin
@@ -567,8 +626,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 - **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas** y el **horómetro
   final**; al aceptar, las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️
   día / 🌙 noche. **Regla:** ese **horómetro final será el inicial de la próxima jornada**.
-- **🟡 PARADA (marcar avería)** — pide el **motivo** (obligatorio), crea la **avería** en
-  Mantenimiento **y** marca la visita en **Inspecciones**. En Control sale **🔴 MÁQUINA PARADA**.
+- **🟡 PARADA** — al tocarlo se despliegan **2 caminos** para elegir:
+  - **🔧 Por avería** — elige el **material** (🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto ·
+    ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,
+    una **foto**. Al confirmar (**"🟡 Confirmar PARADA + avería"**) crea la solicitud en
+    **Mantenimiento de Maquinaria** y la máquina sigue saliendo **PARADA** en Inspecciones/Control.
+  - **📍 Parada / No trabajó** — motivo fijo **"NO TRABAJÓ LA MÁQUINA"**: captura la **ubicación
+    GPS** del inspector (botón **"📍 Capturar mi ubicación GPS"**) y el **edificio/referencia**. Al
+    confirmar (**"🟡 Confirmar PARADA (no trabajó)"**) **solo** se refleja en Inspecciones/Control
+    (**no** crea nada en Mantenimiento de Maquinaria).
+  - En ambos casos la máquina queda marcada **🟡 PARADA** y en Control sale **🔴 MÁQUINA PARADA**;
+    desde la ficha de la máquina sale **🟢 Volver a OPERATIVA** para revertirla.
 
 > El inspector puede marcar **cualquier** máquina (no tiene la restricción por empresa del
 > operador). El operador, en cambio, solo puede usar equipos de **su** empresa.
@@ -628,6 +696,25 @@ validar"** (máquinas que trabajaron pero que ningún inspector marcó). Con las
 cambias de día. En **"Traza por inspector"** puedes **tocar cualquier máquina** de la lista y
 te lleva a su **ficha en el Catálogo** (con todos sus datos y acciones); el **›** al final de
 cada renglón indica que es clickeable.
+
+**🟢 Jornadas de máquina (inspector):** sección dentro de Inspecciones con **todas** las
+jornadas que los inspectores inician con **🟢 INICIAR JORNADA** ese día (en curso, finalizadas,
+paradas y pendientes por iniciar); las de usuarios admin no se muestran. Trae:
+- **🔎 Buscador** por **inspector, máquina o empresa**.
+- Agrupado **por inspector** (tarjetas colapsables): cada tarjeta muestra cuántas máquinas
+  tiene, cuántas **paradas**, cuántas **por iniciar** y cuántas **en curso**. Botones
+  **"▾ Expandir todo"** / **"▸ Colapsar todo"** para abrir o cerrar todas las tarjetas de una vez.
+- Cada máquina de la lista trae su **color de estado**: **🟢 verde** = EN CURSO ·
+  **🟡 ámbar** = PARADA · **🔵 azul** = POR INICIAR (antes "por iniciar" salía en amarillo/ámbar y
+  se confundía visualmente con PARADA; ahora es **azul** para que las tres se distingan de un
+  vistazo). Tocar una máquina abre su **detalle** de la jornada.
+- Botón **"📄 Reporte resumen por inspector"** (junto a Expandir/Colapsar todo): genera un **PDF**
+  (misma vista previa/impresión que los demás reportes) con una **sección por cada inspector**:
+  cuántas máquinas tiene **asignadas**, cuántas **iniciaron jornada** (en curso o finalizada),
+  cuántas están **averiadas/paradas** y cuántas **le faltaron por iniciar**. Para las que faltaron
+  por iniciar, trae una **tabla de detalle** con: **Edificio, Modelo/Tipo de máquina, Serial/Placa,
+  Sector, Referencia y Empresa asignada**. El estado de cada máquina se calcula **por turno**
+  (día/noche) del inspector, con el mismo criterio que usa esta lista en pantalla.
 
 Cada inspector trae un **resumen de cercanía** para saber qué tan confiables fueron sus rondas:
 **✓ en sitio** (estuvo cerca, dentro de ~300 m), **⚠️ lejos** (marcó sin estar al lado) y
@@ -856,6 +943,26 @@ Genera documentos **PDF** para imprimir o compartir, eligiendo el **rango de fec
 > (lo ya pagado en el rango) y el **TOTAL PENDIENTE** (*total $ − abonado*). El detalle por
 > empresa/máquina y el total general siguen igual, más abajo.
 
+**👷 Reporte de INSPECTORES (jornadas de inspección):** dentro de Reportes, elige el tipo
+**"👷 Inspectores"**. Muestra, agrupado **por inspector**, sus máquinas asignadas con estado
+(en curso/parada/finalizada/por iniciar), horas de día/noche/total, desglose por sector y las
+ubicaciones cuando una máquina cambió de sitio. La jornada de día la firma un inspector y la
+de noche otro; al final de cada uno va su línea de firma.
+1. Elige el **Día**.
+2. Elige el **Turno**: **☀️ Día**, **🌙 Noche** o **☀️🌙 Ambos**.
+3. Debajo aparece **"Inspectores (marca uno o varios)"**: una lista de **checkboxes** con los
+   inspectores que tienen jornadas ese día/turno/empresa (se recalcula sola al cambiar la fecha,
+   el turno o las empresas marcadas arriba). Hay un checkbox **"👷 Todos"** para marcar/desmarcar
+   todos de un tirón (misma mecánica visual que el filtro de empresas), y uno por cada inspector.
+   Si la lista sale vacía, avisa *"Sin jornadas de inspección para esta fecha/turno/empresa"*.
+4. El PDF generado incluye **únicamente** a los inspectores marcados; si no marcas ninguno
+   (queda en "Todos"), salen **todos**.
+5. En el PDF, la sección **"🗺️ Máquinas que cambiaron de ubicación"** es una **tabla** (ya no una
+   lista) con las columnas: **Máquina/Equipo**, **Ubicación anterior** (sector, referencia y
+   coordenadas de origen), **Ubicación nueva** (sector, referencia y coordenadas de destino) y
+   **Hora/Fecha** (horario de Caracas) del cambio. Si una máquina cambió de sitio **varias veces**
+   en el día, sale **una fila por cada transición** consecutiva.
+
 ### 4.13. Usuarios (solo administrador)
 Para crear personas que usan el sistema y **decidir qué puede ver cada una**.
 
@@ -968,6 +1075,8 @@ Hoy te avisa cuando:
 - **📝 Inventario:** alguien monta un **requerimiento**.
 - **🛒 Compras:** se crea una **solicitud de compra**.
 - **🛠️ Control:** se guarda un **cierre de control** (con el rango de fechas y cuántas máquinas).
+- **⏱️ Mantenimiento:** una máquina **cruza un umbral de horómetro** (200/220/250 h) desde su
+  último mantenimiento confirmado — también le llega al **supervisor**, no solo al administrador.
 
 El **número rojo** sobre la campana es la cantidad **sin leer**. Toca la campana para ver la lista; toca un aviso para marcarlo leído e **ir directo al módulo**. También hay **"Marcar todo leído"**. Cada quien tiene sus propios "leídos" (que un admin lo lea no lo marca para otro) y se actualiza sola en línea.
 
@@ -999,6 +1108,53 @@ Al subir el Excel, el sistema muestra una **vista previa por máquina** con su *
 
 ---
 
+## 4.25. Notas técnicas (para quien administra el proyecto)
+
+Pendientes que requieren una acción **manual** (fuera del código) para que algunas funciones nuevas
+queden 100% operativas:
+
+- **🔴 OBLIGATORIO — Sincronización en vivo de Inspectores y patio:** ejecutar manualmente
+  `supabase/fix_realtime_publication.sql` en el **SQL Editor de producción de Supabase**. Agrega
+  `public.machine_inspectors` y `public.truck_yard_logs` a la publicación `supabase_realtime`. Sin
+  este paso, las pantallas de **CHECK MÁQUINA** y de **entrada/salida de camiones en el patio**
+  siguen sin actualizarse solas en todos los dispositivos.
+  - Nota: `supabase/inspector_asignacion.sql` ya intentaba agregar `machine_inspectors` a la
+    publicación al final del archivo; si ese script ya corrió en producción, esa parte del fix es
+    un no-op inofensivo.
+  - La tabla `truck_yard_logs` no tiene un `CREATE TABLE` versionado en el repositorio (se creó
+    directo en el SQL Editor de producción); conviene documentar/crear su DDL en un archivo
+    versionado para no depender solo de la memoria del entorno de producción.
+- **🔴 OBLIGATORIO — Alertas por horómetro:** ejecutar `supabase/horometro_alertas.sql` en
+  producción. Agrega la columna `machinery.horometro_base`, hace el **backfill** inicial (las
+  máquinas sin mantenimiento registrado arrancan en 0 h acumuladas, igualadas a su horómetro
+  actual) y crea el **trigger/función** que dispara la notificación por la campana. Si se prefiere
+  otro criterio de arranque para alguna máquina, ajustar manualmente esa columna después de correr
+  el script.
+  - Los **umbrales** (200/220/250 h) están escritos por partida doble, en
+    `supabase/horometro_alertas.sql` y en `src/lib/horometroAlertas.ts`: si cambian, hay que editar
+    **ambos** archivos en conjunto.
+- **No requieren SQL nuevo** (reutilizan tablas/columnas ya existentes):
+  - El filtro de inspectores y la tabla de ubicaciones del **Reporte de INSPECTORES** (usa
+    `machine_inspectors.shift` y `supervisor_visits.visited_at`, ya existentes).
+  - El **Reporte resumen por inspector** (usa `machine_rounds`, `maintenance_requests`,
+    `machine_inspectors` y `machinery`, sin cambios de esquema).
+  - Los equivalentes en **Bs (BCV)** de Nómina/Pago a personal y el **Excel de Pago a personal**
+    (la tasa BCV ya se guarda en la tabla existente `bcv_rates`).
+- **Pendiente de revisión visual** (no bloquea el uso, pero conviene chequear cuando se pueda):
+  - El salto de página de la nueva **tabla de cambios de ubicación** del Reporte de INSPECTORES,
+    con un caso real de máquina con 2+ cambios de ubicación en el día.
+  - El layout de las nuevas líneas en **Bs** dentro de las tarjetas de Pago a Personal (se agregó
+    texto/alto extra en varias tarjetas): revisar en el navegador (`npm run web`).
+  - El botón **"📄 Reporte resumen por inspector"** se validó con `npx tsc --noEmit` (sin errores)
+    pero no se probó todavía en un navegador real.
+- **Pendiente de decisión del usuario:**
+  - Confirmar si el match de **"JESÚS LOZADA"** para el botón 🗂️ SISTEMA en la Vista de Inspector
+    (por nombre completo, sin distinguir mayúsculas/tildes) es suficiente, o si se prefiere
+    matchear por **cédula/ID de perfil** en vez de `full_name` (el nombre podría cambiar si se
+    edita el perfil).
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
@@ -1013,6 +1169,11 @@ Al subir el Excel, el sistema muestra una **vista previa por máquina** con su *
 - **🔄 Actualizaciones:** cuando se publica una versión nueva del sistema, aparece abajo una
   **barra azul** que dice *"Sistema en proceso de actualización"*. Toca el botón **ACTUALIZAR**
   y la página se refresca con la versión nueva. Ya no hace falta refrescar a mano.
+- **🕒 La "fecha de hoy" siempre es la de Caracas:** en TODAS las pantallas (móvil y web), cuando
+  el sistema calcula "la fecha/hora de hoy" (por ejemplo, la fecha por defecto de un nuevo período
+  de nómina, un abono, un filtro de fecha o un envío a reparación), usa el **horario de Caracas
+  (America/Caracas)**, **no** el reloj/zona horaria del dispositivo del usuario. Es una garantía
+  del sistema: no cambia según la configuración del teléfono o el navegador de quien lo usa.
 
 ---
 

@@ -10,6 +10,8 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { supabase } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
+import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
+import { caracasParts } from '../lib/jornada';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { spacing, radius } from '../theme';
@@ -26,7 +28,7 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
   { key: 'otro', label: 'Otro', icon: '✏️' },
 ];
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
-const todayISO = () => { const d = new Date(); const p = (n: number) => `${n}`.padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
+const todayISO = () => caracasParts(new Date()).iso;
 const fmtDMY = (iso?: string | null) => { if (!iso) return '—'; const [y, m, d] = String(iso).split('T')[0].split('-'); return y && m && d ? `${d}/${m}/${y}` : String(iso); };
 function fmtDT(iso: string | null): string {
   if (!iso) return '';
@@ -45,7 +47,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
-type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean };
+type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean; last_horometro: number | null; horometro_base: number | null };
 
 type Tab = 'averias' | 'reparacion' | 'historial' | 'reporte';
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -101,6 +103,7 @@ export default function MantenimientoMaquinariaScreen() {
   const [avPhotoUp, setAvPhotoUp] = useState(false);
   const [avBusy, setAvBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [horoOpen, setHoroOpen] = useState(false); // banner de alertas por horómetro (colapsable)
 
   // Grupos de empresa colapsados en la pestaña Averías (empresa → abierto/cerrado).
   const [avOpen, setAvOpen] = useState<Record<string, boolean>>({});
@@ -121,9 +124,12 @@ export default function MantenimientoMaquinariaScreen() {
   const load = async () => {
     setLoading(true);
     const [{ data: mr }, { data: rp }, { data: mac }, { data: profs }] = await Promise.all([
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').order('created_at', { ascending: false }),
+      // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
+      // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
+      // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
+      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
-      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, company:company_id(name)').eq('active', true).order('code'),
+      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
     ]);
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
@@ -131,7 +137,7 @@ export default function MantenimientoMaquinariaScreen() {
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
-    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false })));
+    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -188,6 +194,36 @@ export default function MantenimientoMaquinariaScreen() {
     repairs.forEach((r) => { if (r.status === 'en_reparacion' && !m.has(r.machinery_id)) m.set(r.machinery_id, r); });
     return m;
   }, [repairs]);
+
+  // ── Alertas por HORÓMETRO (mantenimiento preventivo) ────────────────────────
+  // Máquinas activas que acumularon 200h+ desde su último mantenimiento
+  // confirmado (horometro_base). Se ordenan por severidad (ALTA primero).
+  const horometroAlertas = useMemo(() => {
+    return machines
+      .map((m) => ({ m, alerta: horometroAlertaDe(m.last_horometro, m.horometro_base) }))
+      .filter((x): x is { m: Mach; alerta: HorometroAlerta } => !!x.alerta)
+      .sort((a, b) => NIVEL_RANK[a.alerta.nivel] - NIVEL_RANK[b.alerta.nivel] || b.alerta.horas - a.alerta.horas);
+  }, [machines]);
+
+  // Confirma el mantenimiento de una máquina: reinicia su "horómetro base" al
+  // horómetro actual (NO toca el horómetro físico/last_horometro). Las horas
+  // acumuladas vuelven a 0 y la alerta deja de generarse.
+  const [confirmingHoro, setConfirmingHoro] = useState<string | null>(null);
+  const confirmarMantenimientoHorometro = async (m: Mach) => {
+    if (m.last_horometro == null) return;
+    const ok = await confirm({
+      title: 'Confirmar mantenimiento',
+      message: `¿Confirmas que a "${m.code}" ya se le hizo el mantenimiento? Se reinicia el conteo de horas acumuladas (horómetro actual: ${m.last_horometro}).`,
+      confirmText: 'Sí, confirmar y reiniciar', cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    setConfirmingHoro(m.id);
+    const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro }).eq('id', m.id);
+    setConfirmingHoro(null);
+    if (error) return Alert.alert('Aviso', error.message);
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro } : x)));
+    setNotice(`✅ Mantenimiento confirmado en ${m.code} · horómetro reiniciado.`);
+  };
 
   const marcarRealizado = async (r: Req) => {
     const ok = await confirm({ title: 'Mantenimiento realizado', message: `¿Marcar como REALIZADO el ${matLabel(r.material)} de "${r.code}"?`, confirmText: 'Sí, realizado', cancelText: 'Cancelar' });
@@ -378,6 +414,25 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       ) : null}
 
+      {/* ── Alertas por HORÓMETRO: máquinas próximas a mantenimiento (200h/220h/250h) ── */}
+      {horometroAlertas.length > 0 ? (
+        <TouchableOpacity activeOpacity={0.8} onPress={() => setHoroOpen((v) => !v)} style={{ marginBottom: spacing.sm }}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: horometroAlertas[0].alerta.color, borderRadius: radius.md, padding: spacing.md }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>⏱️ {horometroAlertas.length} máquina(s) próxima(s) a mantenimiento {horoOpen ? '▾' : '▸'}</Text>
+            {horoOpen ? horometroAlertas.map(({ m, alerta }) => (
+              <View key={m.id} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🚜 {m.code}{m.serial ? ` · #️⃣ ${m.serial}` : ''}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company}</Text>
+                <Text style={{ color: alerta.color, fontWeight: '800', fontSize: 12, marginTop: 2 }}>Próxima a mantenimiento · {alerta.label} · {alerta.horas} h acumuladas</Text>
+                <TouchableOpacity onPress={() => confirmarMantenimientoHorometro(m)} disabled={confirmingHoro === m.id} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center', opacity: confirmingHoro === m.id ? 0.6 : 1 }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{confirmingHoro === m.id ? 'Guardando…' : '✓ Confirmar mantenimiento y reiniciar horómetro'}</Text>
+                </TouchableOpacity>
+              </View>
+            )) : null}
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
           <Text style={{ color: '#fff', fontWeight: '800' }}>📷 Escanear · reportar avería</Text>
@@ -414,7 +469,7 @@ export default function MantenimientoMaquinariaScreen() {
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true };
+                const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true, last_horometro: null, horometro_base: null };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>

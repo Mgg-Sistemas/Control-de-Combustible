@@ -9,6 +9,7 @@ import { TankLevel } from '../types/database';
 import { workedFromShifts, PERIODO_INICIO, PERIODO_CORTE } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { caracasParts } from '../lib/jornada';
 
 function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
   if (pct === null) return 'warning';
@@ -22,15 +23,13 @@ const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLo
 const PALETTE = ['#2563EB', '#16A34A', '#F59E0B', '#DC2626', '#7C3AED', '#0891B2', '#DB2777', '#65A30D', '#EA580C', '#0D9488'];
 
 function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}-${`${d.getDate()}`.padStart(2, '0')}`;
+  // Fecha de HOY según la hora de Caracas (no la zona horaria del dispositivo).
+  return caracasParts(new Date()).iso;
 }
 /** Rango [desde, hasta] según el modo (día de hoy / mes actual / año actual). */
 function rangeForMode(mode: 'dia' | 'mes' | 'anio'): [string, string] {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, '0');
   const to = todayISO();
+  const [y, m] = to.split('-');
   if (mode === 'dia') return [to, to];
   if (mode === 'mes') return [`${y}-${m}-01`, to];
   return [`${y}-01-01`, to];
