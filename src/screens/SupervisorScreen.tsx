@@ -5,7 +5,7 @@ import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { EDIFICIOS } from '../lib/edificios';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
@@ -121,6 +121,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
   const [checkInspector, setCheckInspector] = useState<{ id: string; name: string } | null>(null);
   const [inspQuery, setInspQuery] = useState('');
+  // CHECK · modo "🕓 Pendientes por asignar": máquinas que quedaron sin inspector en
+  // algún turno (p. ej. al borrar un inspector, sus máquinas caen aquí). Buscable.
+  const [pendOpen, setPendOpen] = useState(false);
+  const [pendQuery, setPendQuery] = useState('');
   // Asignar/reasignar inspector DESDE una máquina (lista "Todas las máquinas", solo
   // admin). No hay que elegir inspector primero: se abre la máquina y se le pone el
   // inspector de día/noche. Sincroniza en vivo (machine_inspectors + realtime).
@@ -351,6 +355,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const q = norm(checkQuery.trim());
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
+  // 🕓 PENDIENTES POR ASIGNAR: máquinas a las que les falta inspector en DÍA y/o NOCHE
+  // (quedaron sin dueño, p. ej. al borrar un inspector). Buscable. Se ordenan primero
+  // las que no tienen NINGÚN turno asignado. Se reasignan con el modal 👮 por máquina.
+  const faltaTurno = (m: Mach) => {
+    const s = assignMap[m.id] || {};
+    return { day: !s.day?.id, night: !s.night?.id };
+  };
+  const pendientesList = useMemo(() => {
+    const q = norm(pendQuery.trim());
+    return machines
+      .filter((m) => { const f = faltaTurno(m); return f.day || f.night; })
+      .filter((m) => matchQuery(m, q))
+      .sort((a, b) => {
+        const asg = (m: Mach) => { const s = assignMap[m.id] || {}; return (s.day?.id ? 1 : 0) + (s.night?.id ? 1 : 0); };
+        const d = asg(a) - asg(b);                 // 0 asignaciones (sin nada) primero
+        return d !== 0 ? d : cmpText(a.code, b.code);
+      });
+  }, [machines, assignMap, pendQuery]);
+  const pendientesCount = useMemo(
+    () => machines.reduce((n, m) => { const f = faltaTurno(m); return n + (f.day || f.night ? 1 : 0); }, 0),
+    [machines, assignMap]
+  );
 
   // ── REGLA DE TURNOS DEL INSPECTOR ──────────────────────────────────────────
   // El inspector solo puede iniciar jornada de SU turno asignado (día/noche) en
@@ -1084,10 +1110,54 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             </TouchableOpacity>
           </View>
 
-          {!checkInspector ? (
+          {!checkInspector && pendOpen ? (
+            // ── PENDIENTES POR ASIGNAR: máquinas sin inspector en día y/o noche ──
+            <>
+              <TouchableOpacity onPress={() => { setPendOpen(false); setPendQuery(''); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Volver a inspectores</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🕓 Pendientes por asignar <Text style={{ color: colors.warning }}>({pendientesCount})</Text></Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+                Máquinas sin inspector en algún turno (p. ej. quedaron sin dueño al borrar un inspector). Toca <Text style={{ fontWeight: '800', color: colors.primary }}>👮 Asignar inspector</Text> para reasignarlas a cualquiera.
+              </Text>
+              <TextInput value={pendQuery} onChangeText={setPendQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+              <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+                {pendientesList.slice(0, 200).map((m) => {
+                  const f = faltaTurno(m);
+                  const slots = assignMap[m.id] || {};
+                  const edif = edificioDe(m);
+                  return (
+                    <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                      <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {m.code}</Text>
+                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: f.day ? colors.warning : colors.success }}>{f.day ? '☀️ falta día' : `☀️ ${slots.day?.name}`}</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: f.night ? colors.warning : colors.success }}>{f.night ? '🌙 falta noche' : `🌙 ${slots.night?.name}`}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => { setAssignFor(m); setPickShift(f.day ? 'day' : 'night'); setAssignForQuery(''); }} style={{ alignSelf: 'flex-start', borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>👮 Asignar inspector</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+                {pendientesList.length === 0 ? <EmptyState title="Nada pendiente 🎉" subtitle="Todas las máquinas tienen inspector de día y de noche." /> : null}
+                <View style={{ height: spacing.xl }} />
+              </ScrollView>
+            </>
+          ) : !checkInspector ? (
             // ── PASO 1: elegir a qué inspector se le asignarán máquinas ──────────
             <>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Selecciona el inspector al que le vas a asignar máquinas.</Text>
+              {/* Acceso directo a las máquinas que quedaron sin inspector. */}
+              <TouchableOpacity onPress={() => { setPendOpen(true); setPendQuery(''); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.warning, backgroundColor: colors.surface, marginBottom: spacing.sm }}>
+                <Text style={{ fontSize: 20 }}>🕓</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900' }}>Pendientes por asignar</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>{pendientesCount > 0 ? `${pendientesCount} máquina(s) sin inspector en algún turno` : 'Todo asignado'}</Text>
+                </View>
+                <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{pendientesCount > 0 ? pendientesCount : '✓'}</Text>
+              </TouchableOpacity>
               <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => !inspQuery.trim() || norm(p.name).includes(norm(inspQuery.trim()))).map((p) => {
