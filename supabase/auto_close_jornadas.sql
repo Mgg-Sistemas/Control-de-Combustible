@@ -1,8 +1,9 @@
 -- ============================================================================
 -- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — VERSIÓN CORREGIDA (2026-08-02):
---   • Jornada de DÍA  cierra a las 7:00pm.
---   • Jornada de NOCHE cierra a las 7:00am (del día siguiente).
--- Excepto VOLTEO / TORONTO / VOLQUETAS (usan el flujo de patio de camiones).
+--   • Jornada de DÍA  cierra a las 7:00pm — EXCEPTO VOLTEO/TORONTO/VOLQUETAS
+--     (esos usan el flujo de patio de camiones de día).
+--   • Jornada de NOCHE cierra a las 7:00am (del día siguiente) — TODAS las máquinas,
+--     incluidos VOLTEO/TORONTO/VOLQUETAS (petición: cerrar TODO lo de noche a las 7am).
 -- Corre CADA 10 MIN con pg_cron.
 --
 -- FIX vs la versión anterior (que "perdía horas"): ahora SOLO cierra la jornada si
@@ -17,19 +18,22 @@ create extension if not exists pg_cron;
 
 create or replace function public.auto_close_jornadas() returns void
 language plpgsql security definer set search_path = public as $$
-declare r record; end_ts timestamptz; hrs numeric;
+declare r record; end_ts timestamptz; hrs numeric; es_camion boolean;
 begin
   for r in
     select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mch.code
     from public.machine_rounds mr
     join public.machinery mch on mch.id = mr.machinery_id
     where mr.jornada_start_at is not null
-      and lower(coalesce(mch.code, '')) !~ 'volteo|toronto|volqueta'
   loop
+    es_camion := lower(coalesce(r.code, '')) ~ 'volteo|toronto|volqueta';
     -- Fin del turno (hora Caracas): día = 7pm del round_date; noche = 7am del día siguiente.
     if r.jornada_shift = 'night' then
+      -- NOCHE: se cierran TODAS las máquinas a las 7am (incluidos camiones).
       end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';
     else
+      -- DÍA: los camiones NO se autocierran aquí (usan el flujo de patio de camiones).
+      if es_camion then continue; end if;
       end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
     -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
