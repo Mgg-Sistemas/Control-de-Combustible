@@ -1139,7 +1139,7 @@ export default function SupervisionScreen({ navigation }: any) {
                       <Text style={{ color: '#D9A200', fontWeight: '900', fontSize: 12 }}>⏳ Por iniciar</Text>
                     ) : j.enCurso ? (
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
+                        <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
                         {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
                       </View>
                     ) : (
