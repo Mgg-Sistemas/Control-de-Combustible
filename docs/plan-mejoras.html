@@ -1,0 +1,217 @@
+<title>Plan de mejoras · Control de Combustible</title>
+<style>
+  :root{
+    --bg:#f6f5f2; --surface:#ffffff; --ink:#1c1a17; --muted:#6b655c;
+    --line:#e4e0d8; --accent:#c8791b; --accent-soft:#f4e6d2;
+    --alta:#c0392b; --media:#c8791b; --baja:#4b7a3f;
+    --done:#2f7d4f; --done-soft:#e2f1e8;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#16140f; --surface:#211d17; --ink:#f0ece4; --muted:#a29a8c;
+      --line:#332e26; --accent:#e6a63d; --accent-soft:#3a2d16;
+      --alta:#ef6a5c; --media:#e6a63d; --baja:#7bbf6a;
+      --done:#6cc38c; --done-soft:#1e3327;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f6f5f2; --surface:#ffffff; --ink:#1c1a17; --muted:#6b655c; --line:#e4e0d8;
+    --accent:#c8791b; --accent-soft:#f4e6d2; --alta:#c0392b; --media:#c8791b; --baja:#4b7a3f;
+    --done:#2f7d4f; --done-soft:#e2f1e8; --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+  }
+  :root[data-theme="dark"]{
+    --bg:#16140f; --surface:#211d17; --ink:#f0ece4; --muted:#a29a8c; --line:#332e26;
+    --accent:#e6a63d; --accent-soft:#3a2d16; --alta:#ef6a5c; --media:#e6a63d; --baja:#7bbf6a;
+    --done:#6cc38c; --done-soft:#1e3327; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:32px 20px 80px}
+  header.top{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:8px}
+  .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-size:clamp(26px,5vw,38px);margin:.15em 0 .1em;letter-spacing:-.02em;text-wrap:balance}
+  .sub{color:var(--muted);font-size:15px;max-width:60ch}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  .chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;letter-spacing:.02em;
+    border:1px solid var(--line);white-space:nowrap}
+  .p-alta{color:#fff;background:var(--alta);border-color:transparent}
+  .p-media{color:#3a2d0a;background:var(--media);border-color:transparent}
+  .p-baja{color:#fff;background:var(--baja);border-color:transparent}
+  .eff{color:var(--muted);background:transparent}
+  h2{font-size:20px;margin:38px 0 4px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2 .n{font-size:13px;color:var(--accent);font-weight:800;font-variant-numeric:tabular-nums}
+  .sec-note{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;margin-bottom:12px;box-shadow:var(--shadow)}
+  .card.feat{border-color:var(--accent);border-width:1.5px}
+  .card h3{margin:0 0 2px;font-size:16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .card .meta{display:flex;gap:6px;margin-left:auto}
+  .card p{margin:6px 0;font-size:14px}
+  .card p.why{color:var(--muted)}
+  .card p.fix{color:var(--ink)}
+  .card .fix b{color:var(--accent)}
+  code{background:var(--accent-soft);color:var(--ink);padding:1px 6px;border-radius:6px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  .flow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  @media(max-width:560px){.flow{grid-template-columns:1fr}}
+  .branch{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--bg)}
+  .branch h4{margin:0 0 6px;font-size:14px}
+  .branch.averia h4{color:var(--alta)} .branch.notrab h4{color:var(--baja)}
+  .branch ul{margin:6px 0 0;padding-left:18px} .branch li{font-size:13px;margin:3px 0}
+  .done{background:var(--done-soft);border:1px solid transparent;border-radius:14px;padding:16px 18px;margin:8px 0 4px}
+  .done h3{margin:0 0 6px;font-size:15px;color:var(--done)}
+  .done ul{margin:0;padding-left:18px} .done li{font-size:13.5px;margin:3px 0}
+  ol.order{counter-reset:s;list-style:none;padding:0;margin:14px 0 0}
+  ol.order li{position:relative;padding:10px 0 10px 42px;border-top:1px solid var(--line);font-size:14px}
+  ol.order li:before{counter-increment:s;content:counter(s);position:absolute;left:0;top:8px;
+    width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:800;
+    font-size:13px;display:flex;align-items:center;justify-content:center}
+  footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Auditoría de código · backend + frontend</div>
+    <h1>Plan de mejoras — Control de Combustible</h1>
+    <p class="sub">Revisión de <code>supabase/</code> (schema, triggers, RLS, cron) y de la app Expo (theme, componentes, pantallas de inspecciones, pagos, inventario). Lo ordené por impacto y esfuerzo, con el nuevo rediseño de <b>máquina parada</b> de primero.</p>
+    <div class="legend">
+      <span class="chip p-alta">Alta prioridad</span>
+      <span class="chip p-media">Media</span>
+      <span class="chip p-baja">Baja</span>
+      <span class="chip eff">◷ esfuerzo estimado</span>
+    </div>
+  </header>
+
+  <h2><span class="n">00</span> Rediseño: marcar máquina parada</h2>
+  <p class="sec-note">Lo que acabas de pedir. Hoy “parada” es un solo motivo libre en <code>maintenance_requests</code> (SupervisorScreen ~700). Propuesta: dividir en dos caminos.</p>
+
+  <div class="card feat">
+    <h3>Dos opciones al marcar parada <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <div class="flow">
+      <div class="branch averia">
+        <h4>🔧 Por avería</h4>
+        <ul>
+          <li>Describir la falla (texto).</li>
+          <li>Elegir material que necesita: caucho, aceite, filtro, batería… (lista + “otro”).</li>
+          <li>Se crea/actualiza en <b>Mantenimiento de Maquinaria</b> con el material requerido → aparece en su módulo.</li>
+          <li>Sigue mostrándose como 🟡 parada en Inspecciones.</li>
+        </ul>
+      </div>
+      <div class="branch notrab">
+        <h4>🚧 Parada / No trabajó</h4>
+        <ul>
+          <li>Motivo fijo: <code>NO TRABAJÓ LA MÁQUINA</code>.</li>
+          <li>Se toma la ubicación (GPS) y la dirección: <b>edificio · referencia · sector</b>, y se guarda dentro del texto.</li>
+          <li><b>Solo</b> se muestra en el módulo de Inspecciones (no va a Mantenimiento).</li>
+        </ul>
+      </div>
+    </div>
+    <p class="fix"><b>Cómo:</b> selector de tipo en el modal de parada; avería → material + <code>machinery_repairs</code>/mantenimiento; no-trabajó → dirección + coords en <code>notes</code> y marca que lo excluye del módulo de mantenimiento. Requiere confirmar contigo la lista de materiales y cómo se vincula exactamente al módulo de mantenimiento antes de codificar.</p>
+  </div>
+
+  <h2><span class="n">01</span> Efecto visual / UX</h2>
+  <p class="sec-note">El theme (<code>src/theme</code>) está bien hecho pero las pantallas lo ignoran: ~750 colores fijos, sin pull-to-refresh, feedback roto en web.</p>
+
+  <div class="card">
+    <h3>Modo oscuro roto en varios paneles <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Fondos claros fijos con texto oscuro (<code>SupervisorScreen 1317–1425</code>: <code>#FDECEC</code>, <code>#E8F5EC</code>, <code>#12356B</code>) quedan ilegibles en oscuro.</p>
+    <p class="fix"><b>Fix:</b> usar <code>colors.success/danger</code> + alpha para el fondo y <code>colors.text</code> para el texto.</p>
+  </div>
+  <div class="card">
+    <h3>Feedback invisible en web (174 <code>Alert.alert</code>) <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Los avisos de éxito/error usan <code>Alert.alert</code>, que no funciona en web (lo dice el propio <code>ConfirmProvider</code>). Las confirmaciones ya migraron a <code>useConfirm</code>; los avisos no.</p>
+    <p class="fix"><b>Fix:</b> un <code>ToastProvider</code> (como ConfirmProvider) y enrutar todo éxito/error por ahí.</p>
+  </div>
+  <div class="card">
+    <h3>Spinner que “blanquea” la pantalla + sin pull-to-refresh <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">~15 pantallas hacen <code>if(loading) return &lt;Loading/&gt;</code> borrando todo; y no existe <code>RefreshControl</code> en toda la app.</p>
+    <p class="fix"><b>Fix:</b> skeletons de <code>Card</code> conservando la cabecera + prop <code>onRefresh</code> en <code>Screen</code>.</p>
+  </div>
+  <div class="card">
+    <h3>Estados sin sistema: badges y colores duplicados <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why"><code>#1E9E4A/#D9A200/#D22B2B</code> redefinidos en 6+ pantallas; el componente <code>Badge</code> casi no se usa; fuentes de 10–11px por todos lados.</p>
+    <p class="fix"><b>Fix:</b> helper único <code>statusColor()</code> + <code>&lt;StatusBadge&gt;</code> tonal; subir metadatos a 12–13px.</p>
+  </div>
+
+  <h2><span class="n">02</span> Funcionalidad</h2>
+  <p class="sec-note">Huecos de negocio y casos borde detectados en jornadas, reportes y notificaciones.</p>
+
+  <div class="card">
+    <h3>Jornada de noche cruzando medianoche cierra en el día equivocado <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">El cierre manual usa <code>caracasToday()</code> (SupervisorScreen ~676): si inicia 22:00 y finaliza 01:00, suma horas al día siguiente y el round original queda “en curso”, luego el cron descuadra.</p>
+    <p class="fix"><b>Fix:</b> finalizar contra el <code>round_date</code> en que se inició (como ya hace el cron), no contra hoy.</p>
+  </div>
+  <div class="card">
+    <h3>Horómetro final sin validar ≥ inicial <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Acepta un final menor al inicial y lo arrastra como inicial de la próxima jornada → dato basura que se propaga.</p>
+    <p class="fix"><b>Fix:</b> avisar/validar <code>final ≥ inicial</code> al iniciar y cerrar; marcar la anomalía en Histórico.</p>
+  </div>
+  <div class="card">
+    <h3>Reporte “Estado de máquinas” sin firma ni totales <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>inspectorEstadoReport.ts</code> no lleva firma ni total consolidado (el reporte por inspector sí).</p>
+    <p class="fix"><b>Fix:</b> totales por sección + total del día + bloque de firma del responsable.</p>
+  </div>
+  <div class="card">
+    <h3>Notificaciones solo in-app · exportar Excel casi ausente <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">No hay push (<code>expo-notifications</code>); averías/paradas/deudas no llegan con la app cerrada. Excel solo existe en Inventario; Pagos/Nómina exportan solo PDF.</p>
+    <p class="fix"><b>Fix:</b> push tokens + envío desde cron/edge; reusar <code>buildXlsx</code> en Pagos y Nómina.</p>
+  </div>
+
+  <h2><span class="n">03</span> Backend · seguridad · datos</h2>
+  <p class="sec-note">Lo más delicado. La sesión anónima del QR es rol <code>authenticated</code>, y varias políticas usan <code>using(true)</code>.</p>
+
+  <div class="card">
+    <h3>⚠️ Sueldos y datos bancarios visibles para la sesión anónima <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>employees_read</code>, <code>staff_pay_items/payments</code>, <code>staff_payments</code>, <code>company_payments</code> usan <code>using(true)</code> → quien escanea un QR (anónimo) puede leer <code>base_salary</code>, <code>bank_account</code>, montos.</p>
+    <p class="fix"><b>Fix:</b> cambiar esas políticas a <code>using (not public.is_anon())</code>, como ya hace <code>payrolls</code>.</p>
+  </div>
+  <div class="card">
+    <h3>⚠️ <code>schema.sql</code> no instala en limpio (<code>staff_pay_config</code> falta) <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Se le hace <code>alter/enable RLS</code> pero nunca se crea la tabla → el script aborta. Además hay deriva: <code>profiles.cedula</code>, <code>machinery.viajes</code>, <code>truck_yard_logs</code> existen solo en la BD real, no en el repo.</p>
+    <p class="fix"><b>Fix:</b> crear la tabla y regenerar el schema/tipos con <code>supabase db pull</code> + <code>gen types</code> para que el repo reproduzca la BD.</p>
+  </div>
+  <div class="card">
+    <h3>Realtime incompleto → pantallas que no se refrescan solas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Fuera de la publicación: <code>dispatches</code>, <code>fuel_intakes</code>, <code>transfers</code>, <code>stock_movements</code>, compras, nómina… y <code>attendance</code> falla al publicarse en instalación limpia (orden de creación).</p>
+    <p class="fix"><b>Fix:</b> mover el bloque de publicación al final del schema y añadir las tablas operativas que usan <code>useTable</code>.</p>
+  </div>
+  <div class="card">
+    <h3><code>useTable</code> no pagina → se corta en 1000 filas <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">PostgREST corta en ~1000; en <code>machine_rounds</code>, <code>attendance</code>, <code>staff_payments</code> las listas y totales salen por debajo de lo real, en silencio.</p>
+    <p class="fix"><b>Fix:</b> paginar dentro de <code>useTable</code> (o usar <code>selectAllRows</code>) para tablas que crecen.</p>
+  </div>
+  <div class="card">
+    <h3>Stock: condición de carrera en despacho/traslado <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Dos despachos concurrentes pueden pasar ambos la validación de stock y dejar el tanque negativo; falta índice <code>(source_table, source_id)</code> en <code>stock_movements</code>.</p>
+    <p class="fix"><b>Fix:</b> <code>select … for update</code> del tanque en el trigger + índice.</p>
+  </div>
+
+  <div class="done">
+    <h3>✓ Ya hecho hoy</h3>
+    <ul>
+      <li>“● En curso” en <b>verde</b> en el módulo de Inspecciones.</li>
+      <li>Auto-cierre nocturno: <b>todas</b> las máquinas cierran a las 7am (incluidos camiones); de día siguen exentos.</li>
+      <li>Lista <b>🕓 Pendientes por asignar</b> en el CHECK (buscable + reasignar a cualquiera).</li>
+      <li>Usuario <b>ENDER MEJIA</b> eliminado; sus máquinas cayeron a pendientes.</li>
+      <li>Nota BD: los FK de borrado de usuario ya están en <code>SET NULL/CASCADE</code> en el schema del repo (falta aplicarlo a la BD real: hoy hubo que liberar <code>machinery_locations</code> a mano).</li>
+    </ul>
+  </div>
+
+  <h2><span class="n">04</span> Orden sugerido</h2>
+  <ol class="order">
+    <li><b>Máquina parada — avería vs no trabajó</b> (lo que pediste). Confirmamos lista de materiales + vínculo a mantenimiento y lo codifico.</li>
+    <li><b>Seguridad BD</b>: cerrar PII a la sesión anónima + arreglar <code>staff_pay_config</code>. Rápido y crítico.</li>
+    <li><b>Cierre de jornada nocturna</b> contra su <code>round_date</code> (evita descuadres).</li>
+    <li><b>ToastProvider</b> + arreglar modo oscuro de los paneles fijos.</li>
+    <li><b>Realtime</b> completo + <code>useTable</code> paginado.</li>
+    <li><b>Pulido</b>: StatusBadge, skeletons, pull-to-refresh, Excel en Pagos/Nómina.</li>
+  </ol>
+
+  <footer>
+    Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones). Dime por cuál arrancamos — sugiero el punto 00.
+  </footer>
+</div>
