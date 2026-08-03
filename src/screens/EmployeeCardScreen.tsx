@@ -52,12 +52,14 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       // Si se abrió por QR sin sesión, iniciar una anónima para poder leer la ficha.
       const { data: s } = await supabase.auth.getSession();
       if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
-      const { data } = await supabase
-        .from('employees')
-        .select('*, company:company_id(name)')
-        .eq('id', employeeId)
-        .maybeSingle();
-      const e = data ? ({ ...(data as any), companyName: (data as any).company?.name ?? 'Sin empresa' }) : null;
+      const anon = !s.session || !!(s.session as any)?.user?.is_anonymous;
+      // Sesión anónima (QR público del carnet): solo datos públicos, vía RPC —
+      // NUNCA sueldo/banco. Sesión real (módulo Empleados): fila completa.
+      const { data } = anon
+        ? await supabase.rpc('employee_public_lookup', { p_id: employeeId }).then((r) => ({ data: (r.data as any)?.[0] ?? null }))
+        : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
+      const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
+      const e = data ? ({ ...(data as any), companyName: companyName ?? 'Sin empresa' }) : null;
       setEmp(e);
 
       // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no

@@ -72,8 +72,10 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
   if (!first || !last || !ci) return { ok: false, error: 'Completa nombre, apellido y cédula.' };
 
   // Blindaje: la cédula debe ser de un empleado en NÓMINA con cargo permitido.
-  const { data: empRows } = await supabase.from('employees').select('cargo, company_id').eq('cedula', ci).limit(1);
-  const emp = (empRows && (empRows[0] as any)) ?? null;
+  // RPC pública (sin sueldo/datos bancarios): esta llamada corre bajo sesión
+  // anónima del QR de máquina, así que no puede leer employees directo.
+  const { data: empRows } = await supabase.rpc('employee_public_lookup', { p_cedula: ci });
+  const emp = (empRows && (empRows as any)[0]) ?? null;
   const empCargo = emp?.cargo ?? null;
   if (!empCargo) return { ok: false, error: 'Esa cédula no está en nómina. Solo personal de nómina puede iniciar jornada.' };
   if (!isOperatorCargo(empCargo)) return { ok: false, error: `Cargo "${empCargo}" no autorizado. Solo OPERADORES, CHOFERES, SERVICIOS GENERALES u OBREROS pueden iniciar jornada.` };

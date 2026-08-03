@@ -169,20 +169,17 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
   }, []);
 
   // Vínculo con RRHH: al escribir la cédula (solo dígitos), buscar en Empleados y
-  // autocompletar nombre/apellido. La lectura de employees es pública (sirve por QR).
+  // autocompletar nombre/apellido. Corre bajo sesión anónima del QR de máquina,
+  // así que usa la RPC pública (sin sueldo/datos bancarios), no la tabla directa.
   useEffect(() => {
     const ci = opCedula.trim();
     if (ci.length < 6) { setEmpMatch(null); setEmpSearching(false); return; }
     let cancel = false;
     setEmpSearching(true);
     const t = setTimeout(async () => {
-      const { data } = await supabase
-        .from('employees')
-        .select('first_name, last_name, cargo, cedula')
-        .eq('cedula', ci)
-        .limit(1);
+      const { data } = await supabase.rpc('employee_public_lookup', { p_cedula: ci });
       if (cancel) return;
-      const emp = (data && data[0]) as any;
+      const emp = (data && (data as any)[0]) as any;
       if (emp) {
         setOpFirst((emp.first_name || '').trim());
         setOpLast((emp.last_name || '').trim());
@@ -344,8 +341,8 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setScanCarnetOpen(false);
     const id = parseEmployeeId(text);
     if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
-    const { data } = await supabase.from('employees').select('first_name, last_name, cargo, cedula').eq('id', id).maybeSingle();
-    const emp = data as any;
+    const { data } = await supabase.rpc('employee_public_lookup', { p_id: id });
+    const emp = (data as any)?.[0] ?? null;
     if (!emp) { setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
     const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
     // Solo OPERADORES / CHOFERES / SERVICIOS GENERALES / OBREROS pueden iniciar jornada.
@@ -372,8 +369,8 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setGateScanOpen(false);
     const id = parseEmployeeId(text);
     if (!id) { setNotice('❌ Ese QR no es un carnet de empleado.'); return; }
-    const { data } = await supabase.from('employees').select('id, first_name, last_name, cargo, cedula, company_id, company:company_id(name)').eq('id', id).maybeSingle();
-    const emp = data as any;
+    const { data } = await supabase.rpc('employee_public_lookup', { p_id: id });
+    const emp = (data as any)?.[0] ?? null;
     if (!emp) { setGateEmp(null); setNotice('❌ Ese carnet no corresponde a un empleado registrado.'); return; }
     const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
     if (!isOperatorCargo(emp.cargo)) { setGateEmp(null); setNotice(`❌ ${nombre}${emp.cargo ? ` (${emp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede usar la máquina.`); return; }
@@ -382,10 +379,10 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     const macCompany = (machine as any)?.company_id ?? null;
     if (macCompany && emp.company_id && emp.company_id !== macCompany) {
       setGateEmp(null);
-      setNotice(`⛔ ${nombre} es de ${emp.company?.name ?? 'otra empresa'}. Este equipo es de ${machine?.companyName ?? 'otra empresa'}. Solo puede usar equipos de su empresa.`);
+      setNotice(`⛔ ${nombre} es de ${emp.company_name ?? 'otra empresa'}. Este equipo es de ${machine?.companyName ?? 'otra empresa'}. Solo puede usar equipos de su empresa.`);
       return;
     }
-    setGateEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim(), companyId: emp.company_id ?? null, companyName: emp.company?.name ?? null });
+    setGateEmp({ id: emp.id, first: (emp.first_name || '').trim(), last: (emp.last_name || '').trim(), name: nombre, cargo: emp.cargo ?? null, cedula: String(emp.cedula).trim(), companyId: emp.company_id ?? null, companyName: emp.company_name ?? null });
     setNotice(`📇 Carnet de ${nombre} leído. Confirma su cédula para entrar.`);
   };
   // 2) Confirma la cédula: debe COINCIDIR con la del carnet escaneado.
