@@ -313,8 +313,8 @@ export default function SupervisionScreen({ navigation }: any) {
     await exportPdf(html, `Inspecciones ${rango}`);
   };
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const [vs, { data: rs }, { data: js }, { data: yl }, { data: mr }] = await Promise.all([
       listVisits(date),
       supabase
@@ -418,13 +418,14 @@ export default function SupervisionScreen({ navigation }: any) {
       ((lateData ?? []) as any[]).forEach((r) => { const v = Number(r.jornada_late_min); if (isFinite(v) && v > 0) lm[r.machinery_id] = v; });
       setLateMap(lm);
     } catch { setLateMap({}); }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [date]);
   useEffect(() => { load(); }, [load]);
 
   // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
-  // jornada, la supervisión del día se actualiza sola.
-  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs', 'maintenance_requests'], () => { load(); });
+  // jornada, la supervisión del día se actualiza sola — en SILENCIO (sin blanquear
+  // la pantalla con el spinner en cada evento).
+  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs', 'maintenance_requests'], () => { load(true); });
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
@@ -507,45 +508,28 @@ export default function SupervisionScreen({ navigation }: any) {
       };
     };
 
-    // Se agrupa por INSPECTOR ASIGNADO (por ID, igual que el teléfono), NO por quien
-    // registró la jornada o marcó la parada. Así una jornada que un inspector inició
-    // en la máquina de OTRO cuelga del DUEÑO (asignado), no de quien la inició → el
-    // teléfono y la PC muestran las mismas máquinas por inspector.
-    const idName = new Map<string, string>();
-    assigns.forEach((a) => { if (a.inspector_id) idName.set(a.inspector_id, a.inspector_name || '—'); });
-    machJornadas.forEach((j) => { if (j.recordedBy && !idName.has(j.recordedBy)) idName.set(j.recordedBy, j.inspector || '—'); });
-    paradaList.forEach((p) => { if (p.by && !idName.has(p.by)) idName.set(p.by, p.byName || '—'); });
-
+    // La vista por inspector muestra EXACTAMENTE sus máquinas ASIGNADAS — mismo
+    // conjunto y conteo que "Máquinas asignadas por inspector" (el CHECK): se agrupa
+    // por inspector (NOMBRE, igual que esa vista) sobre las asignaciones, deduplicando
+    // por máquina. El ESTADO (en curso · parada · por iniciar · finalizada) se resuelve
+    // POR MÁQUINA (ronda + parada). Una máquina asignada a OTRO no aparece aquí; una
+    // jornada que el inspector inició en máquina de otro cuelga del dueño por SU
+    // asignación, no de quien la inició. Así el conteo cuadra en ambas vistas.
     const byKey = new Map<string, any>();
-    const put = (inspId: string, machinery_id: string, base: any, shiftCtx: 'day' | 'night' | null) => {
-      const k = `${inspId}|${machinery_id}`;
+    assigns.forEach((a) => {
+      const insp = a.inspector_name || '—';
+      const k = `${insp}|${a.machinery_id}`;
       if (byKey.has(k)) return;
-      const row = buildRow(idName.get(inspId) || '—', machinery_id, base, shiftCtx);
-      (row as any).inspectorId = inspId;
-      byKey.set(k, row);
-    };
-
-    const assignedIds = new Set(assigns.map((a) => a.machinery_id));
-    const jornIds = new Set(machJornadas.map((j) => j.machinery_id));
-    // 1) Columna vertebral: TODAS las máquinas ASIGNADAS, por inspector (ID) y turno.
-    assigns.forEach((a) => { if (a.inspector_id) put(a.inspector_id, a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'); });
-    // 2) Jornadas de máquinas SIN asignación (escaneo suelto) → bajo quien la inició.
-    machJornadas.forEach((j) => { if (j.recordedBy && !assignedIds.has(j.machinery_id)) put(j.recordedBy, j.machinery_id, j, (j.shift as 'day' | 'night' | null) ?? null); });
-    // 3) Paradas vigentes SIN asignación NI jornada → bajo quien la marcó.
-    paradaList.forEach((p) => {
-      if (p.status !== 'pendiente' || !p.by) return;
-      if (assignedIds.has(p.machinery_id) || jornIds.has(p.machinery_id)) return;
-      put(p.by, p.machinery_id, { code: p.code, companyName: p.companyName, serial: p.serial, plate: p.plate }, null);
+      byKey.set(k, buildRow(insp, a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
     });
 
     const all = Array.from(byKey.values());
     const filtered = q
       ? all.filter((x) => `${x.inspector} ${x.code} ${x.companyName} ${x.serial ?? ''} ${x.plate ?? ''} ${x.encargado ?? ''}`.toLowerCase().includes(q))
       : all;
-    // Agrupa por inspectorId; el rótulo es el nombre. (dedup por ID evita el "fantasma".)
     const map = new Map<string, any[]>();
     filtered.forEach((x) => {
-      const k = x.inspectorId || '—';
+      const k = x.inspector || '—';
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(x);
     });
@@ -554,10 +538,8 @@ export default function SupervisionScreen({ navigation }: any) {
       const rank = (x: any) => (x.enCurso ? 0 : x.parada ? 1 : x.pendiente ? 2 : 3);
       return rank(a) - rank(b) || cmpText(a.code, b.code);
     }));
-    return Array.from(map.values())
-      .map((list) => [list[0]?.inspector || '—', list] as [string, any[]])
-      .sort((a, b) => cmpText(a[0], b[0]));
-  }, [assigns, machJornadas, rawRounds, paradaList, paradaByMachine, machJorQuery]);
+    return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
+  }, [assigns, rawRounds, paradaByMachine, machJorQuery]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
