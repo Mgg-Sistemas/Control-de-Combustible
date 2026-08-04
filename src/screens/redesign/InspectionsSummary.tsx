@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Pressable } from 'react-native';
 import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -33,9 +33,9 @@ const paradaShiftOf = (iso: string): 'day' | 'night' => { const d = new Date(iso
 
 type Round = {
   machinery_id: string; round_date: string; day_hours: number | null; night_hours: number | null;
-  jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null;
+  jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null; machine?: { code?: string } | null;
 };
-type Maint = { machinery_id: string; material: string | null; created_at: string };
+type Maint = { machinery_id: string; material: string | null; created_at: string; machine?: { code?: string } | null };
 type Assign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; code: string };
 
 // ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Igual que SupervisionScreen.
@@ -79,8 +79,8 @@ export default function InspectionsSummary() {
 
   const load = useCallback(async () => {
     const [roundsRows, maintRes, asg] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by', (q) => q.gte('round_date', fromDate)),
-      supabase.from('maintenance_requests').select('machinery_id, material, created_at').eq('status', 'pendiente'),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, machine:machinery_id(code)', (q) => q.gte('round_date', fromDate)),
+      supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
     ]);
     setRounds((roundsRows ?? []) as any);
@@ -127,6 +127,35 @@ export default function InspectionsSummary() {
     return { iniciadas: startedSet.size, pendientes: pend, paradas: paradaSet.size, averiadas: averSet.size };
   }, [daySets]);
 
+  // Código de máquina por id (de asignaciones, rondas o mantenimiento).
+  const codeById = useMemo(() => {
+    const m = new Map<string, string>();
+    assignments.forEach((a) => { if (a.code) m.set(a.machinery_id, a.code); });
+    rounds.forEach((r) => { const c = (r.machine as any)?.code; if (c && !m.has(r.machinery_id)) m.set(r.machinery_id, c); });
+    maint.forEach((x) => { const c = (x.machine as any)?.code; if (c && !m.has(x.machinery_id)) m.set(x.machinery_id, c); });
+    return m;
+  }, [assignments, rounds, maint]);
+
+  // Códigos de máquina por estado (para la lista al tocar una KPI de arriba).
+  const topCodes = useMemo(() => {
+    const { startedSet, paradaSet, averSet, assignedShift } = daySets;
+    const codeOf = (id: string) => codeById.get(id) || '—';
+    const pendIds: string[] = [];
+    assignedShift.forEach((id) => { if (!startedSet.has(id) && !paradaSet.has(id) && !averSet.has(id)) pendIds.push(id); });
+    const s = (ids: Iterable<string>) => [...ids].map(codeOf).sort(cmpText);
+    return { ini: s(startedSet), pend: s(pendIds), par: s(paradaSet), ave: s(averSet) };
+  }, [daySets, codeById]);
+
+  // Modal de LISTA de máquinas de un estado (filtrable).
+  const [listModal, setListModal] = useState<{ title: string; codes: string[] } | null>(null);
+  const [listQ, setListQ] = useState('');
+  const openList = (title: string, codes: string[]) => { setListQ(''); setListModal({ title, codes }); };
+  const listShown = useMemo(() => {
+    if (!listModal) return [];
+    const nq = norm(listQ.trim());
+    return nq ? listModal.codes.filter((c) => norm(c).includes(nq)) : listModal.codes;
+  }, [listModal, listQ]);
+
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
     const { startedSet, paradaSet, averSet } = daySets;
@@ -161,7 +190,7 @@ export default function InspectionsSummary() {
   const shiftIcon = shift === 'day' ? '☀️' : '🌙';
   const shiftLbl = shift === 'day' ? 'DÍA' : 'NOCHE';
 
-  const KpiCard = ({ label, value, tone }: { label: string; value: number; tone: 'brand' | 'muted' | 'warn' | 'crit' }) => {
+  const KpiCard = ({ label, value, tone, onPress }: { label: string; value: number; tone: 'brand' | 'muted' | 'warn' | 'crit'; onPress?: () => void }) => {
     const map = {
       brand: { fg: colors.brandText, bg: colors.surface },
       muted: { fg: colors.muted, bg: colors.surfaceAlt },
@@ -169,21 +198,14 @@ export default function InspectionsSummary() {
       crit: { fg: colors.dangerSoftText, bg: colors.dangerSoftBg },
     } as const;
     const t = map[tone];
+    const Comp: any = onPress ? TouchableOpacity : View;
     return (
-      <View style={{ flex: 1, backgroundColor: t.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+      <Comp onPress={onPress} activeOpacity={0.7} style={{ flex: 1, backgroundColor: t.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
         <Text style={{ color: t.fg, fontWeight: '900', fontSize: 24, fontVariant: ['tabular-nums'] as any }}>{value}</Text>
-        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 2 }} numberOfLines={2}>{label}</Text>
-      </View>
+        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 2 }} numberOfLines={2}>{label}{onPress ? ' ›' : ''}</Text>
+      </Comp>
     );
   };
-
-  // Fila compacta de conteos por categoría (para el detalle de un inspector).
-  const MiniStat = ({ n, label, color }: { n: number; label: string; color: string }) => (
-    <View style={{ flex: 1, alignItems: 'center' }}>
-      <Text style={{ color, fontWeight: '900', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{n}</Text>
-      <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', textAlign: 'center' }} numberOfLines={1}>{label}</Text>
-    </View>
-  );
   return (
     <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', marginBottom: spacing.md }}>
       {/* Cabecera navy + switch de turno. */}
@@ -207,10 +229,10 @@ export default function InspectionsSummary() {
         <View style={{ padding: spacing.md }}>
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" />
-            <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" />
-            <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" />
-            <KpiCard label="Averiadas" value={top.averiadas} tone="crit" />
+            <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ini)} />
+            <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topCodes.pend)} />
+            <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topCodes.par)} />
+            <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ave)} />
           </View>
 
           {/* Gráfica horizontal: iniciadas por día. */}
@@ -275,10 +297,10 @@ export default function InspectionsSummary() {
             <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.background }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14, marginBottom: spacing.sm }}>👷 {sel.name} <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>· {sel.total} asignada(s)</Text></Text>
               <View style={{ flexDirection: 'row', gap: spacing.xs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                <MiniStat n={sel.ini.length} label="Iniciadas" color={colors.brandText} />
-                <MiniStat n={sel.pend.length} label="Pendientes" color={colors.muted} />
-                <MiniStat n={sel.par.length} label="Paradas" color={colors.accentSoftText} />
-                <MiniStat n={sel.ave.length} label="Averiadas" color={colors.dangerSoftText} />
+                <KpiCard label="Iniciadas" value={sel.ini.length} tone="brand" onPress={() => openList(`✅ Iniciadas · ${sel.name}`, sel.ini)} />
+                <KpiCard label="Pendientes" value={sel.pend.length} tone="muted" onPress={() => openList(`⏳ Pendientes · ${sel.name}`, sel.pend)} />
+                <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
+                <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
@@ -290,6 +312,37 @@ export default function InspectionsSummary() {
           )}
         </View>
       )}
+
+      {/* Lista filtrable de máquinas del estado que se tocó (KPI de arriba o de inspector). */}
+      <Modal visible={listModal != null} transparent animationType="slide" onRequestClose={() => setListModal(null)}>
+        <Pressable onPress={() => setListModal(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, gap: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{listModal?.title} ({listModal?.codes.length ?? 0})</Text>
+              <TouchableOpacity onPress={() => setListModal(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+              <Text style={{ fontSize: 14 }}>🔎</Text>
+              <TextInput value={listQ} onChangeText={setListQ} placeholder="Filtrar máquina…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
+              {listQ ? <TouchableOpacity onPress={() => setListQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
+            </View>
+            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+              {listShown.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.lg }}>Sin máquinas.</Text>
+              ) : (
+                listShown.map((c, i) => (
+                  <View key={`${c}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border }}>
+                    <Text style={{ color: colors.muted, fontSize: 12, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{i + 1}</Text>
+                    <Text style={{ color: colors.text, fontSize: 13.5, fontWeight: '700', flex: 1 }}>{c}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
