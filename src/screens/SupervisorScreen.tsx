@@ -331,7 +331,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!uid) { setLoading(false); return; }
     const [{ data: prof }, mach] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
-      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, encargado, latitude, longitude, operational, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name)'),
     ]);
     const name = (prof as any)?.full_name ?? '';
     setFullName(name);
@@ -442,10 +442,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const q = norm(checkQuery.trim());
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
-  // 🕓 PENDIENTES POR ASIGNAR: máquinas a las que les falta inspector en DÍA y/o NOCHE
-  // (quedaron sin dueño, p. ej. al borrar un inspector). Buscable. Se ordenan primero
-  // las que no tienen NINGÚN turno asignado. Se reasignan con el modal 👮 por máquina.
+  // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
+  // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
+  // no auto-asignarle horas a algo que no está trabajando.
+  const necesitaInspector = (m: Mach) => m.active !== false && m.operational !== false && !m.en_espera;
+  // 🕓 PENDIENTES POR ASIGNAR: máquinas EN SERVICIO a las que les falta inspector en
+  // DÍA y/o NOCHE (quedaron sin dueño, p. ej. al borrar un inspector). Las inactivas,
+  // averiadas (operational=false) o en espera de recepción NO cuentan aquí — no están
+  // trabajando, así que no necesitan un inspector asignado ahora mismo. Buscable. Se
+  // ordenan primero las que no tienen NINGÚN turno asignado. Se reasignan con el modal
+  // 👮 por máquina.
   const faltaTurno = (m: Mach) => {
+    if (!necesitaInspector(m)) return { day: false, night: false };
     const s = assignMap[m.id] || {};
     return { day: !s.day?.id, night: !s.night?.id };
   };
