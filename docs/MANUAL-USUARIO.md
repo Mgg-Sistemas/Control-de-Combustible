@@ -1230,23 +1230,43 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
 
 ### Ronda de cierre de auditoría (03/08/2026)
 
-- **🔴 OBLIGATORIO** — `supabase/fix_realtime_publication_v2.sql`: completa la sincronización en
-  vivo para `dispatches`, `fuel_intakes`, `transfers`, `stock_movements`, `tanks`, compras
-  (`purchase_requests`, `purchase_orders`, `suppliers`) y nómina (`payroll_periods`,
-  `staff_pay_periods`).
-- **🔴 OBLIGATORIO** — `supabase/staff_pay_config.sql`: crea la tabla que faltaba (rompía la
-  instalación en limpio de `schema.sql`). **Ejecutar antes de que `schema.sql` vuelva a correrse**
-  (o volver a aplicar la policy después), porque `schema.sql` línea ~1770 todavía recrea la policy
-  de esa tabla en modo abierto (`using(true)`).
-- **Opcional/documentación** — `supabase/schema_drift.sql`: deja versionadas dos columnas que ya
+- **✓ EJECUTADO (04/08/2026)** — `supabase/fix_realtime_publication_v2.sql`: completa la
+  sincronización en vivo para `dispatches`, `fuel_intakes`, `transfers`, `stock_movements`,
+  `tanks`, compras (`purchase_requests`, `purchase_orders`, `suppliers`) y nómina
+  (`payroll_periods`, `staff_pay_periods`).
+- **Opcional/baja prioridad, sin ejecutar** — `supabase/staff_pay_config.sql`: crea una tabla que
+  falta en `schema.sql`, pero no bloquea nada en uso (el módulo de Pago a personal no depende de
+  ella hoy). Si al pegarlo da `syntax error at or near "-"`, es que el copiado convirtió el `--`
+  del comentario en un solo guion (típico al pasar el texto por un editor enriquecido/Notion/Word
+  antes de pegarlo) — cópialo directo del archivo o del "Raw" de GitHub. No es necesario para que
+  el resto del sistema funcione.
+- **✓ EJECUTADO (04/08/2026)** — `supabase/schema_drift.sql`: deja versionadas dos columnas que ya
   existían en producción pero no en el repo (`profiles.cedula`, `machinery.viajes`/`precio_viaje`).
-- **⚠️ Probar antes de confiar ciegamente** — `supabase/fix_stock_race_condition.sql`: agrega
-  bloqueo (`select ... for update`) al validar stock disponible en despachos/traslados, para evitar
-  que dos despachos concurrentes dejen un tanque en negativo. Se recomienda probar con dos
+- **⚠️ Probar antes de confiar ciegamente, sin ejecutar** — `supabase/fix_stock_race_condition.sql`:
+  agrega bloqueo (`select ... for update`) al validar stock disponible en despachos/traslados, para
+  evitar que dos despachos concurrentes dejen un tanque en negativo. Se recomienda probar con dos
   despachos simultáneos en un entorno de prueba antes de confiar en producción.
 - **Ya en el código, sin SQL pendiente:** el cierre manual de jornada nocturna ahora cierra contra
   la fecha en que se inició (no contra "hoy"); el horómetro final ya no acepta un valor menor al
   inicial; el reporte "Estado de máquinas" ya trae totales y firma del responsable.
+
+### Bug de sesión: se cerraba sola y botaba al usuario de su pantalla (04/08/2026)
+
+- **Reporte:** a los administradores se les cerraba la sesión sola y, al sincronizar, la app los
+  sacaba de la vista en la que estaban.
+- **Causa:** en el **teléfono**, Supabase solo renueva el token de sesión mientras la app está en
+  primer plano. `AuthContext.tsx` nunca le avisaba a Supabase cuándo la app pasaba a segundo
+  plano/primer plano, así que tras dejar la app en segundo plano varias horas el token vencía sin
+  renovarse; al volver, la sesión ya no era válida y se cerraba sola (mostrando el login y
+  perdiendo la pantalla en la que se estaba).
+- **✓ Hecho, sin SQL** — `src/context/AuthContext.tsx` ahora escucha `AppState` de React Native
+  (solo en nativo, no aplica a la versión web) y llama a `supabase.auth.startAutoRefresh()` /
+  `stopAutoRefresh()` al entrar/salir de primer plano — el fix que la propia documentación de
+  Supabase recomienda para React Native.
+- **Si sigue pasando en la web (PC/navegador):** la causa más probable ahí es otra — varias
+  pestañas abiertas con la misma cuenta (cada renovación de token invalida la anterior; si dos
+  pestañas renuevan casi al mismo tiempo, una queda con un token inválido y se cierra sola). Avisar
+  si se puede confirmar que pasa en PC (no solo en el teléfono) para atacar esa causa específica.
 
 ### Analistas, RBAC, Coordinador de Inspectores y maquinaria no asignada (04/08/2026)
 
@@ -1300,9 +1320,9 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
   fue desincorporado (inactivo/suspendido) después, ahora se le ve un badge rojo "Desincorporado"
   junto a su nombre en el detalle del período. Es solo un aviso visual, no cambia el monto ya
   cargado ni quita a la persona de la lista.
-- **⚠️ SQL pendiente de ejecutar (revisar antes)** — `supabase/maquinas_faltantes.sql`: crea un
-  usuario **virtual** "MAQUINAS FALTANTES" (cuenta de sistema, nunca inicia sesión — no borrarlo) y
-  programa 2 cron jobs:
+- **✓ EJECUTADO en producción (04/08/2026)** — `supabase/maquinas_faltantes.sql`: creó un usuario
+  **virtual** "MAQUINAS FALTANTES" (cuenta de sistema, nunca inicia sesión — no borrarlo) y activó
+  2 cron jobs, ya corriendo:
   - `assign_missing_to_placeholder()` cada 15 min: a cualquier máquina operativa que le falte
     inspector en el turno día y/o noche, se lo asigna automáticamente a MAQUINAS FALTANTES (se ve
     igual que cualquier inspector real en "Resumen"/"Jornadas de máquina").
@@ -1310,12 +1330,10 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
     **6h** al turno noche de "ayer" a toda máquina cuyo turno siga en manos de MAQUINAS FALTANTES
     (18h si le faltan los dos). En cuanto un inspector/supervisor reasigna ese turno a una persona
     real desde la app (como siempre se ha hecho), el cron deja de tocarlo.
-  - Impacta horómetro, alertas de mantenimiento y nómina. **Nunca sobreescribe** un día que ya
-    tenga datos. Antes de confiar en el cron en producción, correr a mano
-    `select public.assign_missing_to_placeholder();` y
-    `select public.auto_full_shift_placeholder();`, y revisar `machine_rounds` /
-    `machine_work_segments` (instrucciones completas en la cabecera del archivo). Para
-    desactivarlo: `select cron.unschedule('assign-missing-to-placeholder');` y
+  - Impacta horómetro, alertas de mantenimiento y nómina — vale la pena revisar `machine_rounds` /
+    `machine_work_segments` (filtrando `source = 'auto_full_shift'`) en los próximos días para
+    confirmar que el resultado es el esperado. Para desactivarlo si hace falta:
+    `select cron.unschedule('assign-missing-to-placeholder');` y
     `select cron.unschedule('auto-full-shift-placeholder');`.
 
 ---
