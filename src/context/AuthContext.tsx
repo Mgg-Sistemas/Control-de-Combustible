@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { nameToEmail, validateName } from '../lib/username';
@@ -94,7 +95,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Mantener fresco el refresh token protegido por huella (login y renovaciones).
       if (s?.refresh_token) isBiometricEnabled().then((en) => { if (en) saveBiometricSession(s.refresh_token); });
     });
-    return () => sub.subscription.unsubscribe();
+    // En nativo (teléfono), Supabase SOLO renueva el token solo mientras la app está
+    // en PRIMER PLANO: si el usuario la manda a segundo plano varias horas (cambia de
+    // app, apaga pantalla), el temporizador de refresco no corre, el token vence, y al
+    // volver la sesión ya no es válida → se cierra sola y bota al usuario a la pantalla
+    // de login (perdiendo en qué vista estaba). Esto es lo que reportaban los admins.
+    // Fix oficial de Supabase para RN: encender/apagar el auto-refresh según el estado
+    // de la app. En web no aplica (el navegador ya mantiene los timers).
+    let appStateSub: { remove: () => void } | null = null;
+    if (Platform.OS !== 'web') {
+      const onAppStateChange = (state: string) => {
+        if (state === 'active') supabase.auth.startAutoRefresh();
+        else supabase.auth.stopAutoRefresh();
+      };
+      appStateSub = AppState.addEventListener('change', onAppStateChange);
+      if (AppState.currentState === 'active') supabase.auth.startAutoRefresh();
+    }
+    return () => { sub.subscription.unsubscribe(); appStateSub?.remove(); };
   }, []);
 
   // Carga el rol y anuncia/observa presencia cuando hay sesión.
