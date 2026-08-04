@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { TankLevel as TankGauge } from '../components/TankLevel'; // rediseño: medidor con marca de umbral (el tipo TankLevel viene de types/database)
 import { AsistenciaButton } from '../components/AsistenciaButton';
 import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -10,13 +11,6 @@ import { workedFromShifts, PERIODO_INICIO, PERIODO_CORTE } from './ControlMaquin
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
-
-function levelTone(pct: number | null): 'success' | 'warning' | 'danger' {
-  if (pct === null) return 'warning';
-  if (pct <= 15) return 'danger';
-  if (pct <= 30) return 'warning';
-  return 'success';
-}
 
 const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Paleta para las barras de empresas.
@@ -191,11 +185,11 @@ export default function DashboardScreen({ navigation }: any) {
   return (
     <Screen>
       <ConfigBanner />
-      <Card style={{ backgroundColor: colors.primary }}>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
+      <Card style={{ backgroundColor: colors.brand, borderColor: colors.brand }}>
+        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 16, textAlign: 'center', letterSpacing: 0.3 }}>
           BIENVENIDO AL CONTROL INTERNO DE
         </Text>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>
+        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 16, textAlign: 'center', letterSpacing: 0.3 }}>
           SOS LA GUAIRA 2026
         </Text>
       </Card>
@@ -214,9 +208,9 @@ export default function DashboardScreen({ navigation }: any) {
               <TouchableOpacity
                 key={k}
                 onPress={() => setChartMode(k)}
-                style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+                style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}
               >
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{lbl}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{lbl}</Text>
               </TouchableOpacity>
             );
           })}
@@ -312,29 +306,18 @@ export default function DashboardScreen({ navigation }: any) {
       ) : (
         tanks.map((t) => {
           const pct = Math.max(0, Math.min(100, t.pct ?? 0));
-          const tone = levelTone(t.pct);
-          const barColor =
-            tone === 'danger' ? colors.danger : tone === 'warning' ? colors.warning : colors.success;
           return (
             <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => navigation?.navigate('More', { screen: 'Combustible' })}>
               <Card>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontWeight: '600', color: colors.text }}>{t.name}</Text>
+                  <Text style={{ fontWeight: '700', color: colors.text }}>{t.name}</Text>
                   <Badge label={t.fuel} />
                 </View>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 6 }}>
                   {Number(t.current_l).toLocaleString()} / {Number(t.capacity_l).toLocaleString()} L ({pct}%)
                 </Text>
-                <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill }}>
-                  <View
-                    style={{
-                      height: 8,
-                      width: `${pct}%`,
-                      backgroundColor: barColor,
-                      borderRadius: radius.pill,
-                    }}
-                  />
-                </View>
+                {/* Rediseño: medidor con marca de umbral (umbral 30% = "stock bajo" del panel). */}
+                <TankGauge pct={pct} thresholdPct={30} height={9} />
               </Card>
             </TouchableOpacity>
           );
