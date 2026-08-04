@@ -920,8 +920,11 @@ escritura en Inventario.
 > (**Desde** / **Hasta**), combinables con los chips de estatus (Pendientes/Aprobados/etc.). Cada
 > requerimiento tiene un checkbox y hay un botón **"Seleccionar todos"** que marca a los que están
 > visibles según el filtro activo. El botón **"📥 PDF"** descarga en **un solo documento** (uno por
-> página) a los que estén marcados; si no hay ninguno marcado, descarga TODOS los que quedaron
-> filtrados. El botón **"🧾 PDF"** de cada tarjeta sigue igual para bajar uno solo.
+> página, CON firma) a los que estén marcados; si no hay ninguno marcado, descarga TODOS los que
+> quedaron filtrados. El botón **"🧾 PDF"** de cada tarjeta sigue igual para bajar uno solo.
+> Al lado hay un botón **"📄 Resumen"** (mismos marcados/filtrados): arma un solo PDF con la misma
+> tabla de cada requerimiento pero **SIN firma** y **agrupados uno debajo del otro** (no uno por
+> página) — para una vista rápida de todo lo filtrado sin gastar una página completa por cada uno.
 
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.

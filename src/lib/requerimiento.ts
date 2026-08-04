@@ -51,11 +51,13 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
       .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
       .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}
-      .pgbreak{page-break-after:always}`;
+      .pgbreak{page-break-after:always}
+      .reqsum{margin-bottom:16px;page-break-inside:avoid}
+      .reqsum + .reqsum{border-top:1px dashed #c9d2dc;padding-top:14px;margin-top:2px}`;
 
-/** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
- *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
-function reqBodyHtml(d: ReqPdfData, heading?: string): string {
+/** Filas de la tabla + total en US$/Bs de UN requerimiento (compartido entre
+ *  el PDF con firma y el resumen sin firma). */
+function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; totalBs: number | null } {
   let totalUsd = 0;
   const rows = d.items.map((it, i) => {
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
@@ -70,6 +72,13 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
     </tr>`;
   }).join('');
   const totalBs = d.rate && d.rate > 0 ? totalUsd * d.rate : null;
+  return { rows, totalUsd, totalBs };
+}
+
+/** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
+ *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
+function reqBodyHtml(d: ReqPdfData, heading?: string): string {
+  const { rows, totalUsd, totalBs } = reqTableHtml(d);
 
   // Bloque de firma: si está APROBADO por un firmante conocido, va su firma escaneada
   // y su cargo. Si no, queda la línea "Aprobado por (jefe)" para firmar a mano.
@@ -124,6 +133,44 @@ export function requerimientosBulkHtml(list: ReqPdfData[]): string {
     .join('');
   return pdfDocument({
     title: 'Requerimientos de compra',
+    subtitle: `${list.length} requerimiento(s)`,
+    extraCss: REQ_CSS,
+    body,
+  });
+}
+
+/** Bloque de UN requerimiento para el RESUMEN: tabla + total, SIN firma y sin
+ *  forzar salto de página — se apila debajo del anterior en el mismo documento. */
+function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
+  const { rows, totalUsd, totalBs } = reqTableHtml(d);
+  return `
+      <div class="reqsum">
+        <div class="reqhead">${heading}</div>
+        ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
+        <table>
+          <thead><tr><th style="width:26px" class="c">#</th><th>Producto</th><th class="c">Cantidad</th>
+            <th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" class="c">Sin ítems</td></tr>'}</tbody>
+        </table>
+        <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}${totalBs != null ? ` · Bs ${money(totalBs)}` : ''}</div>
+        ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
+      </div>`;
+}
+
+/**
+ * RESUMEN de varios requerimientos en un solo documento: misma tabla/total de
+ * cada uno, pero SIN firma y agrupados uno debajo del otro (no uno por
+ * página) — para una vista rápida de todo lo filtrado/seleccionado.
+ */
+export function requerimientosResumenHtml(list: ReqPdfData[]): string {
+  const body = list
+    .map((d, i) => {
+      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`;
+      return reqSummaryBlockHtml(d, heading);
+    })
+    .join('');
+  return pdfDocument({
+    title: 'Resumen de requerimientos',
     subtitle: `${list.length} requerimiento(s)`,
     extraCss: REQ_CSS,
     body,
