@@ -7,6 +7,7 @@ import { cmpText, norm } from '../../lib/text';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
+import { generatePorAsignarReport } from '../../lib/porAsignarReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
 
@@ -30,6 +31,8 @@ function caracasToday(): string {
   return `${p.year}-${p.month}-${p.day}`;
 }
 const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
+// Token de pdfBusy para el reporte "por asignar / por iniciar" (no choca con '' ni con un nombre de inspector).
+const POR_ASIGNAR_KEY = '__por_asignar__';
 // Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
 // el dashboard en el turno correcto (antes abría siempre en DÍA).
 function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
@@ -100,6 +103,29 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setPdfBusy(inspector ?? '');
     try {
       await generateInspectorReport({ date: selDay, shift, inspectors: inspector ? [inspector] : null });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  // REPORTE (PDF) de máquinas POR ASIGNAR / POR INICIAR del día + turno. Usa los
+  // datos ya en memoria: las pendientes por iniciar (topIds.pend), su ficha
+  // (machineInfo) y el inspector asignado (inspectorByMachine). Sin consultas nuevas.
+  const makePorAsignarReport = async () => {
+    setPdfBusy(POR_ASIGNAR_KEY);
+    try {
+      const machines = topIds.pend.map((id) => {
+        const info = machineInfo.get(id) ?? null;
+        const inspector = inspectorByMachine.get(id) ?? null;
+        return {
+          code: info?.code ?? codeById.get(id) ?? '—',
+          plate: info?.plate ?? null,
+          company: info?.company ?? null,
+          inspector,
+          sinInspector: sinInspectorReal(inspector),
+        };
+      });
+      await generatePorAsignarReport({ date: selDay, shift, machines });
     } finally {
       setPdfBusy(null);
     }
@@ -404,6 +430,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
               );
             })}
           </View>
+
+          {/* Reporte (PDF) de máquinas por asignar / por iniciar del día + turno. */}
+          <TouchableOpacity onPress={makePorAsignarReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Reporte de máquinas por asignar / por iniciar'}</Text>
+          </TouchableOpacity>
 
           {/* Barras VERTICALES por inspector (del turno). Tocar → detalle. */}
           <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
