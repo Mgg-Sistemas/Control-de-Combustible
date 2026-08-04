@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Alert } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { Screen, Card, SectionTitle, Loading, EmptyState, Badge } from '../components/ui';
+import { useConfirm } from '../components/ConfirmProvider';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
@@ -61,9 +62,10 @@ const STATUS_OPTS: { key: VisitStatus; label: string; icon: string; color: strin
   { key: 'no_esta', label: 'No está', icon: '🔴', color: '#D22B2B' },
 ];
 const statusLabel = (s: VisitStatus) => STATUS_OPTS.find((o) => o.key === s)?.label ?? s;
-// Mismo mapa de colores usado en EmpleadosScreen/AliadosScreen para el estatus del empleado
-// (activo/inactivo/suspendido), reutilizado aquí en la ficha de asistencia.
-const EMP_STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
+// Tono del Badge para el estatus del empleado (activo/inactivo/suspendido),
+// usado en la ficha de asistencia.
+const empStatusTone = (s: string): 'success' | 'warning' | 'danger' | 'muted' =>
+  s === 'activo' ? 'success' : s === 'suspendido' ? 'warning' : s === 'inactivo' ? 'danger' : 'muted';
 
 // Materiales de la avería de maquinaria (igual que la vista del operador). Cae en
 // el módulo de Mantenimiento de Maquinaria (tabla maintenance_requests).
@@ -95,6 +97,7 @@ const edificioTextOf = (lat: number, lng: number, referencia?: string): string =
  */
 export default function SupervisorScreen({ initialMachineId, onConsumed, onSistema }: { initialMachineId?: string; onConsumed?: () => void; onSistema?: () => void } = {}) {
   const { colors } = useTheme();
+  const confirm = useConfirm();
   const { session, signOut, role, canSee, appRole } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
@@ -1161,17 +1164,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const lastIn = [...asisToday].reverse().find((m) => m.kind === 'entrada');
       const minsSince = lastIn ? Math.round((Date.now() - new Date(lastIn.ts).getTime()) / 60000) : null;
       const dobleEscaneo = minsSince !== null && minsSince < 2;
-      const ok = await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          dobleEscaneo ? '¿Doble escaneo?' : '¿Registrar SALIDA?',
-          dobleEscaneo
-            ? `La ENTRADA de ${asisFullName(asisEmp)} fue hace ${minsSince! < 1 ? 'menos de 1 minuto' : `${minsSince} min`}. Parece un doble escaneo del carnet, no una salida real. ¿Registrar la SALIDA de todas formas?`
-            : `¿Seguro que quieres registrar la SALIDA de ${asisFullName(asisEmp)}?` + (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
-          [
-            { text: dobleEscaneo ? 'No, fue doble escaneo' : 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Sí, registrar salida', style: 'destructive', onPress: () => resolve(true) },
-          ],
-        );
+      const ok = await confirm({
+        title: dobleEscaneo ? '¿Doble escaneo?' : '¿Registrar SALIDA?',
+        message: dobleEscaneo
+          ? `La ENTRADA de ${asisFullName(asisEmp)} fue hace ${minsSince! < 1 ? 'menos de 1 minuto' : `${minsSince} min`}. Parece un doble escaneo del carnet, no una salida real. ¿Registrar la SALIDA de todas formas?`
+          : `¿Seguro que quieres registrar la SALIDA de ${asisFullName(asisEmp)}?` + (lastIn ? `\n\nSu última ENTRADA fue a las ${fmtHora(lastIn.ts)} (${SHIFT_LABEL[shiftOfTs(lastIn.ts)]}).` : ''),
+        cancelText: dobleEscaneo ? 'No, fue doble escaneo' : 'Cancelar',
+        confirmText: 'Sí, registrar salida',
+        danger: true,
       });
       if (!ok) return;
     }
@@ -1246,7 +1246,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const revisadas = Object.keys(visits).length;
 
   return (
-    <Screen>
+    <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
       <View>
         {/* Fila 1: nombre del inspector + Salir (el nombre se recorta, no se apila). */}
@@ -1669,9 +1669,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                             key={shift}
                             onPress={() => assignShift(m, shift)}
                             disabled={busy}
-                            style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderStyle: slot ? 'solid' : 'dashed', borderColor: mineHere ? colors.success : taken ? colors.warning : colors.border, backgroundColor: mineHere ? '#E8F5EC' : colors.surface, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
+                            style={{ flex: 1, borderRadius: radius.md, borderWidth: 1.5, borderStyle: slot ? 'solid' : 'dashed', borderColor: mineHere ? colors.success : taken ? colors.warning : colors.border, backgroundColor: mineHere ? colors.successSoftBg : colors.surface, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}
                           >
-                            <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? '#0F5C2E' : colors.text }}>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: mineHere ? colors.successSoftText : colors.text }}>
                               {busy ? '⏳ ' : ''}{shiftIcon(shift)} {shiftLabel(shift)}
                             </Text>
                             <Text numberOfLines={1} style={{ fontSize: 11, color: mineHere ? colors.success : taken ? colors.primary : colors.muted, fontWeight: '700' }}>
@@ -1758,7 +1758,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                             <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
                             <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                               {inspectors.filter((p) => !assignForQuery.trim() || norm(p.name).includes(norm(assignForQuery.trim()))).map((p) => (
-                                <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? '#E8F5EC' : colors.surface, marginBottom: spacing.xs }}>
+                                <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? colors.successSoftBg : colors.surface, marginBottom: spacing.xs }}>
                                   <Text style={{ fontSize: 18 }}>👮</Text>
                                   <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
                                   {cur?.id === p.id ? <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>✓ actual</Text> : null}
@@ -1858,26 +1858,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {/* ── Jornada de la máquina: INICIAR → FINALIZAR (cuenta las horas) ── */}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Jornada de la máquina</Text>
               {maquinaDeOtro ? (
-                <View style={{ backgroundColor: '#FDECEC', borderWidth: 1, borderColor: '#D22B2B', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#8A1C1C', fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
-                  <Text style={{ color: '#8A1C1C', fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
+                <View style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
+                  <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
                 </View>
               ) : jornadaStart ? (
                 <View style={{ marginBottom: spacing.sm }}>
-                  <View style={{ backgroundColor: '#E8F5EC', borderWidth: 1, borderColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
-                    <Text style={{ color: '#0F5C2E', fontWeight: '800', fontSize: 12 }}>
+                  <View style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+                    <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>
                       🟢 Jornada en curso ({jornadaShift === 'night' ? '🌙 noche' : '☀️ día'}) · desde {caracasClock(jornadaStart)}
                     </Text>
-                    <Text style={{ color: '#0F5C2E', fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, nowTick)}</Text>
+                    <Text style={{ color: colors.successSoftText, fontSize: 12, marginTop: 2 }}>⏱️ Tiempo trabajado: {elapsedLabel(jornadaStart, nowTick)}</Text>
                   </View>
                   {finConfirm ? (
-                    <View style={{ backgroundColor: '#EAF1FB', borderWidth: 1, borderColor: '#2563EB', borderRadius: radius.md, padding: spacing.sm }}>
-                      <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
-                      <Text style={{ color: '#12356B', fontSize: 13, marginTop: 4, textAlign: 'center' }}>
+                    <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm }}>
+                      <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>¿Finalizar la jornada?</Text>
+                      <Text style={{ color: colors.infoSoftText, fontSize: 13, marginTop: 4, textAlign: 'center' }}>
                         Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, nowTick)}</Text>
                         {'  '}({((Math.max(0, nowTick - new Date(jornadaStart).getTime())) / 3600000).toFixed(2)} h)
                       </Text>
-                      <Text style={{ color: '#12356B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
+                      <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
                       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (opcional){horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
@@ -1887,7 +1887,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         const hf = Number((horoFin || '').replace(',', '.'));
                         const hi = Number((horoIni || '').replace(',', '.'));
                         if (isFinite(hf) && isFinite(hi) && hf >= hi && horoFin) {
-                          return <Text style={{ color: '#12356B', fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial)</Text>;
+                          return <Text style={{ color: colors.infoSoftText, fontSize: 12, marginBottom: spacing.sm, textAlign: 'center' }}>⚙️ Por horómetro: <Text style={{ fontWeight: '900' }}>{Math.round((hf - hi) * 100) / 100} h</Text> (final − inicial)</Text>;
                         }
                         return <View style={{ marginBottom: spacing.sm }} />;
                       })()}
@@ -1909,9 +1909,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               ) : shiftClosed ? (
                 // El turno del inspector YA CERRÓ hoy (por hora): no puede iniciar/reiniciar
                 // hasta mañana. (Antes de cerrar SÍ puede reiniciar para acumular horas.)
-                <View style={{ backgroundColor: '#EAF1FB', borderWidth: 1, borderColor: '#2563EB', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#12356B', fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
-                  <Text style={{ color: '#12356B', fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
+                <View style={{ backgroundColor: colors.infoSoftBg, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.infoSoftText, fontWeight: '800', fontSize: 13 }}>✅ La jornada de {shiftFromKey(myShift as any).label} de hoy ya cerró.</Text>
+                  <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2 }}>Podrás iniciar otra jornada de {shiftFromKey(myShift as any).label} mañana.</Text>
                 </View>
               ) : (
                 <View style={{ marginBottom: spacing.sm }}>
@@ -1948,13 +1948,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
               {/* Si la máquina está PARADA, permite volver a ponerla OPERATIVA. */}
               {ci && paradaIds.has(ci.id) ? (
-                <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
-                  <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
-                  {paradaMotivos[ci.id] ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivos[ci.id]}</Text> : null}
+                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
+                  {paradaMotivos[ci.id] ? <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivos[ci.id]}</Text> : null}
                   <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟢 Volver a OPERATIVA'}</Text>
                   </TouchableOpacity>
-                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como parada en Control.</Text>
+                  <Text style={{ color: colors.warningSoftText, fontSize: 11, marginTop: 4 }}>Cierra la avería en Mantenimiento y la máquina deja de aparecer como parada en Control.</Text>
                 </View>
               ) : null}
 
@@ -1964,13 +1964,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <Text style={{ color: paradaOpen ? '#fff' : '#8A6A00', fontWeight: '800' }}>🟡 PARADA (marcar máquina parada)</Text>
               </TouchableOpacity>
               {paradaOpen ? (
-                <View style={{ backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: '#F0C36D', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
                     {(['averia', 'no_trabajo'] as const).map((t) => {
                       const on = paradaTab === t;
                       return (
-                        <TouchableOpacity key={t} onPress={() => setParadaTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? '#8A6A00' : '#F0C36D', backgroundColor: on ? '#8A6A00' : 'transparent' }}>
-                          <Text style={{ color: on ? '#fff' : '#7A4A0B', fontWeight: '800', fontSize: 12 }}>{t === 'averia' ? '🔧 Por avería' : '📍 Parada / No trabajó'}</Text>
+                        <TouchableOpacity key={t} onPress={() => setParadaTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? '#8A6A00' : colors.warningSoftBorder, backgroundColor: on ? '#8A6A00' : 'transparent' }}>
+                          <Text style={{ color: on ? '#fff' : colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>{t === 'averia' ? '🔧 Por avería' : '📍 Parada / No trabajó'}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -2193,7 +2193,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{asisFullName(asisEmp)}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{asisEmp.cargo || 'Sin cargo'}</Text>
                     {asisEmp.cedula ? <Text style={{ color: colors.muted, fontSize: 12 }}>C.I. {asisEmp.cedula}</Text> : null}
-                    {asisEmp.status ? <Text style={{ color: EMP_STATUS_COLOR[asisEmp.status] ?? colors.muted, fontWeight: '700', fontSize: 11, marginTop: 2 }}>● {asisEmp.status}</Text> : null}
+                    {asisEmp.status ? <View style={{ marginTop: 4 }}><Badge label={asisEmp.status} tone={empStatusTone(asisEmp.status)} /></View> : null}
                   </View>
                   <TouchableOpacity onPress={() => { setAsisEmp(null); setAsisToday([]); }} style={{ padding: spacing.xs }}>
                     <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>

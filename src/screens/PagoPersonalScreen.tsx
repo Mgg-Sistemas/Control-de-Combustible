@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, ActivityIndicator, Platform } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -8,6 +8,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { exportPagoPersonalXlsx } from '../lib/staffXlsx';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
 import { caracasParts } from '../lib/jornada';
@@ -18,6 +19,7 @@ import { TabuladorCargos } from '../components/TabuladorCargos';
 import { PagoPorPersona } from '../components/PagoPorPersona';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { PAGO_STATUS_META } from '../lib/statusMeta';
 
 // ── Formato / utilidades ──────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -48,11 +50,6 @@ function rangeFor(type: StaffPayPeriod['period_type'], ref: string): { from: str
   return quincenaRange(ref);
 }
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  borrador: { label: '📝 Borrador', color: '#F59E0B' },
-  aprobada: { label: '✅ Aprobada', color: '#2563EB' },
-  pagada: { label: '💵 Pagada', color: '#16A34A' },
-};
 const TYPE_LABEL: Record<string, string> = { dia: 'Día', semana: 'Semana', quincena: 'Quincena' };
 const MODE_LABEL: Record<string, string> = { hora: 'Por hora', dia: 'Por día', semana: 'Por semana' };
 const UNIT: Record<string, string> = { hora: 'h', dia: 'd', semana: 'sem' };
@@ -92,6 +89,7 @@ export default function PagoPersonalScreen() {
   const { colors } = useTheme();
   const { session, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   // Puede generar pagos / editar precios = tiene ESCRITURA o FULL en el módulo Nómina.
   // (Antes se calculaba con el rol base: un usuario con FULL CONTROL en Nómina pero rol
   //  base "analista" quedaba bloqueado y no le salía el botón "Generar pago".)
@@ -105,7 +103,7 @@ export default function PagoPersonalScreen() {
     : (bcvLoading ? 'Cargando tasa BCV…' : 'Sin tasa BCV');
   const onRefreshBcv = async () => {
     try { await refreshBcv(); }
-    catch { Alert.alert('Tasa BCV', 'No se pudo actualizar la tasa del BCV. Intenta de nuevo más tarde.'); }
+    catch { toast.error('No se pudo actualizar la tasa del BCV. Intenta de nuevo más tarde.'); }
   };
 
   const { data: periods, loading, refetch } = useTable<StaffPayPeriod>('staff_pay_periods', { orderBy: 'created_at', ascending: false });
@@ -242,15 +240,15 @@ export default function PagoPersonalScreen() {
 
   // ── Crear período: precarga TODOS los empleados activos con sus precios ──────
   const crearPeriodo = async () => {
-    if (!cName.trim()) return Alert.alert('Aviso', 'Escribe el nombre (ej. "Semana 1 - julio").');
-    if (!cFrom || !cTo) return Alert.alert('Aviso', 'Define el rango de fechas.');
+    if (!cName.trim()) return toast.error('Escribe el nombre (ej. "Semana 1 - julio").');
+    if (!cFrom || !cTo) return toast.error('Define el rango de fechas.');
     setCreating(true);
     // Empleador = SOS LA GUAIRA (company_id null): el personal no se separa por contratista.
     const { data: per, error } = await supabase.from('staff_pay_periods').insert({
       company_id: null, name: cName.trim(), period_type: cType, date_from: cFrom, date_to: cTo,
       mode: cMode, only_validated: cValid, status: 'borrador', created_by: session?.user?.id ?? null,
     }).select().single();
-    if (error || !per) { setCreating(false); return Alert.alert('Aviso', error?.message ?? 'No se pudo crear.'); }
+    if (error || !per) { setCreating(false); return toast.error(error?.message ?? 'No se pudo crear.'); }
 
     // TODO el personal activo (de toda la organización), no solo el de un contratista.
     const { data: emps } = await supabase.from('employees').select(EMP_COLS).eq('status', 'activo');
@@ -311,7 +309,7 @@ export default function PagoPersonalScreen() {
     const { data: fresh } = await supabase.from('staff_pay_items').select('*').eq('period_id', sel.id);
     await recomputeTotal(sel.id, (fresh ?? []) as StaffPayItem[], sel.mode);
     setBusy(false);
-    if (!rows.length) Alert.alert('Aviso', soloOperadoresSi(sel.mode) ? 'No hay operadores activos nuevos para agregar (los períodos "Por día" solo incluyen operadores).' : 'No hay empleados activos nuevos para agregar.');
+    if (!rows.length) toast.info(soloOperadoresSi(sel.mode) ? 'No hay operadores activos nuevos para agregar (los períodos "Por día" solo incluyen operadores).' : 'No hay empleados activos nuevos para agregar.');
   };
 
   // ── Editor de renglón ───────────────────────────────────────────────────────
@@ -346,7 +344,7 @@ export default function PagoPersonalScreen() {
       precio_hora, precio_dia, precio_noche, precio_semana, dias, dias_noche, horas, semanas, overridden,
       bonos, deducciones: ded, devengado: dev, total: tot, nota: eNote.trim() || null,
     }).eq('id', editItem.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     // Los precios se guardan también en la ficha del trabajador (persisten para el próximo período).
     if (puedeTarifa && editItem.employee_id) {
       await supabase.from('employees').update({ precio_hora, precio_dia, precio_noche, precio_semana }).eq('id', editItem.employee_id);
@@ -377,11 +375,11 @@ export default function PagoPersonalScreen() {
     if (!payFor) return;
     // El abono siempre se guarda en US$: si el campo está en Bs, se convierte con la tasa BCV.
     const monto = round2(pMontoCur === 'USD' ? parseNum(pMonto) : usdFromBs(parseNum(pMonto), bcvRate || 0));
-    if (monto <= 0) return Alert.alert('Aviso', 'Ingresa un monto mayor a 0.');
+    if (monto <= 0) return toast.error('Ingresa un monto mayor a 0.');
     const { data, error } = await supabase.from('staff_pay_payments').insert({
       item_id: payFor.id, monto, metodo: pMetodo, fecha: pFecha, created_by: session?.user?.id ?? null,
     }).select().single();
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setPays((prev) => [...prev, data as StaffPayPayment]);
     setPayFor(null);
   };
@@ -413,7 +411,7 @@ export default function PagoPersonalScreen() {
     setBusy(true);
     const { error } = await supabase.from('staff_pay_periods').delete().eq('id', sel.id);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setSel(null);
     refetch();
   };
@@ -541,7 +539,7 @@ export default function PagoPersonalScreen() {
   // son fórmulas referenciando la tasa BCV del día (celda editable).
   const exportarExcel = () => {
     if (!sel) return;
-    if (Platform.OS !== 'web') { Alert.alert('Aviso', 'La descarga de Excel se hace desde el navegador (versión web).'); return; }
+    if (Platform.OS !== 'web') { toast.info('La descarga de Excel se hace desde el navegador (versión web).'); return; }
     const base = cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
     const ok = exportPagoPersonalXlsx(
       base.map((it) => ({
@@ -558,7 +556,7 @@ export default function PagoPersonalScreen() {
         cargoFiltro: cargoSel.size ? [...cargoSel].sort((a, b) => cmpText(a, b)).join(', ') : undefined,
       }
     );
-    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel.');
+    if (!ok) toast.error('No se pudo generar el Excel.');
   };
 
   // Agrupar períodos por empresa.
@@ -676,13 +674,13 @@ export default function PagoPersonalScreen() {
               <View key={g.key} style={{ marginBottom: spacing.sm }}>
                 <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
                 {g.items.map((p) => {
-                  const st = STATUS_META[p.status] ?? STATUS_META.borrador;
+                  const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
                   return (
                     <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
                       <Card>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{p.name}</Text>
-                          <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
+                          <Badge label={st.label} tone={st.tone} />
                         </View>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
@@ -779,7 +777,7 @@ export default function PagoPersonalScreen() {
                 <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[sel.period_type]} · {fmtDMY(sel.date_from)} → {fmtDMY(sel.date_to)} · {MODE_LABEL[sel.mode]}{sel.only_validated ? ' · solo validadas' : ''}</Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
-                  <Text style={{ color: (STATUS_META[sel.status] ?? STATUS_META.borrador).color, fontWeight: '800' }}>{(STATUS_META[sel.status] ?? STATUS_META.borrador).label}</Text>
+                  <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
                     {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{bsTxt(sel.total_amount)}</Text> : null}

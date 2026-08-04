@@ -10,6 +10,7 @@ import {
   Image,
   ImageSourcePropType,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationRouteContext } from '@react-navigation/native';
@@ -24,6 +25,8 @@ export function Screen({
   bgImage,
   bgImageOpacity = 0.08,
   persistScrollKey,
+  onRefresh,
+  refreshing,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
@@ -32,6 +35,11 @@ export function Screen({
   bgImage?: ImageSourcePropType; // imagen de fondo (marca de agua) fija detrás del contenido
   bgImageOpacity?: number; // opacidad de la marca de agua (por defecto 0.08 = muy tenue)
   persistScrollKey?: string; // (web) recuerda la posición de scroll y la restaura al recargar
+  // Pull-to-refresh (nativo; en web RefreshControl no hace nada, se ignora sin
+  // romper nada). Pasa AMBOS para activarlo: onRefresh (async () => await recargar())
+  // y refreshing (el boolean de "está recargando" que ya tiene la pantalla).
+  onRefresh?: () => void | Promise<void>;
+  refreshing?: boolean;
 }) {
   const { colors } = useTheme();
   const background = bg ?? colors.background;
@@ -100,6 +108,7 @@ export function Screen({
           setShowTop((prev) => (prev !== y > 400 ? y > 400 : prev));
           saveScroll(y);
         }}
+        refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} /> : undefined}
       >
         {children}
       </ScrollView>

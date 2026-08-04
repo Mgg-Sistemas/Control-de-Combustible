@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { ConfirmProvider } from './src/components/ConfirmProvider';
+import { ToastProvider } from './src/components/ToastProvider';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { UpdateBanner } from './src/components/UpdateBanner';
 import { PhotoCropperHost } from './src/components/PhotoCropper';
@@ -20,16 +21,18 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ThemeProvider>
-        <ConfirmProvider>
-          <ErrorBoundary>
-            <AuthProvider>
-              <ThemedStatusBar />
-              <RootNavigator />
-              <UpdateBanner />
-              <PhotoCropperHost />
-            </AuthProvider>
-          </ErrorBoundary>
-        </ConfirmProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <ErrorBoundary>
+              <AuthProvider>
+                <ThemedStatusBar />
+                <RootNavigator />
+                <UpdateBanner />
+                <PhotoCropperHost />
+              </AuthProvider>
+            </ErrorBoundary>
+          </ConfirmProvider>
+        </ToastProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );

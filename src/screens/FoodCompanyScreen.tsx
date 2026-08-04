@@ -49,6 +49,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const today = caracasToday();
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [companyName, setCompanyName] = useState('');
   const [machines, setMachines] = useState(0);
   const [meals, setMeals] = useState<FoodCompanyMeal[]>([]);
@@ -92,6 +93,9 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
     })();
     return () => { active = false; };
   }, [load]);
+
+  // Pull-to-refresh: recarga los datos de la empresa y las comidas de hoy.
+  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   // ── Verificación del cocinero por su carnet/cédula ────────────────────────────
   const verifyByEmployee = (emp: any): boolean => {
@@ -205,7 +209,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <View style={{ flex: 1 }}>

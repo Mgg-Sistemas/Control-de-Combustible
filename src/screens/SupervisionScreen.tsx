@@ -93,6 +93,13 @@ const plateOfVisit = (v: VisitRow): string => v.machinePlate || v.machineSerial 
  */
 export default function SupervisionScreen({ navigation }: any) {
   const { colors, typography } = useTheme();
+  // Colores de status de visita tomados del tema (antes hex fijo en STATUS_META),
+  // así se ven bien tanto en claro como en oscuro. STATUS_META conserva icon/label.
+  const STATUS_COLOR: Record<VisitStatus, string> = {
+    trabajando: colors.success,
+    parada: colors.warning,
+    no_esta: colors.danger,
+  };
   // SOLO el admin puede asignar/reasignar el inspector de una máquina (día/noche).
   const { role } = useAuth();
   const isAdmin = role === 'admin';
@@ -807,7 +814,7 @@ export default function SupervisionScreen({ navigation }: any) {
   };
 
   return (
-    <Screen>
+    <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
 
@@ -1289,7 +1296,7 @@ export default function SupervisionScreen({ navigation }: any) {
                     </Text>
                     {v.note ? <Text style={{ color: colors.muted, fontSize: 11, fontStyle: 'italic' }}>“{v.note}”</Text> : null}
                   </View>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: v.near === false ? colors.warning : sm.color }} />
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: v.near === false ? colors.warning : STATUS_COLOR[v.status] }} />
                   <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 16 }}>›</Text>
                 </TouchableOpacity>
               );

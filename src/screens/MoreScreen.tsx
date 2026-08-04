@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Text, TouchableOpacity, View, Switch, Alert, Modal, TextInput, ScrollView } from 'react-native';
+import { Text, TouchableOpacity, View, Switch, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import {
@@ -36,6 +37,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
 export default function MoreScreen({ navigation }: any) {
   const { signOut, session, configured, role, canSee, canAudit } = useAuth();
   const { colors, scheme, toggle } = useTheme();
+  const toast = useToast();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
 
@@ -50,7 +52,7 @@ export default function MoreScreen({ navigation }: any) {
     if (value) {
       const ok = await enableBiometric();
       if (!ok) {
-        Alert.alert('Biometría', 'No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.');
+        toast.error('No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.');
         return;
       }
     } else {

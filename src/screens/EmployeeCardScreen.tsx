@@ -42,55 +42,59 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   const onCocinaLogin = props.onCocinaLogin;
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [emp, setEmp] = useState<(Employee & { companyName?: string }) | null>(null);
   // Horas trabajadas como operador (de operator_assignments, por cédula), agrupadas por máquina.
   const [maquinas, setMaquinas] = useState<{ code: string; hours: number; jornadas: number }[]>([]);
   const [totalHoras, setTotalHoras] = useState(0);
 
-  useEffect(() => {
-    (async () => {
-      // Si se abrió por QR sin sesión, iniciar una anónima para poder leer la ficha.
-      const { data: s } = await supabase.auth.getSession();
-      if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
-      const anon = !s.session || !!(s.session as any)?.user?.is_anonymous;
-      // Sesión anónima (QR público del carnet): solo datos públicos, vía RPC —
-      // NUNCA sueldo/banco. Sesión real (módulo Empleados): fila completa.
-      const { data } = anon
-        ? await supabase.rpc('employee_public_lookup', { p_id: employeeId }).then((r) => ({ data: (r.data as any)?.[0] ?? null }))
-        : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
-      const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
-      const e = data ? ({ ...(data as any), companyName: companyName ?? 'Sin empresa' }) : null;
-      setEmp(e);
+  // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
+  // bitácora: ese registro es solo para la apertura inicial por QR.
+  const load = async (isRefresh = false) => {
+    // Si se abrió por QR sin sesión, iniciar una anónima para poder leer la ficha.
+    const { data: s } = await supabase.auth.getSession();
+    if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
+    const anon = !s.session || !!(s.session as any)?.user?.is_anonymous;
+    // Sesión anónima (QR público del carnet): solo datos públicos, vía RPC —
+    // NUNCA sueldo/banco. Sesión real (módulo Empleados): fila completa.
+    const { data } = anon
+      ? await supabase.rpc('employee_public_lookup', { p_id: employeeId }).then((r) => ({ data: (r.data as any)?.[0] ?? null }))
+      : await supabase.from('employees').select('*, company:company_id(name)').eq('id', employeeId).maybeSingle();
+    const companyName = anon ? (data as any)?.company_name : (data as any)?.company?.name;
+    const e = data ? ({ ...(data as any), companyName: companyName ?? 'Sin empresa' }) : null;
+    setEmp(e);
 
-      // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no
-      // desde el módulo Empleados). Así en Auditoría se ve cuándo y a quién se escaneó.
-      if (props.scanned && e) {
-        const nombre = fullName(e) || [e.first_name, e.last_name].filter(Boolean).join(' ') || String(e.cedula ?? '');
-        logAudit('SCAN', 'employees', e.id, `Carnet · ${nombre}${e.cedula ? ` · C.I ${e.cedula}` : ''}`);
-      }
+    // Bitácora: registrar el ESCANEO del carnet (solo cuando se abrió por QR, no
+    // desde el módulo Empleados, ni en un refresh). Así en Auditoría se ve cuándo y a quién se escaneó.
+    if (!isRefresh && props.scanned && e) {
+      const nombre = fullName(e) || [e.first_name, e.last_name].filter(Boolean).join(' ') || String(e.cedula ?? '');
+      logAudit('SCAN', 'employees', e.id, `Carnet · ${nombre}${e.cedula ? ` · C.I ${e.cedula}` : ''}`);
+    }
 
-      // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
-      if (e?.cedula) {
-        const { data: asg } = await supabase
-          .from('operator_assignments')
-          .select('worked_hours, machinery:machinery_id(code)')
-          .eq('cedula', String(e.cedula).trim());
-        const acc = new Map<string, { code: string; hours: number; jornadas: number }>();
-        let total = 0;
-        (asg ?? []).forEach((r: any) => {
-          const code = r.machinery?.code ?? '—';
-          const h = Number(r.worked_hours) || 0;
-          total += h;
-          const g = acc.get(code) ?? { code, hours: 0, jornadas: 0 };
-          g.hours += h; g.jornadas += 1;
-          acc.set(code, g);
-        });
-        setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
-        setTotalHoras(Math.round(total * 100) / 100);
-      }
-      setLoading(false);
-    })();
-  }, [employeeId]);
+    // Horas trabajadas: buscar jornadas por la cédula del empleado y agrupar por máquina.
+    if (e?.cedula) {
+      const { data: asg } = await supabase
+        .from('operator_assignments')
+        .select('worked_hours, machinery:machinery_id(code)')
+        .eq('cedula', String(e.cedula).trim());
+      const acc = new Map<string, { code: string; hours: number; jornadas: number }>();
+      let total = 0;
+      (asg ?? []).forEach((r: any) => {
+        const code = r.machinery?.code ?? '—';
+        const h = Number(r.worked_hours) || 0;
+        total += h;
+        const g = acc.get(code) ?? { code, hours: 0, jornadas: 0 };
+        g.hours += h; g.jornadas += 1;
+        acc.set(code, g);
+      });
+      setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
+      setTotalHoras(Math.round(total * 100) / 100);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [employeeId]);
+
+  const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 
   // PDF = FICHA COMPLETA (todos los datos por secciones), no el carnet.
   const fichaPdf = async () => {
@@ -137,7 +141,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   );
 
   return (
-    <Screen bg={FICHA.bg} bgImage={FICHA_BG} bgImageOpacity={0.08}>
+    <Screen bg={FICHA.bg} bgImage={FICHA_BG} bgImageOpacity={0.08} onRefresh={onRefresh} refreshing={refreshing}>
       {/* Encabezado con logo */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>

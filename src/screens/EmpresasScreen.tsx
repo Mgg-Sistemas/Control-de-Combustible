@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
+import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
 import { Company } from '../types/database';
@@ -18,6 +19,7 @@ const FIELDS: Field[] = [
 
 export default function EmpresasScreen() {
   const { colors } = useTheme();
+  const toast = useToast();
   const { data, loading, refetch } = useTable<Company>('companies', { orderBy: 'name', ascending: true });
   const [editing, setEditing] = useState<Company | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -29,7 +31,7 @@ export default function EmpresasScreen() {
     setBusy(c.id);
     const { error } = await supabase.from('companies').update({ hidden: !c.hidden }).eq('id', c.id);
     setBusy(null);
-    if (error) Alert.alert('Aviso', error.message);
+    if (error) toast.error(error.message);
     else refetch();
   };
 
@@ -39,7 +41,7 @@ export default function EmpresasScreen() {
     setBusy(c.id + '-f');
     const { error } = await supabase.from('companies').update({ food_only: !c.food_only }).eq('id', c.id);
     setBusy(null);
-    if (error) Alert.alert('Aviso', error.message);
+    if (error) toast.error(error.message);
     else refetch();
   };
 

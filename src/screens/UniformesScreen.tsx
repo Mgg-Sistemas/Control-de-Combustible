@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useToast } from '../components/ToastProvider';
 
 const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -46,6 +47,7 @@ const tallyBy = (list: Employee[], get: (e: Employee) => string | null | undefin
 
 export default function UniformesScreen() {
   const { colors } = useTheme();
+  const toast = useToast();
   const { session } = useAuth();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
@@ -102,7 +104,7 @@ export default function UniformesScreen() {
     const c = Math.max(0, Math.floor(Number(dCam) || 0));
     const p = Math.max(0, Math.floor(Number(dPan) || 0));
     const z = Math.max(0, Math.floor(Number(dZap) || 0));
-    if (c + p + z <= 0) { Alert.alert('Aviso', 'Escribe al menos una cantidad (camisas, pantalones o zapatos).'); return; }
+    if (c + p + z <= 0) { toast.error('Escribe al menos una cantidad (camisas, pantalones o zapatos).'); return; }
     setBusyDel(true);
     const now = new Date();
     const { error } = await supabase.from('uniform_deliveries').insert({
@@ -110,7 +112,7 @@ export default function UniformesScreen() {
       delivered_at: now.toISOString(), work_date: caracasParts(now).iso, recorded_by: session?.user?.id ?? null,
     });
     setBusyDel(false);
-    if (error) { Alert.alert('Aviso', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     setDCam(''); setDPan(''); setDZap('');
     await loadDeliveries();
   };
@@ -120,7 +122,7 @@ export default function UniformesScreen() {
     const patch = { talla_camisa: camisa.trim() || null, talla_pantalon: pantalon.trim() || null, talla_zapatos: zapatos.trim() || null };
     const { error } = await supabase.from('employees').update(patch).eq('id', sel.id);
     setSaving(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setSel(null);
     refetch();
   };
@@ -160,7 +162,7 @@ export default function UniformesScreen() {
 
   // ── Imprimir el listado con tallas y firma (Recibido / Entregado) ────────────
   const imprimir = async () => {
-    if (filtered.length === 0) return Alert.alert('Aviso', 'No hay empleados para imprimir.');
+    if (filtered.length === 0) return toast.error('No hay empleados para imprimir.');
     const rows = filtered.map((e, i) =>
       `<tr>
         <td class="c">${i + 1}</td>
@@ -233,7 +235,7 @@ export default function UniformesScreen() {
     const groups = filtered
       .map((e) => ({ e, dels: empDeliveries(e.id) }))
       .filter((g) => shownIds.has(g.e.id) && g.dels.length > 0);
-    if (groups.length === 0) { Alert.alert('Aviso', 'No hay entregas registradas para los empleados mostrados.'); return; }
+    if (groups.length === 0) { toast.error('No hay entregas registradas para los empleados mostrados.'); return; }
     const grand = sumDeliveries(groups.flatMap((g) => g.dels));
     const bodies = groups.map(({ e, dels }) => {
       const t = sumDeliveries(dels);

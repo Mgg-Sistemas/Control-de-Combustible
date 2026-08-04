@@ -7,7 +7,6 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Alert,
 } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +18,7 @@ import { MODULES, LEVELS, PermLevel, defaultLevel, roleLabel } from '../lib/perm
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 
 const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
 
@@ -81,6 +81,7 @@ export default function UsersScreen() {
   const { role, onlineIds, session } = useAuth();
   const { colors, typography } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: users, loading, refetch } = useTable<Profile>('profiles', { orderBy: 'full_name', ascending: true });
   const { data: appRoles, refetch: refetchRoles } = useTable<AppRole>('app_roles', { orderBy: 'name', ascending: true });
@@ -118,7 +119,7 @@ export default function UsersScreen() {
 
   const unlockUser = async (u: Profile) => {
     const { error } = await supabase.from('profiles').update({ locked: false, failed_attempts: 0, locked_at: null }).eq('id', u.id);
-    if (error) { Alert.alert('Aviso', `No se pudo desbloquear: ${error.message}`); return; }
+    if (error) { toast.error(`No se pudo desbloquear: ${error.message}`); return; }
     refetch();
   };
 
@@ -330,6 +331,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
 function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: { visible: boolean; roles: AppRole[]; userCounts: Record<string, number>; onClose: () => void; onChanged: () => void }) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState(false);       // formulario abierto (crear o editar)
@@ -352,29 +354,29 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
   };
 
   const guardar = async () => {
-    if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del rol.'); return; }
+    if (!name.trim()) { toast.error('Escribe el nombre del rol.'); return; }
     const modules = panelType !== 'modulos'
       ? {} // los paneles especiales (coordinador QR / chofer de combustible) no usan módulos
       : Object.fromEntries(Object.entries(mods).filter(([, lv]) => lv && lv !== 'none'));
-    if (panelType === 'modulos' && Object.keys(modules).length === 0) { Alert.alert('Aviso', 'Elige al menos un módulo para el rol.'); return; }
+    if (panelType === 'modulos' && Object.keys(modules).length === 0) { toast.error('Elige al menos un módulo para el rol.'); return; }
     setBusy(true);
     const payload = { name: name.trim(), modules, panel_type: panelType };
     const { error } = editId
       ? await supabase.from('app_roles').update(payload).eq('id', editId)
       : await supabase.from('app_roles').insert(payload);
     setBusy(false);
-    if (error) { Alert.alert('Aviso', /duplicate|unique/i.test(error.message) ? 'Ya existe un rol con ese nombre.' : error.message); return; }
+    if (error) { toast.error(/duplicate|unique/i.test(error.message) ? 'Ya existe un rol con ese nombre.' : error.message); return; }
     resetForm();
     onChanged();
   };
 
   const borrarRol = async (r: AppRole) => {
     const linked = userCounts[r.id] ?? 0;
-    if (linked > 0) { Alert.alert('No se puede eliminar', `El rol "${r.name}" tiene ${linked} usuario(s) vinculado(s). Quítaselo a esos usuarios antes de eliminar el rol.`); return; }
+    if (linked > 0) { toast.error(`No se puede eliminar: el rol "${r.name}" tiene ${linked} usuario(s) vinculado(s). Quítaselo a esos usuarios antes de eliminar el rol.`); return; }
     const ok = await confirm({ title: 'Eliminar rol', message: `¿Eliminar el rol "${r.name}"?`, confirmText: 'Eliminar', cancelText: 'Cancelar', danger: true });
     if (!ok) return;
     const { error } = await supabase.from('app_roles').delete().eq('id', r.id);
-    if (error) { Alert.alert('Aviso', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     onChanged();
   };
 

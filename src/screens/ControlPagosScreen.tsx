@@ -1594,7 +1594,7 @@ export default function ControlPagosScreen({ navigation }: any) {
             )}
 
             {payError ? (
-              <View style={{ marginTop: spacing.md, backgroundColor: '#FDECEC', borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, padding: spacing.sm }}>
+              <View style={{ marginTop: spacing.md, backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, padding: spacing.sm }}>
                 <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '700' }}>⚠️ {payError}</Text>
               </View>
             ) : null}

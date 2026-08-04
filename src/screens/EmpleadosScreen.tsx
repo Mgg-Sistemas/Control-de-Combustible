@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, Alert, ScrollView } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Image, ScrollView } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
@@ -9,6 +9,7 @@ import { norm, cmpText } from '../lib/text';
 import { canonicalCargo } from '../lib/cargos';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
 import { constanciaCarnetHtml } from '../lib/constancia';
@@ -16,13 +17,13 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { EMPLOYEE_STATUS_COLOR, employeeStatusTone } from '../lib/statusMeta';
 
 const BLOOD = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'].map((v) => ({ label: v, value: v }));
 const GENDER = [{ label: 'Masculino', value: 'Masculino' }, { label: 'Femenino', value: 'Femenino' }, { label: 'Otro', value: 'Otro' }];
 const MARITAL = ['Soltero/a', 'Casado/a', 'Divorciado/a', 'Viudo/a', 'Unión libre'].map((v) => ({ label: v, value: v }));
 const STATUS_OPTS = [{ label: 'Activo', value: 'activo' }, { label: 'Inactivo', value: 'inactivo' }, { label: 'Suspendido', value: 'suspendido' }, { label: 'Otro', value: 'otro' }];
 // "Otro" = no entra al control de pago (nómina). Se excluye de la precarga y del ledger.
-const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B', otro: '#6B7280' };
 
 // Bancos de Venezuela (código · nombre). El valor guardado es "código - NOMBRE".
 const BANCOS_VE = [
@@ -72,6 +73,7 @@ const FIELDS: Field[] = [
 export default function EmpleadosScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: employees, loading, refetch } = useTable<Employee>('employees', { orderBy: 'first_name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const [query, setQuery] = useState('');
@@ -161,9 +163,9 @@ export default function EmpleadosScreen({ navigation }: any) {
     const r = await captureAndUploadEmployeePhoto(e.id, 'empleados');
     if (r.ok && r.url) {
       const { error } = await supabase.from('employees').update({ photo_url: r.url }).eq('id', e.id);
-      if (error) Alert.alert('Aviso', error.message); else refetch();
+      if (error) toast.error(error.message); else refetch();
     } else if (r.error) {
-      Alert.alert('Aviso', r.error);
+      toast.error(r.error);
     }
     setBusy(null);
   };
@@ -173,7 +175,7 @@ export default function EmpleadosScreen({ navigation }: any) {
     if (!ok) return;
     setBusy(e.id + '-photo');
     const r = await removePhoto('employees', e.id);
-    if (!r.ok && r.error) Alert.alert('Aviso', r.error); else refetch();
+    if (!r.ok && r.error) toast.error(r.error); else refetch();
     setBusy(null);
   };
 
@@ -294,7 +296,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
         {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
           const on = statusFilter === key;
-          const tint = key === 'activo' ? '#16A34A' : key === 'inactivo' ? '#DC2626' : key === 'otro' ? '#6B7280' : colors.primary;
+          const tint = key === 'todos' ? colors.primary : EMPLOYEE_STATUS_COLOR[key] ?? colors.primary;
           return (
             <TouchableOpacity
               key={key}
@@ -394,7 +396,7 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
-                          <Text style={{ color: STATUS_COLOR[e.status] ?? colors.muted, fontWeight: '700', fontSize: 11 }}>● {e.status}</Text>
+                          <Badge label={e.status} tone={employeeStatusTone(e.status)} />
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cargo ? canonicalCargo(e.cargo) : '', e.ficha_number ? `Ficha ${e.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
                       </View>

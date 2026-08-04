@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Alert, ActivityIndicator } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import QrScanner from '../components/QrScanner';
@@ -13,16 +13,16 @@ import { norm } from '../lib/text';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { Employee, Attendance } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { employeeStatusTone } from '../lib/statusMeta';
 
 type Emp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url' | 'status'>;
 type Mark = Attendance & { emp?: Emp };
 const EMP_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url, status';
 const fullName = (e?: Emp | null) => e ? `${e.first_name} ${e.last_name}`.trim() : '';
-// Mismo mapa de colores usado en EmpleadosScreen/AliadosScreen para el estatus del empleado.
-const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -48,6 +48,7 @@ export default function AsistenciaScreen() {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const uid = session?.user?.id ?? null;
   const todayISO = caracasParts(new Date()).iso;
 
@@ -141,7 +142,7 @@ export default function AsistenciaScreen() {
   const pickEmployee = async (employeeId: string) => {
     setQ(''); setResults([]);
     const { data, error } = await supabase.from('employees').select(EMP_COLS).eq('id', employeeId).maybeSingle();
-    if (error || !data) { Alert.alert('Aviso', 'No se encontró ese empleado. Verifica el carnet.'); return; }
+    if (error || !data) { toast.error('No se encontró ese empleado. Verifica el carnet.'); return; }
     setEmp(data as Emp);
     await loadToday(employeeId);
   };
@@ -149,7 +150,7 @@ export default function AsistenciaScreen() {
   const onScanned = (text: string) => {
     setScanning(false);
     const id = parseEmployeeId(text);
-    if (!id) { Alert.alert('Aviso', 'Ese QR no es un carnet de empleado válido.'); return; }
+    if (!id) { toast.error('Ese QR no es un carnet de empleado válido.'); return; }
     pickEmployee(id);
   };
 
@@ -196,7 +197,7 @@ export default function AsistenciaScreen() {
     setBusy(true);
     const r = await markAttendance(emp.id, uid);
     setBusy(false);
-    if (!r.ok) { Alert.alert('Aviso', r.error); return; }
+    if (!r.ok) { toast.error(r.error); return; }
     await Promise.all([loadToday(emp.id), loadMonth(month)]);
   };
 
@@ -205,9 +206,9 @@ export default function AsistenciaScreen() {
   const marcarManual = async () => {
     if (!emp) return;
     const mt = mTime.trim().match(/^(\d{1,2}):(\d{2})$/);
-    if (!mt) { Alert.alert('Aviso', 'Escribe la hora como HH:MM en formato 24 horas. Ej. 07:30 (día) o 19:45 (noche).'); return; }
+    if (!mt) { toast.error('Escribe la hora como HH:MM en formato 24 horas. Ej. 07:30 (día) o 19:45 (noche).'); return; }
     const hh = Number(mt[1]), mm = Number(mt[2]);
-    if (hh > 23 || mm > 59) { Alert.alert('Aviso', 'Hora inválida. Usa 00:00–23:59.'); return; }
+    if (hh > 23 || mm > 59) { toast.error('Hora inválida. Usa 00:00–23:59.'); return; }
     const hhs = String(hh).padStart(2, '0'), mms = String(mm).padStart(2, '0');
     // Caracas es UTC−4 (sin horario de verano): el instante se fija con ese offset.
     const ts = new Date(`${mDate}T${hhs}:${mms}:00-04:00`).toISOString();
@@ -216,16 +217,16 @@ export default function AsistenciaScreen() {
       employee_id: emp.id, ts, work_date: mDate, kind: mKind, recorded_by: uid,
     });
     setBusy(false);
-    if (error) { Alert.alert('Aviso', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     setManualOpen(false); setMTime('');
     await Promise.all([loadToday(emp.id), loadMonth(month)]);
-    Alert.alert('Listo', `${mKind === 'entrada' ? 'ENTRADA' : 'SALIDA'} de ${fullName(emp)} registrada: ${fmtDMY(mDate)} ${hhs}:${mms}.`);
+    toast.success(`${mKind === 'entrada' ? 'ENTRADA' : 'SALIDA'} de ${fullName(emp)} registrada: ${fmtDMY(mDate)} ${hhs}:${mms}.`);
   };
 
   // ── Reporte PDF por rango (o de un día concreto si se pasan fechas) ────────
   const generarReporte = async (fromArg?: string, toArg?: string) => {
     const from = fromArg ?? rFrom ?? todayISO, to = toArg ?? rTo ?? todayISO;
-    if (from > to) { Alert.alert('Aviso', 'La fecha "Desde" no puede ser mayor que "Hasta".'); return; }
+    if (from > to) { toast.error('La fecha "Desde" no puede ser mayor que "Hasta".'); return; }
     setRBusy(true);
     try {
       const rows = await selectAllRows(
@@ -242,7 +243,7 @@ export default function AsistenciaScreen() {
         g.marks.push({ kind: r.kind, ts: r.ts });
         byEmp.set(r.employee_id, g);
       });
-      if (byEmp.size === 0) { setRBusy(false); Alert.alert('Aviso', 'No hay marcas de asistencia en ese rango.'); return; }
+      if (byEmp.size === 0) { setRBusy(false); toast.error('No hay marcas de asistencia en ese rango.'); return; }
 
       const groups = Array.from(byEmp.values()).sort((a, b) => norm(fullName(a.emp)).localeCompare(norm(fullName(b.emp))));
       let grandMin = 0, grandDia = 0, grandNoche = 0;
@@ -278,7 +279,7 @@ export default function AsistenciaScreen() {
       await exportPdf(html, `Asistencia ${from} a ${to}`);
     } catch (e: any) {
       setRBusy(false);
-      Alert.alert('Aviso', e?.message ?? 'No se pudo generar el reporte.');
+      toast.error(e?.message ?? 'No se pudo generar el reporte.');
     }
   };
 
@@ -327,7 +328,7 @@ export default function AsistenciaScreen() {
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{fullName(emp)}</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>{[emp.cargo, companyName(emp.company_id)].filter(Boolean).join(' · ')}</Text>
               {emp.cedula ? <Text style={{ color: colors.muted, fontSize: 12 }}>C.I. {emp.cedula}</Text> : null}
-              {emp.status ? <Text style={{ color: STATUS_COLOR[emp.status] ?? colors.muted, fontWeight: '700', fontSize: 11, marginTop: 2 }}>● {emp.status}</Text> : null}
+              {emp.status ? <View style={{ marginTop: 2, alignSelf: 'flex-start' }}><Badge label={emp.status} tone={employeeStatusTone(emp.status)} /></View> : null}
             </View>
             <TouchableOpacity onPress={() => { setEmp(null); setToday([]); }} style={{ padding: spacing.xs }}>
               <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>

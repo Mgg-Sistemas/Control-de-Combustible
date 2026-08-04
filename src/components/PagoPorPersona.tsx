@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Card, EmptyState, Loading } from './ui';
 import { DateField } from './DateField';
 import { supabase } from '../lib/supabase';
@@ -7,6 +7,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { exportPersonaHistoricoXlsx, exportPersonasSeleccionadasXlsx } from '../lib/staffXlsx';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
 import { canonicalCargo } from '../lib/cargos';
 import { useTable } from '../hooks/useTable';
@@ -83,6 +84,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const { data: employees, loading: empLoading } = useTable<Employee>('employees', { orderBy: 'first_name' });
@@ -241,7 +243,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     if (!sel) return;
     // El monto siempre se guarda en US$: si el campo está en Bs, se convierte con la tasa BCV.
     const monto = round2(montoCur === 'USD' ? parseNum(fMonto) : usdFromBs(parseNum(fMonto), bcvRate || 0));
-    if (monto <= 0) { Alert.alert('Monto', 'Indica un monto mayor a 0.'); return; }
+    if (monto <= 0) { toast.error('Indica un monto mayor a 0.'); return; }
     const esDiario = fFrec === 'diario';
     setSaving(true);
     const row = {
@@ -259,7 +261,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     if (editing) ({ error } = await supabase.from('staff_payments').update(row).eq('id', editing.id));
     else ({ error } = await supabase.from('staff_payments').insert({ ...row, created_by: session?.user?.id ?? null }));
     setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     setPayOpen(false); await refetchPays();
   };
 
@@ -267,7 +269,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const ok = await confirm({ title: 'Borrar pago', message: `¿Borrar el pago de ${fmtDMY(p.fecha)} por ${usd(p.monto)}? No se puede deshacer.`, confirmText: 'Borrar', danger: true });
     if (!ok) return;
     const { error } = await supabase.from('staff_payments').delete().eq('id', p.id);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     await refetchPays();
   };
 
@@ -327,7 +329,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       monto: Number(p.monto) || 0,
     }));
     const ok = exportPersonaHistoricoXlsx(fullName(e), e.cedula || '', rows, bcvRate);
-    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel (la descarga se hace desde el navegador).');
+    if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');
   };
 
   const excelSeleccionados = () => {
@@ -337,7 +339,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       .map((e) => ({ nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '', total: totalOf(e) }));
     if (rows.length === 0) return;
     const ok = exportPersonasSeleccionadasXlsx(rows, bcvRate);
-    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel (la descarga se hace desde el navegador).');
+    if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');
   };
 
   // ── UI ─────────────────────────────────────────────────────────────────────

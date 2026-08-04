@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { useToast } from '../components/ToastProvider';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
@@ -40,6 +41,7 @@ function parseNum(text: string): number | null {
 
 export default function MargenGananciaScreen() {
   const { colors } = useTheme();
+  const toast = useToast();
   const { canSee } = useAuth();
   const [machines, setMachines] = useState<Mach[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +75,7 @@ export default function MargenGananciaScreen() {
     const val = parseNum(text);
     const col = field === 'initial_cost' ? 'cost' : 'value';
     const { error } = await supabase.from('machinery').update({ [field]: val }).eq('id', m.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, [col]: val } : x)));
     setEdits((prev) => { const n = { ...prev }; delete n[`${m.id}:${col}`]; return n; });
   };

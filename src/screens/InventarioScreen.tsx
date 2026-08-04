@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform, Image, Linking } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
@@ -179,6 +180,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session, role } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const isAdmin = role === 'admin';
   const { rate, date: rateDate, source: rateSource, loading: rateLoading, refresh: refreshRate, setManual: setRateManual } = useBcvRate();
   const [rateEdit, setRateEdit] = useState('');       // input de tasa manual
@@ -281,7 +283,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const next = (it.carga || '').toLowerCase() === value ? null : value; // volver a tocar = quitar
     const { error } = await supabase.from('inventory_items').update({ carga: next }).eq('id', it.id);
     setCargaBusy(null);
-    if (error) Alert.alert('Aviso', error.message); else refetch();
+    if (error) toast.error(error.message); else refetch();
   };
 
   // Tildar rápido el ESTADO (condición) del producto: Nuevo/Bueno/Regular/Dañado.
@@ -292,12 +294,12 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const next = norm(it.estado || '') === norm(value) ? null : value; // volver a tocar = quitar
     const { error } = await supabase.from('inventory_items').update({ estado: next }).eq('id', it.id);
     setEstadoBusy(null);
-    if (error) Alert.alert('Aviso', error.message); else refetch();
+    if (error) toast.error(error.message); else refetch();
   };
 
   // Reporte PDF: cuántas bombonas hay por carga (vacía / en uso / llena).
   const reporteBombonas = async () => {
-    if (bombonas.length === 0) return Alert.alert('Aviso', 'No hay bombonas registradas.');
+    if (bombonas.length === 0) return toast.error('No hay bombonas registradas.');
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const order = ['llena', 'en uso', 'vacía', 'sin definir'];
@@ -338,19 +340,19 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     setBusy(true);
     const { error } = await supabase.from('inventory_items').delete().eq('id', editingId);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setOpen(false); setEditingId(null); setName(''); setInitCost(''); setEstado(''); setEditQty('');
     refetch();
-    Alert.alert('Listo', 'Producto eliminado del inventario.');
+    toast.success('Producto eliminado del inventario.');
   };
 
   const crear = async () => {
-    if (!name.trim()) return Alert.alert('Aviso', 'Escribe el nombre del material.');
+    if (!name.trim()) return toast.error('Escribe el nombre del material.');
     const cleanName = name.trim().toUpperCase();
     // Costo unitario en US$ (base): si se ingresó en Bs, se convierte con la tasa del día.
     const costUsd = Math.round((initCostCur === 'USD' ? parseNum(initCost) : usdFromBs(parseNum(initCost), rate || 0)) * 10000) / 10000;
     // Evita duplicados por nombre (excluyendo el que se está editando).
-    if (levels.some((it) => norm(it.name) === norm(cleanName) && it.id !== editingId)) return Alert.alert('Aviso', 'Ya existe un material con ese nombre.');
+    if (levels.some((it) => norm(it.name) === norm(cleanName) && it.id !== editingId)) return toast.error('Ya existe un material con ese nombre.');
     // ── EDICIÓN ──
     if (editingId) {
       setBusy(true);
@@ -358,7 +360,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       // Costo unitario (PMP): si se indicó, se actualiza directo en el producto.
       if (initCost.trim() !== '') patch.avg_cost = costUsd;
       const { error } = await supabase.from('inventory_items').update(patch).eq('id', editingId);
-      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+      if (error) { setBusy(false); return toast.error(error.message); }
       // Cantidad: si cambió, se ajusta con un movimiento de AJUSTE (delta = nueva − actual).
       const nuevaQty = parseNum(editQty);
       const delta = Math.round((nuevaQty - editStock0) * 100) / 100;
@@ -367,7 +369,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
           item_id: editingId, kind: 'ajuste', qty: delta, unit_cost: null,
           reason: 'AJUSTE DE INVENTARIO', company_id: null, created_by: session?.user?.id ?? null,
         });
-        if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
+        if (mErr) { setBusy(false); return toast.error(mErr.message); }
       }
       setBusy(false);
       setOpen(false); setEditingId(null); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setInitCost(''); setEstado(''); setTipo(''); setCarga(''); setEditQty('');
@@ -382,7 +384,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const { data: ins, error } = await supabase.from('inventory_items')
       .insert({ name: cleanName, category, unit: unit.trim().toUpperCase() || null, sku: autoSku, min_stock: parseNum(minStock), estado: estado || null, tipo: tipo.trim() || null, carga: carga || null, machinery_id: null, company_id: null })
       .select('id').single();
-    if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+    if (error) { setBusy(false); return toast.error(error.message); }
     // Stock inicial (opcional): registra una entrada que fija existencia y PMP de arranque.
     const qi = parseNum(initStock);
     if (qi > 0) {
@@ -390,7 +392,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
         item_id: ins.id, kind: 'entrada', qty: qi, unit_cost: costUsd || 0,
         reason: 'INVENTARIO INICIAL', company_id: null, created_by: session?.user?.id ?? null,
       });
-      if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
+      if (mErr) { setBusy(false); return toast.error(mErr.message); }
     }
     setBusy(false);
     setOpen(false); setName(''); setCategory('repuestos'); setUnit(''); setSku(''); setMinStock(''); setMachineryId(''); setMachineQuery(''); setInitStock(''); setInitCost(''); setTipo('');
@@ -408,7 +410,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 
   // ── Reporte de TODOS los productos (cantidad, disponibilidad y estado) ──────
   const reporteProductos = async () => {
-    if (levels.length === 0) return Alert.alert('Aviso', 'No hay productos para el reporte.');
+    if (levels.length === 0) return toast.error('No hay productos para el reporte.');
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const sorted = [...levels].sort((a, b) => cmpText(a.name, b.name));
@@ -491,14 +493,14 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
       setLoteText(text);
       analizarLote(text);
     } catch (e: any) {
-      Alert.alert('Aviso', e?.message ?? 'No se pudo leer el archivo.');
+      toast.error(e?.message ?? 'No se pudo leer el archivo.');
     }
   };
 
   // Carga solo las filas OK: crea el producto con SKU incremental + su entrada.
   const cargarLote = async () => {
     const ok = (loteRows ?? []).filter((r) => r.status === 'ok');
-    if (ok.length === 0) return Alert.alert('Aviso', 'No hay filas válidas para cargar. Corrige las repetidas o mal cargadas.');
+    if (ok.length === 0) return toast.error('No hay filas válidas para cargar. Corrige las repetidas o mal cargadas.');
     setLoteBusy(true);
     const { data: skuRows } = await supabase.from('inventory_items').select('sku');
     let maxN = 0;
@@ -506,25 +508,25 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     const pad = (n: number) => 'INV-' + String(n).padStart(4, '0');
     const toInsert = ok.map((r, i) => ({ name: r.name, unit: r.unit, sku: pad(maxN + i + 1), category: r.category, min_stock: r.min, machinery_id: null, company_id: null }));
     const { data: inserted, error } = await supabase.from('inventory_items').insert(toInsert).select('id, sku');
-    if (error) { setLoteBusy(false); return Alert.alert('Aviso', error.message); }
+    if (error) { setLoteBusy(false); return toast.error(error.message); }
     const idBySku = new Map((inserted ?? []).map((r: any) => [r.sku, r.id]));
     const movs = ok
       .map((r, i) => ({ item_id: idBySku.get(pad(maxN + i + 1)), kind: 'entrada' as const, qty: r.qty, unit_cost: r.cost || 0, reason: 'CARGA POR LOTE', company_id: null, created_by: session?.user?.id ?? null }))
       .filter((m) => m.item_id && m.qty > 0);
     if (movs.length) {
       const { error: mErr } = await supabase.from('inventory_movements').insert(movs);
-      if (mErr) { setLoteBusy(false); return Alert.alert('Aviso', 'Productos creados, pero falló el stock inicial: ' + mErr.message); }
+      if (mErr) { setLoteBusy(false); return toast.error('Productos creados, pero falló el stock inicial: ' + mErr.message); }
     }
     setLoteBusy(false);
     setLoteOpen(false); setLoteText(''); setLoteRows(null);
     refetch();
-    Alert.alert('Listo', `Se cargaron ${ok.length} producto(s).`);
+    toast.success(`Se cargaron ${ok.length} producto(s).`);
   };
 
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
         <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
@@ -551,14 +553,14 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               {rate ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '600' }}>  ({rateSource === 'manual' ? 'manual' : 'BCV'})</Text> : null}
             </Text>
           </View>
-          <TouchableOpacity onPress={async () => { setRateBusy(true); try { await refreshRate(); } catch { Alert.alert('Aviso', 'No se pudo actualizar la tasa del BCV. Puedes fijarla a mano.'); } setRateBusy(false); }} disabled={rateBusy} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+          <TouchableOpacity onPress={async () => { setRateBusy(true); try { await refreshRate(); } catch { toast.error('No se pudo actualizar la tasa del BCV. Puedes fijarla a mano.'); } setRateBusy(false); }} disabled={rateBusy} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{rateBusy ? '…' : '🔄 Actualizar'}</Text>
           </TouchableOpacity>
         </View>
         {isAdmin ? (
           <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center', marginTop: spacing.xs }}>
             <TextInput value={rateEdit} onChangeText={(t) => setRateEdit(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Fijar tasa a mano (Bs/$)" placeholderTextColor={colors.muted} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xs, color: colors.text }} />
-            <TouchableOpacity onPress={async () => { const v = parseNum(rateEdit); if (v <= 0) return Alert.alert('Aviso', 'Escribe una tasa válida.'); await setRateManual(v); setRateEdit(''); }} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+            <TouchableOpacity onPress={async () => { const v = parseNum(rateEdit); if (v <= 0) return toast.error('Escribe una tasa válida.'); await setRateManual(v); setRateEdit(''); }} style={{ backgroundColor: '#0F766E', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
               <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>Fijar</Text>
             </TouchableOpacity>
           </View>
@@ -917,6 +919,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
 function MovimientosTab() {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: movs, loading, refetch } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
   const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
   const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? 'Producto';
@@ -935,10 +938,10 @@ function MovimientosTab() {
     });
     if (!ok) return;
     const { data, error } = await supabase.from('inventory_movements').delete().eq('id', m.id).select('id');
-    if (error) { Alert.alert('No se pudo revertir', error.message); return; }
-    if (!data || data.length === 0) { Alert.alert('No se pudo revertir', 'El servidor no autorizó eliminar el movimiento (permiso del módulo de inventario).'); return; }
+    if (error) { toast.error(error.message); return; }
+    if (!data || data.length === 0) { toast.error('El servidor no autorizó eliminar el movimiento (permiso del módulo de inventario).'); return; }
     await refetch();
-    Alert.alert('Revertido', 'La salida se devolvió al inventario. El stock ya refleja el cambio.');
+    toast.success('La salida se devolvió al inventario. El stock ya refleja el cambio.');
   };
 
   const [filter, setFilter] = useState('');
@@ -989,7 +992,7 @@ function MovimientosTab() {
 
   // ── Reporte PDF de TODOS los movimientos mostrados (respeta el filtro) ──────
   const reporteMovimientos = async () => {
-    if (shown.length === 0) return Alert.alert('Aviso', 'No hay movimientos para el reporte.');
+    if (shown.length === 0) return toast.error('No hay movimientos para el reporte.');
     // Orden natural por fecha (del más antiguo al más reciente) para el reporte.
     const sorted = [...shown].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     const rows = sorted.map((m, i) => {
@@ -1043,7 +1046,7 @@ function MovimientosTab() {
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Movimientos (traza)</SectionTitle>
 
@@ -1137,6 +1140,7 @@ function MovimientosTab() {
 function NotaTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
+  const toast = useToast();
   // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
   // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
   const { data: levels, loading, refetch } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name', realtimeFrom: ['inventory_movements', 'inventory_items'] });
@@ -1187,11 +1191,11 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
 
   const generar = async () => {
-    if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto a la nota.');
+    if (cart.length === 0) return toast.error('Agrega al menos un producto a la nota.');
     // Validación de cantidades y stock (la salida descuenta del inventario SOLO al confirmar).
     for (const c of cart) {
-      if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
-      if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
+      if (c.qty <= 0) return toast.error(`Indica la cantidad de "${c.name}".`);
+      if (c.qty > c.stock) return toast.error(`No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
     }
     setBusy(true);
     // 1) VISTA PREVIA PRIMERO. Solo si el usuario imprime/guarda (confirma) se
@@ -1210,7 +1214,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
       }), `Nota de salida - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
-      return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
+      return toast.error('No se pudo generar el PDF: ' + (e?.message ?? e));
     }
     if (!confirmado) {
       // Canceló la vista previa: no se descuenta y se conserva la selección.
@@ -1238,18 +1242,18 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         const rowsBasic = rows.map(({ machinery_id, ...r }) => r);
         ({ error } = await supabase.from('inventory_movements').insert(rowsBasic));
       }
-      if (error) { setBusy(false); return Alert.alert('Aviso', error.message); }
+      if (error) { setBusy(false); return toast.error(error.message); }
     }
     setBusy(false);
     setCart([]); setDestino(''); setMachineryId(''); setMachineQuery(''); setEmpSel([]); setEmpQuery(''); setEmpresaLibre(''); setPersonaLibre(''); setSalidaCompanyId(null); setCompanyOpen(false); setCompanyQuery('');
     refetch();
-    Alert.alert('Listo', 'Nota generada. La salida se descontó del inventario.');
+    toast.success('Nota generada. La salida se descontó del inventario.');
   };
 
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Nota de salida</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
@@ -1423,6 +1427,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session, role } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const isAdmin = role === 'admin';
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
@@ -1483,7 +1488,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     try {
       const folder = editId || `nuevo-${Date.now()}`;
       const res = await pickAndUploadRequirementFile(folder);
-      if (!res.ok) { if (res.error) Alert.alert('No se pudo subir', res.error); return; }
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
       setFormato({ url: res.url!, kind: res.kind!, name: res.name ?? 'formato' });
     } finally {
       setSubiendoNuevo(false);
@@ -1495,7 +1500,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       product_id: x.product_id, name: x.name.trim().toUpperCase(), unit: x.unit.trim().toUpperCase() || null,
       qty: parseNum(x.qty), est_price: parseNum(x.price), currency: x.currency, note: x.note.trim() || null,
     }));
-    if (items.length === 0) return Alert.alert('Aviso', 'Agrega al menos un producto (del inventario o nuevo).');
+    if (items.length === 0) return toast.error('Agrega al menos un producto (del inventario o nuevo).');
     setBusy(true);
     // EDITAR: actualiza el requerimiento existente (conserva su código y estado).
     if (editId) {
@@ -1504,10 +1509,10 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         .update({ title: title.trim() || null, note: note.trim() || null, company_id: companyId, items, ...adj })
         .eq('id', editId);
       setBusy(false);
-      if (error) return Alert.alert('Aviso', error.message);
+      if (error) return toast.error(error.message);
       setCreateOpen(false); setEditId(null); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null);
       refetch();
-      Alert.alert('Listo', 'Requerimiento actualizado.');
+      toast.success('Requerimiento actualizado.');
       return;
     }
     // CREAR: código correlativo (REQ-000N). Se lee el máximo actual; si la lectura
@@ -1522,7 +1527,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       const { data: codeRows, error: readErr } = await supabase.from('inventory_requirements').select('code');
       if (readErr || !codeRows) {
         setBusy(false);
-        return Alert.alert('No se pudo crear', 'No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.');
+        return toast.error('No se pudo leer el número de requerimiento (correlativo). Revisa tu conexión e inténtalo de nuevo.');
       }
       code = nextReqCode(codeRows.map((r: any) => r.code), intento);
       // La BASE reasigna el código con un trigger (correlativo a prueba de fallos);
@@ -1535,13 +1540,13 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       // Código ya usado (índice único): reintenta con el siguiente número.
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusy(false);
-      return Alert.alert('Aviso', error.message);
+      return toast.error(error.message);
     }
     setBusy(false);
-    if (!saved) return Alert.alert('Aviso', 'No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.');
+    if (!saved) return toast.error('No se pudo asignar un número único al requerimiento. Inténtalo de nuevo.');
     setCreateOpen(false); setTitle(''); setNote(''); setCompanyId(null); setRows([]); setFormato(null);
     refetch();
-    Alert.alert('Listo', `Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
+    toast.success(`Requerimiento ${code} enviado. El jefe podrá aprobarlo o rechazarlo.`);
   };
 
   // Abrir el formulario para EDITAR: precarga título, nota e ítems del requerimiento.
@@ -1573,7 +1578,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     });
     if (!ok) return;
     const { error } = await supabase.from('inventory_requirements').delete().eq('id', r.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     refetch();
   };
 
@@ -1582,7 +1587,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     const { error } = await supabase.from('inventory_requirements').update({
       status, decided_by: uid, decided_by_name: decName, decided_at: nowISO(),
     }).eq('id', r.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     refetch();
     // Al APROBAR, si trae formato adjunto, se abre la vista previa para ver y descargar.
     if (status === 'aprobado' && r.attachment_url) setPreviewReq({ ...r, status });
@@ -1593,17 +1598,17 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     setSubiendoId(r.id);
     try {
       const res = await pickAndUploadRequirementFile(r.id);
-      if (!res.ok) { if (res.error) Alert.alert('No se pudo subir', res.error); return; }
+      if (!res.ok) { if (res.error) toast.error(res.error); return; }
       const { data, error } = await supabase.from('inventory_requirements')
         .update({ attachment_url: res.url, attachment_type: res.kind, attachment_name: res.name ?? null })
         .eq('id', r.id).select('id');
       if (error) {
-        if (/attachment|column/i.test(error.message)) { Alert.alert('Falta correr el SQL', 'Corre "requerimientos_adjunto.sql" en Supabase para guardar el formato.'); return; }
-        Alert.alert('No se pudo guardar', error.message); return;
+        if (/attachment|column/i.test(error.message)) { toast.error('Corre "requerimientos_adjunto.sql" en Supabase para guardar el formato.'); return; }
+        toast.error(error.message); return;
       }
-      if (!data || data.length === 0) { Alert.alert('No se pudo guardar', 'No tienes permiso de escritura en inventario.'); return; }
+      if (!data || data.length === 0) { toast.error('No tienes permiso de escritura en inventario.'); return; }
       await refetch();
-      Alert.alert('Formato adjuntado', 'El formato quedó guardado en el requerimiento.');
+      toast.success('El formato quedó guardado en el requerimiento.');
     } finally {
       setSubiendoId(null);
     }
@@ -1657,7 +1662,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const recibir = async () => {
     if (!recvFor) return;
-    for (const it of recvRows) { if (parseNum(it.qty) <= 0) return Alert.alert('Aviso', `Indica la cantidad recibida de "${it.name}".`); }
+    for (const it of recvRows) { if (parseNum(it.qty) <= 0) return toast.error(`Indica la cantidad recibida de "${it.name}".`); }
     setRecvBusy(true);
     // SKU incremental para los productos NUEVOS.
     const { data: skuRows } = await supabase.from('inventory_items').select('sku');
@@ -1687,10 +1692,10 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
       if (uErr) throw uErr;
       setRecvBusy(false); setRecvFor(null); setRecvRows([]);
       refetch();
-      Alert.alert('Listo', 'Recibido en el inventario. Las entradas quedaron registradas con su precio.');
+      toast.success('Recibido en el inventario. Las entradas quedaron registradas con su precio.');
     } catch (e: any) {
       setRecvBusy(false);
-      Alert.alert('Aviso', e?.message ?? 'No se pudo recibir en inventario.');
+      toast.error(e?.message ?? 'No se pudo recibir en inventario.');
     }
   };
 
@@ -1704,7 +1709,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
         items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
       }), `Requerimiento ${r.code ?? dmyOf(r.created_at)}`);
-    } catch (e: any) { Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e)); }
+    } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
   };
 
   const createTotalUsd = rows.reduce((s, x) => s + (x.currency === 'USD' ? parseNum(x.price) : usdFromBs(parseNum(x.price), rate || 0)) * parseNum(x.qty), 0);
@@ -1712,7 +1717,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Requerimientos</SectionTitle>
@@ -2021,6 +2026,7 @@ const COND_MATERIAL = ['nuevo', 'usado', 'lleno', 'vacío', 'dañado'];
 function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
+  const toast = useToast();
   const uid = session?.user?.id ?? null;
   // Realtime desde AMBAS tablas: el stock cambia por inventory_movements y la carga/estado
   // se guardan en inventory_items → sin esta última, tildar carga/estado no llegaba a los otros equipos.
@@ -2117,13 +2123,13 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const empOptions = useMemo(() => employees.map((e) => ({ id: (e as any).id as string, text: empName(e) })), [employees]);
 
   const generar = async () => {
-    if (cart.length === 0) return Alert.alert('Aviso', 'Agrega al menos un material al traslado.');
-    if (!fromMachId && !fromEmpId) return Alert.alert('Aviso', 'Indica el origen (máquina o empleado).');
+    if (cart.length === 0) return toast.error('Agrega al menos un material al traslado.');
+    if (!fromMachId && !fromEmpId) return toast.error('Indica el origen (máquina o empleado).');
     if (!toMachId && !toEmpId && !toEmpresaLibre.trim() && !toPersonaLibre.trim())
-      return Alert.alert('Aviso', 'Indica el destino: máquina, empleado, o una empresa/persona no registrada.');
+      return toast.error('Indica el destino: máquina, empleado, o una empresa/persona no registrada.');
     for (const c of cart) {
-      if (c.qty <= 0) return Alert.alert('Aviso', `Indica la cantidad de "${c.name}".`);
-      if (c.qty > c.stock) return Alert.alert('Aviso', `No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
+      if (c.qty <= 0) return toast.error(`Indica la cantidad de "${c.name}".`);
+      if (c.qty > c.stock) return toast.error(`No hay suficiente stock de "${c.name}". Disponible: ${qtyFmt(c.stock)} ${c.unit}.`);
     }
     setBusy(true);
     // 1) VISTA PREVIA primero. Solo si el usuario imprime/guarda se descuenta y se registra.
@@ -2142,7 +2148,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       }), `Nota de traslado - ${todayDMY()}`);
     } catch (e: any) {
       setBusy(false);
-      return Alert.alert('Aviso', 'No se pudo generar el PDF: ' + (e?.message ?? e));
+      return toast.error('No se pudo generar el PDF: ' + (e?.message ?? e));
     }
     if (!confirmado) { setBusy(false); return; }
     // 2) CONFIRMADO: descuenta stock (salida) y guarda el encabezado del traslado.
@@ -2154,7 +2160,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       company_id: c.company_id, created_by: session?.user?.id ?? null,
     }));
     const { error: mErr } = await supabase.from('inventory_movements').insert(rows);
-    if (mErr) { setBusy(false); return Alert.alert('Aviso', mErr.message); }
+    if (mErr) { setBusy(false); return toast.error(mErr.message); }
     const transferPayload: Record<string, any> = {
       company_id: cart[0]?.company_id ?? null,
       from_machinery_id: fromMachId || null, from_machinery_label: fromMachId ? machName(fromMachId) : null,
@@ -2171,11 +2177,11 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     // no fallan si aún no corriste la migración de esa columna).
     if (toEmpresaLibre.trim()) transferPayload.to_company_name = toEmpresaLibre.trim();
     const { error: tErr } = await supabase.from('inventory_transfers').insert(transferPayload);
-    if (tErr) { setBusy(false); return Alert.alert('Aviso', tErr.message); }
+    if (tErr) { setBusy(false); return toast.error(tErr.message); }
     setBusy(false);
     setCart([]); setMotivo(''); setLugar(''); setEstadoMat(''); setFromMachId(''); setFromEmpId(''); setToMachId(''); setToEmpId(''); setToEmpresaLibre(''); setToPersonaLibre('');
     refetch(); refetchTr();
-    Alert.alert('Listo', 'Traslado registrado. La salida se descontó del inventario.');
+    toast.success('Traslado registrado. La salida se descontó del inventario.');
   };
 
   // ── Retornar al inventario un traslado ────────────────────────────────────
@@ -2187,7 +2193,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
   const retornar = async () => {
     if (!returnFor) return;
     const rows = returnRows.filter((r) => parseNum(r.qty) > 0);
-    if (rows.length === 0) return Alert.alert('Aviso', 'Indica cuánto retorna al inventario (al menos un producto).');
+    if (rows.length === 0) return toast.error('Indica cuánto retorna al inventario (al menos un producto).');
     setReturnBusy(true);
     // Entradas de vuelta al stock (sin costo: no altera el PMP).
     const movs = rows.map((r) => ({
@@ -2196,15 +2202,15 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
       company_id: returnFor.company_id, created_by: uid,
     }));
     const { error: mErr } = await supabase.from('inventory_movements').insert(movs);
-    if (mErr) { setReturnBusy(false); return Alert.alert('Aviso', mErr.message); }
+    if (mErr) { setReturnBusy(false); return toast.error(mErr.message); }
     const resumen = `${returnEstado ? returnEstado.toUpperCase() + ' · ' : ''}` + rows.map((r) => `${r.name}: ${qtyFmt(parseNum(r.qty))} ${r.unit || ''}`).join(' · ');
     const { error: uErr } = await supabase.from('inventory_transfers').update({
       returned: true, returned_at: nowISO(), return_note: resumen, estado: returnEstado || returnFor.estado,
     }).eq('id', returnFor.id);
-    if (uErr) { setReturnBusy(false); return Alert.alert('Aviso', uErr.message); }
+    if (uErr) { setReturnBusy(false); return toast.error(uErr.message); }
     setReturnBusy(false); setReturnFor(null); setReturnRows([]); setReturnEstado('');
     refetch(); refetchTr();
-    Alert.alert('Listo', 'Retornado al inventario. Las entradas quedaron registradas.');
+    toast.success('Retornado al inventario. Las entradas quedaron registradas.');
   };
 
   const trasladoLabel = (t: InventoryTransfer) => {
@@ -2216,7 +2222,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   // Reporte PDF de TODOS los traslados (con lugar, estado, ítems y si se retornaron).
   const reporteTraslados = async () => {
-    if (transfers.length === 0) return Alert.alert('Aviso', 'No hay traslados para el reporte.');
+    if (transfers.length === 0) return toast.error('No hay traslados para el reporte.');
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const retornados = transfers.filter((t) => t.returned).length;
@@ -2266,8 +2272,10 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   if (loading) return <Screen><Loading /></Screen>;
 
+  const recargar = () => { refetch(); refetchTr(); };
+
   return (
-    <Screen>
+    <Screen onRefresh={recargar} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Nota de traslado</SectionTitle>
 
@@ -2492,8 +2500,9 @@ function periodoDesde(key: string): Date | null {
 
 function GastosTab() {
   const { colors } = useTheme();
-  const { data: movs, loading } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
-  const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
+  const toast = useToast();
+  const { data: movs, loading, refetch } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
+  const { data: items, refetch: refetchItems } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
 
   const [periodo, setPeriodo] = useState('mes');
   const [q, setQ] = useState('');
@@ -2536,7 +2545,7 @@ function GastosTab() {
   const periodoLabel = PERIODOS.find((p) => p.key === periodo)?.label ?? 'Todo';
 
   const reporte = async () => {
-    if (gastos.length === 0) return Alert.alert('Aviso', 'No hay gastos en el período seleccionado.');
+    if (gastos.length === 0) return toast.error('No hay gastos en el período seleccionado.');
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const d = new Date(); const dmy = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
     const rows = gastos.map((m, i) => {
@@ -2583,8 +2592,10 @@ function GastosTab() {
 
   if (loading) return <Screen><Loading /></Screen>;
 
+  const recargar = () => { refetch(); refetchItems(); };
+
   return (
-    <Screen>
+    <Screen onRefresh={recargar} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Gastos de inventario</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Cada material que sale del almacén (nota de salida o traslado) es un gasto, valorizado al PMP.</Text>

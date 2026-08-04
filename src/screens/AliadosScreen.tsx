@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Image, Alert } from 'react-native';
-import { Screen, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Image } from 'react-native';
+import { Screen, SectionTitle, EmptyState, Loading, ExpandableCard, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
 import { useTable } from '../hooks/useTable';
@@ -8,13 +8,14 @@ import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { captureAndUploadEmployeePhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { Aliado } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { employeeStatusTone } from '../lib/statusMeta';
 
 const BLOOD = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'].map((v) => ({ label: v, value: v }));
 const STATUS_OPTS = [{ label: 'Activo', value: 'activo' }, { label: 'Inactivo', value: 'inactivo' }, { label: 'Suspendido', value: 'suspendido' }];
-const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
 
 const fullName = (a: Pick<Aliado, 'first_name' | 'last_name'>) => `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
 
@@ -38,6 +39,7 @@ const FIELDS: Field[] = [
 export default function AliadosScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: aliados, loading, refetch } = useTable<Aliado>('aliados', { orderBy: 'first_name' });
   const [query, setQuery] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -67,9 +69,9 @@ export default function AliadosScreen({ navigation }: any) {
     const r = await captureAndUploadEmployeePhoto(a.id, 'aliados');
     if (r.ok && r.url) {
       const { error } = await supabase.from('aliados').update({ photo_url: r.url }).eq('id', a.id);
-      if (error) Alert.alert('Aviso', error.message); else refetch();
+      if (error) toast.error(error.message); else refetch();
     } else if (r.error) {
-      Alert.alert('Aviso', r.error);
+      toast.error(r.error);
     }
     setBusy(null);
   };
@@ -79,7 +81,7 @@ export default function AliadosScreen({ navigation }: any) {
     if (!ok) return;
     setBusy(a.id + '-photo');
     const r = await removePhoto('aliados', a.id);
-    if (!r.ok && r.error) Alert.alert('Aviso', r.error); else refetch();
+    if (!r.ok && r.error) toast.error(r.error); else refetch();
     setBusy(null);
   };
 
@@ -127,7 +129,7 @@ export default function AliadosScreen({ navigation }: any) {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(a)}</Text>
-                    <Text style={{ color: STATUS_COLOR[a.status] ?? colors.muted, fontWeight: '700', fontSize: 11 }}>● {a.status}</Text>
+                    <Badge label={a.status} tone={employeeStatusTone(a.status)} />
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[a.rol, a.organizacion, a.ficha_number ? `Ficha ${a.ficha_number}` : ''].filter(Boolean).join(' · ')}</Text>
                 </View>

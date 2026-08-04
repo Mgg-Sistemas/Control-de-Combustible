@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { captureLocation } from '../lib/location';
 import { pickAndUploadPhoto, removePhoto } from '../lib/photo';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { Machinery } from '../types/database';
@@ -26,6 +27,7 @@ const FIELDS: Field[] = [
 export default function MachineryScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data, loading, refetch } = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export default function MachineryScreen({ navigation }: any) {
     setBusy(key);
     const res = await fn();
     setBusy(null);
-    if (!res.ok && res.error) Alert.alert('Aviso', res.error);
+    if (!res.ok && res.error) toast.error(res.error);
     if (res.ok) refetch();
   };
 

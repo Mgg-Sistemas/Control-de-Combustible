@@ -28,19 +28,21 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
   const onExit = props.onExit ?? (() => props.navigation?.goBack?.());
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [ali, setAli] = useState<Aliado | null>(null);
   const [qrUri, setQrUri] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      const { data: s } = await supabase.auth.getSession();
-      if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
-      const { data } = await supabase.from('aliados').select('*').eq('id', aliadoId).maybeSingle();
-      setAli((data as any) ?? null);
-      if (data) { try { setQrUri(await qrPngDataUri(aliadoQrUrl((data as any).id), 320)); } catch {} }
-      setLoading(false);
-    })();
-  }, [aliadoId]);
+  const load = async () => {
+    const { data: s } = await supabase.auth.getSession();
+    if (!s.session) { try { await supabase.auth.signInAnonymously(); } catch {} }
+    const { data } = await supabase.from('aliados').select('*').eq('id', aliadoId).maybeSingle();
+    setAli((data as any) ?? null);
+    if (data) { try { setQrUri(await qrPngDataUri(aliadoQrUrl((data as any).id), 320)); } catch {} }
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [aliadoId]);
+
+  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const getSvg = async () => { try { return await qrPngDataUri(aliadoQrUrl(ali!.id), 420); } catch { return ''; } };
 
@@ -86,7 +88,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
   );
 
   return (
-    <Screen bg={FICHA.bg}>
+    <Screen bg={FICHA.bg} onRefresh={onRefresh} refreshing={refreshing}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
         <Image source={LOGO} style={{ width: 34, height: 34 }} resizeMode="contain" />
         <Text style={{ color: FICHA.brand, fontWeight: '800', fontSize: 15 }}>Carnet de aliado</Text>
