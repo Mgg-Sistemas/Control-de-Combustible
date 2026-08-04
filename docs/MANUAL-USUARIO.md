@@ -665,6 +665,14 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > turno lo tiene una persona real (verde), nadie (rojo/naranja "falta"), o solo el sistema
 > (naranja "🤖 sin encargado real").
 >
+> **📅 Relleno retroactivo de agosto (04/08/2026):** `auto_full_shift_placeholder()` solo carga
+> horas para "ayer", así que las máquinas que llevaban días sin inspector ANTES de que este cron
+> se activara se quedaron sin horas esos días. `supabase/backfill_maquinas_faltantes_agosto.sql`
+> (nuevo, corrido una vez) les carga 12h día / 6h noche (12x12 para bolqueta/toronto) desde el
+> **01/08/2026** hasta ayer, SOLO a las máquinas que hoy siguen en manos de MAQUINAS FALTANTES, y
+> SOLO en los días que no tuvieran ya un registro (nunca pisa datos de un inspector real). Guarda
+> respaldo previo en `backup_machine_rounds_20260804_backfill` / `backup_machine_work_segments_20260804_backfill`.
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
