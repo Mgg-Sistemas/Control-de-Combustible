@@ -19,6 +19,7 @@ import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometro
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import InspectionsSummary from './redesign/InspectionsSummary'; // rediseño: dashboard analítico de inspecciones
 
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
@@ -827,6 +828,9 @@ export default function SupervisionScreen({ navigation }: any) {
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
+      {/* Rediseño: dashboard analítico (gráficas + switch día/noche + KPIs +
+          desglose por inspector). Autocontenido; no altera la lógica de abajo. */}
+      <InspectionsSummary />
       <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
 
       <Card>
