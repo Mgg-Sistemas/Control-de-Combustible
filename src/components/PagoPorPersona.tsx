@@ -4,7 +4,7 @@ import { Card, EmptyState, Loading } from './ui';
 import { DateField } from './DateField';
 import { supabase } from '../lib/supabase';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { exportPersonaHistoricoXlsx } from '../lib/staffXlsx';
+import { exportPersonaHistoricoXlsx, exportPersonasSeleccionadasXlsx } from '../lib/staffXlsx';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { onlyDecimal, norm, cmpText } from '../lib/text';
@@ -92,18 +92,42 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
   const bsTxt = (usdAmount: number) => (bcvRate ? fmtBs(bsFromUsd(usdAmount, bcvRate)) : '');
 
   const [q, setQ] = useState('');
-  const [soloActivos, setSoloActivos] = useState(true);
+  // "activos" = status==='activo' · "todos" = todo menos 'otro' · "inactivos" = inactivo/suspendido.
+  const [filtroEstado, setFiltroEstado] = useState<'activos' | 'todos' | 'inactivos'>('activos');
 
   // Empleados filtrados por búsqueda + estado, ordenados A→Z.
   const shown = useMemo(() => {
     const nq = norm(q);
     return employees
-      // Estado "otro" = NO entra al control de pago: se excluye siempre (aun en "Todos").
+      // Estado "otro" = NO entra al control de pago: se excluye siempre (en las 3 opciones).
       .filter((e) => (e.status || '').toLowerCase() !== 'otro')
-      .filter((e) => (!soloActivos || e.status === 'activo'))
+      .filter((e) => {
+        if (filtroEstado === 'activos') return e.status === 'activo';
+        if (filtroEstado === 'inactivos') return e.status === 'inactivo' || e.status === 'suspendido';
+        return true; // "todos"
+      })
       .filter((e) => !nq || norm(fullName(e)).includes(nq) || norm(e.cedula).includes(nq) || norm(e.cargo).includes(nq) || norm(e.ficha_number).includes(nq))
       .sort((a, b) => cmpText(fullName(a), fullName(b)));
-  }, [employees, q, soloActivos]);
+  }, [employees, q, filtroEstado]);
+
+  // ── Selección múltiple (para exportar Excel de varias personas a la vez) ────
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSeleccionados((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const todosSeleccionados = shown.length > 0 && shown.every((e) => seleccionados.has(e.id));
+  const toggleSelTodos = () => setSeleccionados((prev) => {
+    if (todosSeleccionados) {
+      const next = new Set(prev);
+      shown.forEach((e) => next.delete(e.id));
+      return next;
+    }
+    const next = new Set(prev);
+    shown.forEach((e) => next.add(e.id));
+    return next;
+  });
 
   // Movimientos por empleado (por id; respaldo por cédula).
   const paysOf = (e: Employee) => pays.filter((p) => (p.employee_id ? p.employee_id === e.id : norm(p.cedula) === norm(e.cedula)));
@@ -306,42 +330,77 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel (la descarga se hace desde el navegador).');
   };
 
+  const excelSeleccionados = () => {
+    const rows = employees
+      .filter((e) => seleccionados.has(e.id))
+      .sort((a, b) => cmpText(fullName(a), fullName(b)))
+      .map((e) => ({ nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '', total: totalOf(e) }));
+    if (rows.length === 0) return;
+    const ok = exportPersonasSeleccionadasXlsx(rows, bcvRate);
+    if (!ok) Alert.alert('Aviso', 'No se pudo generar el Excel (la descarga se hace desde el navegador).');
+  };
+
   // ── UI ─────────────────────────────────────────────────────────────────────
   if ((empLoading || payLoading) && employees.length === 0) return <Loading />;
 
   return (
     <View>
       <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, cédula, ficha o cargo…" placeholderTextColor={colors.muted} style={input} />
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, marginBottom: spacing.sm }}>
-        {[{ k: true, t: 'Solo activos' }, { k: false, t: 'Todos' }].map((o) => (
-          <TouchableOpacity key={String(o.k)} onPress={() => setSoloActivos(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: soloActivos === o.k ? colors.primary : colors.border, backgroundColor: soloActivos === o.k ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: soloActivos === o.k ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.t}</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs, marginBottom: spacing.sm }}>
+        {([{ k: 'activos', t: 'Solo activos' }, { k: 'todos', t: 'Todos' }, { k: 'inactivos', t: 'Inactivos/Desincorporados' }] as const).map((o) => (
+          <TouchableOpacity key={o.k} onPress={() => setFiltroEstado(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: filtroEstado === o.k ? colors.primary : colors.border, backgroundColor: filtroEstado === o.k ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: filtroEstado === o.k ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.t}</Text>
           </TouchableOpacity>
         ))}
         <View style={{ flex: 1 }} />
         <Text style={{ color: colors.muted, fontSize: 12, alignSelf: 'center' }}>{shown.length} persona(s)</Text>
       </View>
 
+      {shown.length === 0 ? null : (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs }}>
+          <TouchableOpacity onPress={toggleSelTodos} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.primary, backgroundColor: todosSeleccionados ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+              {todosSeleccionados ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+            </View>
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>Seleccionar todos</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1 }} />
+          {seleccionados.size > 0 ? (
+            <TouchableOpacity onPress={excelSeleccionados} style={{ backgroundColor: '#16A34A', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel seleccionados ({seleccionados.size})</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )}
+
       {shown.length === 0 ? (
         <EmptyState title="Sin personal" subtitle="No hay empleados que coincidan con la búsqueda." />
       ) : shown.map((e) => {
         const n = paysOf(e).length;
+        const on = seleccionados.has(e.id);
         return (
-          <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => setSel(e)}>
-            <Card>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>{usd(totalOf(e))}</Text>
-                  {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(totalOf(e))}</Text> : null}
+          <Card key={e.id}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
+              <TouchableOpacity onPress={() => toggleSel(e.id)} style={{ paddingTop: 2 }}>
+                <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.primary, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                 </View>
-              </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cedula, e.cargo ? canonicalCargo(e.cargo) : ''].filter(Boolean).join(' · ') || '—'}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{n} pago(s)</Text>
-              </View>
-            </Card>
-          </TouchableOpacity>
+              </TouchableOpacity>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setSel(e)} style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{fullName(e)}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 14 }}>{usd(totalOf(e))}</Text>
+                    {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(totalOf(e))}</Text> : null}
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                  <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{[e.cedula, e.cargo ? canonicalCargo(e.cargo) : ''].filter(Boolean).join(' · ') || '—'}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>{n} pago(s)</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </Card>
         );
       })}
 

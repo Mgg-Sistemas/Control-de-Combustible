@@ -331,6 +331,18 @@ principal) y **📅 Por período**. Está dentro de **Nómina** → **💵 Contr
 > cada movimiento se puede **✏️ Editar** o **🗑️ Borrar**. Las tarifas **Quincena** y **Mes** se
 > definen en el **🏷️ Tabulador** (igual que día/noche/semana) y se sincronizan a los empleados.
 
+> **🔎 Filtro por estado (Por persona):** arriba del listado hay 3 opciones — **"Solo activos"**
+> (por defecto), **"Todos"** y **"Inactivos/Desincorporados"** (agrupa `inactivo` + `suspendido`).
+> El estado **"Otro"** siempre queda fuera de las 3, no entra al control de pago.
+>
+> **☑️ Selección múltiple + Excel de varios a la vez:** cada persona de la lista tiene un
+> **checkbox** a la izquierda (además de tocarla para abrir su ficha); arriba hay
+> **"Seleccionar todos"** (marca/desmarca todos los que estás viendo con el filtro/búsqueda
+> actual). En cuanto marcas al menos una persona aparece el botón
+> **"📥 Excel seleccionados (N)"**: descarga un Excel con nombre, cédula, cargo y el **total
+> histórico pagado** de cada una, con la tasa BCV del día (fórmula real, editable) — igual que
+> el resto de los Excel de este módulo.
+
 > **💵 Equivalente en Bs (tasa BCV del día):** junto a cada monto en US$ —el **total** del
 > empleado, las **tarifas** de la ficha, el **total del historial** y **cada pago individual**— se
 > muestra también su equivalente en **Bs** con la tasa BCV del día. Al **"➕ Generar/Editar pago"**,
@@ -506,6 +518,13 @@ de noche que cruzan la medianoche se emparejan bien.
 > botón **🕒 ASISTENCIA EMPLEADOS** (así el portero/vigilante registra al personal sin darle acceso
 > al resto del sistema).
 
+> **👤 Rol ANALISTA:** puede escanear/marcar asistencia sin que un administrador tenga que darle
+> el permiso a mano — el sistema se lo habilita solo. En el teléfono, el analista entra a su vista
+> normal (la misma de Inspector) y ahí encuentra el bloque **"MARCAR ASISTENCIA DEL PERSONAL"**;
+> en PC lo ve en **Más → Control de asistencia**, igual que cualquier otro usuario con el permiso.
+> Al escanear un carnet, además de foto/nombre/cargo/cédula ahora también se ve el **estado del
+> empleado** (🟢 activo · 🔴 inactivo · 🟡 suspendido).
+
 ### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
 En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
 1. En el recuadro **🏷️ Cargo**, toca para desplegar los cargos (con su cantidad).
@@ -608,12 +627,23 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **entrada/salida de camiones en el patio** se actualizan solas al instante en todos los
 > dispositivos, sin necesidad de refrescar a mano.
 
-> **✅ CHECK MÁQUINA (SOLO ADMINISTRADOR):** solo el **administrador** asigna las máquinas a los
-> inspectores; los inspectores **no se asignan solos** (solo ven las que el admin les puso). El admin
-> toca **✅ CHECK MÁQUINA**, **1)** elige el **inspector** de una lista buscable, y **2)** busca la
+> **✅ CHECK MÁQUINA (administrador o Coordinador de Inspectores):** asigna las máquinas a los
+> inspectores; los inspectores **no se asignan solos** (solo ven las que le pusieron). Toca
+> **✅ CHECK MÁQUINA**, **1)** elige el **inspector** de una lista buscable, y **2)** busca la
 > máquina y toca el **turno** (☀️ Día / 🌙 Noche) para asignársela (o de nuevo para quitársela). Cada
 > máquina tiene **dos inspectores** (día y noche). Queda en la **Auditoría** (✅ *se asignó · Día/Noche
-> → nombre*). El admin tiene además **"Ver todas"**.
+> → nombre*). También hay **"Ver todas"**.
+>
+> **👥 Coordinador de Inspectores (rol nuevo):** además del administrador, cualquier usuario con el
+> permiso de módulo **"Coordinador de inspectores"** (se activa desde **Usuarios**, igual que
+> cualquier otro permiso) puede coordinar/asignar inspectores — es un permiso ADICIONAL, no le quita
+> nada al administrador ni a nadie que ya podía hacerlo.
+>
+> **📋 Asignación por lotes:** dentro de **✅ CHECK MÁQUINA → 🕓 Pendientes por asignar**, cada
+> máquina tiene un check ☐ a la izquierda. Marca varias (o toca **"Seleccionar todas"**) y aparece
+> el botón **"📋 Asignar N seleccionadas…"**: elige el turno (☀️/🌙) y el inspector, y se les asigna
+> a TODAS las marcadas de una sola vez (en vez de una por una). Al final muestra cuántas quedaron
+> bien y cuántas fallaron, si alguna.
 >
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
@@ -1217,6 +1247,49 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
 - **Ya en el código, sin SQL pendiente:** el cierre manual de jornada nocturna ahora cierra contra
   la fecha en que se inició (no contra "hoy"); el horómetro final ya no acepta un valor menor al
   inicial; el reporte "Estado de máquinas" ya trae totales y firma del responsable.
+
+### Analistas, RBAC, Coordinador de Inspectores y maquinaria no asignada (04/08/2026)
+
+- **Sin SQL pendiente** — Asistencia para analistas: el rol `analista` ya tiene acceso de escritura
+  al módulo `asistencia` por defecto (código en `AuthContext.tsx`), sin necesitar una fila manual en
+  `module_permissions`. Si un admin le da explícitamente un nivel mayor a un analista puntual, ese
+  nivel manda igual.
+- **Sin SQL pendiente** — Coordinador de Inspectores: nuevo permiso de módulo
+  `coordinador_inspectores` (se activa desde **Usuarios**, como cualquier otro permiso). Es
+  ADITIVO: el administrador sigue pudiendo coordinar igual que siempre.
+- **🟡 Opcional** — `supabase/fix_user_role_enum_drift.sql`: agrega el valor `'coordinador_patio'`
+  al enum `user_role` de forma idempotente (se sospecha que ya existía en producción agregado a
+  mano; el script no falla si ya está). Ejecutar si no se está seguro de que ya existe.
+- **⚠️ NO EJECUTAR SIN REVISAR** — `supabase/auto_full_shift_no_asignada.sql`: programa un cron
+  (pg_cron, 00:15 hora Caracas) que le carga **18h fijas** (12 día + 6 noche) a toda máquina
+  operativa que **no tenga ningún inspector asignado** (tabla `machine_inspectors`). Impacta
+  horómetro, alertas de mantenimiento y posiblemente el cálculo de pago. **Nunca sobreescribe** un
+  día que ya tenga datos (usa `on conflict ... do nothing`). Antes de dejarlo activo en producción,
+  confirmar que "sin inspector asignado" = "no asignada" es la definición correcta del negocio, y
+  probar corriendo `select public.auto_full_shift_no_asignada();` a mano una vez para revisar el
+  resultado. Para desactivarlo: `select cron.unschedule('auto-full-shift-no-asignada');`.
+
+**Auditoría RBAC — mapeo de los 8 cargos pedidos a las pantallas ya existentes:**
+
+| Cargo pedido | Estado hoy |
+|---|---|
+| Inspectores | Ya resuelto — rol fijo `supervisor` (etiqueta visible "inspector"), pantalla `SupervisorTabs`. |
+| Personal de Cocina | Ya resuelto — rol fijo `cocina`, pantalla `CocinaScreen`. |
+| Chofer de Camión de Combustible | Ya resuelto — `panel_type='chofer_combustible'` (rol dinámico), pantalla `FuelDriverStack`. |
+| Coordinador de Patio | Ya resuelto — rol fijo `coordinador_patio`, pantalla `PatioStack`. |
+| Administradores | Ya resuelto — rol fijo `admin`, app completa. |
+| Coordinadores Preventivos | Requiere que un admin cree un **rol dinámico** nuevo en Usuarios (`panel_type='modulos'`) y le marque los módulos de Mantenimiento correspondientes — no requiere código nuevo. |
+| Coordinadores Correctivos | Igual que el anterior: rol dinámico nuevo con los módulos de averías/reparaciones marcados. |
+| Almacenistas | Rol dinámico nuevo con el módulo `inventario` (y `compras` si aplica) marcado. |
+| Coordinador de Operadores | Rol dinámico nuevo con el módulo `operadores`/`control_maquinaria` marcado. |
+| Coordinador de Inspectores | Ya resuelto en esta ronda — permiso de módulo `coordinador_inspectores` (ver arriba), no rol nuevo. |
+
+> **Ojo con el teléfono:** los roles dinámicos (Preventivo/Correctivo/Almacenista/Operadores) que
+> un admin cree en Usuarios funcionan bien en PC (ven su panel de módulos), pero **en el teléfono**
+> hoy caen en la misma vista de Inspector que todos (no se interceptan aparte, como sí se hizo con
+> `coordinador_patio` y `chofer_combustible`). Si alguno de estos cargos necesita trabajar
+> principalmente desde el teléfono con su propio panel (no la vista de Inspector), avisar para
+> agregar esa intercepción específica en `navigation/index.tsx`.
 
 ---
 

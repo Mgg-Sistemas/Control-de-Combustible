@@ -262,6 +262,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     parada_no_trabajo: '📍 Parada / no trabajó',
     auto_close: '🤖 Cierre automático',
     ajuste_manual: '✏️ Ajuste manual',
+    auto_full_shift: '🤖 Jornada automática (sin inspector asignado)',
   };
 
   // Bloque de días: arranca el lunes de la fecha elegida y muestra `dayCount` días

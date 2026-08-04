@@ -341,6 +341,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const roleLvl = (appRole.modules?.[moduleKey] as PermLevel) ?? 'none';
       return explicit ? maxLevel(roleLvl, explicit) : roleLvl;
     }
+    // El rol FIJO 'analista' tiene acceso mínimo de escritura a Control de
+    // Asistencia aunque no tenga una fila explícita en module_permissions
+    // (si el admin le dio explícitamente un nivel mayor, ese gana).
+    if (role === 'analista' && moduleKey === 'asistencia') {
+      return maxLevel('escritura', explicit ?? defaultLevel(moduleKey));
+    }
     return explicit ?? defaultLevel(moduleKey);
   };
   const canSee = (moduleKey: string) => moduleLevel(moduleKey) !== 'none';
