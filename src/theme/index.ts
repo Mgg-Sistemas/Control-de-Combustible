@@ -66,7 +66,7 @@ export const lightColors: AppColors = {
   infoSoftBg: '#EAF1FB',
   infoSoftBorder: '#2563EB',
   infoSoftText: '#12356B',
-  brand: '#1E3A5F',
+  brand: '#1D3D60',        // azul EXACTO del logo (muestreado de assets/logo.png)
   brandContrast: '#FFFFFF',
   accent: '#FFB020',
   accentContrast: '#3A2703',
@@ -102,7 +102,7 @@ export const darkColors: AppColors = {
   infoSoftBg: '#132A4A',
   infoSoftBorder: '#3B82F6',
   infoSoftText: '#9DC0F5',
-  brand: '#2C5486',
+  brand: '#1D3D60',        // azul EXACTO del logo (mismo en oscuro; banner navy con texto blanco)
   brandContrast: '#FFFFFF',
   accent: '#FFB020',
   accentContrast: '#3A2703',
