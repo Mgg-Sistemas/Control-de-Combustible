@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
 import DashboardScreen from '../screens/DashboardScreen';
-import LoginScreen from '../screens/LoginScreen';
+import LoginScreen from '../screens/redesign/LoginPilot'; // PILOTO rediseño (Sesión); original en ../screens/LoginScreen
 import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
 import UsersScreen from '../screens/UsersScreen';
