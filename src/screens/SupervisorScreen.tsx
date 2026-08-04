@@ -20,7 +20,7 @@ import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
-import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
 import { notifyAdmins } from '../lib/notify';
 import { logTruckYardIfTruck } from '../lib/truckYard';
@@ -446,31 +446,44 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
   // no auto-asignarle horas a algo que no está trabajando.
   const necesitaInspector = (m: Mach) => m.active !== false && m.operational !== false && !m.en_espera;
+  const esVirtual = (id?: string | null) => id === PLACEHOLDER_INSPECTOR_ID;
   // 🕓 PENDIENTES POR ASIGNAR: máquinas EN SERVICIO a las que les falta inspector en
   // DÍA y/o NOCHE (quedaron sin dueño, p. ej. al borrar un inspector). Las inactivas,
   // averiadas (operational=false) o en espera de recepción NO cuentan aquí — no están
-  // trabajando, así que no necesitan un inspector asignado ahora mismo. Buscable. Se
-  // ordenan primero las que no tienen NINGÚN turno asignado. Se reasignan con el modal
-  // 👮 por máquina.
+  // trabajando, así que no necesitan un inspector asignado ahora mismo.
+  //
+  // pendMode: 'sin_nadie' = la fila NO tiene NINGÚN inspector (ni humano ni el usuario
+  // de sistema MAQUINAS FALTANTES) — el caso estricto de siempre. 'sin_real' (default)
+  // AMPLÍA la búsqueda: también cuenta las que el cron ya cubrió con MAQUINAS FALTANTES
+  // (acumulan horas automáticas, pero nadie real las está inspeccionando) — es la vista
+  // que reproduce el reporte externo "Máquinas pendientes por asignar" (76, 04/08/2026).
   const faltaTurno = (m: Mach) => {
     if (!necesitaInspector(m)) return { day: false, night: false };
     const s = assignMap[m.id] || {};
     return { day: !s.day?.id, night: !s.night?.id };
   };
+  const [pendMode, setPendMode] = useState<'sin_nadie' | 'sin_real'>('sin_real');
+  const faltaEncargadoReal = (m: Mach) => {
+    if (!necesitaInspector(m)) return { day: false, night: false };
+    const s = assignMap[m.id] || {};
+    const dayFalta = !s.day?.id || (pendMode === 'sin_real' && esVirtual(s.day.id));
+    const nightFalta = !s.night?.id || (pendMode === 'sin_real' && esVirtual(s.night.id));
+    return { day: dayFalta, night: nightFalta };
+  };
   const pendientesList = useMemo(() => {
     const q = norm(pendQuery.trim());
     return machines
-      .filter((m) => { const f = faltaTurno(m); return f.day || f.night; })
+      .filter((m) => { const f = faltaEncargadoReal(m); return f.day || f.night; })
       .filter((m) => matchQuery(m, q))
       .sort((a, b) => {
-        const asg = (m: Mach) => { const s = assignMap[m.id] || {}; return (s.day?.id ? 1 : 0) + (s.night?.id ? 1 : 0); };
-        const d = asg(a) - asg(b);                 // 0 asignaciones (sin nada) primero
+        const asg = (m: Mach) => { const s = assignMap[m.id] || {}; return (s.day?.id && !esVirtual(s.day.id) ? 1 : 0) + (s.night?.id && !esVirtual(s.night.id) ? 1 : 0); };
+        const d = asg(a) - asg(b);                 // 0 asignaciones reales (sin nada o solo el sistema) primero
         return d !== 0 ? d : cmpText(a.code, b.code);
       });
-  }, [machines, assignMap, pendQuery]);
+  }, [machines, assignMap, pendQuery, pendMode]);
   const pendientesCount = useMemo(
-    () => machines.reduce((n, m) => { const f = faltaTurno(m); return n + (f.day || f.night ? 1 : 0); }, 0),
-    [machines, assignMap]
+    () => machines.reduce((n, m) => { const f = faltaEncargadoReal(m); return n + (f.day || f.night ? 1 : 0); }, 0),
+    [machines, assignMap, pendMode]
   );
   // 📋 RESUMEN: máquinas agrupadas por inspector (día/noche), para la vista colapsada.
   // Un inspector puede tener la misma máquina en día y en noche (aparece en ambas).
@@ -1498,7 +1511,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   {expanded.has('pend') ? (
                     <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
                       {pendientesList.map((m) => {
-                        const f = faltaTurno(m);
+                        const f = faltaEncargadoReal(m);
                         return (
                           <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingVertical: 1 }}>
                             • {m.code} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
@@ -1549,8 +1562,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               </TouchableOpacity>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🕓 Pendientes por asignar <Text style={{ color: colors.warning }}>({pendientesCount})</Text></Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                Máquinas sin inspector en algún turno (p. ej. quedaron sin dueño al borrar un inspector). Toca <Text style={{ fontWeight: '800', color: colors.primary }}>👮 Asignar inspector</Text> para reasignarlas de una en una, o marca varias con el check ☑ para asignarlas por lotes.
+                {pendMode === 'sin_real'
+                  ? 'Máquinas sin un inspector REAL: incluye las que no tienen a nadie y las que solo tiene el usuario de sistema 🤖 MAQUINAS FALTANTES (acumulan horas automáticas, pero nadie real las está inspeccionando).'
+                  : 'Máquinas sin NINGÚN inspector, ni siquiera el del sistema (p. ej. quedaron sin dueño al borrar un inspector).'}
+                {' '}Toca <Text style={{ fontWeight: '800', color: colors.primary }}>👮 Asignar inspector</Text> para reasignarlas de una en una, o marca varias con el check ☑ para asignarlas por lotes.
               </Text>
+              {/* Filtro: estrictamente sin nadie, o ampliado a lo que solo cubre el sistema
+                  (MAQUINAS FALTANTES) — este último reproduce el reporte externo de "pendientes". */}
+              <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                {([['Sin encargado real', 'sin_real'], ['Sin nadie (estricto)', 'sin_nadie']] as const).map(([lbl, v]) => {
+                  const on = pendMode === v;
+                  return (
+                    <TouchableOpacity key={v} onPress={() => setPendMode(v)} style={{ flex: 1, alignItems: 'center', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                      <Text numberOfLines={1} style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
                 <TouchableOpacity
                   onPress={() => setPendSelected((prev) => (prev.size === pendientesList.length ? new Set() : new Set(pendientesList.map((m) => m.id))))}
@@ -1568,10 +1596,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <TextInput value={pendQuery} onChangeText={setPendQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {pendientesList.slice(0, 200).map((m) => {
-                  const f = faltaTurno(m);
+                  const f = faltaEncargadoReal(m);
                   const slots = assignMap[m.id] || {};
                   const edif = edificioDe(m);
                   const checked = pendSelected.has(m.id);
+                  // Etiqueta por turno: sin nadie (rojo/warning) vs cubierta solo por el
+                  // sistema 🤖 (naranja/primary, distinto de "ya tiene encargado real").
+                  const turnoLabel = (sh: 'day' | 'night', falta: boolean) => {
+                    const icon = sh === 'day' ? '☀️' : '🌙';
+                    const slot = sh === 'day' ? slots.day : slots.night;
+                    if (!slot?.id) return { text: `${icon} falta ${sh === 'day' ? 'día' : 'noche'}`, color: colors.warning };
+                    if (esVirtual(slot.id)) return { text: `${icon} 🤖 sin encargado real`, color: colors.primary };
+                    return { text: `${icon} ${slot.name}`, color: colors.success };
+                  };
+                  const dl = turnoLabel('day', f.day);
+                  const nl = turnoLabel('night', f.night);
                   return (
                     <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, marginBottom: spacing.xs, flexDirection: 'row', gap: spacing.sm }}>
                       <TouchableOpacity
@@ -1583,10 +1622,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {m.code}</Text>
                         <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
-                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                        {m.encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>👤 Encargado: {m.encargado}</Text> : <View style={{ marginBottom: spacing.xs }} />}
                         <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: f.day ? colors.warning : colors.success }}>{f.day ? '☀️ falta día' : `☀️ ${slots.day?.name}`}</Text>
-                          <Text style={{ fontSize: 11, fontWeight: '800', color: f.night ? colors.warning : colors.success }}>{f.night ? '🌙 falta noche' : `🌙 ${slots.night?.name}`}</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: dl.color }}>{dl.text}</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: nl.color }}>{nl.text}</Text>
                         </View>
                         <TouchableOpacity onPress={() => { setAssignFor(m); setPickShift(f.day ? 'day' : 'night'); setAssignForQuery(''); }} style={{ alignSelf: 'flex-start', borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                           <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>👮 Asignar inspector</Text>

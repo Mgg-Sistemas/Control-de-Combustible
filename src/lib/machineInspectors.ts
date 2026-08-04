@@ -11,6 +11,12 @@ import { supabase } from './supabase';
  * Tabla: public.machine_inspectors (ver supabase/inspector_asignacion.sql).
  */
 
+/** UUID fijo del usuario de SISTEMA "MAQUINAS FALTANTES" (ver supabase/maquinas_faltantes.sql):
+ *  cubre automáticamente los turnos que se queden sin inspector humano (cron cada 15 min) para
+ *  que la máquina siga acumulando horas, pero NO es un encargado real — sirve para distinguir
+ *  "cubierta por el sistema" de "asignada a una persona de verdad". */
+export const PLACEHOLDER_INSPECTOR_ID = '00000000-0000-0000-0000-00000000fa1a';
+
 /** Turno de la asignación: día (☀️) o noche (🌙). */
 export type Shift = 'day' | 'night';
 export const shiftIcon = (s: Shift) => (s === 'night' ? '🌙' : '☀️');
