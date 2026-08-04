@@ -427,24 +427,30 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
-  // PERSISTENCIA DE NAVEGACIÓN (solo PC/web): al recargar la página, se mantiene
-  // la MISMA pantalla/pestaña donde estaba el usuario (no vuelve al inicio). En
-  // teléfono no aplica (allí la vista la fija el rol/dispositivo).
+  // PERSISTENCIA DE NAVEGACIÓN (web, PC y teléfono): al recargar la página en el
+  // NAVEGADOR, se mantiene la MISMA pantalla/pestaña donde estaba el usuario (no
+  // vuelve al inicio/REVISAR). Antes esto solo aplicaba en PC — en teléfono el
+  // refresh SIEMPRE volvía a la primera pestaña (confirmado con pruebas: el
+  // guard `|| phone` bloqueaba tanto guardar como restaurar). Se usa una CLAVE
+  // DISTINTA para teléfono porque su árbol de rutas (SupervisorTabs, PatioStack,
+  // etc., según el rol) es distinto al de PC (Tabs) — así nunca se intenta
+  // aplicar a un navegador el estado guardado de otro con rutas diferentes.
+  const navStateKey = phone ? `${NAV_STATE_KEY}_PHONE` : NAV_STATE_KEY;
   const [navInitialState] = React.useState<any>(() => {
     try {
-      if (Platform.OS !== 'web' || phone) return undefined;
-      const raw = (globalThis as any).localStorage?.getItem(NAV_STATE_KEY);
+      if (Platform.OS !== 'web') return undefined;
+      const raw = (globalThis as any).localStorage?.getItem(navStateKey);
       return raw ? JSON.parse(raw) : undefined;
     } catch { return undefined; }
   });
   const onNavStateChange = React.useCallback((state: any) => {
-    if (Platform.OS !== 'web' || phone) return;
+    if (Platform.OS !== 'web') return;
     try {
       if (state && Array.isArray(state.routes) && state.routes.length) {
-        (globalThis as any).localStorage?.setItem(NAV_STATE_KEY, JSON.stringify(state));
+        (globalThis as any).localStorage?.setItem(navStateKey, JSON.stringify(state));
       }
     } catch {}
-  }, [phone]);
+  }, [navStateKey]);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
