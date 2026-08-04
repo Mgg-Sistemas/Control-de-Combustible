@@ -31,6 +31,10 @@
 --
 -- ⚠️ IMPACTA horómetro, alertas de mantenimiento y NÓMINA. Respaldo previo del
 -- día de hoy antes de aplicar.
+--
+-- ⚠️ CORREGIDO 2026-08-04: usa el UUID REAL del usuario "inspector maquinas
+-- faltantes" (3b996dc0…, ya existente en producción) en vez del inventado que
+-- traía la primera versión — ver la nota al inicio de supabase/maquinas_faltantes.sql.
 -- ============================================================================
 
 -- 1) Respaldo de las jornadas de HOY antes de tocar nada (probablemente vacío
@@ -47,7 +51,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   r record;
   hoy date;
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
   day_start timestamptz;
 begin
   hoy := (now() at time zone 'America/Caracas')::date;
@@ -80,7 +84,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   r record;
   ayer date;
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
   day_owned boolean;
   night_owned boolean;
   es_camion boolean;
@@ -134,12 +138,12 @@ begin
     if day_owned and not had_day then
       insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
         values (r.machinery_id, ayer, 'day', day_start, day_end, 12, 'auto_full_shift',
-                'Generado automáticamente: máquina sin inspector humano (turno día → MAQUINAS FALTANTES)');
+                'Generado automáticamente: máquina sin inspector humano (turno día → inspector maquinas faltantes)');
     end if;
     if night_owned and not had_night then
       insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
         values (r.machinery_id, ayer, 'night', night_start, night_end, v_night, 'auto_full_shift',
-                'Generado automáticamente: máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
+                'Generado automáticamente: máquina sin inspector humano (turno noche → inspector maquinas faltantes)');
     end if;
   end loop;
 end $$;

@@ -684,6 +684,18 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > una jornada abierta o ya tenga horas registradas ese día (de un inspector real o de este mismo
 > sistema).
 >
+> **⚠️ CORRECCIÓN IMPORTANTE (04/08/2026, misma tarde):** todo lo de arriba (12x12, relleno
+> retroactivo, arranque a las 7am) se había construido con un usuario "MAQUINAS FALTANTES"
+> **nuevo**, creado con un UUID inventado. Se descubrió que en producción **ya existía** un
+> usuario real para esto mismo — **"inspector maquinas faltantes"** (id `3b996dc0-…`), con 143
+> asignaciones históricas — que es el que en realidad se ve en el Resumen/dashboard de siempre.
+> Los 5 scripts (`maquinas_faltantes.sql`, `cap_truck_hours.sql`,
+> `auto_start_dia_maquinas_faltantes.sql`, `backfill_maquinas_faltantes_agosto.sql`) se
+> corrigieron para usar el UUID **real**. Si ya habías corrido alguna versión vieja hoy, corre
+> además `supabase/migrar_a_inspector_faltantes_real.sql` (nuevo) para mover lo que haya quedado
+> mal asignado — es seguro, no duplica ni pisa nada. El usuario inventado no se borra, solo queda
+> sin usar.
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale

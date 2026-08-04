@@ -1,6 +1,6 @@
 -- ============================================================================
--- MÁQUINAS SIN INSPECTOR → auto-asignación al usuario virtual "MAQUINAS FALTANTES"
--- + jornada automática MIENTRAS siga sin inspector humano.
+-- MÁQUINAS SIN INSPECTOR → auto-asignación al usuario "inspector maquinas
+-- faltantes" + jornada automática MIENTRAS siga sin inspector humano.
 -- ----------------------------------------------------------------------------
 -- SUSTITUYE a supabase/auto_full_shift_no_asignada.sql (ese archivo quedó SIN
 -- ACTIVAR porque la definición de negocio de "no asignada" estaba pendiente de
@@ -10,6 +10,18 @@
 --    Deben acumular automáticamente 18 horas de trabajo diarias (12h día / 6h
 --    noche) A MENOS QUE un inspector o supervisor cambie manualmente su estado
 --    a otro diferente."
+--
+-- ⚠️ CORREGIDO 2026-08-04 (importante): la primera versión de este archivo creaba
+-- un usuario de sistema NUEVO con UUID inventado ('00000000-…-fa1a'). Se descubrió
+-- que YA EXISTÍA en producción un usuario real para este mismo propósito —
+-- "inspector maquinas faltantes", id fijo real
+-- '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b' — con 143 asignaciones históricas ya
+-- cargadas (es el que se ve en el Resumen/dashboard de la app). Este archivo
+-- ahora usa ESE id real en vez del inventado, para no crear un segundo "cajón"
+-- paralelo. Si corriste la versión vieja hoy y quedaron filas en
+-- machine_inspectors con el id inventado, corre
+-- supabase/migrar_a_inspector_faltantes_real.sql (nuevo) para pasarlas al id
+-- real — este archivo YA NO crea ningún usuario nuevo (se quitó ese bloque).
 --
 -- ACTUALIZADO 2026-08-04: la bolqueta/toronto (camión) sin inspector ya NO
 -- acumula 18h (12/6) sino **12x12 = 24h** (12h día + 12h noche). El resto de
@@ -28,7 +40,7 @@
 --   1) assign_missing_to_placeholder() — cada 15 min, por CADA turno (día/noche)
 --      de cada máquina operativa: si ese turno no tiene NINGÚN inspector (la fila
 --      no existe — unassignInspector() borra la fila, no la desactiva), se lo
---      asigna al usuario virtual MAQUINAS FALTANTES. Así aparece igual que
+--      asigna al usuario "inspector maquinas faltantes". Así aparece igual que
 --      cualquier inspector en "Resumen"/"Jornadas de máquina", y el coordinador
 --      puede reasignarlo a una persona real desde la UI normal en cualquier
 --      momento — en cuanto lo hace, ese turno deja de pertenecerle al virtual y
@@ -44,50 +56,18 @@
 -- ⚠️ IMPACTA horómetro, alertas de mantenimiento (horometroAlertas) y NÓMINA
 -- (price_per_hour × horas). Nunca pisa un round_date que YA tenga datos (mismo
 -- blindaje que el script original: `on conflict (machinery_id, round_date,
--- round_no) do nothing`). Antes de confiar del todo en producción, corre una
--- vez a mano y revisa (respalda antes con supabase/backup_antes_12x12_camiones.sql):
---     select public.assign_missing_to_placeholder();
---     select public.auto_full_shift_placeholder();
---     select * from public.machine_rounds where round_date = current_date - 1;
---     select * from public.machine_work_segments where source = 'auto_full_shift';
+-- round_no) do nothing`).
 --
 -- Corre una sola vez en Supabase → SQL Editor. Idempotente.
 -- ============================================================================
 create extension if not exists pg_cron;
 create extension if not exists pgcrypto;
 
--- 1) Usuario virtual "MAQUINAS FALTANTES" — cuenta de SISTEMA, jamás inicia
---    sesión (password aleatoria que nadie conoce). UUID fijo para poder
---    referenciarlo desde las funciones sin tener que buscarlo por nombre.
---    NO BORRAR este usuario ni su perfil: lo usan los crons de abajo.
-do $$
-begin
-  if not exists (select 1 from auth.users where id = '00000000-0000-0000-0000-00000000fa1a') then
-    insert into auth.users (
-      instance_id, id, aud, role, email, encrypted_password,
-      email_confirmed_at, created_at, updated_at,
-      raw_app_meta_data, raw_user_meta_data
-    ) values (
-      '00000000-0000-0000-0000-000000000000',
-      '00000000-0000-0000-0000-00000000fa1a',
-      'authenticated', 'authenticated',
-      'maquinas.faltantes@sistema.local',
-      crypt(encode(gen_random_bytes(24), 'hex'), gen_salt('bf')),
-      now(), now(), now(),
-      '{"provider":"email","providers":["email"]}',
-      '{"full_name":"MAQUINAS FALTANTES"}'
-    );
-  end if;
-end $$;
+-- El usuario "inspector maquinas faltantes" YA EXISTE en producción (id real
+-- '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b') — no se crea nada aquí ni se toca su
+-- perfil/nombre. NO BORRAR ese usuario: lo usan los crons de abajo.
 
--- Asegura el perfil aunque el trigger on_auth_user_created no llegue a correr
--- igual desde el SQL Editor (por si acaso; es idempotente y no pisa el nombre
--- si ya estaba puesto distinto a propósito).
-insert into public.profiles (id, full_name, role, active)
-values ('00000000-0000-0000-0000-00000000fa1a', 'MAQUINAS FALTANTES', 'conductor', true)
-on conflict (id) do update set full_name = 'MAQUINAS FALTANTES', active = true;
-
--- 2) Permitir el source 'auto_full_shift' en machine_work_segments (ya lo
+-- 1) Permitir el source 'auto_full_shift' en machine_work_segments (ya lo
 --    agregaba el script original; se repite aquí por si este se corre solo).
 alter table public.machine_work_segments
   drop constraint if exists machine_work_segments_source_check;
@@ -95,15 +75,16 @@ alter table public.machine_work_segments
   add constraint machine_work_segments_source_check
   check (source in ('manual_finish','parada_averia','parada_no_trabajo','auto_close','ajuste_manual','auto_full_shift'));
 
--- 3) Función: por cada máquina operativa y cada turno (día/noche) SIN ninguna
---    fila en machine_inspectors, se la asigna al usuario virtual.
+-- 2) Función: por cada máquina operativa y cada turno (día/noche) SIN ninguna
+--    fila en machine_inspectors, se la asigna al usuario "inspector maquinas
+--    faltantes".
 create or replace function public.assign_missing_to_placeholder() returns void
 language plpgsql security definer set search_path = public as $$
 declare
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
 begin
   insert into public.machine_inspectors (machinery_id, inspector_id, inspector_name, shift, active, assigned_at)
-  select mch.id, ph_id, 'MAQUINAS FALTANTES', shifts.sh, true, now()
+  select mch.id, ph_id, 'inspector maquinas faltantes', shifts.sh, true, now()
   from public.machinery mch
   cross join (values ('day'), ('night')) as shifts(sh)
   where mch.active = true
@@ -116,7 +97,7 @@ begin
   on conflict (machinery_id, shift) do nothing;
 end $$;
 
--- 4) Función: genera la jornada de "ayer" (hora Caracas) para cada máquina que
+-- 3) Función: genera la jornada de "ayer" (hora Caracas) para cada máquina que
 --    tenga uno o ambos turnos en manos del virtual. Bolqueta/toronto (camión):
 --    12h si es el turno día, 12h si es el turno noche (ambos → 24h, 12x12).
 --    Cualquier otra máquina: 12h día / 6h noche (ambos → 18h), como antes.
@@ -131,7 +112,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   r record;
   ayer date;
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
   day_owned boolean;
   night_owned boolean;
   es_camion boolean;
@@ -186,21 +167,21 @@ begin
     if day_owned and not had_day then
       insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
         values (r.machinery_id, ayer, 'day', day_start, day_end, 12, 'auto_full_shift',
-                'Generado automáticamente: máquina sin inspector humano (turno día → MAQUINAS FALTANTES)');
+                'Generado automáticamente: máquina sin inspector humano (turno día → inspector maquinas faltantes)');
     end if;
     if night_owned and not had_night then
       insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
         values (r.machinery_id, ayer, 'night', night_start, night_end, v_night, 'auto_full_shift',
-                'Generado automáticamente: máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
+                'Generado automáticamente: máquina sin inspector humano (turno noche → inspector maquinas faltantes)');
     end if;
   end loop;
 end $$;
 
--- 5) Desactiva el cron del script viejo (auto_full_shift_no_asignada.sql), que
+-- 4) Desactiva el cron del script viejo (auto_full_shift_no_asignada.sql), que
 --    quedó superado por este archivo — no pasa nada si nunca se llegó a activar.
 do $$ begin perform cron.unschedule('auto-full-shift-no-asignada'); exception when others then null; end $$;
 
--- 6) Programa los dos cron jobs:
+-- 5) Programa los dos cron jobs:
 --    • Asignación al virtual: cada 15 min (mantiene "quién es el dueño" al día).
 --    • Generación de horas: 1 vez al día a las 00:15 Caracas (04:15 UTC).
 do $$ begin perform cron.unschedule('assign-missing-to-placeholder'); exception when others then null; end $$;
@@ -209,6 +190,6 @@ select cron.schedule('assign-missing-to-placeholder', '*/15 * * * *', $$select p
 do $$ begin perform cron.unschedule('auto-full-shift-placeholder'); exception when others then null; end $$;
 select cron.schedule('auto-full-shift-placeholder', '15 4 * * *', $$select public.auto_full_shift_placeholder();$$);
 
--- 7) Corrida inmediata: asigna YA (sin esperar el próximo tick del cron de 15
+-- 6) Corrida inmediata: asigna YA (sin esperar el próximo tick del cron de 15
 --    min) cualquier máquina que hoy no tenga inspector en algún turno.
 select public.assign_missing_to_placeholder();
