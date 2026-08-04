@@ -222,6 +222,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return startedSet.has(id) ? 'iniciada' : averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : 'pendiente';
   }, [daySets]);
 
+  // Inspector asignado a cada máquina en el turno elegido. El cajón "…FALTANTES"
+  // significa SIN inspector real (máquina por asignar).
+  const inspectorByMachine = useMemo(() => {
+    const m = new Map<string, string>();
+    assignments.filter((a) => a.shift === shift).forEach((a) => { if (a.inspector_name) m.set(a.machinery_id, a.inspector_name); });
+    return m;
+  }, [assignments, shift]);
+  const sinInspectorReal = (name: string | null) => !name || /faltant/i.test(name);
+
   // IDs de máquina por estado (para la lista al tocar una KPI de arriba). Ordenados por código.
   const cmpId = useCallback((a: string, b: string) => cmpText(codeById.get(a) || '', codeById.get(b) || ''), [codeById]);
   const topIds = useMemo(() => {
@@ -245,15 +254,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const rd = roundDetail.get(id) ?? null;
       const fuel = fuelDay[id] ?? null;
       const worked = rd ? rd.dayH + rd.nightH : 0;
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id) };
+      const inspector = inspectorByMachine.get(id) ?? null;
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector };
     });
-  }, [listModal, machineInfo, roundDetail, fuelDay, codeById, estadoOf]);
+  }, [listModal, machineInfo, roundDetail, fuelDay, codeById, estadoOf, inspectorByMachine]);
   const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
     if (!nq) return listRows;
     return listRows.filter((r) => {
       const i = r.info;
-      return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type]
+      return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.inspector]
         .some((v) => norm(v).includes(nq));
     });
   }, [listRows, listQ]);
@@ -473,6 +483,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   const litros = r.fuel && r.fuel.liters > 0 ? `${litersLabel(r.fuel.liters)} L` : '—';
                   const ubic = info?.referencia || info?.location || info?.sector || null;
                   const turnoLbl = r.rd ? (r.rd.shift === 'night' ? '🌙 Noche' : '☀️ Día') : '—';
+                  const inspLbl = sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : `👮 ${r.inspector}`;
                   return (
                     <View key={`${r.id}-${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: 10 }}>
                       <TouchableOpacity onPress={() => setListExpanded(open ? null : r.id)} activeOpacity={0.6} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -490,6 +501,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
+                          <Text style={{ color: sinInspectorReal(r.inspector) ? colors.warning : colors.muted, fontSize: 11.5, marginTop: 1, fontWeight: sinInspectorReal(r.inspector) ? '800' : '400' }} numberOfLines={1}>
+                            {inspLbl}
+                          </Text>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '800' }}>{open ? '▲' : '▼'}</Text>
                       </TouchableOpacity>
@@ -498,6 +512,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         <View style={{ marginTop: spacing.sm, marginLeft: 26 + spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                           {detailRow('Código', r.code)}
                           {detailRow('Estado', em.label)}
+                          {detailRow('Inspector asignado', sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : r.inspector!)}
                           {detailRow('Empresa', info?.company || '—')}
                           {detailRow('Placa', info?.plate || '—')}
                           {detailRow('Serial', info?.serial || '—')}
