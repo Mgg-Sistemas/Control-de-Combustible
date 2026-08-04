@@ -645,6 +645,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > a TODAS las marcadas de una sola vez (en vez de una por una). Al final muestra cuántas quedaron
 > bien y cuántas fallaron, si alguna.
 >
+> **🕓 Pendientes por asignar solo cuenta máquinas EN SERVICIO (04/08/2026):** antes esta lista
+> incluía cualquier máquina sin inspector, incluso las **inactivas**, **averiadas**
+> (`operational = false`) o **en espera de recepción** — equipos que no están trabajando y por
+> tanto no necesitan un inspector asignado ahora mismo (mismo criterio que ya usa el cron de
+> MAQUINAS FALTANTES para no auto-asignarles horas). Ahora esas quedan afuera; solo aparecen las
+> que sí están activas, operativas y en servicio pero les falta inspector en algún turno.
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
