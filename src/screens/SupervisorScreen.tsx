@@ -388,11 +388,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // paradas pendientes por inspector para reactivar al día siguiente.
   const estadoDe = (id: string): { color: string; icon: string; label: string } | null => {
     const r = roundsById[id];
-    // La PARADA tiene prioridad sobre "trabajando": si la máquina tiene una avería/parada
-    // VIGENTE se muestra 🟡 aunque su jornada siga abierta (así el tlf coincide con la PC,
-    // donde parada gana). Solo se ve 🟢 Trabajando cuando NO está parada y la jornada está abierta.
-    if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
+    // Prioridad de estado:
+    //  1) Parada marcada HOY gana sobre "trabajando" (la marcó parada hoy → no trabaja).
+    //  2) Trabajando HOY gana sobre una parada ARRASTRADA (vieja): si iniciaron jornada,
+    //     la máquina se reactivó y está trabajando (no dejarla como parada vieja).
+    //  3) Parada arrastrada (vieja) solo si NO está trabajando hoy → 🟡 hasta operativa.
+    if (paradaHoyIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
     if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
     return null; // finalizada → NORMAL (no se marca)
   };
 
@@ -538,6 +541,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const s = new Set<string>();
     // La parada arrastrada (de días anteriores) aplica a la máquina completa (cualquier turno).
     paradaRawList.forEach((p) => { if (verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) s.add(p.id); });
+    return s;
+  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
+  // Paradas marcadas HOY (no arrastradas) visibles para este inspector: estas GANAN
+  // sobre "trabajando". Las arrastradas (en paradaIds) pierden si la máquina trabaja hoy.
+  const paradaHoyIds = useMemo(() => {
+    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
+    const s = new Set<string>();
+    paradaRawList.forEach((p) => { if (!p.arrastrada && (verTodos || myGlobalShifts.has(p.shift))) s.add(p.id); });
     return s;
   }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
   const paradaMotivos = useMemo(() => {

@@ -523,13 +523,16 @@ export default function SupervisionScreen({ navigation }: any) {
       // y viceversa (misma máquina, 2 inspectores). Se muestra SOLO para el inspector
       // del mismo turno en que se marcó (por hora Caracas), y se arrastra de un día a
       // otro para ESE turno hasta que la reactive. El "en curso" también es por turno.
-      // Parada arrastrada (de días anteriores) → aplica a TODA la máquina (ambos turnos)
-      // hasta que la marquen operativa. Parada marcada HOY → solo su turno (no pisa al otro).
-      const parada = !!par && (par.arrastrada || shiftCtx == null || par.shift === shiftCtx);
+      // Parada marcada HOY → solo su turno (no pisa al otro inspector). Parada ARRASTRADA
+      // (de días anteriores) → aplica a toda la máquina, PERO solo si NO está trabajando hoy:
+      // si iniciaron jornada, la máquina se reactivó y está EN CURSO (la parada vieja pierde).
+      const paradaHoy = !!par && !par.arrastrada && (shiftCtx == null || par.shift === shiftCtx);
+      const paradaVieja = !!par && par.arrastrada;
       // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
       const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
-      const enCurso = !parada && openForShift;
+      const enCurso = !paradaHoy && openForShift;                 // trabajando gana sobre parada vieja
+      const parada = paradaHoy || (paradaVieja && !enCurso);      // parada vieja solo si no trabaja hoy
       const finalizada = !parada && !enCurso && hoursForShift > 0;
       const pendiente = !parada && !enCurso && !finalizada;
       return {
