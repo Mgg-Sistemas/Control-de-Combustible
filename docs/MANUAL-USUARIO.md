@@ -141,6 +141,16 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 > modificar** las ya cargadas. Cuando un valor ya está cargado aparece un **🔒** y no se puede
 > cambiar; si hay que corregirlo, lo hace un **administrador**. Tampoco cambia precios.
 
+**🕒 Ver tramos (detalle de cada arranque/parada del día):**
+- Junto al total de horas de cada día, hay un botón **"🕒 Ver tramos"**.
+- Muestra, uno por uno, cada tramo de trabajo que se registró ese día: hora de inicio → hora de
+  parada, cuántas horas duró, y por qué se cerró (🏁 cierre manual del inspector, 🔧 parada por
+  avería, 📍 parada/no trabajó, 🤖 cierre automático del sistema a las 7am/7pm, o ✏️ un ajuste
+  manual hecho aquí mismo). Es **solo de consulta** — sirve para revisar y confiar en el total,
+  no para editarlo (los ajustes se siguen haciendo con los campos de siempre).
+- Si un día no tiene tramos (por ejemplo, uno de antes de que existiera esta función), el total
+  de arriba sigue siendo válido — simplemente no hay desglose para ese día.
+
 **⚠️ Marcar un equipo averiado (rápido, desde el control):**
 - Arriba, toca **⚠️ Marcar equipo averiado**.
 - Elige de la **lista desplegable** la **🏢 empresa** y luego el **🚜 equipo** (se muestra con su
@@ -1170,6 +1180,23 @@ jornada por cédula, escaneo de carnet de operador) tenían el mismo patrón.
 - **🔴 OBLIGATORIO — nuevo:** `supabase/fix_rls_anon_nomina_v2.sql` (follow-up, tablas sin uso
   anónimo: `staff_pay_periods`, `staff_pay_payments`, `staff_cargo_tariffs`, `staff_pay_config`,
   `payroll_periods`, `payroll_items`). Puro SQL, sin dependencia de código.
+
+### Tramos de trabajo por máquina (nueva tabla, 03/08/2026)
+
+Se agregó `public.machine_work_segments`: un historial auditable de cada tramo de trabajo
+(inicio → fin) de una máquina, EN PARALELO a `machine_rounds.day_hours`/`night_hours` (que
+**no se tocó** — siguen siendo la fuente de verdad para nómina y reportes, exactamente igual
+que antes). Cada vez que se cierra una jornada (manual, por parada, automática a las 7am/7pm,
+o por un ajuste manual de horas en Control de Maquinaria) se guarda un tramo nuevo, sin borrar
+ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Maquinaria (sección
+4.5, arriba).
+
+- **🔴 OBLIGATORIO** — ejecutar `supabase/machine_work_segments.sql` en producción (crea la
+  tabla; es aditivo, no afecta nada existente).
+- Migración 100% aditiva: no se usó `DROP TABLE`, `DROP COLUMN`, `DELETE` ni `TRUNCATE` en
+  ningún archivo de este cambio.
+- Los días anteriores a esta fecha no van a tener tramos (no se puede reconstruir el detalle
+  histórico), pero su total en `day_hours`/`night_hours` sigue siendo válido.
 
 ### Ronda de cierre de auditoría (03/08/2026)
 

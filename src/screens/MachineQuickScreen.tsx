@@ -462,6 +462,13 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
     setMachine((p) => (p ? { ...p, last_horometro: hf } : p));
     setView('home');
     setNotice(`✅ Jornada finalizada · ${sh.label} · Horómetro ${hi} → ${hf} = ${hours} h registradas en Control de maquinaria.`);
+    // Registro best-effort en paralelo para analítica de horas por segmento; nunca
+    // debe bloquear ni impedir el cierre de la jornada si falla.
+    supabase.from('machine_work_segments').insert({
+      machinery_id: machine.id, round_date: roundDate, shift: sh.key,
+      started_at: start.toISOString(), ended_at: now.toISOString(), hours,
+      source: 'manual_finish', recorded_by: uid || null,
+    }).then(() => {}, () => {});
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
