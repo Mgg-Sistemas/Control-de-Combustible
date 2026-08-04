@@ -652,6 +652,19 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > MAQUINAS FALTANTES para no auto-asignarles horas). Ahora esas quedan afuera; solo aparecen las
 > que sí están activas, operativas y en servicio pero les falta inspector en algún turno.
 >
+> **🤖 Filtro "Sin encargado real" vs "Sin nadie" (04/08/2026):** dentro de **🕓 Pendientes por
+> asignar** hay dos botones. Desde que existe el usuario de sistema **MAQUINAS FALTANTES** (cubre
+> automáticamente, cada 15 min, cualquier turno que se quede sin inspector humano, para que la
+> máquina no deje de acumular horas), una máquina puede tener "alguien" asignado sin que sea una
+> persona real. **"Sin encargado real"** (por defecto) muestra las que no tienen a nadie Y las que
+> solo tiene MAQUINAS FALTANTES — la vista útil para ir asignando inspectores de verdad, y la que
+> reproduce el reporte externo de "máquinas pendientes por asignar" que arma el sistema.
+> **"Sin nadie (estricto)"** muestra solo las que de verdad no tienen NINGÚN inspector (ni
+> siquiera el del sistema) — el comportamiento original. Cada tarjeta ahora también muestra el
+> **encargado** de la máquina (el campo fijo del catálogo, si lo tiene) y distingue con color si el
+> turno lo tiene una persona real (verde), nadie (rojo/naranja "falta"), o solo el sistema
+> (naranja "🤖 sin encargado real").
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
