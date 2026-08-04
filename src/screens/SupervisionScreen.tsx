@@ -464,11 +464,6 @@ export default function SupervisionScreen({ navigation }: any) {
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
-  const shiftDay = (delta: number) => {
-    const d = new Date(date + 'T12:00:00');
-    d.setDate(d.getDate() + delta);
-    setDate(d.toISOString().slice(0, 10));
-  };
 
   // Paradas del día (una por máquina, la más reciente) con motivo + inspector.
   // Fuente: maintenance_requests (así salen aunque no tengan jornada). Se define
@@ -830,22 +825,13 @@ export default function SupervisionScreen({ navigation }: any) {
       <ConfigBanner />
       {/* Rediseño: dashboard analítico (gráficas + switch día/noche + KPIs +
           desglose por inspector). Autocontenido; no altera la lógica de abajo. */}
-      <InspectionsSummary />
-      <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
+      {/* El navegador de FECHA vive ARRIBA, dentro del dashboard (junto a las gráficas);
+          esa misma fecha controla la lista de rondas de abajo. */}
+      <InspectionsSummary date={date} onDateChange={setDate} />
+      <SectionTitle>🪖 Inspecciones — rondas del día · {date}</SectionTitle>
 
       <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <DateField value={date} onChange={setDate} maxISO={caracasToday()} />
-          </View>
-          <TouchableOpacity onPress={() => shiftDay(1)} disabled={date >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: date >= caracasToday() ? 0.4 : 1 }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        {/* (El resumen de averiadas y el resumen Día/Noche ahora viven en el dashboard
+        {/* (El navegador de fecha y los resúmenes Día/Noche viven ahora en el dashboard
             "RESUMEN DE INSPECCIONES" de arriba — se quitaron de aquí para no duplicar). */}
         {/* 📄 Reporte de estado del día (4 secciones): iniciadas · pendientes · averiadas · finalizadas. */}
         <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
