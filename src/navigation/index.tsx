@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, TouchableOpacity, View, Image, Platform, ActivityIndicator } from 'react-native';
-import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
@@ -455,6 +455,16 @@ export default function RootNavigator() {
       }
     } catch {}
   }, [navStateKey]);
+  // Ref del contenedor para RE-APLICAR el estado guardado cuando TODO está montado.
+  // Motivo: las pestañas son lazy; al aplicar `initialState` en el primer montaje,
+  // el stack anidado de "Más" aún no existe y su parte del estado se pierde (se
+  // restauraba la pestaña Más pero caía en el menú, no en la pantalla honda). En
+  // `onReady` ya está montado, así que `resetRoot` restaura el árbol COMPLETO.
+  const navigationRef = useNavigationContainerRef();
+  const onNavReady = React.useCallback(() => {
+    if (Platform.OS !== 'web' || !navInitialState) return;
+    try { navigationRef.resetRoot(navInitialState); } catch {}
+  }, [navigationRef, navInitialState]);
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -490,6 +500,8 @@ export default function RootNavigator() {
   }
   return (
     <NavigationContainer
+      ref={navigationRef}
+      onReady={onNavReady}
       theme={navTheme}
       // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
