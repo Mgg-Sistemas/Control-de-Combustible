@@ -121,8 +121,13 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
   // Parada POR TURNO: machine → turno → motivo. Así la parada del inspector de DÍA no
   // afecta al de NOCHE (misma máquina, 2 inspectores) ni tapa la jornada del otro turno.
   const paradaByShift = new Map<string, Map<Turno, string>>();
+  // Parada ARRASTRADA (marcada antes del día del reporte) → aplica a TODA la máquina
+  // (ambos turnos) hasta marcarla operativa. La de HOY respeta el turno.
+  const paradaArr = new Map<string, string>();
+  const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
+    if (new Date(m.created_at).getTime() < dayStartMs && !paradaArr.has(id)) paradaArr.set(id, String(m.notes ?? '').trim());
     const sh = paradaShiftOf(m.created_at);
     const mm = paradaByShift.get(id) ?? new Map<Turno, string>();
     if (!mm.has(sh)) mm.set(sh, String(m.notes ?? '').trim());
@@ -172,8 +177,9 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     const rd = roundByMachine.get(id);
     const dayH = Number(rd?.day_hours) || 0;
     const nightH = Number(rd?.night_hours) || 0;
-    // Parada del MISMO turno del inspector (la del otro turno no le aplica).
-    const parMot = paradaByShift.get(id)?.get(turno);
+    // Parada del MISMO turno del inspector (la del otro turno no le aplica), o una
+    // ARRASTRADA de días anteriores (aplica a toda la máquina hasta marcarla operativa).
+    const parMot = paradaByShift.get(id)?.get(turno) ?? paradaArr.get(id);
     const parada = parMot != null;
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
