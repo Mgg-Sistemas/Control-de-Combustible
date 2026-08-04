@@ -41,7 +41,6 @@ export default function MoreScreen({ navigation }: any) {
   const toast = useToast();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
-  const [expanded, setExpanded] = useState(false); // menú: colapsado (columna de íconos) por defecto ↔ desplegado (nombres) al tocar "Más"
 
   useEffect(() => {
     (async () => {
@@ -82,62 +81,29 @@ export default function MoreScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
 
-      {/* Encabezado del menú + botón "Más": tocarlo DESPLIEGA el menú (íconos + nombres);
-          cuando NO está desplegado, se ve una columna angosta de solo íconos. */}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5 }}>MENÚ</Text>
-        <TouchableOpacity
-          onPress={() => setExpanded((v) => !v)}
-          activeOpacity={0.8}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: expanded ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: expanded ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 7 }}
-        >
-          <Text style={{ color: expanded ? colors.brandContrast : colors.text, fontWeight: '900', fontSize: 12.5 }}>
-            {expanded ? '▴ Menos' : '☰ Más'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Encabezado de sección del menú (tipo sidebar). */}
+      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: spacing.xs }}>MENÚ</Text>
 
-      {expanded ? (
-        // DESPLEGADO: fila por módulo con ícono + nombre + chevron (alfabético).
-        // Combustible va destacado (acento ámbar) por ser el eje del sistema.
-        <View style={{ gap: 3 }}>
-          {menu.map((m) => {
-            const feat = m.route === 'Combustible';
-            return (
-              <TouchableOpacity
-                key={m.route}
-                onPress={() => navigation.navigate(m.route)}
-                activeOpacity={0.7}
-                style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: feat ? 1 : 0, borderColor: feat ? colors.accent : 'transparent', overflow: 'hidden' }}
-              >
-                {feat ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
-                <Text style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{m.icon}</Text>
-                <Text numberOfLines={1} style={{ flex: 1, fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
-                <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : (
-        // COLAPSADO: columna angosta de SOLO íconos (toca uno para entrar; "Más" despliega los nombres).
-        <View style={{ gap: 6, alignItems: 'flex-start' }}>
-          {menu.map((m) => {
-            const feat = m.route === 'Combustible';
-            return (
-              <TouchableOpacity
-                key={m.route}
-                onPress={() => navigation.navigate(m.route)}
-                accessibilityLabel={m.label}
-                activeOpacity={0.7}
-                style={{ position: 'relative', width: 52, height: 52, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: feat ? colors.surface : colors.surfaceAlt, borderWidth: 1, borderColor: feat ? colors.accent : colors.border, overflow: 'hidden' }}
-              >
-                {feat ? <View style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
-                <Text style={{ fontSize: 24 }}>{m.icon}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      )}
+      {/* Menú (barra lateral fija): una fila por módulo con ícono + nombre + chevron,
+          en orden alfabético. Combustible va destacado (acento ámbar). */}
+      <View style={{ gap: 3 }}>
+        {menu.map((m) => {
+          const feat = m.route === 'Combustible';
+          return (
+            <TouchableOpacity
+              key={m.route}
+              onPress={() => navigation.navigate(m.route)}
+              activeOpacity={0.7}
+              style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: feat ? 1 : 0, borderColor: feat ? colors.accent : 'transparent', overflow: 'hidden' }}
+            >
+              {feat ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
+              <Text style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{m.icon}</Text>
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
+              <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
       <SectionTitle>Apariencia</SectionTitle>
       <Card>
