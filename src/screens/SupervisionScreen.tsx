@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,7 @@ import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { cmpText, norm } from '../lib/text';
+import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
@@ -44,11 +45,9 @@ function lateLabel(min: number): string {
   if (h <= 0) return `${r} min`;
   return r === 0 ? `${h} h` : `${h} h ${r} min`;
 }
-const STATUS_META: Record<VisitStatus, { icon: string; label: string; color: string }> = {
-  trabajando: { icon: '🟢', label: 'Trabajando', color: '#1E9E4A' },
-  parada: { icon: '🟡', label: 'Parada', color: '#D9A200' },
-  no_esta: { icon: '🔴', label: 'No está', color: '#D22B2B' },
-};
+// Estado de visita (trabajando/parada/no está): antes duplicado aquí con hex
+// propio, ahora tomado de src/lib/statusMeta.ts (mismo mapa que usa SupervisorScreen).
+const STATUS_META = VISIT_STATUS_META;
 // Color de "POR INICIAR" en Jornadas de máquina: antes usaba el mismo tono
 // amarillo/ámbar que PARADA (#D9A200 ≈ colors.warning) y se confundían. Se usa un
 // azul (distinto de verde = EN CURSO y ámbar = PARADA) para dar alto contraste
@@ -780,7 +779,7 @@ export default function SupervisionScreen({ navigation }: any) {
     await exportPdf(html, 'Asignaciones por sector');
   };
 
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const kpi = (label: string, value: React.ReactNode, color: string, onPress?: () => void) => {
     const inner = (

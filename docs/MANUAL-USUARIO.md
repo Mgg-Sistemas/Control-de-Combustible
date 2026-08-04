@@ -1336,6 +1336,37 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
     `select cron.unschedule('assign-missing-to-placeholder');` y
     `select cron.unschedule('auto-full-shift-placeholder');`.
 
+### Cierre final de UI/UX: modo oscuro, skeletons y estados (04/08/2026)
+
+- **Sin SQL pendiente** — Se auditaron sistemáticamente los ~45 archivos con color fijo del
+  diagnóstico original (repartidos en 4 lotes en paralelo) y se corrigieron los que realmente se
+  veían mal en modo oscuro (fondo claro fijo + texto oscuro fijo, o viceversa): banner "⏰
+  Recordatorio de pagos" de Control de Pagos (tenía texto blanco fijo sobre un fondo que en oscuro
+  queda casi ilegible), texto de turno "abierta" en Asistencia, alerta de consumo de combustible en
+  Control de Maquinaria, y el botón "Enviar a reparación"/badge de avería en Mantenimiento de
+  Maquinaria. El resto de colores fijos revisados (pines de mapa, botones sólidos con texto blanco,
+  esquemas categóricos de más de 3-4 valores, y todo lo que solo se usa para exportar PDF/Excel) se
+  dejaron igual a propósito — no son el mismo bug.
+- **Sin SQL pendiente** — Nuevo `SkeletonList` (en `src/components/ui.tsx`) reemplaza el spinner que
+  dejaba la pantalla en blanco mientras carga, en las 11 pantallas que blanqueaban TODA la pantalla
+  (no solo una lista con su cabecera ya visible): fichas/QR (AliadoCard, AliadoInfo, EmployeeCard),
+  Asistencia de camiones, Cocina, Comida, Compras, FoodCompany, las 6 sub-vistas de Inventario,
+  Supervisión y Supervisor.
+- **Sin SQL pendiente** — El estado de VISITA a una máquina (trabajando/parada/no está), que
+  `SupervisorScreen.tsx` y `SupervisionScreen.tsx` definían cada uno por su lado con los mismos 3
+  colores hex, ahora vive en un solo lugar (`VISIT_STATUS_META` en `src/lib/statusMeta.ts`) y ambas
+  pantallas leen de ahí.
+- **Sin SQL pendiente** — Nómina "Por período": el cliente pidió, además del badge "Desincorporado"
+  agregado antes, poder filtrar esa misma lista — ahora hay un buscador por nombre y los mismos 3
+  chips de "Por persona" (Activos/Todos/Inactivos-Desincorporados) en el detalle del período,
+  combinables con el filtro de cargo que ya existía. No afecta el Excel/PDF del período (siguen
+  exportando todo, no lo filtrado en pantalla).
+- **Sigue sin hacer, a propósito:** el aumento de fuente de metadatos (10–11px → 12–13px) del
+  diagnóstico original — es un cambio transversal a toda la app, alto riesgo de romper
+  layouts ajustados y no se puede verificar sin QA visual real; y las notificaciones push
+  (`expo-notifications`) — requiere credenciales de push y un Edge Function nuevo, fuera de alcance
+  hasta que se confirme que se quiere construir.
+
 ---
 
 ## 5. Cosas que sirven en TODAS las secciones

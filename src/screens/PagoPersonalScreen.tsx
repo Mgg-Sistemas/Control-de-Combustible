@@ -119,6 +119,11 @@ export default function PagoPersonalScreen() {
   const [faltantesCount, setFaltantesCount] = useState(0);
   const [cargoOpen, setCargoOpen] = useState(false);
   const toggleCargo = (d: string) => setCargoSel((prev) => { const n = new Set(prev); n.has(d) ? n.delete(d) : n.add(d); return n; });
+  // Buscador por nombre + filtro por estado ACTUAL del empleado, dentro de la vista de detalle
+  // del período (mismo patrón que PagoPorPersona). Default 'todos': un período ya cerrado tiene
+  // sentido verlo completo, incluidos los desincorporados después de cargarlo.
+  const [personaQuery, setPersonaQuery] = useState('');
+  const [estadoSel, setEstadoSel] = useState<'activos' | 'todos' | 'inactivos'>('todos');
 
   // Crear período
   const [createOpen, setCreateOpen] = useState(false);
@@ -590,7 +595,20 @@ export default function PagoPersonalScreen() {
     items.forEach((it) => { const d = cargoOf(it.cargo); m.set(d, (m.get(d) ?? 0) + 1); });
     return [...m.entries()].map(([cargo, count]) => ({ cargo, count })).sort((a, b) => cmpText(a.cargo, b.cargo));
   }, [items]);
-  const itemsShown = useMemo(() => (cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items), [items, cargoSel]);
+  const itemsShown = useMemo(() => {
+    const nq = norm(personaQuery);
+    return items
+      .filter((it) => !cargoSel.size || cargoSel.has(cargoOf(it.cargo)))
+      .filter((it) => !nq || norm(it.person_name).includes(nq))
+      .filter((it) => {
+        if (estadoSel === 'todos') return true;
+        // Sin dato de estado todavía (carrera de carga de itemEmployeeStatus): no excluir.
+        const st = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
+        if (!st) return true;
+        if (estadoSel === 'activos') return st === 'activo';
+        return st === 'inactivo' || st === 'suspendido'; // 'inactivos'
+      });
+  }, [items, cargoSel, personaQuery, estadoSel, itemEmployeeStatus]);
 
   const chip = (on: boolean) => ({ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs } as const);
   const chipTxt = (on: boolean) => ({ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 } as const);
@@ -844,6 +862,24 @@ export default function PagoPersonalScreen() {
                 </TouchableOpacity>
               ) : null}
 
+              {/* Buscador por nombre + filtro por estado ACTUAL del empleado, dentro del
+                  detalle del período (mismo patrón visual que PagoPorPersona). Se combinan
+                  con el filtro de cargo (AND). */}
+              <TextInput
+                value={personaQuery}
+                onChangeText={setPersonaQuery}
+                placeholder="🔎 Buscar por nombre…"
+                placeholderTextColor={colors.muted}
+                style={{ ...input, marginBottom: spacing.xs }}
+              />
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+                {([{ k: 'activos', t: 'Activos' }, { k: 'todos', t: 'Todos' }, { k: 'inactivos', t: 'Inactivos/Desincorporados' }] as const).map((o) => (
+                  <TouchableOpacity key={o.k} onPress={() => setEstadoSel(o.k)} style={chip(estadoSel === o.k)}>
+                    <Text style={chipTxt(estadoSel === o.k)}>{o.t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
               {/* Filtro por CARGO: lista desplegable con checks.
                   Afecta la lista de abajo Y el reporte PDF. Vacío = todos. */}
               {cargosDisponibles.length > 1 ? (
@@ -886,7 +922,7 @@ export default function PagoPersonalScreen() {
               ) : items.length === 0 ? (
                 <EmptyState title="Sin personal" subtitle="No hay empleados activos en esta empresa. Agrégalos en Empleados y usa “Personal faltante”." />
               ) : itemsShown.length === 0 ? (
-                <EmptyState title="Sin personal en ese cargo" subtitle="Ningún empleado del período tiene el cargo filtrado." />
+                <EmptyState title="Sin resultados" subtitle="Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados." />
               ) : (
                 itemsShown.map((it) => {
                   const pagado = paidOf(it.id); const saldo = saldoOf(it);

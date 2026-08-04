@@ -4,13 +4,14 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { TanksScreen, IntakesScreen, DispatchesScreen } from './modules';
+import TanksPilot from './TanksPilot'; // PILOTO rediseño (rama feature/rediseno-tanques)
 import AuthorizationsScreen from './AuthorizationsScreen';
 
 // Un solo módulo "Combustible" que agrupa lo que antes eran secciones separadas.
 // Cada sub-pestaña respeta el permiso de su módulo (tanques/ingresos/consumos/
 // traslados/autorizaciones) y muestra la MISMA pantalla que ya existía.
 const TABS: { key: string; label: string; icon: string; Comp: React.ComponentType<any> }[] = [
-  { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksScreen },
+  { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksPilot },
   { key: 'ingresos', label: 'Ingresos', icon: '⬇️', Comp: IntakesScreen },
   { key: 'consumos', label: 'Consumos', icon: '⛽', Comp: DispatchesScreen },
   { key: 'autorizaciones', label: 'Solicitudes', icon: '✅', Comp: AuthorizationsScreen },

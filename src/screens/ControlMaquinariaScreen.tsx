@@ -1774,7 +1774,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   </Text>
                   {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                   {fuelWeek[m.id]?.liters ? (
-                    <Text style={{ color: '#B45309', fontSize: 12, fontWeight: '700' }}>
+                    <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700' }}>
                       ⛽ {litersLabel(fuelWeek[m.id].liters)} L{weekWorked > 0 ? ` · ${lphOf(fuelWeek[m.id].liters, weekWorked)} L/h` : ''} <Text style={{ color: colors.muted, fontWeight: '400' }}>(período)</Text>
                     </Text>
                   ) : null}

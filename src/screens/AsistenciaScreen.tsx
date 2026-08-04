@@ -492,7 +492,7 @@ export default function AsistenciaScreen() {
                       <Text key={j} style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
                         <Text style={{ color: colors.success }}>➡️ {fmtHora(p.in)}</Text>
                         {'  →  '}
-                        {p.out ? <Text style={{ color: colors.danger }}>⬅️ {fmtHora(p.out)}</Text> : <Text style={{ color: '#B45309' }}>abierta</Text>}
+                        {p.out ? <Text style={{ color: colors.danger }}>⬅️ {fmtHora(p.out)}</Text> : <Text style={{ color: colors.warning }}>abierta</Text>}
                         {'   '}({fmtDuration(p.minutes)})
                       </Text>
                     ))}

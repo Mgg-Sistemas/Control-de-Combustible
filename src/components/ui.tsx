@@ -11,6 +11,7 @@ import {
   ImageSourcePropType,
   Platform,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationRouteContext } from '@react-navigation/native';
@@ -279,6 +280,67 @@ export function Loading() {
   return (
     <View style={{ paddingVertical: spacing.xl, alignItems: 'center' }}>
       <ActivityIndicator color={colors.primary} />
+    </View>
+  );
+}
+
+/** Barra rectangular con "pulso" (opacidad animada) — bloque base de los skeletons. */
+export function SkeletonBlock({ width, height = 12, style }: { width: number | `${number}%`; height?: number; style?: ViewStyle }) {
+  const { colors } = useTheme();
+  const anim = React.useRef(new Animated.Value(0.4)).current;
+  React.useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  return (
+    <Animated.View
+      style={[
+        { width: width as any, height, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt, opacity: anim },
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * Placeholder con forma de tarjeta de lista (título + subtítulo + metadato), para
+ * mostrar MIENTRAS carga en vez de un spinner que "blanquea" toda la pantalla —
+ * el usuario ve de una vez la FORMA de lo que está por llegar.
+ */
+export function SkeletonCard() {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        backgroundColor: colors.surface,
+        borderRadius: radius.md,
+        padding: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        gap: spacing.sm,
+        marginBottom: spacing.md,
+      }}
+    >
+      <SkeletonBlock width="60%" height={15} />
+      <SkeletonBlock width="40%" height={12} />
+      <SkeletonBlock width="30%" height={11} />
+    </View>
+  );
+}
+
+/** Varias {@link SkeletonCard} apiladas — reemplazo directo de `<Loading/>` en listas. */
+export function SkeletonList({ count = 4 }: { count?: number }) {
+  return (
+    <View>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} />
+      ))}
     </View>
   );
 }

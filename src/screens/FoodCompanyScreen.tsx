@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal } from 'react-native';
-import { Screen, Card, Loading } from '../components/ui';
+import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -206,7 +206,7 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
