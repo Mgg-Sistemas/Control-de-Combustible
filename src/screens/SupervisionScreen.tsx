@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '../components/ui';
+import { Screen, Card, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -8,7 +8,6 @@ import { listVisits, VisitRow } from '../lib/supervisorVisits';
 import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { generateEstadoReport } from '../lib/inspectorEstadoReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
@@ -464,11 +463,6 @@ export default function SupervisionScreen({ navigation }: any) {
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
-  const shiftDay = (delta: number) => {
-    const d = new Date(date + 'T12:00:00');
-    d.setDate(d.getDate() + delta);
-    setDate(d.toISOString().slice(0, 10));
-  };
 
   // Paradas del día (una por máquina, la más reciente) con motivo + inspector.
   // Fuente: maintenance_requests (así salen aunque no tengan jornada). Se define
@@ -830,46 +824,27 @@ export default function SupervisionScreen({ navigation }: any) {
       <ConfigBanner />
       {/* Rediseño: dashboard analítico (gráficas + switch día/noche + KPIs +
           desglose por inspector). Autocontenido; no altera la lógica de abajo. */}
-      <InspectionsSummary />
-      <SectionTitle>🪖 Inspecciones — rondas del día</SectionTitle>
+      {/* El navegador de FECHA vive ARRIBA, dentro del dashboard (junto a las gráficas);
+          esa misma fecha controla la lista de rondas de abajo. */}
+      <InspectionsSummary date={date} onDateChange={setDate} />
 
       <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
+        {/* (El navegador de fecha, los resúmenes Día/Noche y el reporte de estado del
+            día viven ahora en el dashboard "RESUMEN DE INSPECCIONES" de arriba. Los
+            reportes con firma son solo INDIVIDUALES, por inspector). */}
+        {/* 📚 Histórico + 📱 Vista de inspector: DOS botones a media pantalla (fila). */}
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+          <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector</Text>
           </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <DateField value={date} onChange={setDate} maxISO={caracasToday()} />
-          </View>
-          <TouchableOpacity onPress={() => shiftDay(1)} disabled={date >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: date >= caracasToday() ? 0.4 : 1 }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Máquinas averiadas (total del día). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiShift(null); setKpiModal('averiadas'); })}
-        </View>
-        {/* Resumen por TURNO: ☀️ Día y 🌙 Noche (iniciadas · terminadas · pendientes por finalizar). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {resumenCard('☀️ Resumen DÍA', dayS, 'day')}
-          {resumenCard('🌙 Resumen NOCHE', nightS, 'night')}
-        </View>
-        {/* 📄 Reporte de estado del día (4 secciones): iniciadas · pendientes · averiadas · finalizadas. */}
-        <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📄 Reporte de estado (iniciadas · pendientes · averiadas · finalizadas)</Text>
-        </TouchableOpacity>
-        {/* 📚 Histórico de jornadas FINALIZADAS por inspector (rango de fechas + PDF). */}
-        <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector (jornadas finalizadas)</Text>
-        </TouchableOpacity>
-        {/* 📱 Vista de inspector (teléfono) en la PC — SOLO ADMIN. */}
-        {isAdmin ? (
-          <>
-            <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector (como en el teléfono)</Text>
+          {isAdmin ? (
+            <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector</Text>
             </TouchableOpacity>
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
-          </>
+          ) : null}
+        </View>
+        {isAdmin ? (
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
         ) : null}
       </Card>
 
@@ -1135,89 +1110,6 @@ export default function SupervisionScreen({ navigation }: any) {
                   </View>
                   <Text style={{ color: estado.col, fontWeight: '800', fontSize: 12 }}>{estado.t}</Text>
                 </View>
-              </Card>
-            );
-          })}
-        </>
-      )}
-
-      {/* ── JORNADAS DE MÁQUINA (iniciadas por el inspector con "INICIAR JORNADA") ── */}
-      {secHead('machjor', `🟢 Jornadas de máquina (inspector) · 📅 ${dmy(date)}`)}
-      {secClosed.has('machjor') ? null : (machJornadas.length === 0 && paradaList.length === 0 && assigns.length === 0) ? (
-        <EmptyState title="Sin jornadas de máquina este día" subtitle="Aquí aparecen las jornadas que el inspector inicia con 🟢 INICIAR JORNADA (en curso, finalizadas, paradas y pendientes por iniciar). Las de usuarios admin no se muestran." />
-      ) : (
-        <>
-          {/* Búsqueda libre: inspector, máquina o empresa. */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
-            <Text style={{ fontSize: 14 }}>🔎</Text>
-            <TextInput value={machJorQuery} onChangeText={setMachJorQuery} placeholder="Buscar: inspector, máquina o empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
-            {machJorQuery ? <TouchableOpacity onPress={() => setMachJorQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
-          </View>
-          {/* Filtro de turno: DÍA / NOCHE (autodetecta el turno actual al abrir la pantalla). */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
-            {(['day', 'night'] as const).map((s) => {
-              const on = machJorShiftFilter === s;
-              return (
-                <TouchableOpacity key={s} onPress={() => setMachJorShiftFilter(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{shiftIcon(s)} {shiftLabel(s)}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {machJornadasByInspector.length === 0 ? (
-            <EmptyState title="Sin resultados" subtitle="Ninguna jornada coincide con la búsqueda." />
-          ) : machJornadasByInspector.map(([name, list]) => {
-            const collapsed = machJorQuery.trim() ? false : !machJorExpanded.has(name);
-            const enCursoN = list.filter((j) => j.enCurso).length;
-            const paradaN = list.filter((j) => (j as any).parada).length;
-            const pendN = list.filter((j) => (j as any).pendiente).length;
-            return (
-              <Card key={name}>
-                <TouchableOpacity onPress={() => toggleMachJorCollapsed(name)} activeOpacity={0.7} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>{collapsed ? '▸' : '▾'} 👮 {name}</Text>
-                  <Text style={{ fontSize: 12, fontWeight: '800' }}>
-                    <Text style={{ color: colors.text }}>{list.length} máq</Text>
-                    {paradaN > 0 ? <Text style={{ color: colors.warning }}> · 🟡 {paradaN} parada{paradaN > 1 ? 's' : ''}</Text> : null}
-                    {pendN > 0 ? <Text style={{ color: POR_INICIAR_COLOR }}> · ⏳ {pendN} por iniciar</Text> : null}
-                    {enCursoN > 0 ? <Text style={{ color: colors.success }}> · {enCursoN} en curso</Text> : null}
-                  </Text>
-                </TouchableOpacity>
-                {collapsed ? null : list.map((j) => {
-                  const late = lateMap[j.machinery_id] || 0;               // minutos de desfase (si hubo)
-                  const finalizada = !j.enCurso;                          // en curso o finalizada → tocar abre el DETALLE
-                  return (
-                  <TouchableOpacity
-                    key={j.machinery_id}
-                    activeOpacity={0.6}
-                    onPress={() => setDetailJorn(j)}
-                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border }}
-                  >
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚜 {j.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {j.companyName}</Text></Text>
-                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>⏲️ Horómetro: {j.horoIni ?? '—'} → {j.horoFin ?? '—'}</Text>
-                      {j.shift ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '600' }}>{j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text> : null}
-                      {fuelDay[j.machinery_id]?.liters ? <Text style={{ color: '#B45309', fontSize: 11, fontWeight: '700' }}>⛽ {litersLabel(fuelDay[j.machinery_id].liters)} L{j.worked > 0 ? ` · ${lphOf(fuelDay[j.machinery_id].liters, j.worked)} L/h` : ''}</Text> : null}
-                      {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado del horario)</Text> : null}
-                      {(j as any).parada ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>🟡 PARADA{(j as any).paradaMotivo ? ` · ${(j as any).paradaMotivo}` : ''}</Text> : null}
-                      {(j as any).pendiente ? <Text style={{ color: POR_INICIAR_COLOR, fontSize: 11, fontWeight: '800' }}>⏳ PENDIENTE POR INICIAR JORNADA</Text> : null}
-                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👁️ Ver detalle ›</Text>
-                    </View>
-                    {(j as any).parada ? (
-                      <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 12 }}>🟡 PARADA</Text>
-                    ) : (j as any).pendiente ? (
-                      <Text style={{ color: POR_INICIAR_COLOR, fontWeight: '900', fontSize: 12 }}>⏳ Por iniciar</Text>
-                    ) : j.enCurso ? (
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>● En curso</Text>
-                        {j.startAt ? <Text style={{ color: colors.muted, fontSize: 11 }}>desde {caracasClock(j.startAt)}</Text> : null}
-                      </View>
-                    ) : (
-                      <Text style={{ color: colors.success, fontWeight: '900', fontSize: 15 }}>{j.worked} h</Text>
-                    )}
-                  </TouchableOpacity>
-                  );
-                })}
               </Card>
             );
           })}
