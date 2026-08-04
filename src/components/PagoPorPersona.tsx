@@ -295,7 +295,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
         <tr><td class="k">Período</td><td>${rangoFecha(p)}</td><td class="k">Frecuencia</td><td>${detalle(p)}</td></tr>
         <tr><td class="k">Método</td><td>${p.metodo || '—'}</td><td class="k">Concepto</td><td>${p.concepto || '—'}</td></tr>
       </tbody></table>
-      <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b>${bcvRate ? `<br/><span style="font-size:13px">≈ ${fmtBs(bsFromUsd(p.monto, bcvRate))} (tasa BCV ${fmtBs(bcvRate)}/US$)</span>` : ''}</div>
+      <div class="monto">MONTO PAGADO: <b>${usd(p.monto)}</b></div>
       ${p.nota ? `<div class="nota"><b>Nota:</b> ${p.nota}</div>` : ''}
       <div class="firmas"><div class="firma">Recibí conforme<br/>${fullName(e)}</div><div class="firma">Entregó<br/>SOS LA GUAIRA</div></div>`;
     exportPdf(pdfDocument({ title: 'Recibo de pago', subtitle: `${fullName(e)} · ${fmtDMY(p.fecha)}`, body, extraCss: RECIBO_CSS }), `Recibo - ${fullName(e)} - ${p.fecha}`);
@@ -307,11 +307,10 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const rows = list.map((p, i) => `<tr>
       <td class="c">${i + 1}</td><td class="c">${rangoFecha(p)}</td><td>${detalle(p)}</td>
       <td>${p.metodo || '—'}</td><td>${p.concepto || '—'}</td><td class="r">${usd(p.monto)}</td></tr>`).join('');
-    const tasaTxt = bcvRate ? ` · Tasa BCV: ${fmtBs(bcvRate)}/US$ · Total ≈ ${fmtBs(bsFromUsd(total, bcvRate))}` : '';
     const body = `
       <h3 class="sec">Datos del trabajador</h3>${datosPersona(e)}
       <h3 class="sec">Datos bancarios</h3>${datosBanco(e)}
-      <h3 class="sec">Historial de pagos${tasaTxt}</h3>
+      <h3 class="sec">Historial de pagos</h3>
       <table class="hist"><thead><tr><th class="c">#</th><th class="c">Período</th><th>Detalle</th><th>Método</th><th>Concepto</th><th class="r">Monto</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6">Sin pagos registrados</td></tr>'}</tbody>
         <tfoot><tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${usd(total)}</b></td></tr></tfoot></table>`;
