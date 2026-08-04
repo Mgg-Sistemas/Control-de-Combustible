@@ -11,6 +11,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/redesign/LoginPilot'; // PILOTO rediseño (Sesión); original en ../screens/LoginScreen
 import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
+import AjustesScreen from '../screens/AjustesScreen';
 import UsersScreen from '../screens/UsersScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import AuthorizationsScreen from '../screens/AuthorizationsScreen';
@@ -190,6 +191,7 @@ function MoreStack() {
       <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
