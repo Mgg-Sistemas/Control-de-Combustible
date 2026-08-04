@@ -1,9 +1,10 @@
 -- ============================================================================
 -- BLINDAJE DE HORAS — VOLQUETA / TORONTO — ACTUALIZADO 2026-08-04:
 --   El tope de horas SOLO aplica mientras el turno siga en manos del usuario
---   virtual "MAQUINAS FALTANTES" (sin inspector humano asignado a ese turno):
---     • turno DÍA   (dueño = MAQUINAS FALTANTES) -> tope day_hours   = 12
---     • turno NOCHE (dueño = MAQUINAS FALTANTES) -> tope night_hours = 12  (antes 6 — ver
+--   "inspector maquinas faltantes" (id real 3b996dc0…, sin inspector humano
+--   asignado a ese turno):
+--     • turno DÍA   (dueño = inspector maquinas faltantes) -> tope day_hours   = 12
+--     • turno NOCHE (dueño = inspector maquinas faltantes) -> tope night_hours = 12  (antes 6 — ver
 --       supabase/maquinas_faltantes.sql, ahora genera jornada 12x12 = 24h para camiones sin dueño)
 --
 --   En cuanto un supervisor/inspector REAL tiene ese turno asignado, el camión
@@ -21,7 +22,7 @@ create or replace function public.cap_truck_hours() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   es_tt boolean;
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
   day_es_virtual boolean;
   night_es_virtual boolean;
 begin

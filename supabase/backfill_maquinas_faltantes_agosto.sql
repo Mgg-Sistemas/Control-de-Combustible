@@ -19,6 +19,9 @@
 -- ⚠️ IMPACTA horómetro, alertas de mantenimiento y NÓMINA de agosto. Por eso
 -- primero se respalda machine_rounds/machine_work_segments del rango afectado.
 --
+-- ⚠️ CORREGIDO 2026-08-04: usa el UUID REAL "inspector maquinas faltantes"
+-- (3b996dc0…) en vez del inventado — ver nota en supabase/maquinas_faltantes.sql.
+--
 -- Orden para correr en Supabase → SQL Editor:
 --   1) Este archivo completo (crea el respaldo, define la función y la EJECUTA
 --      una vez — ya queda hecho el relleno, no hace falta nada más).
@@ -45,7 +48,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   r record;
   d date;
-  ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
+  ph_id uuid := '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
   day_owned boolean;
   night_owned boolean;
   es_camion boolean;
@@ -90,12 +93,12 @@ begin
         if day_owned then
           insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
             values (r.machinery_id, d, 'day', day_start, day_end, 12, 'auto_full_shift',
-                    'Relleno retroactivo (agosto): máquina sin inspector humano (turno día → MAQUINAS FALTANTES)');
+                    'Relleno retroactivo (agosto): máquina sin inspector humano (turno día → inspector maquinas faltantes)');
         end if;
         if night_owned then
           insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
             values (r.machinery_id, d, 'night', night_start, night_end, v_night, 'auto_full_shift',
-                    'Relleno retroactivo (agosto): máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
+                    'Relleno retroactivo (agosto): máquina sin inspector humano (turno noche → inspector maquinas faltantes)');
         end if;
       end if;
     end loop;
