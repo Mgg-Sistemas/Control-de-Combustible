@@ -431,14 +431,19 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
-  // PERSISTENCIA DE NAVEGACIÓN (web: PC y también teléfono/tablet): al recargar la
-  // página o al tocar ACTUALIZAR, se mantiene la MISMA pantalla/pestaña donde
-  // estaba el usuario (no vuelve al inicio). Antes estaba limitado a PC; ahora
-  // también aplica en teléfono/tablet-web. En la app nativa no aplica (no recarga).
+  // PERSISTENCIA DE NAVEGACIÓN (web, PC y teléfono): al recargar la página en el
+  // NAVEGADOR, se mantiene la MISMA pantalla/pestaña donde estaba el usuario (no
+  // vuelve al inicio/REVISAR). Antes esto solo aplicaba en PC — en teléfono el
+  // refresh SIEMPRE volvía a la primera pestaña (confirmado con pruebas: el
+  // guard `|| phone` bloqueaba tanto guardar como restaurar). Se usa una CLAVE
+  // DISTINTA para teléfono porque su árbol de rutas (SupervisorTabs, PatioStack,
+  // etc., según el rol) es distinto al de PC (Tabs) — así nunca se intenta
+  // aplicar a un navegador el estado guardado de otro con rutas diferentes.
+  const navStateKey = phone ? `${NAV_STATE_KEY}_PHONE` : NAV_STATE_KEY;
   const [navInitialState] = React.useState<any>(() => {
     try {
       if (Platform.OS !== 'web') return undefined;
-      const raw = (globalThis as any).localStorage?.getItem(NAV_STATE_KEY);
+      const raw = (globalThis as any).localStorage?.getItem(navStateKey);
       return raw ? JSON.parse(raw) : undefined;
     } catch { return undefined; }
   });
@@ -446,10 +451,10 @@ export default function RootNavigator() {
     if (Platform.OS !== 'web') return;
     try {
       if (state && Array.isArray(state.routes) && state.routes.length) {
-        (globalThis as any).localStorage?.setItem(NAV_STATE_KEY, JSON.stringify(state));
+        (globalThis as any).localStorage?.setItem(navStateKey, JSON.stringify(state));
       }
     } catch {}
-  }, []);
+  }, [navStateKey]);
   // Ref del contenedor para RE-APLICAR el estado guardado cuando TODO está montado.
   // Motivo: las pestañas son lazy; al aplicar `initialState` en el primer montaje,
   // el stack anidado de "Más" aún no existe y su parte del estado se pierde (se

@@ -1318,6 +1318,17 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
   pestañas renuevan casi al mismo tiempo, una queda con un token inválido y se cierra sola). Avisar
   si se puede confirmar que pasa en PC (no solo en el teléfono) para atacar esa causa específica.
 
+**Distinto pero relacionado — "al refrescar la pestaña del navegador me saca de la vista donde
+estoy" (04/08/2026):** en `src/navigation/index.tsx` ya existía desde el 30/07 un mecanismo que
+guarda en `localStorage` la pantalla/pestaña activa y la restaura al recargar la página — pero
+tenía una condición que lo **desactivaba por completo en el teléfono** ("ahí la vista la fija el
+rol/dispositivo"). Confirmado con pruebas reales en el navegador (Chrome DevTools emulando un
+Android): navegar a otra pestaña en Inspectores y recargar siempre volvía a "Revisar", nunca
+guardaba nada. **✓ Hecho y probado:** se quitó esa exclusión — ahora también persiste en teléfono,
+guardando en una clave de `localStorage` distinta a la de PC (`NAV_STATE_V1_PHONE` vs
+`NAV_STATE_V1`, porque el árbol de pantallas es diferente entre PC y teléfono). Probado en vivo:
+recargar ahora sí mantiene la pestaña donde estabas.
+
 ### Analistas, RBAC, Coordinador de Inspectores y maquinaria no asignada (04/08/2026)
 
 - **Sin SQL pendiente** — Asistencia para analistas: el rol `analista` ya tiene acceso de escritura
