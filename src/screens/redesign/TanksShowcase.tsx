@@ -60,10 +60,10 @@ export default function TanksShowcase() {
 
   const Kpi = ({ n, label, tone }: { n: React.ReactNode; label: string; tone?: 'plain' | 'warn' }) => (
     <View style={{ flex: 1, alignItems: 'center' }}>
-      <Text style={[{ color: tone === 'warn' && Number(kpis.bajos) > 0 ? colors.accent : colors.brandContrast, fontSize: 30, lineHeight: 34 }, f(family.monoSemi)]}>
+      <Text style={[{ color: tone === 'warn' && Number(kpis.bajos) > 0 ? colors.accent : colors.brandContrast, fontSize: 30, lineHeight: 34, fontWeight: '900' }, f(family.monoSemi)]}>
         {n}
       </Text>
-      <Text style={[{ color: colors.brandContrast, opacity: 0.8, fontSize: 11, letterSpacing: 1, marginTop: 2, textTransform: 'uppercase' }, f(family.bodySemi)]}>
+      <Text style={[{ color: colors.brandContrast, opacity: 0.8, fontSize: 11, letterSpacing: 1, marginTop: 2, textTransform: 'uppercase', fontWeight: '800' }, f(family.bodySemi)]}>
         {label}
       </Text>
     </View>
@@ -73,7 +73,7 @@ export default function TanksShowcase() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Banda navy con título de marca + KPIs grandes. */}
       <View style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.lg }}>
-        <Text style={[{ color: colors.brandContrast, fontSize: 26, letterSpacing: 0.5 }, f(family.display)]}>TANQUES</Text>
+        <Text style={[{ color: colors.brandContrast, fontSize: 26, letterSpacing: 0.5, fontWeight: '900' }, f(family.display)]}>TANQUES</Text>
         <View style={{ flexDirection: 'row', marginTop: spacing.md, gap: spacing.sm }}>
           <Kpi n={kpis.total} label="Tanques" />
           <View style={{ width: 1, backgroundColor: colors.brandContrast, opacity: 0.2 }} />
@@ -102,7 +102,7 @@ export default function TanksShowcase() {
           {tanks.length === 0 ? (
             <View style={{ alignItems: 'center', padding: spacing.xl, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, marginTop: spacing.md }}>
               <Text style={{ fontSize: 26, color: colors.muted }}>🛢️</Text>
-              <Text style={[{ color: colors.text, marginTop: spacing.xs, fontSize: 15 }, f(family.displayBold)]}>Sin tanques</Text>
+              <Text style={[{ color: colors.text, marginTop: spacing.xs, fontSize: 15, fontWeight: '900' }, f(family.displayBold)]}>Sin tanques</Text>
               <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2 }, f(family.body)]}>No hay tanques para este filtro.</Text>
             </View>
           ) : (
@@ -117,7 +117,7 @@ export default function TanksShowcase() {
                   <View style={{ width: 5, backgroundColor: tone.stripe }} />
                   <View style={{ flex: 1, padding: spacing.md }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
-                      <Text numberOfLines={1} style={[{ color: colors.text, fontSize: 17, flex: 1 }, f(family.displayBold)]}>{t.name}</Text>
+                      <Text numberOfLines={1} style={[{ color: colors.text, fontSize: 17, flex: 1, fontWeight: '900' }, f(family.displayBold)]}>{t.name}</Text>
                       <View style={{ backgroundColor: tone.bg, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
                         <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
                       </View>
@@ -128,10 +128,10 @@ export default function TanksShowcase() {
 
                     {/* Cifra grande en mono + % a la derecha. */}
                     <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <Text style={[{ color: low ? colors.tankCrit : colors.text, fontSize: 22 }, f(family.monoSemi)]}>
+                      <Text style={[{ color: low ? colors.tankCrit : colors.text, fontSize: 22, fontWeight: '900' }, f(family.monoSemi)]}>
                         {Number(t.current_l).toLocaleString()} <Text style={[{ fontSize: 13, color: colors.muted }, f(family.mono)]}>L</Text>
                       </Text>
-                      <Text style={[{ color: low ? colors.tankCrit : colors.muted, fontSize: 16 }, f(family.monoSemi)]}>{Math.round(pct)}%</Text>
+                      <Text style={[{ color: low ? colors.tankCrit : colors.muted, fontSize: 16, fontWeight: '900' }, f(family.monoSemi)]}>{Math.round(pct)}%</Text>
                     </View>
                     <TankLevel pct={pct} thresholdPct={LOW_PCT} height={10} />
                   </View>
