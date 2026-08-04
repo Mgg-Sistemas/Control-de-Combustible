@@ -319,9 +319,13 @@ function Tabs() {
       <Tab.Screen
         name="More"
         component={MoreStack}
-        options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰'), popToTopOnBlur: true }}
+        // Sin popToTopOnBlur: reseteaba el stack de "Más" al menú, y al RECARGAR la
+        // página tumbaba la pantalla restaurada (persistencia de navegación). Para
+        // "tocar Más = ver el menú" basta el listener de tabPress de abajo.
+        options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰') }}
         listeners={({ navigation }) => ({
-          // Al tocar la pestaña "Más" siempre mostrar el menú, no el último módulo abierto.
+          // Al TOCAR la pestaña "Más" mostrar el menú (no el último módulo). Solo se
+          // dispara en un toque real: al recargar no corre, así se conserva la vista.
           tabPress: () => {
             navigation.navigate('More', { screen: 'MoreMenu' });
           },
