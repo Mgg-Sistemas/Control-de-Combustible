@@ -477,9 +477,8 @@ export default function PagoPersonalScreen() {
         ${abonos.length ? `<table><thead><tr><th>Abono</th><th>Fecha</th><th>Método</th><th style="text-align:right">Monto</th></tr></thead>
           <tbody>${abonos.map((p, i) => `<tr><td>🟢 Abono ${i + 1}</td><td>${fmtDMY(p.fecha)}</td><td>${p.metodo}</td><td style="text-align:right">${usd(p.monto)}</td></tr>`).join('')}
           <tr class="tot"><td colspan="3" style="text-align:right">Total abonado</td><td style="text-align:right">${usd(pagado)}</td></tr></tbody></table>` : ''}
-        <div class="net" style="color:#111827">Total: ${usd(it.total)}${bcvRate ? ` <span style="font-size:14px;color:#0F766E">≈ ${bsTxt(it.total)}</span>` : ''}</div>
-        <div class="net">Saldo cancelado: ${usd(saldo)}${bcvRate ? ` <span style="font-size:14px;color:#0F766E">≈ ${bsTxt(saldo)}</span>` : ''}</div>
-        ${bcvRate ? `<div style="text-align:right;color:#666;font-size:11px;margin-top:2px">Tasa BCV del día: ${fmtBs(bcvRate)}/US$</div>` : ''}
+        <div class="net" style="color:#111827">Total: ${usd(it.total)}</div>
+        <div class="net">Saldo cancelado: ${usd(saldo)}</div>
         <div class="firmas">
           <div class="firma"><div class="l">${it.person_name}</div><div class="s">Recibí conforme${it.cedula ? ' · C.I. ' + it.cedula : ''}</div></div>
           <div class="firma"><div class="l">Administración</div><div class="s">Pagado por</div></div>
@@ -491,8 +490,11 @@ export default function PagoPersonalScreen() {
   // ── PDF: reporte del período ────────────────────────────────────────────────
   const reportePdf = async () => {
     if (!sel) return;
-    // Personal del reporte, respetando el filtro por cargo (vacío = todos).
-    const base = cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    // Personal del reporte: si hay selección manual (checkbox), SOLO esos; si no,
+    // respeta el filtro por cargo (vacío = todos) — mismo criterio que el Excel.
+    const base = itemSelIds.size
+      ? items.filter((it) => itemSelIds.has(it.id))
+      : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
     const rowFor = (it: StaffPayItem) => {
       const pagado = paidOf(it.id); const saldo = saldoOf(it);
       const precioCell = sel.mode === 'dia'
@@ -528,17 +530,17 @@ export default function PagoPersonalScreen() {
     const total = round2(base.reduce((s, it) => s + Number(it.total), 0));
     const pagadoT = round2(base.reduce((s, it) => s + paidOf(it.id), 0));
     const saldoT = round2(base.reduce((s, it) => s + saldoOf(it), 0));
-    const filtroNote = cargoSel.size ? ` · Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
-    const tasaNote = bcvRate ? ` · Tasa BCV: ${fmtBs(bcvRate)}/US$` : '';
+    const filtroNote = itemSelIds.size
+      ? ` · Selección manual (${itemSelIds.size})`
+      : cargoSel.size ? ` · Cargo(s): ${[...cargoSel].sort((a, b) => cmpText(a, b)).join(', ')}` : '';
     const html = pdfDocument({
       title: 'Control de pago a personal',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}${tasaNote}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${TYPE_LABEL[sel.period_type]} ${fmtDMY(sel.date_from)} → ${fmtDMY(sel.date_to)} · ${MODE_LABEL[sel.mode]}${filtroNote}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tr.depto td{background:#1E3A5F;color:#fff;font-weight:800;text-transform:uppercase}
         tr.sub td{background:#EEF2F7;font-weight:700}
-        tfoot td{background:#DDE6F0;font-weight:800}
-        tfoot tr.bs td{background:#ECFDF5;color:#0F766E;font-weight:700}`,
+        tfoot td{background:#DDE6F0;font-weight:800}`,
       body: `
         <table><thead><tr><th>Persona</th><th>Cargo</th><th style="text-align:right">Precio</th><th style="text-align:center">Cant.</th>
           <th style="text-align:right">Devengado</th><th style="text-align:right">Bonos</th><th style="text-align:right">Deducc.</th>
@@ -546,8 +548,6 @@ export default function PagoPersonalScreen() {
         <tbody>${secciones || '<tr><td colspan="10" style="text-align:center">Sin personal</td></tr>'}</tbody>
         <tfoot><tr><td colspan="7" style="text-align:right">TOTAL (${base.length} persona(s))</td>
           <td style="text-align:right">${usd(total)}</td><td style="text-align:right">${usd(pagadoT)}</td><td style="text-align:right">${usd(saldoT)}</td></tr>
-          ${bcvRate ? `<tr class="bs"><td colspan="7" style="text-align:right">TOTAL en Bs (tasa ${fmtBs(bcvRate)}/US$)</td>
-          <td style="text-align:right">${bsTxt(total)}</td><td style="text-align:right">${bsTxt(pagadoT)}</td><td style="text-align:right">${bsTxt(saldoT)}</td></tr>` : ''}
         </tfoot></table>`,
     });
     await exportPdf(html, `Pago personal - ${sel.name}`);
@@ -858,7 +858,7 @@ export default function PagoPersonalScreen() {
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#111827' }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
               </View>
 
