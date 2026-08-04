@@ -480,10 +480,14 @@ export default function SupervisionScreen({ navigation }: any) {
   }, [paradaRaw, nameById]);
   // Máquinas PARADA PENDIENTES por id → motivo + quién la marcó (para el estado).
   const paradaByMachine = useMemo(() => {
-    const m = new Map<string, { motivo: string; byName: string; shift: 'day' | 'night' }>();
-    paradaList.forEach((p) => { if (p.status === 'pendiente') m.set(p.machinery_id, { motivo: p.motivo, byName: p.byName, shift: paradaShiftOf(p.at) }); });
+    const m = new Map<string, { motivo: string; byName: string; shift: 'day' | 'night'; arrastrada: boolean }>();
+    // "arrastrada" = la parada se marcó ANTES del día visto (día anterior o más atrás).
+    // Esas aplican a TODA la máquina (ambos turnos) porque el equipo sigue parado hasta
+    // que lo marquen operativa; solo la parada marcada HOY respeta el turno.
+    const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
+    paradaList.forEach((p) => { if (p.status === 'pendiente') m.set(p.machinery_id, { motivo: p.motivo, byName: p.byName, shift: paradaShiftOf(p.at), arrastrada: new Date(p.at).getTime() < dayStartMs }); });
     return m;
-  }, [paradaList]);
+  }, [paradaList, date]);
 
   // Jornadas de MÁQUINA del día (iniciadas por el inspector): oculta las de admin y
   // resuelve el nombre del inspector por recorded_by. En curso primero, luego finalizadas.
@@ -519,7 +523,9 @@ export default function SupervisionScreen({ navigation }: any) {
       // y viceversa (misma máquina, 2 inspectores). Se muestra SOLO para el inspector
       // del mismo turno en que se marcó (por hora Caracas), y se arrastra de un día a
       // otro para ESE turno hasta que la reactive. El "en curso" también es por turno.
-      const parada = !!par && (shiftCtx == null || par.shift === shiftCtx);
+      // Parada arrastrada (de días anteriores) → aplica a TODA la máquina (ambos turnos)
+      // hasta que la marquen operativa. Parada marcada HOY → solo su turno (no pisa al otro).
+      const parada = !!par && (par.arrastrada || shiftCtx == null || par.shift === shiftCtx);
       // Horas y "abierta" relativas al turno del inspector (si se conoce el turno).
       const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : shiftCtx === 'day' ? (rd?.dayH ?? 0) : (rd?.worked ?? 0);
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);

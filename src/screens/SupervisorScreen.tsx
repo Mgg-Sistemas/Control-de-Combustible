@@ -181,7 +181,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
-  const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string }[]>([]);
+  const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean }[]>([]);
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -377,7 +377,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
     // turno del inspector se hace en los memos paradaIds/paradaMotivos (más abajo).
     const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasParts(new Date(iso)).hour; return h >= 7 && h < 19 ? 'day' : 'night'; };
-    setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim() })));
+    // "arrastrada" = parada marcada ANTES de hoy: aplica a TODA la máquina (ambos turnos)
+    // hasta marcarla operativa. La de HOY respeta el turno (no pisa al otro inspector).
+    const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
+    setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim(), arrastrada: new Date(p.created_at).getTime() < dayStartMs })));
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
@@ -533,13 +536,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const paradaIds = useMemo(() => {
     const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
     const s = new Set<string>();
-    paradaRawList.forEach((p) => { if (verTodos || myGlobalShifts.has(p.shift)) s.add(p.id); });
+    // La parada arrastrada (de días anteriores) aplica a la máquina completa (cualquier turno).
+    paradaRawList.forEach((p) => { if (verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) s.add(p.id); });
     return s;
   }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
   const paradaMotivos = useMemo(() => {
     const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
     const mot: Record<string, string> = {};
-    paradaRawList.forEach((p) => { if ((verTodos || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
+    paradaRawList.forEach((p) => { if ((verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
     return mot;
   }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
