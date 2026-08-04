@@ -30,8 +30,9 @@ export type AppColors = {
   // ── Identidad de marca del REDISEÑO (aditivo; no reemplaza los tokens de arriba).
   //    Navy = color ancla de marca; ámbar = ÚNICO acento para lo accionable/urgente.
   //    Los tokens `tank*` colorean el medidor de nivel según el porcentaje.
-  brand: string;            // navy de marca (#1E3A5F)
+  brand: string;            // navy de marca (fondo) — NO usar como texto sobre fondo oscuro
   brandContrast: string;    // texto sobre navy
+  brandText: string;        // azul de marca para TEXTO/encabezados: adapta por tema (navy en claro, azul claro en oscuro)
   accent: string;           // ámbar accionable (#FFB020)
   accentContrast: string;   // texto sobre ámbar
   accentSoftBg: string;     // pastel ámbar (chips/badges)
@@ -68,6 +69,7 @@ export const lightColors: AppColors = {
   infoSoftText: '#12356B',
   brand: '#1D3D60',        // azul EXACTO del logo (muestreado de assets/logo.png)
   brandContrast: '#FFFFFF',
+  brandText: '#1D3D60',    // texto/encabezados en claro: navy del logo (buen contraste sobre fondo claro)
   accent: '#FFB020',
   accentContrast: '#3A2703',
   accentSoftBg: '#FFF3DA',
@@ -104,6 +106,7 @@ export const darkColors: AppColors = {
   infoSoftText: '#9DC0F5',
   brand: '#1D3D60',        // azul EXACTO del logo (mismo en oscuro; banner navy con texto blanco)
   brandContrast: '#FFFFFF',
+  brandText: '#8FB4DC',    // texto/encabezados en OSCURO: azul claro derivado del logo (legible sobre fondo oscuro)
   accent: '#FFB020',
   accentContrast: '#3A2703',
   accentSoftBg: '#3A2C0F',

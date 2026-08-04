@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, Image, Modal, Pressable, ScrollView } from 'react-native';
-import { RList, RRow, RAmount, RPill } from '../../components/redesign/RList';
+import { RList, RRow, RAmount, RPill, RBarChart } from '../../components/redesign/RList';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText } from '../../lib/text';
@@ -13,8 +13,9 @@ const ASSET_OPTIONS = [
 
 const fmtMonto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-/** Resumen restilizado: litros a MÁQUINAS por día y por máquina (sobre lo visible). */
-function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
+/** Resumen VISUAL: gráficas de barras de litros a máquinas por día y por máquina
+ *  (sobre las filas visibles = respeta búsqueda y rango de fecha). */
+function DailyMachineCharts({ rows }: { rows: Dispatch[] }) {
   const { colors } = useTheme();
   const maq = rows.filter((d: any) => d.asset_kind === 'maquinaria');
   if (maq.length === 0) return null;
@@ -30,32 +31,22 @@ function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
   const machines = Array.from(byMachine.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
   const total = maq.reduce((s, d: any) => s + (Number(d.liters) || 0), 0);
   const box = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm } as const;
-  const rowLine = { flexDirection: 'row' as const, justifyContent: 'space-between' as const, paddingVertical: 3, borderTopWidth: 1, borderTopColor: colors.border };
-  const num = { color: colors.text, fontWeight: '700' as const, fontSize: 13, fontVariant: ['tabular-nums'] as any };
+  const head = { color: colors.brandText, fontWeight: '900' as const, fontSize: 13, marginBottom: spacing.sm, letterSpacing: 0.3 };
+  const fmtL = (n: number) => `${fmtMonto(n)} L`;
   return (
     <>
       <View style={box}>
-        <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 13, marginBottom: spacing.xs, letterSpacing: 0.3 }}>⛽ LITROS A MÁQUINAS POR DÍA</Text>
-        {days.slice(0, 12).map(([day, l]) => (
-          <View key={day} style={rowLine}>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>{day}</Text>
-            <Text style={num}>{fmtMonto(l)} L</Text>
-          </View>
-        ))}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.xs, marginTop: spacing.xs, borderTopWidth: 2, borderTopColor: colors.border }}>
+        <Text style={head}>⛽ LITROS A MÁQUINAS POR DÍA</Text>
+        <RBarChart data={days.slice(0, 12).map(([label, value]) => ({ label, value }))} fmt={fmtL} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: spacing.sm, marginTop: spacing.sm, borderTopWidth: 2, borderTopColor: colors.border }}>
           <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13 }}>Total{days.length > 12 ? ` (${days.length} días)` : ''}</Text>
-          <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 14, fontVariant: ['tabular-nums'] as any }}>{fmtMonto(total)} L</Text>
+          <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14, fontVariant: ['tabular-nums'] as any }}>{fmtL(total)}</Text>
         </View>
       </View>
       <View style={box}>
-        <Text style={{ color: colors.brand, fontWeight: '900', fontSize: 13, marginBottom: spacing.xs, letterSpacing: 0.3 }}>🚜 LITROS POR MÁQUINA</Text>
-        {machines.slice(0, 15).map(([code, l]) => (
-          <View key={code} style={rowLine}>
-            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>{code}</Text>
-            <Text style={num}>{fmtMonto(l)} L</Text>
-          </View>
-        ))}
-        {machines.length > 15 ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>+{machines.length - 15} máquina(s) más…</Text> : null}
+        <Text style={head}>🚜 LITROS POR MÁQUINA (TOP)</Text>
+        <RBarChart data={machines.slice(0, 12).map(([label, value]) => ({ label, value }))} fmt={fmtL} />
+        {machines.length > 12 ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>+{machines.length - 12} máquina(s) más…</Text> : null}
       </View>
     </>
   );
@@ -63,8 +54,11 @@ function DailyMachineLiters({ rows }: { rows: Dispatch[] }) {
 
 /**
  * PILOTO DE REDISEÑO — Consumos/Despachos. Mismos campos y lógica que
- * DispatchesScreen (crea/edita en `dispatches`; el trigger valida stock disponible),
- * con el look nuevo. Reusa RList → RecordForm.
+ * DispatchesScreen (crea/edita en `dispatches`; el trigger valida stock), con:
+ *  - títulos en negrita y color de texto que ADAPTA al modo oscuro (brandText),
+ *  - resumen con GRÁFICAS de barras (más visual),
+ *  - BUSCADOR por máquina / placa / conductor / tipo / litros + rango de fecha.
+ * Reusa RList → RecordForm (lógica intacta).
  */
 export default function DispatchesPilot() {
   const { colors } = useTheme();
@@ -76,18 +70,28 @@ export default function DispatchesPilot() {
         title="Consumos"
         table="dispatches"
         orderBy="dispatch_date"
-        select="*, machine:machinery_id(code)"
+        select="*, machine:machinery_id(code), vehicle:vehicle_id(plate)"
         editable
         dateField="dispatch_date"
         emptyIcon="⛽"
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
         formTitle="Nuevo consumo"
+        searchPlaceholder="Buscar por máquina, placa, conductor, tipo, litros…"
+        // Buscable por TODAS las características útiles del movimiento.
+        searchText={(d: any) => [
+          d.machine?.code,
+          d.vehicle?.plate,
+          d.driver_operator,
+          d.asset_kind,
+          d.dispatch_date,
+          d.liters != null ? String(d.liters) : '',
+        ].filter(Boolean).join(' ')}
         subtitle={(rows) => {
           const l = rows.reduce((s, r) => s + (Number(r.liters) || 0), 0);
           return `${rows.length} consumo(s) · ${l.toLocaleString()} L`;
         }}
-        headerExtra={(shown) => <DailyMachineLiters rows={shown} />}
+        headerExtra={(shown) => <DailyMachineCharts rows={shown} />}
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
@@ -110,6 +114,7 @@ export default function DispatchesPilot() {
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
                 {(d as any).machine?.code ? <RRow label="Máquina" value={(d as any).machine.code} /> : null}
+                {(d as any).vehicle?.plate ? <RRow label="Placa" value={(d as any).vehicle.plate} /> : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}
                 {d.odometer_km != null ? <RRow label="Odómetro" value={`${d.odometer_km} km`} mono /> : null}
                 {d.hourmeter_h != null ? <RRow label="Horómetro" value={`${d.hourmeter_h} h`} mono /> : null}

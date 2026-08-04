@@ -202,7 +202,7 @@ export default function AuthorizationsPilot() {
               <View key={a.id} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
                 <TouchableOpacity activeOpacity={0.7} onPress={() => openEdit(a)}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontWeight: '900', color: colors.brand, fontSize: 17, fontVariant: ['tabular-nums'] as any }}>{Number(a.liters).toLocaleString()} L</Text>
+                    <Text style={{ fontWeight: '900', color: colors.brandText, fontSize: 17, fontVariant: ['tabular-nums'] as any }}>{Number(a.liters).toLocaleString()} L</Text>
                     <RPill label={STATUS_LBL[a.status] || a.status} tone={pillTone(a.status)} />
                   </View>
                   <Text style={{ color: colors.text, fontSize: 13, marginTop: 4 }}>{a.asset_kind === 'maquinaria' ? '🚜' : '🚗'} {assetLabel(a)} <Text style={{ color: colors.muted }}>· {companyLabel(a)}</Text></Text>
