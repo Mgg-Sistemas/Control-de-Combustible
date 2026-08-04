@@ -2062,11 +2062,11 @@ export default function ReportsScreen({ route }: any) {
                 borderRadius: radius.md,
                 alignItems: 'center',
                 borderWidth: 1,
-                borderColor: active ? colors.primary : colors.border,
-                backgroundColor: active ? colors.primary : colors.surfaceAlt,
+                borderColor: active ? colors.brand : colors.border,
+                backgroundColor: active ? colors.brand : colors.surfaceAlt,
               }}
             >
-              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+              <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -2137,11 +2137,11 @@ export default function ReportsScreen({ route }: any) {
                       borderRadius: radius.md,
                       alignItems: 'center',
                       borderWidth: 1,
-                      borderColor: on ? colors.primary : colors.border,
-                      backgroundColor: on ? colors.primary : colors.surfaceAlt,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surfaceAlt,
                     }}
                   >
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{s.label}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{s.label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -2168,8 +2168,8 @@ export default function ReportsScreen({ route }: any) {
                   onPress={() => setInspSelected([])}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
                 >
-                  <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: inspSelected.length === 0 ? colors.primary : colors.border, backgroundColor: inspSelected.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                    {inspSelected.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                  <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: inspSelected.length === 0 ? colors.brand : colors.border, backgroundColor: inspSelected.length === 0 ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                    {inspSelected.length === 0 ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                   </View>
                   <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>👷 Todos</Text>
                 </TouchableOpacity>
@@ -2181,8 +2181,8 @@ export default function ReportsScreen({ route }: any) {
                       onPress={() => setInspSelected((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]))}
                       style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
                     >
-                      <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                      <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {checked ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                       </View>
                       <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{n}</Text>
                     </TouchableOpacity>
@@ -2246,8 +2246,8 @@ export default function ReportsScreen({ route }: any) {
             onPress={() => setRepCompanies([])}
             style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
           >
-            <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.primary : colors.border, backgroundColor: repCompanies.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-              {repCompanies.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+            <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.brand : colors.border, backgroundColor: repCompanies.length === 0 ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+              {repCompanies.length === 0 ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
             </View>
             <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>🏢 Todas (general)</Text>
           </TouchableOpacity>
@@ -2259,8 +2259,8 @@ export default function ReportsScreen({ route }: any) {
                 onPress={() => setRepCompanies((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
               >
-                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {checked ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                 </View>
                 <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{c}</Text>
               </TouchableOpacity>
@@ -2286,10 +2286,10 @@ export default function ReportsScreen({ route }: any) {
                   <TouchableOpacity
                     key={t}
                     onPress={() => setFleetTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                   >
-                    <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{t}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 13, fontWeight: '800' }}>{on ? '☑' : '☐'}</Text>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: '700' }}>{t}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -2319,7 +2319,7 @@ export default function ReportsScreen({ route }: any) {
           }
           disabled={loading}
         >
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>
             {mode === 'fuel'
               ? '📊 Generar reporte de combustible'
               : mode === 'rounds'
@@ -2352,8 +2352,8 @@ export default function ReportsScreen({ route }: any) {
           {conteo ? (
             <>
               {/* Botón de descarga ARRIBA (a la mano, sin bajar hasta el final). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadConteoPdf}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
               {/* Reporte Diario de Operaciones (máquinas reales por a cargo de + ubicaciones). */}
               {/* Switch: solo ubicaciones (por defecto) o CON PERSONAL (operadores por máquina + coordinadores/inspectores por zona). */}
@@ -2414,8 +2414,8 @@ export default function ReportsScreen({ route }: any) {
                       const on = tiposSel.has(o.key);
                       return (
                         <TouchableOpacity key={o.key} onPress={() => toggleTipo(o.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                          <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                            {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                          <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                           </View>
                           <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
                           <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{o.count}</Text>
@@ -2437,8 +2437,8 @@ export default function ReportsScreen({ route }: any) {
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{e.count}</Text>
                       </View>
                     ))}
-                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
+                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -2458,8 +2458,8 @@ export default function ReportsScreen({ route }: any) {
                   <Card>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                       <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, flex: 1 }}>🗺️ Filtrar por zona (ubicación en el mapa)</Text>
-                      <TouchableOpacity onPress={() => setConteoMap(true)} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-                        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>🗺️ Ver en mapa</Text>
+                      <TouchableOpacity onPress={() => setConteoMap(true)} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>🗺️ Ver en mapa</Text>
                       </TouchableOpacity>
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -2467,8 +2467,8 @@ export default function ReportsScreen({ route }: any) {
                         const on = conteoZona === z.key;
                         return (
                           <TouchableOpacity key={z.key} onPress={() => setConteoZona(z.key)}
-                            style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{z.label} · {z.count}</Text>
+                            style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{z.label} · {z.count}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -2608,8 +2608,8 @@ export default function ReportsScreen({ route }: any) {
                       </TouchableOpacity>
                     </View>
                     {/* Imprimir / descargar ESTA lista. */}
-                    <TouchableOpacity onPress={() => downloadDetailPdf(conteoDetail)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Imprimir esta lista (PDF)</Text>
+                    <TouchableOpacity onPress={() => downloadDetailPdf(conteoDetail)} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Imprimir esta lista (PDF)</Text>
                     </TouchableOpacity>
                     <ScrollView>
                       {items.length === 0 ? (
@@ -2810,8 +2810,8 @@ export default function ReportsScreen({ route }: any) {
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={() => setPreview(false)}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={downloadPdf}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={downloadPdf}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
             </TouchableOpacity>
           </View>
 
@@ -2834,8 +2834,8 @@ export default function ReportsScreen({ route }: any) {
                   {r.driver_operator ? <Text style={{ color: colors.muted, fontSize: 13 }}>Operó: {r.driver_operator}</Text> : null}
                 </Card>
               ))}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => setSelectedDay(null)}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Volver</Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand }]} onPress={() => setSelectedDay(null)}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
             </Screen>
           </Modal>
@@ -2886,16 +2886,16 @@ export default function ReportsScreen({ route }: any) {
                 <TouchableOpacity
                   key={opt.c || 'all'}
                   onPress={() => { const arg = opt.c ? [opt.c] : []; setRepCompanies(arg); generateRounds(from, to, arg); }}
-                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
                 >
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{opt.label}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{opt.label}</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
 
-          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginBottom: spacing.sm }]} onPress={downloadRoundsPdf}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
           </TouchableOpacity>
 
           {/* Reporte general (arriba): por clasificación + por empresa (igual al de maquinaria). */}
@@ -2914,12 +2914,12 @@ export default function ReportsScreen({ route }: any) {
             const ph = (a: number, w: number) => (w > 0 ? usd(a / w) : '—');
             const clas = [...clasAgg.entries()].sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])));
             const hdr = (a: string, b: string, c: string, d: string, e: string) => (
-              <View style={{ flexDirection: 'row', backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginBottom: 2 }}>
-                <Text style={{ flex: 2.4, fontSize: 11, color: colors.primaryContrast, fontWeight: '800' }}>{a}</Text>
-                <Text style={{ flex: 1, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{b}</Text>
-                <Text style={{ flex: 1.2, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{c}</Text>
-                <Text style={{ flex: 1.4, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{d}</Text>
-                <Text style={{ flex: 1.6, fontSize: 11, color: colors.primaryContrast, fontWeight: '800', textAlign: 'right' }}>{e}</Text>
+              <View style={{ flexDirection: 'row', backgroundColor: colors.brand, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5, marginBottom: 2 }}>
+                <Text style={{ flex: 2.4, fontSize: 11, color: colors.brandContrast, fontWeight: '800' }}>{a}</Text>
+                <Text style={{ flex: 1, fontSize: 11, color: colors.brandContrast, fontWeight: '800', textAlign: 'right' }}>{b}</Text>
+                <Text style={{ flex: 1.2, fontSize: 11, color: colors.brandContrast, fontWeight: '800', textAlign: 'right' }}>{c}</Text>
+                <Text style={{ flex: 1.4, fontSize: 11, color: colors.brandContrast, fontWeight: '800', textAlign: 'right' }}>{d}</Text>
+                <Text style={{ flex: 1.6, fontSize: 11, color: colors.brandContrast, fontWeight: '800', textAlign: 'right' }}>{e}</Text>
               </View>
             );
             const row = (a: string, b: string, c: string, d: string, e: string, bold = false) => (
@@ -3004,9 +3004,9 @@ export default function ReportsScreen({ route }: any) {
                           </View>
                         );
                       })}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>TOTAL POR PAGAR</Text>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{usd(g.totalUSD + g.viajesUSD)}</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, marginTop: 2 }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>TOTAL POR PAGAR</Text>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{usd(g.totalUSD + g.viajesUSD)}</Text>
                     </View>
                   </View>
                 ) : null}
@@ -3096,29 +3096,29 @@ export default function ReportsScreen({ route }: any) {
           {/* Interruptor: con / sin precios en $ (aplica a General y Por empresa) */}
           <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
             <TouchableOpacity
-              style={[styles.quick, { backgroundColor: fleetWithPrices ? colors.primary : colors.surfaceAlt, borderColor: fleetWithPrices ? colors.primary : colors.border }]}
+              style={[styles.quick, { backgroundColor: fleetWithPrices ? colors.brand : colors.surfaceAlt, borderColor: fleetWithPrices ? colors.brand : colors.border }]}
               onPress={() => setFleetWithPrices(true)}
             >
-              <Text style={{ color: fleetWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
+              <Text style={{ color: fleetWithPrices ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.quick, { backgroundColor: !fleetWithPrices ? colors.primary : colors.surfaceAlt, borderColor: !fleetWithPrices ? colors.primary : colors.border }]}
+              style={[styles.quick, { backgroundColor: !fleetWithPrices ? colors.brand : colors.surfaceAlt, borderColor: !fleetWithPrices ? colors.brand : colors.border }]}
               onPress={() => setFleetWithPrices(false)}
             >
-              <Text style={{ color: !fleetWithPrices ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
+              <Text style={{ color: !fleetWithPrices ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
             </TouchableOpacity>
           </View>
 
           {/* Botones de descarga arriba */}
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={() => downloadFleetPdf(undefined, fleetWithPrices)}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ General</Text>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={() => downloadFleetPdf(undefined, fleetWithPrices)}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ General</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.primary : colors.surfaceAlt }]}
+              style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.brand : colors.surfaceAlt }]}
               onPress={() => setShowCompanyBtns((v) => !v)}
             >
-              <Text style={{ color: showCompanyBtns ? colors.primaryContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
+              <Text style={{ color: showCompanyBtns ? colors.brandContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
             </TouchableOpacity>
           </View>
 
@@ -3260,9 +3260,9 @@ export default function ReportsScreen({ route }: any) {
                     </View>
                     <TouchableOpacity
                       onPress={() => downloadCamionesPdf(w.n)}
-                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md }}
+                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md }}
                     >
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -3284,8 +3284,8 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>Semana {w.n}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>del {fmtDMY(w.from)} al {fmtDMY(w.to)}</Text>
                     </View>
-                    <TouchableOpacity onPress={() => downloadEscombrosPdf(w.n)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
+                    <TouchableOpacity onPress={() => downloadEscombrosPdf(w.n)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>⬇️ PDF</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -3337,7 +3337,7 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
   },
-  genBtn: { backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.md },
+  genBtn: { backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.md },
   btn: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center' },
   th: { color: colors.text, fontWeight: '700', fontSize: 11, padding: 6, textAlign: 'center' },
   td: { fontSize: 12, paddingVertical: 8, paddingHorizontal: 6 },
