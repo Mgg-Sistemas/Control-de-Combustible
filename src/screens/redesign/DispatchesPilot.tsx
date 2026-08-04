@@ -4,6 +4,7 @@ import { RList, RRow, RAmount, RPill, RBarChart } from '../../components/redesig
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText } from '../../lib/text';
+import { caracasParts } from '../../lib/jornada';
 import { Dispatch } from '../../types/database';
 
 const ASSET_OPTIONS = [
@@ -12,6 +13,25 @@ const ASSET_OPTIONS = [
 ];
 
 const fmtMonto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/** KPI compacto: total consumido HOY (vista por defecto, sin rango de fecha). */
+function TodayTotal({ rows }: { rows: Dispatch[] }) {
+  const { colors } = useTheme();
+  const today = caracasParts(new Date()).iso;
+  const total = rows.reduce((s, d: any) => (String(d.dispatch_date).slice(0, 10) === today ? s + (Number(d.liters) || 0) : s), 0);
+  const n = rows.filter((d: any) => String(d.dispatch_date).slice(0, 10) === today).length;
+  return (
+    <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+      <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>⛽ CONSUMIDO HOY</Text>
+      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 30, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>
+        {fmtMonto(total)} <Text style={{ fontSize: 16, opacity: 0.85 }}>L</Text>
+      </Text>
+      <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 11.5, marginTop: 2 }}>
+        {today} · {n} consumo(s) · elige un rango de fecha abajo para ver el histórico y las gráficas
+      </Text>
+    </View>
+  );
+}
 
 /** Resumen VISUAL: gráficas de barras de litros a máquinas por día y por máquina
  *  (sobre las filas visibles = respeta búsqueda y rango de fecha). */
@@ -91,7 +111,9 @@ export default function DispatchesPilot() {
           const l = rows.reduce((s, r) => s + (Number(r.liters) || 0), 0);
           return `${rows.length} consumo(s) · ${l.toLocaleString()} L`;
         }}
-        headerExtra={(shown) => <DailyMachineCharts rows={shown} />}
+        // Por defecto: solo el TOTAL CONSUMIDO HOY. Al elegir un rango de fecha (o
+        // buscar), se muestran las GRÁFICAS completas (por día y por máquina).
+        headerExtra={(shown, ctx) => (ctx.dateActive || ctx.searching ? <DailyMachineCharts rows={shown} /> : <TodayTotal rows={shown} />)}
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },

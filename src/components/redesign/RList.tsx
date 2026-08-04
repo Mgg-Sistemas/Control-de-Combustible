@@ -165,8 +165,9 @@ type RListProps<T> = {
   renderItem: (item: T) => React.ReactNode;
   /** Texto del subtítulo del encabezado (recibe las filas visibles). */
   subtitle?: (shown: T[]) => string;
-  /** Contenido extra (resumen/KPIs/gráficas) arriba de la lista; recibe las filas visibles. */
-  headerExtra?: (shown: T[]) => React.ReactNode;
+  /** Contenido extra (resumen/KPIs/gráficas) arriba de la lista; recibe las filas
+   *  visibles y el contexto de filtros (para mostrar más/menos según haya rango o búsqueda). */
+  headerExtra?: (shown: T[], ctx: { from: string; to: string; dateActive: boolean; searching: boolean }) => React.ReactNode;
   /** Si se define, muestra un buscador que filtra por el texto que devuelva esta función
    *  (concatena todas las características por las que se pueda buscar). */
   searchText?: (item: T) => string;
@@ -256,7 +257,7 @@ export function RList<T extends { id: string }>({
             </View>
           ) : null}
 
-          {headerExtra ? headerExtra(shown) : null}
+          {headerExtra ? headerExtra(shown, { from, to, dateActive: !!(from || to), searching: !!q.trim() }) : null}
 
           {shown.length === 0 ? (
             <REmpty icon={emptyIcon} title={(from || to || q) ? 'Sin resultados' : emptyTitle} subtitle={(from || to || q) ? 'Prueba con otra búsqueda o rango de fechas.' : emptySubtitle} />
