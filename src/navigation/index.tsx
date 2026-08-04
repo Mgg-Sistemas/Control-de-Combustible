@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
 import DashboardScreen from '../screens/DashboardScreen';
-import LoginScreen from '../screens/LoginScreen';
+import LoginScreen from '../screens/redesign/LoginPilot'; // PILOTO rediseño (Sesión); original en ../screens/LoginScreen
 import BiometricLockScreen from '../screens/BiometricLockScreen';
 import MoreScreen from '../screens/MoreScreen';
 import UsersScreen from '../screens/UsersScreen';
@@ -57,8 +57,9 @@ import {
   TanksScreen,
   IntakesScreen,
   DispatchesScreen,
-  TransfersScreen,
 } from '../screens/modules';
+// Piloto de rediseño: Traslados restilizado (mismo comportamiento, look nuevo).
+import TransfersPilot from '../screens/redesign/TransfersPilot';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -183,7 +184,7 @@ function MoreStack() {
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
-      <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Traslados' }} />
+      <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
       <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
