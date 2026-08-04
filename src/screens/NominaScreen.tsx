@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Platform } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,7 @@ import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, fichasHtml,
 import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { onlyDecimal, cmpText, norm } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
 import { generalCompanies } from '../lib/companies';
@@ -16,6 +17,7 @@ import { useTable } from '../hooks/useTable';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
+import { PAGO_STATUS_META, PAGO_STATUS_LABEL } from '../lib/statusMeta';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
@@ -24,16 +26,11 @@ const sumLines = (l: PayrollLine[]) => (l || []).reduce((s, x) => s + (Number(x.
 const netOf = (base: number, add: PayrollLine[], ded: PayrollLine[]) => Math.round((base + sumLines(add) - sumLines(ded)) * 100) / 100;
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  borrador: { label: '📝 Borrador', color: '#F59E0B' },
-  aprobada: { label: '✅ Aprobada', color: '#2563EB' },
-  pagada: { label: '💵 Pagada', color: '#16A34A' },
-};
-
 export default function NominaScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { session, canSee } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: periods, loading, refetch } = useTable<PayrollPeriod>('payroll_periods', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
@@ -88,13 +85,13 @@ export default function NominaScreen({ navigation }: any) {
   const openDetail = (p: PayrollPeriod) => { setSel(p); setItems([]); loadItems(p.id); };
 
   const crearPeriodo = async () => {
-    if (!cCompany) return Alert.alert('Aviso', 'Elige la empresa.');
-    if (!cName.trim()) return Alert.alert('Aviso', 'Escribe el nombre de la nómina (ej. "Quincena 1 - julio").');
+    if (!cCompany) return toast.error('Elige la empresa.');
+    if (!cName.trim()) return toast.error('Escribe el nombre de la nómina (ej. "Quincena 1 - julio").');
     setCreating(true);
     const { data: per, error } = await supabase.from('payroll_periods')
       .insert({ company_id: cCompany, name: cName.trim(), period_start: cFrom || null, period_end: cTo || null, status: 'borrador', created_by: session?.user?.id ?? null })
       .select().single();
-    if (error || !per) { setCreating(false); return Alert.alert('Aviso', error?.message ?? 'No se pudo crear.'); }
+    if (error || !per) { setCreating(false); return toast.error(error?.message ?? 'No se pudo crear.'); }
     // Precarga: un renglón por cada empleado ACTIVO de la empresa, con su salario base.
     const { data: emps } = await supabase.from('employees')
       .select('id, first_name, last_name, cargo, ficha_number, cedula, hire_date, base_salary')
@@ -126,7 +123,7 @@ export default function NominaScreen({ navigation }: any) {
     await loadItems(sel.id);
     await recomputeTotal(sel.id);
     setBusy(false);
-    if (!rows.length) Alert.alert('Aviso', 'No hay empleados activos nuevos para agregar.');
+    if (!rows.length) toast.info('No hay empleados activos nuevos para agregar.');
   };
 
   const recomputeTotal = async (pid: string) => {
@@ -153,7 +150,7 @@ export default function NominaScreen({ navigation }: any) {
     const { error } = await supabase.from('payroll_items')
       .update({ base_amount: base, additions: add, deductions: ded, net_amount: net, note: eNote.trim() || null })
       .eq('id', editItem.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     const newItems = items.map((it) => (it.id === editItem.id ? { ...it, base_amount: base, additions: add, deductions: ded, net_amount: net, note: eNote } : it));
     setItems(newItems);
     const total = newItems.reduce((s, it) => s + (Number(it.net_amount) || 0), 0);
@@ -168,7 +165,7 @@ export default function NominaScreen({ navigation }: any) {
     setBusy(true);
     const { error } = await supabase.from('payroll_periods').update({ status }).eq('id', sel.id);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setSel({ ...sel, status });
     refetch();
   };
@@ -180,7 +177,7 @@ export default function NominaScreen({ navigation }: any) {
     setBusy(true);
     const { error } = await supabase.from('payroll_periods').delete().eq('id', sel.id);
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setSel(null);
     refetch();
   };
@@ -228,7 +225,7 @@ export default function NominaScreen({ navigation }: any) {
     const total = items.reduce((s, it) => s + (Number(it.net_amount) || 0), 0);
     const html = pdfDocument({
       title: 'Nómina',
-      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)} · ${STATUS_META[sel.status]?.label ?? sel.status}`,
+      subtitle: `${companyName(sel.company_id)} · ${sel.name} · ${fmtDMY(sel.period_start)} → ${fmtDMY(sel.period_end)} · ${PAGO_STATUS_LABEL[sel.status] ?? sel.status}`,
       extraCss: `table{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left} th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7;font-weight:800}`,
@@ -361,13 +358,13 @@ export default function NominaScreen({ navigation }: any) {
           <View key={g.key} style={{ marginBottom: spacing.sm }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
             {g.items.map((p) => {
-              const st = STATUS_META[p.status] ?? STATUS_META.borrador;
+              const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
               return (
                 <TouchableOpacity key={p.id} activeOpacity={0.7} onPress={() => openDetail(p)}>
                   <Card>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{p.name}</Text>
-                      <Text style={{ color: st.color, fontWeight: '800', fontSize: 12 }}>{st.label}</Text>
+                      <Badge label={st.label} tone={st.tone} />
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(p.period_start)} → {fmtDMY(p.period_end)}</Text>
@@ -472,7 +469,7 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(sel.period_start)} → {fmtDMY(sel.period_end)}</Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
-                  <Text style={{ color: (STATUS_META[sel.status] ?? STATUS_META.borrador).color, fontWeight: '800' }}>{(STATUS_META[sel.status] ?? STATUS_META.borrador).label}</Text>
+                  <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
                   <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
                 </View>
               </Card>

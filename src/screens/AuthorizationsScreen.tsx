@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { RecordForm, Field } from '../components/RecordForm';
+import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
@@ -52,6 +53,7 @@ function inPeriod(iso: string, period: string): boolean {
 export default function AuthorizationsScreen() {
   const { role, session } = useAuth();
   const { colors } = useTheme();
+  const toast = useToast();
   const { data, loading, refetch } = useTable<Authorization>('authorizations', { orderBy: 'created_at', ascending: false });
   const { data: profiles } = useTable<Profile>('profiles');
   const { data: tanks } = useTable<Tank>('tanks');
@@ -100,7 +102,7 @@ export default function AuthorizationsScreen() {
     const fn = approve ? 'approve_authorization' : 'reject_authorization';
     const { error } = await supabase.rpc(fn, { p_auth_id: id });
     setBusy(null);
-    if (error) { Alert.alert('No se pudo procesar', error.message); return; }
+    if (error) { toast.error(error.message); return; }
     refetch();
   };
 

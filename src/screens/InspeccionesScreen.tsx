@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -10,6 +10,7 @@ import { exportPdf } from '../lib/pdf';
 import { inspeccionHtml, InspeccionPdfItem } from '../lib/inspeccion';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { useTheme } from '../theme/ThemeContext';
 import { levelMeets } from '../lib/permissions';
 import { spacing, radius } from '../theme';
@@ -65,6 +66,7 @@ export default function InspeccionesScreen() {
   const { colors } = useTheme();
   const { session, moduleLevel } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const canWrite = levelMeets(moduleLevel('inspecciones_maq'), 'escritura');
 
   const [machines, setMachines] = useState<Machine[] | null>(null);
@@ -170,7 +172,7 @@ export default function InspeccionesScreen() {
     });
     if (!ok) return;
     const { error } = await supabase.from('machine_inspections').delete().eq('id', r.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     if (selected) loadHistory(selected.id);
   };
 
@@ -198,7 +200,7 @@ export default function InspeccionesScreen() {
   const guardarYPdf = async () => {
     if (!selected) return;
     const its = cleanItems();
-    if (its.length === 0) return Alert.alert('Aviso', 'Agrega al menos un ítem con descripción.');
+    if (its.length === 0) return toast.error('Agrega al menos un ítem con descripción.');
     setBusy(true);
     const inspectedAt = `${inspDate}T${inspTime || '00:00'}:00-04:00`;
     const obs = cleanNotas();
@@ -218,7 +220,7 @@ export default function InspeccionesScreen() {
           created_by: session?.user?.id ?? null,
         });
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setFormOpen(false);
     setEditId(null);
     loadHistory(selected.id);
@@ -246,24 +248,24 @@ export default function InspeccionesScreen() {
 
   // ── Carga masiva por Excel ─────────────────────────────────────────────────
   const descargarPlantilla = () => {
-    if (Platform.OS !== 'web') return Alert.alert('Aviso', 'La plantilla se descarga desde el navegador (versión web).');
+    if (Platform.OS !== 'web') return toast.info('La plantilla se descarga desde el navegador (versión web).');
     const ok = downloadInspeccionTemplate((machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
-    if (!ok) Alert.alert('Aviso', 'No se pudo generar la plantilla.');
+    if (!ok) toast.error('No se pudo generar la plantilla.');
   };
 
   const cargarPlantilla = async () => {
-    if (Platform.OS !== 'web') return Alert.alert('Aviso', 'La carga masiva se hace desde el navegador (versión web).');
+    if (Platform.OS !== 'web') return toast.info('La carga masiva se hace desde el navegador (versión web).');
     const buf = await pickWorkbookFile();
     if (!buf) return;
     const parsed = parseInspeccionWorkbook(buf, (machines ?? []).map((m) => ({ id: m.id, code: m.code, plate: m.plate, serial: m.serial, tipo: m.tipo })));
-    if (parsed.fatal) return Alert.alert('Plantilla con error', parsed.fatal);
+    if (parsed.fatal) return toast.error(parsed.fatal);
     setBulkParse(parsed);
   };
 
   const confirmarCargaMasiva = async () => {
     if (!bulkParse) return;
     const listos = bulkParse.groups.filter((g) => g.ok);
-    if (listos.length === 0) return Alert.alert('Aviso', 'No hay ninguna máquina válida para cargar. Corrige los errores marcados.');
+    if (listos.length === 0) return toast.error('No hay ninguna máquina válida para cargar. Corrige los errores marcados.');
     setBulkBusy(true);
     const nowT = caracasNowTime();
     const filas = listos.map((g) => {
@@ -281,11 +283,11 @@ export default function InspeccionesScreen() {
     });
     const { error } = await supabase.from('machine_inspections').insert(filas);
     setBulkBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     const affected = new Set(listos.map((g) => g.machine!.id));
     setBulkParse(null);
     if (selected && affected.has(selected.id)) loadHistory(selected.id);
-    Alert.alert('Listo', `Se cargaron ${listos.length} inspección(es) (${listos.reduce((a, g) => a + g.items.length, 0)} ítem(s)).`);
+    toast.success(`Se cargaron ${listos.length} inspección(es) (${listos.reduce((a, g) => a + g.items.length, 0)} ítem(s)).`);
   };
 
   return (

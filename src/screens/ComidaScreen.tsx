@@ -54,6 +54,7 @@ export default function ComidaScreen() {
   const [mode, setMode] = useState<'dia' | 'control'>('dia');
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [rows, setRows] = useState<FoodDistribution[]>([]);
   const [companyMeals, setCompanyMeals] = useState<FoodCompanyMeal[]>([]);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
@@ -102,6 +103,13 @@ export default function ComidaScreen() {
     load();
     if (mode === 'control') loadRange();
   });
+
+  // Pull-to-refresh: recarga el día actual y, si está en modo "control", también el rango.
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([load(), mode === 'control' ? loadRange() : Promise.resolve()]);
+    setRefreshing(false);
+  };
 
   // Resumen POR PERSONA en el rango (entregas individuales por carnet).
   const rangeByPerson = useMemo(() => {
@@ -311,7 +319,7 @@ export default function ComidaScreen() {
   );
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
       <SectionTitle>🍽️ Distribución de comida</SectionTitle>
 

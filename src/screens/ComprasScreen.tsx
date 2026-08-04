@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { ListScreen } from '../components/ListScreen';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, InventoryLevel } from '../types/database';
@@ -196,6 +197,7 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: reqs, loading, refetch } = useTable<PurchaseRequest>('purchase_requests', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: catalog } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
@@ -210,17 +212,17 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
   const [busy, setBusy] = useState(false);
 
   const crear = async () => {
-    if (!company) return Alert.alert('Aviso', 'Elige la empresa.');
+    if (!company) return toast.error('Elige la empresa.');
     // La solicitud NO lleva precio: solo qué y cuánto. El precio va en la Orden de Compra.
     const clean = items.filter((l) => l.description.trim()).map((l) => ({ ...l, price: 0 }));
-    if (!clean.length) return Alert.alert('Aviso', 'Agrega al menos un renglón con descripción.');
+    if (!clean.length) return toast.error('Agrega al menos un renglón con descripción.');
     setBusy(true);
     const { error } = await supabase.from('purchase_requests').insert({
       company_id: company, requested_by: session?.user?.id ?? null, category, needed_for: neededFor.trim().toUpperCase() || null,
       note: note.trim().toUpperCase() || null, items: clean, estimated_total: 0, status: 'solicitada',
     });
     setBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setOpen(false); setCompany(''); setCategory('repuestos'); setNeededFor(''); setNote(''); setItems([{ description: '', qty: 1, unit: '', price: 0 }]);
     refetch();
   };
@@ -238,7 +240,7 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
     await supabase.from('purchase_orders').insert({ request_id: r.id, company_id: r.company_id, category: r.category ?? null, items: r.items, total: linesTotal(r.items || []), status: 'borrador', created_by: session?.user?.id ?? null });
     await supabase.from('purchase_requests').update({ status: 'ordenada' }).eq('id', r.id);
     refetch();
-    Alert.alert('Listo', 'Orden creada en borrador. Ve a la pestaña "Órdenes" para completarla.');
+    toast.success('Orden creada en borrador. Ve a la pestaña "Órdenes" para completarla.');
   };
 
   return (
@@ -336,6 +338,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const { session } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const { data: suppliers } = useTable<Supplier>('suppliers', { orderBy: 'name' });
@@ -361,7 +364,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 
   const aprobar = async () => {
     if (!sel) return;
-    if (!supplier) return Alert.alert('Aviso', 'Elige el proveedor antes de aprobar.');
+    if (!supplier) return toast.error('Elige el proveedor antes de aprobar.');
     const ok = await confirm({ title: 'Aprobar orden', message: `Aprobar la orden a ${supplierName(supplier)} por ${usd(linesTotal(items))}?`, confirmText: 'Aprobar' });
     if (!ok) return;
     await supabase.from('purchase_orders').update({ supplier_id: supplier, items, total: linesTotal(items), note: note.trim().toUpperCase() || null, status: 'aprobada', approved_by: session?.user?.id ?? null, approved_at: nowISO() }).eq('id', sel.id);
@@ -396,9 +399,9 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
       // 2) Marcar la orden como recibida.
       await supabase.from('purchase_orders').update({ status: 'recibida', received_at: nowISO() }).eq('id', o.id);
       refetch(); refetchCatalog();
-      Alert.alert('Listo', 'Orden recibida y cargada al inventario. El PMP de cada producto se actualizó.');
+      toast.success('Orden recibida y cargada al inventario. El PMP de cada producto se actualizó.');
     } catch (e: any) {
-      Alert.alert('Aviso', e?.message || 'No se pudo cargar al inventario.');
+      toast.error(e?.message || 'No se pudo cargar al inventario.');
     }
   };
 
@@ -487,7 +490,7 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
 // ── Resumen / Reportes de gasto ──────────────────────────────────────────────
 function ResumenTab() {
   const { colors } = useTheme();
-  const { data: orders, loading } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
+  const { data: orders, loading, refetch } = useTable<PurchaseOrder>('purchase_orders', { orderBy: 'created_at', ascending: false });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name' });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? 'Empresa' : 'Sin empresa');
 
@@ -541,7 +544,7 @@ function ResumenTab() {
   if (loading) return <Screen><Loading /></Screen>;
 
   return (
-    <Screen>
+    <Screen onRefresh={refetch} refreshing={loading}>
       <ConfigBanner />
       <SectionTitle>Resumen de gastos</SectionTitle>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Incluye órdenes aprobadas y recibidas (gasto comprometido).</Text>

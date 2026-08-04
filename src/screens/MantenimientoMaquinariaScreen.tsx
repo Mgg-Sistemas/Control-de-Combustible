@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Alert, Image } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -14,6 +14,7 @@ import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometro
 import { caracasParts } from '../lib/jornada';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -63,6 +64,7 @@ export default function MantenimientoMaquinariaScreen() {
   const { colors } = useTheme();
   const { canSee, session } = useAuth();
   const confirm = useConfirm();
+  const toast = useToast();
   const uid = session?.user?.id ?? null;
 
   const [reqs, setReqs] = useState<Req[]>([]);
@@ -220,7 +222,7 @@ export default function MantenimientoMaquinariaScreen() {
     setConfirmingHoro(m.id);
     const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro }).eq('id', m.id);
     setConfirmingHoro(null);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro } : x)));
     setNotice(`✅ Mantenimiento confirmado en ${m.code} · horómetro reiniciado.`);
   };
@@ -231,7 +233,7 @@ export default function MantenimientoMaquinariaScreen() {
     setBusy(r.id);
     const { error } = await supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: new Date().toISOString() }).eq('id', r.id);
     setBusy(null);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setReqs((prev) => prev.map((x) => (x.id === r.id ? { ...x, status: 'realizado' } : x)));
   };
 
@@ -336,7 +338,7 @@ export default function MantenimientoMaquinariaScreen() {
       supabase.from('machinery').update({ operational: false }).eq('id', repFor.id),
     ]);
     setBusy(null);
-    if (e1 || e2) return Alert.alert('Aviso', (e1?.message || e2?.message) as string);
+    if (e1 || e2) return toast.error((e1?.message || e2?.message) as string);
     setRepFor(null);
     await load();
     setTab('reparacion');
@@ -346,14 +348,14 @@ export default function MantenimientoMaquinariaScreen() {
   const openReturn = (r: Rep) => { setRetFor(r); setRetBack(todayISO()); setRetWork(r.work_done ?? ''); };
   const registrarRetorno = async () => {
     if (!retFor) return;
-    if (!retWork.trim()) return Alert.alert('Aviso', 'Indica qué se le cambió / reparó a la máquina.');
+    if (!retWork.trim()) return toast.error('Indica qué se le cambió / reparó a la máquina.');
     setBusy('ret');
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('machinery_repairs').update({ status: 'operativa', back_at: retBack, work_done: retWork.trim(), closed_by: uid }).eq('id', retFor.id),
       supabase.from('machinery').update({ operational: true, en_espera: false }).eq('id', retFor.machinery_id),
     ]);
     setBusy(null);
-    if (e1 || e2) return Alert.alert('Aviso', (e1?.message || e2?.message) as string);
+    if (e1 || e2) return toast.error((e1?.message || e2?.message) as string);
     setRetFor(null);
     await load();
   };

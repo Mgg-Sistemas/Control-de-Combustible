@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { MachineGuard } from '../types/database';
 import { assignGuard, clearGuard, listGuards, listGuardNames, renameGuardName, deleteGuardName } from '../lib/guards';
+import { useToast } from './ToastProvider';
+import { useConfirm } from './ConfirmProvider';
 
 // Tipo de supervisor: se guarda en la columna `rank` del registro de guardia.
 const TIPOS = ['Supervisor Empresa', 'Supervisor Militar'] as const;
@@ -35,6 +37,8 @@ export function GuardButton({
   userId?: string | null;
 }) {
   const { colors } = useTheme();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [rank, setRank] = useState<string>(TIPOS[0]);
@@ -68,7 +72,7 @@ export function GuardButton({
 
   const saveRename = async (oldName: string) => {
     const to = editValue.trim();
-    if (!to) { Alert.alert('Aviso', 'Escribe el nombre nuevo.'); return; }
+    if (!to) { toast.error('Escribe el nombre nuevo.'); return; }
     if (to === oldName) { setEditingName(null); return; }
     setBusyName(oldName);
     try {
@@ -77,65 +81,63 @@ export function GuardButton({
       if (name === oldName) setName(to);
       await reloadNames();
       onChanged();
-      Alert.alert('Listo', `Se renombró en ${n} registro(s).`);
+      toast.success(`Se renombró en ${n} registro(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo renombrar.');
+      toast.error(e?.message ?? 'No se pudo renombrar.');
     } finally {
       setBusyName(null);
     }
   };
 
-  const removeName = (n: string) => {
-    Alert.alert(
-      'Borrar supervisor',
-      `¿Eliminar por completo a "${n}"? Se borran todos sus registros (historial y asignaciones). Las máquinas que custodiaba quedarán sin supervisor.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Borrar',
-          style: 'destructive',
-          onPress: async () => {
-            setBusyName(n);
-            try {
-              const c = await deleteGuardName(n);
-              if (name === n) setName('');
-              await reloadNames();
-              onChanged();
-              Alert.alert('Borrado', `Se eliminaron ${c} registro(s).`);
-            } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'No se pudo borrar.');
-            } finally {
-              setBusyName(null);
-            }
-          },
-        },
-      ]
-    );
+  const removeName = async (n: string) => {
+    const ok = await confirm({
+      title: 'Borrar supervisor',
+      message: `¿Eliminar por completo a "${n}"? Se borran todos sus registros (historial y asignaciones). Las máquinas que custodiaba quedarán sin supervisor.`,
+      confirmText: 'Borrar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusyName(n);
+    try {
+      const c = await deleteGuardName(n);
+      if (name === n) setName('');
+      await reloadNames();
+      onChanged();
+      toast.success(`Se eliminaron ${c} registro(s).`);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'No se pudo borrar.');
+    } finally {
+      setBusyName(null);
+    }
   };
 
   const save = async () => {
-    if (!name.trim()) { Alert.alert('Aviso', 'Escribe el nombre del supervisor.'); return; }
+    if (!name.trim()) { toast.error('Escribe el nombre del supervisor.'); return; }
     setSaving(true);
     try {
       await assignGuard(machine.id, { guard_name: name, rank, note }, userId);
       setOpen(false);
       onChanged();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'No se pudo asignar el guardia.');
+      toast.error(e?.message ?? 'No se pudo asignar el guardia.');
     } finally {
       setSaving(false);
     }
   };
 
-  const retirar = () => {
-    Alert.alert('Retirar supervisor', `¿Quitar el supervisor actual de ${machine.code}? Quedará en el historial.`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Retirar',
-        style: 'destructive',
-        onPress: async () => { await clearGuard(machine.id); setOpen(false); onChanged(); },
-      },
-    ]);
+  const retirar = async () => {
+    const ok = await confirm({
+      title: 'Retirar supervisor',
+      message: `¿Quitar el supervisor actual de ${machine.code}? Quedará en el historial.`,
+      confirmText: 'Retirar',
+      cancelText: 'Cancelar',
+      danger: true,
+    });
+    if (!ok) return;
+    await clearGuard(machine.id);
+    setOpen(false);
+    onChanged();
   };
 
   // Sugerencias a mostrar: filtra por lo escrito y NO muestra si el texto ya coincide

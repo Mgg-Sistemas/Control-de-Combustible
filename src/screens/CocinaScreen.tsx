@@ -67,6 +67,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
 
   const [myName, setMyName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [person, setPerson] = useState<Person | null>(null);
   const [todayList, setTodayList] = useState<FoodDistribution[]>([]);
@@ -88,13 +89,17 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   // comida — p. ej. alguien que llega a almorzar a las 4pm).
   const [scanChoose, setScanChoose] = useState(false);
 
-  React.useEffect(() => {
+  const loadMyName = React.useCallback(async () => {
     if (!uid) { setLoading(false); return; }
-    supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle().then(({ data }) => {
-      setMyName((data as any)?.full_name ?? '');
-      setLoading(false);
-    });
+    const { data } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
+    setMyName((data as any)?.full_name ?? '');
+    setLoading(false);
   }, [uid]);
+  React.useEffect(() => { loadMyName(); }, [loadMyName]);
+
+  // Pull-to-refresh: solo recarga el nombre del perfil; no toca la persona/cocinero
+  // ya abiertos en pantalla (evita perder el registro en curso).
+  const onRefresh = async () => { setRefreshing(true); await loadMyName(); setRefreshing(false); };
 
   // TIEMPO REAL: si otro dispositivo registra/borra una comida de la persona
   // que tengo abierta, su lista de hoy se actualiza sola.
@@ -253,7 +258,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   const totalHoy = todayList.reduce((a, d) => a + (Number(d.meals) || 0), 0);
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <View style={{ flex: 1 }}>

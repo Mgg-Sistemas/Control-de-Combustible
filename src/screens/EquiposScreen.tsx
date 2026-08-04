@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Image, Modal, TextInput, ScrollView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { useToast } from '../components/ToastProvider';
 import { RecordForm, Field } from '../components/RecordForm';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
@@ -113,6 +114,7 @@ const VIAJES_FIELDS: Field[] = [
 
 export default function EquiposScreen({ navigation, route }: any) {
   const { colors } = useTheme();
+  const toast = useToast();
   const [kind, setKind] = useState<Kind>('vehiculo');
 
   const vehicles = useTable<Vehicle>('vehicles', { orderBy: 'plate', ascending: true });
@@ -417,13 +419,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   const registrarSurtido = async () => {
     if (!fuelFor) return;
     const liters = Number((regLiters || '').replace(',', '.'));
-    if (!isFinite(liters) || liters <= 0) return Alert.alert('Aviso', 'Ingresa los litros surtidos (mayor a 0).');
-    if (!regTank) return Alert.alert('Aviso', 'Selecciona el tanque de origen.');
-    if (!regDate) return Alert.alert('Aviso', 'Selecciona la fecha.');
+    if (!isFinite(liters) || liters <= 0) return toast.error('Ingresa los litros surtidos (mayor a 0).');
+    if (!regTank) return toast.error('Selecciona el tanque de origen.');
+    if (!regDate) return toast.error('Selecciona la fecha.');
     // Tope: no se puede solicitar más de 2× el consumo diario de la máquina.
     const diario = fuelFor.daily_consumption_l != null ? Number(fuelFor.daily_consumption_l) : null;
     if (diario != null && diario > 0 && liters > diario * 2) {
-      return Alert.alert('Límite de surtido', `Esta máquina consume ${diario.toLocaleString()} L/día. No se puede surtir más de ${(diario * 2).toLocaleString()} L (2× el consumo diario).`);
+      return toast.error(`Esta máquina consume ${diario.toLocaleString()} L/día. No se puede surtir más de ${(diario * 2).toLocaleString()} L (2× el consumo diario).`);
     }
     setRegSaving(true);
     const { error } = await supabase.from('dispatches').insert({
@@ -439,7 +441,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       fuel_end: num(regFuelEnd),
     });
     setRegSaving(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setRegOpen(false);
     await openFuel(fuelFor); // recarga la traza y totales
   };
@@ -459,12 +461,14 @@ export default function EquiposScreen({ navigation, route }: any) {
     setQrBlockBusy(true);
     const { error } = await supabase.from('machinery').update({ qr_blocked: next }).eq('id', qrFor.id);
     setQrBlockBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setQrFor({ ...(qrFor as any), qr_blocked: next });
     machinery.refetch();
-    Alert.alert('QR ' + (next ? 'bloqueado' : 'desbloqueado'), next
-      ? 'Al escanear este QR ahora solo se muestra el logo. Nadie podrá registrar con él.'
-      : 'El QR vuelve a funcionar normalmente.');
+    toast.success(
+      next
+        ? 'QR bloqueado. Al escanear este QR ahora solo se muestra el logo. Nadie podrá registrar con él.'
+        : 'QR desbloqueado. El QR vuelve a funcionar normalmente.'
+    );
   };
 
   const printQr = async () => {
@@ -1141,8 +1145,8 @@ export default function EquiposScreen({ navigation, route }: any) {
               />
             </ScrollView>
             {batchError ? (
-              <View style={{ backgroundColor: '#FEE2E2', borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm }}>
-                <Text style={{ color: '#B91C1C', fontSize: 13, fontWeight: '600' }}>Error: {batchError}</Text>
+              <View style={{ backgroundColor: colors.dangerSoftBg, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm }}>
+                <Text style={{ color: colors.dangerSoftText, fontSize: 13, fontWeight: '600' }}>Error: {batchError}</Text>
               </View>
             ) : null}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>

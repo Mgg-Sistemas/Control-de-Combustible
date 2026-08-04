@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Alert, Modal, ScrollView, Switch } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Switch } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -8,6 +8,7 @@ import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
 import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
+import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard, MachineWorkSegment } from '../types/database';
 import { DateField } from '../components/DateField';
@@ -136,6 +137,7 @@ function fmtDMY(iso: string): string {
 export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { session, role } = useAuth();
   // Las ANALISTAS solo pueden INGRESAR horas nuevas (campo vacío), NO modificar las
   // ya cargadas, y tampoco cambiar precios. `esAnalista` bloquea la edición de un
@@ -367,7 +369,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       });
       if (!silent) { setHoursInput({}); setOvertimeInput({}); }
     } catch (e: any) {
-      if (!silent) Alert.alert('Aviso', 'No se pudo cargar el control. Revisa tu conexión e inténtalo de nuevo.');
+      if (!silent) toast.error('No se pudo cargar el control. Revisa tu conexión e inténtalo de nuevo.');
     } finally {
       setLoading(false); // pase lo que pase, se quita el spinner (nunca se queda colgado)
     }
@@ -527,7 +529,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const ex = rounds[rkey(m.id, dISO)];
     // Analista: solo puede INGRESAR el turno si aún no tiene horas; no modificarlas.
     const curTurno = which === 'day' ? Number(ex?.day_hours ?? 0) : Number(ex?.night_hours ?? 0);
-    if (bloqueadoAnalista(curTurno)) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas nuevas, pero no modificar las que ya están cargadas. Pide a un administrador que corrija.'); return; }
+    if (bloqueadoAnalista(curTurno)) { toast.error('Como analista puedes cargar horas nuevas, pero no modificar las que ya están cargadas. Pide a un administrador que corrija.'); return; }
     const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
     // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
     // (si tocó el turno sin salir del campo), para no perder esas horas.
@@ -552,12 +554,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   const setHours = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas de parada nuevas, pero no modificar las ya cargadas.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { toast.error('Como analista puedes cargar horas de parada nuevas, pero no modificar las ya cargadas.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { hours_stopped: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
   const setOvertime = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { Alert.alert('Solo ingreso', 'Como analista puedes cargar horas extra nuevas, pero no modificar las ya cargadas.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista puedes cargar horas extra nuevas, pero no modificar las ya cargadas.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { overtime_hours: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
 
@@ -655,7 +657,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     if (error) {
       setClosing(false);
-      return Alert.alert('Aviso', error.message);
+      return toast.error(error.message);
     }
     // Marca TODO lo pendiente como cerrado: sale del control activo pero queda en la BD.
     await supabase.from('machine_rounds').update({ closed: true }).eq('closed', false);
@@ -745,7 +747,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       if (delErr) throw delErr;
     } catch (e: any) {
       setReabriendo(null);
-      return Alert.alert('Aviso', e?.message ?? 'No se pudo reabrir el cierre.');
+      return toast.error(e?.message ?? 'No se pudo reabrir el cierre.');
     }
     setReabriendo(null);
     setClosureSel(null);
@@ -1090,7 +1092,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   const setMoveDate = async (m: Machinery, field: 'entry_date' | 'exit_date', value: string | null) => {
     const { error } = await supabase.from('machinery').update({ [field]: value }).eq('id', m.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, [field]: value } as Machinery) : x)));
   };
 
@@ -1101,7 +1103,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       ? { [`${kind}_date`]: date, [`${kind}_at`]: new Date().toISOString() }
       : { [`${kind}_date`]: null, [`${kind}_at`]: null };
     const { error } = await supabase.from('machinery').update(patch).eq('id', m.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, ...patch } as Machinery) : x)));
   };
 
@@ -1116,7 +1118,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const patch = { en_espera: false, operational: true, entry_date: d, entry_at: new Date(`${d}T12:00:00`).toISOString() };
     const { error } = await supabase.from('machinery').update(patch).eq('id', m.id);
     setBusyRecibir(null);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, ...patch } as Machinery) : x)));
     setNotice(`✅ ${m.code} recibida · entrada ${d}. Ya está en el control.`);
   };
@@ -1124,7 +1126,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Manda una máquina a "En espera por recepción". Sale del control activo (no toca No operativa).
   const ponerEnEspera = async (m: Machinery) => {
     const { error } = await supabase.from('machinery').update({ en_espera: true }).eq('id', m.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, en_espera: true } as Machinery) : x)));
     setNotice(`🕓 ${m.code} puesta en espera (por recepción).`);
   };
@@ -1154,10 +1156,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (!fleteFor && !fleteGeneralCo) return;
     const viajes = Math.max(0, Math.round(Number(fleteViajes.replace(',', '.')) || 0));
     const precio = Math.max(0, Number(fletePrecio.replace(',', '.')) || 0);
-    if (viajes <= 0 || precio <= 0) { Alert.alert('Aviso', 'Indica el nº de viajes y el precio por viaje.'); return; }
+    if (viajes <= 0 || precio <= 0) { toast.error('Indica el nº de viajes y el precio por viaje.'); return; }
     // General → company_id de la empresa; por equipo → company_id de la máquina.
     const companyId = fleteGeneralCo ? fleteGeneralCo.id : fleteFor?.company_id ?? null;
-    if (!companyId) { Alert.alert('Aviso', 'La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
+    if (!companyId) { toast.error('La máquina no tiene empresa asignada; asígnale una en Equipos para poder registrar su flete.'); return; }
     setFleteBusy(true);
     const payload = {
       company_id: companyId,
@@ -1167,7 +1169,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     };
     const { data, error } = await supabase.from('fletes').insert(payload).select().single();
     setFleteBusy(false);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     // Solo se agrega a la lista visible si la fecha cae dentro del bloque.
     if (weekDays.includes(fleteDate)) {
       if (fleteGeneralCo) setFletesGeneral((p) => ({ ...p, [companyId]: [...(p[companyId] ?? []), data] }));
@@ -1183,7 +1185,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const deleteFlete = async (f: any) => {
     setFleteDelConfirm(null);
     const { error } = await supabase.from('fletes').delete().eq('id', f.id);
-    if (error) return Alert.alert('Aviso', error.message);
+    if (error) return toast.error(error.message);
     if (f.machinery_id) setFletesByMachine((p) => ({ ...p, [f.machinery_id]: (p[f.machinery_id] ?? []).filter((x) => x.id !== f.id) }));
     else if (f.company_id) setFletesGeneral((p) => ({ ...p, [f.company_id]: (p[f.company_id] ?? []).filter((x) => x.id !== f.id) }));
   };
@@ -1244,7 +1246,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const n = Number(value.replace(',', '.'));
     const val = value.trim() === '' ? null : isFinite(n) && n >= 0 ? n : null;
     const from = priceFrom, to = priceTo;
-    if (!from || !to || from > to) { Alert.alert('Rango de fechas', 'Elige un rango válido (desde ≤ hasta) al que aplicar el precio.'); return; }
+    if (!from || !to || from > to) { toast.error('Elige un rango válido (desde ≤ hasta) al que aplicar el precio.'); return; }
     setSavingPrice(true);
     try {
       // 1) Precio por defecto de la máquina (para fechas futuras/sin precio fijado).
@@ -1267,7 +1269,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         : `✅ Precio ${val != null ? `$${val.toLocaleString()}` : '(sin precio)'} de ${m.code} actualizado (sin blindar: aplica a fechas sin precio fijo).`);
       load(true);
     } catch (err: any) {
-      Alert.alert('Aviso', err?.message ?? 'No se pudo guardar el precio.');
+      toast.error(err?.message ?? 'No se pudo guardar el precio.');
     } finally {
       setSavingPrice(false);
     }

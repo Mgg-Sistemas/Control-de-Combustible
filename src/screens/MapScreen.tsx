@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, Dimensions, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { useToast } from '../components/ToastProvider';
 import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
 import { supabase } from '../lib/supabase';
 import { elapsedSince } from '../lib/time';
@@ -58,6 +59,7 @@ function placaSerial(plate?: string | null, serial?: string | null): string {
 export default function MapScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
+  const toast = useToast();
   const { role } = useAuth();
   const isAdmin = role === 'admin';
   const [pins, setPins] = useState<MapPin[] | null>(null);
@@ -185,7 +187,7 @@ export default function MapScreen({ navigation, route }: any) {
         return { ...m, macro: m.located ? sectorMacro(sec) : null, sub: m.located ? sectorLabel(sec) : 'SIN UBICACIÓN' };
       });
       if (relevant.length === 0) {
-        Alert.alert('Máquinas por sector', 'No hay máquinas registradas.');
+        toast.error('No hay máquinas registradas.');
         return;
       }
       const macros: { key: 'ESTE' | 'OESTE' | 'SINZONA' | 'SINUBIC'; title: string; emoji: string }[] = [

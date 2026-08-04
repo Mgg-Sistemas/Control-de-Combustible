@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Text, View, Switch, Alert } from 'react-native';
+import { Text, View, Switch } from 'react-native';
 import { Card } from './ui';
 import { isBiometricSupported, isBiometricEnabled, enableBiometric, disableBiometric } from '../lib/biometric';
+import { useToast } from './ToastProvider';
 import { useAuth } from '../context/AuthContext';
 import { spacing } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -10,6 +11,7 @@ import { useTheme } from '../theme/ThemeContext';
  *  (no solo quienes tienen Ajustes). Activa/desactiva la biometría al abrir la app. */
 export function BiometricToggle() {
   const { colors } = useTheme();
+  const toast = useToast();
   const { rememberBiometricSession } = useAuth();
   const [supported, setSupported] = useState(false);
   const [on, setOn] = useState(false);
@@ -21,7 +23,7 @@ export function BiometricToggle() {
   const toggle = async (value: boolean) => {
     if (value) {
       const ok = await enableBiometric();
-      if (!ok) { Alert.alert('Huella', 'No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.'); return; }
+      if (!ok) { toast.error('No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.'); return; }
       // Guarda la sesión actual para poder ENTRAR con huella aunque luego venza.
       await rememberBiometricSession();
     } else {

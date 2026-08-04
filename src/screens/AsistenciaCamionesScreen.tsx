@@ -61,6 +61,7 @@ export default function AsistenciaCamionesScreen() {
   const [fullName, setFullName] = useState('');
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [rounds, setRounds] = useState<Record<string, Round>>({});
   const [overrides, setOverrides] = useState<Record<string, Override>>({});
@@ -142,6 +143,9 @@ export default function AsistenciaCamionesScreen() {
   }, [date]);
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'truck_attendance'], load);
+
+  // Pull-to-refresh: recarga la lista de camiones/rondas del día.
+  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   // Estado final de un camión: el ajuste MANUAL manda; si no, PRESENTE cuando
   // inició/tuvo jornada (con la hora), ausente si no hay nada.
@@ -286,7 +290,7 @@ export default function AsistenciaCamionesScreen() {
   );
 
   return (
-    <Screen>
+    <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
       <SectionTitle>🚚 Asistencia de camiones</SectionTitle>
 

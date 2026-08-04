@@ -1312,6 +1312,12 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
   de nómina, un abono, un filtro de fecha o un envío a reparación), usa el **horario de Caracas
   (America/Caracas)**, **no** el reloj/zona horaria del dispositivo del usuario. Es una garantía
   del sistema: no cambia según la configuración del teléfono o el navegador de quien lo usa.
+- **✅ Avisos de éxito/error:** ahora aparecen como un **mensaje flotante** (verde = éxito,
+  rojo = error) en la parte de la pantalla, en vez del cuadro de diálogo de antes, que en la
+  versión web **no se veía**. Ya funciona igual en el teléfono y en la computadora.
+- **🔽 Deslizar hacia abajo para refrescar:** en varias pantallas de lista (Supervisor,
+  Supervisión, Inventario, Compras, fichas/QR, entre otras) puedes **deslizar hacia abajo**
+  para recargar la información sin salir ni volver a entrar.
 
 ---
 
