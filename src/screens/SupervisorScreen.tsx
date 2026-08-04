@@ -442,17 +442,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const q = norm(checkQuery.trim());
     return machines.filter((m) => matchQuery(m, q));
   }, [machines, checkQuery]);
-  // "FALTAN POR ASIGNAR" = TODA máquina que EXISTE y le falta inspector, para poder
-  // asignarlas TODAS por lote. Solo se descartan las ELIMINADAS/OCULTAS (active=false),
-  // igual que en el resto de la app. A propósito NO se filtra por estado operativo: las
-  // averiadas (operational=false) y las "en espera de recepción" (en_espera) también
-  // necesitan encargado y deben poder asignarse; antes se excluían y por eso "faltaban"
-  // máquinas en la lista (no aparecían ni se podían asignar por lote).
-  const necesitaInspector = (m: Mach) => m.active !== false;
+  // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
+  // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
+  // no auto-asignarle horas a algo que no está trabajando. CONFIRMADO por el cliente
+  // (04/08/2026): una máquina averiada (operational=false) o en espera de recepción
+  // (en_espera) NO debe pedir inspector — no está trabajando ahora mismo. (Nota: hubo
+  // un cambio de otra sesión que revirtió esto a "TODA máquina sin inspector"; el
+  // cliente confirmó de nuevo que se queda así, excluyendo averiadas/en espera.)
+  const necesitaInspector = (m: Mach) => m.active !== false && m.operational !== false && !m.en_espera;
   const esVirtual = (id?: string | null) => id === PLACEHOLDER_INSPECTOR_ID;
-  // 🕓 PENDIENTES POR ASIGNAR: máquinas a las que les falta inspector en DÍA y/o NOCHE
-  // (quedaron sin dueño, p. ej. al borrar un inspector). Se listan TODAS las que existen
-  // (no eliminadas), sin importar si están operativas, averiadas o en espera.
+  // 🕓 PENDIENTES POR ASIGNAR: máquinas EN SERVICIO a las que les falta inspector en
+  // DÍA y/o NOCHE (quedaron sin dueño, p. ej. al borrar un inspector). Las inactivas,
+  // averiadas (operational=false) o en espera de recepción NO cuentan aquí — no están
+  // trabajando, así que no necesitan un inspector asignado ahora mismo.
   //
   // pendMode: 'sin_nadie' = la fila NO tiene NINGÚN inspector (ni humano ni el usuario
   // de sistema MAQUINAS FALTANTES) — el caso estricto de siempre. 'sin_real' (default)
