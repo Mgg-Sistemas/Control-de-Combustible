@@ -1344,6 +1344,33 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
     `select cron.unschedule('assign-missing-to-placeholder');` y
     `select cron.unschedule('auto-full-shift-placeholder');`.
 
+### Bolqueta/toronto sin asignar: jornada 12x12 (04/08/2026)
+
+Pedido del cliente: las bolqueta/toronto (camiones) que quedan **sin inspector asignado** (y por
+tanto caen automáticamente en el usuario virtual **MAQUINAS FALTANTES**) deben trabajar **12x12**
+(12h día + 12h noche = 24h), no las 18h (12h día + 6h noche) que traían por defecto. Las bolqueta/
+toronto que **sí tienen un supervisor real** asignado deben trabajar con total normalidad — horas
+reales, mismo flujo de "Iniciar/Finalizar jornada" que cualquier otra máquina, sin el trato especial
+que tenían antes (antes se les forzaba a cerrar a la 1:00am con horas fijas 12/6 sin importar quién
+las manejara). Solo el usuario "máquinas sin asignar" se ve afectado por este cambio.
+
+- **🔴 SQL pendiente — correr en este orden en Supabase → SQL Editor:**
+  1. `supabase/backup_antes_12x12_camiones.sql` — respaldo de las jornadas/segmentos de camiones
+     antes del cambio (por si hay que comparar o revertir).
+  2. `supabase/cap_truck_hours.sql` — actualizado: el tope de horas (antes 12 día / 6 noche fijo
+     para TODO camión) ahora solo aplica mientras el turno siga en manos de MAQUINAS FALTANTES, y
+     el tope de noche sube a 12 (antes 6). Si el turno es de un supervisor real, ya no hay tope.
+  3. `supabase/auto_close_jornadas.sql` — actualizado: se quitó el cierre especial a la 1:00am con
+     horas fijas para camiones. Ahora un camión con supervisor real cierra igual que cualquier
+     máquina (7pm día / 7am noche, horas reales).
+  4. `supabase/maquinas_faltantes.sql` — actualizado: `auto_full_shift_placeholder()` ahora genera
+     12h+12h (24h) para bolqueta/toronto sin inspector, y sigue en 12h+6h (18h) para el resto de
+     maquinaria sin inspector. Al final del script corre una asignación inmediata (no hay que
+     esperar los 15 min del cron) para poner al día cualquier máquina que hoy no tenga inspector.
+  - No se tocan datos históricos — el cambio solo afecta jornadas nuevas hacia adelante.
+  - Impacta horómetro, alertas de mantenimiento y nómina de las bolqueta/toronto sin asignar (pasan
+    de acumular 18h/día a 24h/día) — vale la pena revisar los próximos días.
+
 ### Cierre final de UI/UX: modo oscuro, skeletons y estados (04/08/2026)
 
 - **Sin SQL pendiente** — Se auditaron sistemáticamente los ~45 archivos con color fijo del

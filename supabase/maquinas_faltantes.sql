@@ -1,6 +1,6 @@
 -- ============================================================================
 -- MÁQUINAS SIN INSPECTOR → auto-asignación al usuario virtual "MAQUINAS FALTANTES"
--- + jornada automática de 18h (12 día / 6 noche) MIENTRAS siga sin inspector humano.
+-- + jornada automática MIENTRAS siga sin inspector humano.
 -- ----------------------------------------------------------------------------
 -- SUSTITUYE a supabase/auto_full_shift_no_asignada.sql (ese archivo quedó SIN
 -- ACTIVAR porque la definición de negocio de "no asignada" estaba pendiente de
@@ -10,6 +10,14 @@
 --    Deben acumular automáticamente 18 horas de trabajo diarias (12h día / 6h
 --    noche) A MENOS QUE un inspector o supervisor cambie manualmente su estado
 --    a otro diferente."
+--
+-- ACTUALIZADO 2026-08-04: la bolqueta/toronto (camión) sin inspector ya NO
+-- acumula 18h (12/6) sino **12x12 = 24h** (12h día + 12h noche). El resto de
+-- la maquinaria (buses, otros equipos) sin inspector sigue en 12h día / 6h
+-- noche como antes. El tope correspondiente vive en cap_truck_hours.sql
+-- (ahora topa night_hours en 12, no en 6, SOLO mientras el turno sea del
+-- virtual). Las bolqueta/toronto asignadas a un supervisor REAL no se tocan
+-- aquí — siguen su flujo normal (ver auto_close_jornadas.sql).
 --
 -- Cómo funciona (dos funciones + dos cron jobs):
 --   1) assign_missing_to_placeholder() — cada 15 min, por CADA turno (día/noche)
@@ -21,16 +29,18 @@
 --      momento — en cuanto lo hace, ese turno deja de pertenecerle al virtual y
 --      este cron ya NO vuelve a tocarlo (deja de cumplir el "not exists").
 --   2) auto_full_shift_placeholder() — 1 vez al día (00:15 Caracas), genera para
---      "ayer" las horas fijas (12h si el turno DÍA es del virtual, 6h si el turno
---      NOCHE es del virtual) en machine_rounds + su segmento espejo en
---      machine_work_segments (source='auto_full_shift'), igual patrón que el
---      auto-cierre de jornadas ya activo (auto_close_jornadas.sql).
+--      "ayer" las horas fijas del turno(s) que sigan en manos del virtual:
+--      bolqueta/toronto -> 12h día y/o 12h noche (24h si le tocan los dos);
+--      cualquier otra máquina -> 12h día y/o 6h noche (18h si le tocan los dos);
+--      en machine_rounds + su segmento espejo en machine_work_segments
+--      (source='auto_full_shift'), igual patrón que el auto-cierre de jornadas
+--      ya activo (auto_close_jornadas.sql).
 --
 -- ⚠️ IMPACTA horómetro, alertas de mantenimiento (horometroAlertas) y NÓMINA
 -- (price_per_hour × horas). Nunca pisa un round_date que YA tenga datos (mismo
 -- blindaje que el script original: `on conflict (machinery_id, round_date,
 -- round_no) do nothing`). Antes de confiar del todo en producción, corre una
--- vez a mano y revisa:
+-- vez a mano y revisa (respalda antes con supabase/backup_antes_12x12_camiones.sql):
 --     select public.assign_missing_to_placeholder();
 --     select public.auto_full_shift_placeholder();
 --     select * from public.machine_rounds where round_date = current_date - 1;
@@ -102,8 +112,9 @@ begin
 end $$;
 
 -- 4) Función: genera la jornada de "ayer" (hora Caracas) para cada máquina que
---    tenga uno o ambos turnos en manos del virtual — 12h si es el turno día,
---    6h si es el turno noche (ambos → 18h, igual que un camión de día).
+--    tenga uno o ambos turnos en manos del virtual. Bolqueta/toronto (camión):
+--    12h si es el turno día, 12h si es el turno noche (ambos → 24h, 12x12).
+--    Cualquier otra máquina: 12h día / 6h noche (ambos → 18h), como antes.
 create or replace function public.auto_full_shift_placeholder() returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -112,15 +123,17 @@ declare
   ph_id uuid := '00000000-0000-0000-0000-00000000fa1a';
   day_owned boolean;
   night_owned boolean;
+  es_camion boolean;
   v_day numeric;
   v_night numeric;
+  night_len interval;
   day_start timestamptz; day_end timestamptz; night_start timestamptz; night_end timestamptz;
   ins_ok boolean;
 begin
   ayer := ((now() at time zone 'America/Caracas')::date) - 1;
 
   for r in
-    select distinct mch.id as machinery_id
+    select distinct mch.id as machinery_id, mch.code
     from public.machinery mch
     join public.machine_inspectors mi on mi.machinery_id = mch.id and mi.inspector_id = ph_id
     where mch.active = true and mch.operational = true and mch.en_espera = false
@@ -131,13 +144,15 @@ begin
       continue; -- por si acaso: ya no le pertenece a ninguno de los dos turnos
     end if;
 
+    es_camion := lower(coalesce(r.code, '')) ~ 'volqueta|toronto';
+    night_len := case when es_camion then interval '12 hours' else interval '6 hours' end;
     v_day   := case when day_owned then 12 else 0 end;
-    v_night := case when night_owned then 6 else 0 end;
+    v_night := case when night_owned then (case when es_camion then 12 else 6 end) else 0 end;
 
     day_start   := (ayer + time '07:00') at time zone 'America/Caracas';
     day_end     := (ayer + time '19:00') at time zone 'America/Caracas';
     night_start := day_end;
-    night_end   := night_start + interval '6 hours';
+    night_end   := night_start + night_len;
 
     ins_ok := false;
     insert into public.machine_rounds (machinery_id, round_date, round_no, day_hours, night_hours)
@@ -155,7 +170,7 @@ begin
       end if;
       if night_owned then
         insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
-          values (r.machinery_id, ayer, 'night', night_start, night_end, 6, 'auto_full_shift',
+          values (r.machinery_id, ayer, 'night', night_start, night_end, v_night, 'auto_full_shift',
                   'Generado automáticamente: máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
       end if;
     end if;
@@ -174,3 +189,7 @@ select cron.schedule('assign-missing-to-placeholder', '*/15 * * * *', $$select p
 
 do $$ begin perform cron.unschedule('auto-full-shift-placeholder'); exception when others then null; end $$;
 select cron.schedule('auto-full-shift-placeholder', '15 4 * * *', $$select public.auto_full_shift_placeholder();$$);
+
+-- 7) Corrida inmediata: asigna YA (sin esperar el próximo tick del cron de 15
+--    min) cualquier máquina que hoy no tenga inspector en algún turno.
+select public.assign_missing_to_placeholder();
