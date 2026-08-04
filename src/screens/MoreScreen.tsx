@@ -84,8 +84,8 @@ export default function MoreScreen({ navigation }: any) {
       {/* Encabezado de sección del menú (tipo sidebar). */}
       <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: spacing.xs }}>MENÚ</Text>
 
-      {/* Menú (sidebar): una fila por módulo con ícono + nombre + chevron, en orden
-          alfabético. Combustible va destacado (acento ámbar) por ser el eje del sistema. */}
+      {/* Menú (barra lateral fija): una fila por módulo con ícono + nombre + chevron,
+          en orden alfabético. Combustible va destacado (acento ámbar). */}
       <View style={{ gap: 3 }}>
         {menu.map((m) => {
           const feat = m.route === 'Combustible';

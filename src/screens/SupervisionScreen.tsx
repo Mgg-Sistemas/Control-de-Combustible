@@ -845,31 +845,25 @@ export default function SupervisionScreen({ navigation }: any) {
             <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
-        {/* Máquinas averiadas (total del día). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Máquinas averiadas', maquinasAveriadas, maquinasAveriadas > 0 ? colors.warning : colors.success, () => { setKpiQuery(''); setKpiShift(null); setKpiModal('averiadas'); })}
-        </View>
-        {/* Resumen por TURNO: ☀️ Día y 🌙 Noche (iniciadas · terminadas · pendientes por finalizar). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {resumenCard('☀️ Resumen DÍA', dayS, 'day')}
-          {resumenCard('🌙 Resumen NOCHE', nightS, 'night')}
-        </View>
+        {/* (El resumen de averiadas y el resumen Día/Noche ahora viven en el dashboard
+            "RESUMEN DE INSPECCIONES" de arriba — se quitaron de aquí para no duplicar). */}
         {/* 📄 Reporte de estado del día (4 secciones): iniciadas · pendientes · averiadas · finalizadas. */}
         <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
           <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📄 Reporte de estado (iniciadas · pendientes · averiadas · finalizadas)</Text>
         </TouchableOpacity>
-        {/* 📚 Histórico de jornadas FINALIZADAS por inspector (rango de fechas + PDF). */}
-        <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector (jornadas finalizadas)</Text>
-        </TouchableOpacity>
-        {/* 📱 Vista de inspector (teléfono) en la PC — SOLO ADMIN. */}
-        {isAdmin ? (
-          <>
-            <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector (como en el teléfono)</Text>
+        {/* 📚 Histórico + 📱 Vista de inspector: DOS botones a media pantalla (fila). */}
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+          <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector</Text>
+          </TouchableOpacity>
+          {isAdmin ? (
+            <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector</Text>
             </TouchableOpacity>
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
-          </>
+          ) : null}
+        </View>
+        {isAdmin ? (
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
         ) : null}
       </Card>
 
