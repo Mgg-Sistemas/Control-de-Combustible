@@ -302,3 +302,94 @@ export function exportPersonaHistoricoXlsx(
   XLSX.utils.book_append_sheet(wb, ws, 'Historial de pagos');
   return downloadWorkbook(wb, `Historial de pagos - ${nombre}`);
 }
+
+// ── Excel de un LOTE de personas seleccionadas ("Pago a Personal → Por persona") ──
+
+export type PersonasSeleccionadasXlsxRow = {
+  nombre: string;
+  cedula: string;
+  cargo: string;
+  total: number; // US$ — total pagado histórico de la persona
+};
+
+const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Total pagado (US$)', 'Total pagado (Bs)'] as const;
+const SEL_META_ROW = 0;
+const SEL_TASA_ROW = 1;
+const SEL_HEADER_ROW = 3;
+const SEL_FIRST_DATA_ROW = 4;
+
+/**
+ * Genera y descarga el listado de personas SELECCIONADAS en la vista "Por persona",
+ * con su total pagado histórico, siguiendo el mismo patrón de tasa BCV editable +
+ * fórmula en Bs que el resto de los Excel de este archivo.
+ */
+export function exportPersonasSeleccionadasXlsx(
+  rows: PersonasSeleccionadasXlsxRow[],
+  bcvRate: number | null,
+): boolean {
+  const wb = XLSX.utils.book_new();
+  const nCols = SEL_COLS.length;
+  const blankRow = (n: number) => new Array(n).fill('');
+
+  const aoa: any[][] = [];
+  aoa[SEL_META_ROW] = ['Personas seleccionadas:', `${rows.length} persona(s)`, ...blankRow(nCols - 2)];
+  aoa[SEL_TASA_ROW] = ['Tasa BCV del día (Bs/US$):', bcvRate ?? 0, ...blankRow(nCols - 2)];
+  aoa[2] = blankRow(nCols);
+  aoa[SEL_HEADER_ROW] = [...SEL_COLS];
+  rows.forEach((r, i) => {
+    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.total || 0, 0];
+  });
+  const totalRow = SEL_FIRST_DATA_ROW + rows.length;
+  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', 0, 0];
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  for (let c = 0; c < nCols; c++) {
+    const ref = XLSX.utils.encode_cell({ r: SEL_HEADER_ROW, c });
+    const cell = (ws as any)[ref];
+    if (cell) (cell as any).s = HEADER_STYLE;
+  }
+  const metaLabelRef = XLSX.utils.encode_cell({ r: SEL_META_ROW, c: 0 });
+  if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
+  const labelRef = XLSX.utils.encode_cell({ r: SEL_TASA_ROW, c: 0 });
+  const rateRef = XLSX.utils.encode_cell({ r: SEL_TASA_ROW, c: 1 });
+  if ((ws as any)[labelRef]) (ws as any)[labelRef].s = TASA_LABEL_STYLE;
+  if ((ws as any)[rateRef]) { (ws as any)[rateRef].s = TASA_VALUE_STYLE; (ws as any)[rateRef].z = MONEY_FMT; }
+
+  // Total US$ (col 3) + fórmula en Bs (col 4) referenciando la tasa en $B$2.
+  rows.forEach((_r, i) => {
+    const row = SEL_FIRST_DATA_ROW + i;
+    const usdRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+    const usdCell = (ws as any)[usdRef];
+    if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
+    const bsRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+    (ws as any)[bsRef] = { t: 'n', z: MONEY_FMT, f: `D${row + 1}*$B$${SEL_TASA_ROW + 1}` };
+  });
+
+  // Fila TOTAL: suma de US$ y Bs.
+  if (rows.length) {
+    const firstExcelRow = SEL_FIRST_DATA_ROW + 1;
+    const lastExcelRow = SEL_FIRST_DATA_ROW + rows.length;
+    [3, 4].forEach((c) => {
+      const colLetter = XLSX.utils.encode_col(c);
+      const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+      (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
+    });
+  }
+  for (let c = 0; c < nCols; c++) {
+    const ref = XLSX.utils.encode_cell({ r: totalRow, c });
+    const cell = (ws as any)[ref];
+    if (cell) (cell as any).s = { ...(cell as any).s, ...TOTAL_STYLE };
+    else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
+  }
+
+  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 15 }, { wch: 15 }];
+  ws['!rows'] = [{ hpt: 20 }, { hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
+  ws['!merges'] = [
+    { s: { r: SEL_META_ROW, c: 1 }, e: { r: SEL_META_ROW, c: nCols - 1 } },
+    { s: { r: SEL_TASA_ROW, c: 2 }, e: { r: SEL_TASA_ROW, c: nCols - 1 } },
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Personas seleccionadas');
+  return downloadWorkbook(wb, `Personas seleccionadas - ${rows.length}`);
+}

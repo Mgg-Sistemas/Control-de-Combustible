@@ -17,10 +17,12 @@ import { Employee, Attendance } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
-type Emp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url'>;
+type Emp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url' | 'status'>;
 type Mark = Attendance & { emp?: Emp };
-const EMP_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url';
+const EMP_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url, status';
 const fullName = (e?: Emp | null) => e ? `${e.first_name} ${e.last_name}`.trim() : '';
+// Mismo mapa de colores usado en EmpleadosScreen/AliadosScreen para el estatus del empleado.
+const STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -325,6 +327,7 @@ export default function AsistenciaScreen() {
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{fullName(emp)}</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>{[emp.cargo, companyName(emp.company_id)].filter(Boolean).join(' · ')}</Text>
               {emp.cedula ? <Text style={{ color: colors.muted, fontSize: 12 }}>C.I. {emp.cedula}</Text> : null}
+              {emp.status ? <Text style={{ color: STATUS_COLOR[emp.status] ?? colors.muted, fontWeight: '700', fontSize: 11, marginTop: 2 }}>● {emp.status}</Text> : null}
             </View>
             <TouchableOpacity onPress={() => { setEmp(null); setToday([]); }} style={{ padding: spacing.xs }}>
               <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>

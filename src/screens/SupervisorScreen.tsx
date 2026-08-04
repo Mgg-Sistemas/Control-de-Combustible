@@ -61,6 +61,9 @@ const STATUS_OPTS: { key: VisitStatus; label: string; icon: string; color: strin
   { key: 'no_esta', label: 'No está', icon: '🔴', color: '#D22B2B' },
 ];
 const statusLabel = (s: VisitStatus) => STATUS_OPTS.find((o) => o.key === s)?.label ?? s;
+// Mismo mapa de colores usado en EmpleadosScreen/AliadosScreen para el estatus del empleado
+// (activo/inactivo/suspendido), reutilizado aquí en la ficha de asistencia.
+const EMP_STATUS_COLOR: Record<string, string> = { activo: '#16A34A', inactivo: '#DC2626', suspendido: '#F59E0B' };
 
 // Materiales de la avería de maquinaria (igual que la vista del operador). Cae en
 // el módulo de Mantenimiento de Maquinaria (tabla maintenance_requests).
@@ -121,14 +124,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // cuando entró por el QR de una máquina (donde no se inyecta onSistema), y ningún
   // otro rol puede asignar nunca. onSistema queda solo para el botón "SISTEMA".
   const isAdmin = role === 'admin'; // puede ver todas las máquinas y asignarlas
-  // ADMIN EN EL TELÉFONO: arranca viendo TODAS las máquinas (con buscador), no la
-  // lista vacía "Mis máquinas". Se activa UNA sola vez al detectarse el admin (el
-  // rol puede llegar async); luego el admin puede tocar "Solo las mías" sin que se
-  // vuelva a forzar.
+  // COORDINAR INSPECTORES (CHECK máquina, pendientes por asignar, asignar/reasignar
+  // inspector, ver "Todas las máquinas"): el admin SIEMPRE puede (isAdmin va en el OR,
+  // no se le quita nada) y, ADEMÁS, cualquiera con el módulo 'coordinador_inspectores'
+  // (permiso nuevo, por defecto 'none') también puede. Es ADITIVO: no toca ninguna otra
+  // acción del inspector normal (marcar máquina parada, iniciar/finalizar jornada, etc.).
+  const puedeCoordinar = isAdmin || canSee('coordinador_inspectores');
+  // ADMIN/COORDINADOR EN EL TELÉFONO: arranca viendo TODAS las máquinas (con buscador),
+  // no la lista vacía "Mis máquinas". Se activa UNA sola vez al detectarse el permiso
+  // (puede llegar async); luego puede tocar "Solo las mías" sin que se vuelva a forzar.
   const showAllInit = useRef(false);
   useEffect(() => {
-    if (isAdmin && !showAllInit.current) { showAllInit.current = true; setShowAll(true); }
-  }, [isAdmin]);
+    if (puedeCoordinar && !showAllInit.current) { showAllInit.current = true; setShowAll(true); }
+  }, [puedeCoordinar]);
   // SOLO ADMIN: asigna máquinas a un INSPECTOR (no a sí mismo). Lista de inspectores
   // y el inspector elegido en el modal del CHECK.
   const [inspectors, setInspectors] = useState<{ id: string; name: string; role: string | null }[]>([]);
@@ -138,9 +146,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // algún turno (p. ej. al borrar un inspector, sus máquinas caen aquí). Buscable.
   const [pendOpen, setPendOpen] = useState(false);
   const [pendQuery, setPendQuery] = useState('');
+  // CHECK · "Pendientes por asignar" → asignación POR LOTES: máquinas marcadas con
+  // checkbox + selector de inspector/turno que las asigna todas de una vez (llama a
+  // assignInspector en bucle, una vez por máquina seleccionada).
+  const [pendSelected, setPendSelected] = useState<Set<string>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchShift, setBatchShift] = useState<Shift>('day');
+  const [batchQuery, setBatchQuery] = useState('');
+  const [batchBusy, setBatchBusy] = useState(false);
   // Asignar/reasignar inspector DESDE una máquina (lista "Todas las máquinas", solo
-  // admin). No hay que elegir inspector primero: se abre la máquina y se le pone el
-  // inspector de día/noche. Sincroniza en vivo (machine_inspectors + realtime).
+  // admin/coordinador). No hay que elegir inspector primero: se abre la máquina y se le
+  // pone el inspector de día/noche. Sincroniza en vivo (machine_inspectors + realtime).
   const [assignFor, setAssignFor] = useState<Mach | null>(null);
   const [pickShift, setPickShift] = useState<Shift | null>(null); // turno que se está eligiendo
   const [assignForQuery, setAssignForQuery] = useState('');
@@ -156,8 +172,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // ── ASISTENCIA DEL PERSONAL (solo usuarios con permiso 'asistencia') ────────
   // Modal en esta misma pantalla: escanea el carnet o busca al empleado, y marca
   // ENTRADA/SALIDA inteligente (según su última marca de hoy). No hay reporte aquí.
-  type AsisEmp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url'>;
-  const ASIS_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url';
+  type AsisEmp = Pick<Employee, 'id' | 'first_name' | 'last_name' | 'cedula' | 'cargo' | 'company_id' | 'photo_url' | 'status'>;
+  const ASIS_COLS = 'id, first_name, last_name, cedula, cargo, company_id, photo_url, status';
   const asisFullName = (e?: AsisEmp | null) => (e ? `${e.first_name} ${e.last_name}`.trim() : '');
   const [asisOpen, setAsisOpen] = useState(false);
   const [asisScan, setAsisScan] = useState(false);
@@ -302,10 +318,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     await reloadAssigns();
     setVisits(await myVisitsToday(uid, today));
     await reloadEstados();
-    // Solo el ADMIN necesita la lista de inspectores para asignarles máquinas.
-    // Solo se ofrecen usuarios con rol INSPECTOR (interno 'supervisor') o
-    // COORDINADOR DE PATIO ('coordinador_patio'); nadie más se puede asignar.
-    if (isAdmin) {
+    // Solo quien puede COORDINAR (admin o permiso 'coordinador_inspectores') necesita
+    // la lista de inspectores para asignarles máquinas. Solo se ofrecen usuarios con
+    // rol INSPECTOR (interno 'supervisor') o COORDINADOR DE PATIO ('coordinador_patio');
+    // nadie más se puede asignar.
+    if (puedeCoordinar) {
       const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
       setInspectors(((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim()).map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
     }
@@ -356,7 +373,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setMineIds(new Set(Object.entries(map).filter(([, s]) => s.day?.id === uid || s.night?.id === uid).map(([mid]) => mid)));
     if (missing) setNotice('⚠️ Para asignar máquinas (CHECK) falta correr supabase/inspector_asignacion.sql en Supabase.');
   };
-  useEffect(() => { load(); }, [uid, role]);
+  // puedeCoordinar entra en las dependencias porque el permiso 'coordinador_inspectores'
+  // puede llegar async (después de montar): cuando pasa a true hay que recargar la
+  // lista de inspectores (antes solo dependía de [uid, role], que el admin ya cubría).
+  useEffect(() => { load(); }, [uid, role, puedeCoordinar]);
   // Sincroniza en vivo: si se asignan/quitan máquinas (aquí o en otro dispositivo),
   // refresca "Mis máquinas" y el mapa de turnos al instante.
   useRealtimeRefresh(['machine_inspectors'], () => { reloadAssigns(); });
@@ -531,6 +551,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       ? `✅ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} → ${insp.name}.`
       : `➖ ${m.code} · ${shiftIcon(shift)} ${shiftLabel(shift)} quitado.`);
     setPickShift(null);
+  };
+
+  // ── ASIGNACIÓN POR LOTES ("Pendientes por asignar" + checkboxes): asigna el
+  //    inspector/turno elegido a TODAS las máquinas marcadas, llamando a
+  //    assignInspector (misma función del flujo individual) en bucle. Muestra un
+  //    resumen (OK/fallidas) al terminar. Reutiliza assignBusy=null como estado libre.
+  const assignBatch = async (insp: { id: string; name: string }) => {
+    if (batchBusy || pendSelected.size === 0) return;
+    setBatchBusy(true); setNotice(null);
+    const ids = Array.from(pendSelected);
+    let ok = 0, fail = 0;
+    for (const mid of ids) {
+      const m = machines.find((x) => x.id === mid);
+      const res = await assignInspector(mid, insp.id, insp.name, batchShift);
+      if (res.error) { fail++; }
+      else { ok++; if (m) logAudit('CHECK', 'machinery', mid, `${m.code} · ${shiftLabel(batchShift)} → ${insp.name} (lote)`); }
+    }
+    setBatchBusy(false);
+    await reloadAssigns();
+    setPendSelected(new Set());
+    setBatchOpen(false);
+    setNotice(`✅ Asignación por lotes: ${ok} máquina(s) OK${fail > 0 ? ` · ⚠️ ${fail} fallaron` : ''} · ${shiftIcon(batchShift)} ${shiftLabel(batchShift)} → ${insp.name}.`);
   };
 
   const openCheckin = (m: Mach) => {
@@ -1073,8 +1115,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           )}
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
-        {/* Referencia / edificio de la máquina */}
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>📍 {edif || 'Sin edificio/referencia'}{((m as any).plate || (m as any).serial) ? ` · 🔖 ${(m as any).plate || (m as any).serial}` : ''}</Text>
+        {/* Referencia / edificio de la máquina + serial y placa (ambos, no solo uno). */}
+        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+          📍 {edif || 'Sin edificio/referencia'}
+          {(m as any).serial ? ` · Serial: ${(m as any).serial}` : ''}
+          {(m as any).plate ? ` · Placa: ${(m as any).plate}` : ''}
+        </Text>
         {/* Estado de la jornada (con su color) */}
         {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivos[m.id] ? ` · ${paradaMotivos[m.id]}` : ''}</Text> : null}
         {/* Inspectores asignados (día / noche) */}
@@ -1083,8 +1129,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           const parts = [s.day ? `☀️ ${s.day.name}` : null, s.night ? `🌙 ${s.night.name}` : null].filter(Boolean).join('  ·  ');
           return parts ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{parts}</Text> : null;
         })()}
-        {/* SOLO ADMIN: asignar/reasignar el inspector de esta máquina (día/noche). */}
-        {isAdmin ? (
+        {/* Admin o coordinador de inspectores: asignar/reasignar el inspector de esta máquina (día/noche). */}
+        {puedeCoordinar ? (
           <TouchableOpacity
             onPress={() => { setAssignFor(m); setPickShift(null); setAssignForQuery(''); }}
             style={{ alignSelf: 'flex-start', marginTop: spacing.xs, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}
@@ -1156,11 +1202,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <Text style={{ color: '#0EA5E9', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>MARCAR ASISTENCIA DEL PERSONAL</Text>
           </TouchableOpacity>
         ) : null}
-        {/* CHECK MÁQUINA (SOLO ADMIN): asignar máquinas a los inspectores. */}
-        {isAdmin ? (
+        {/* CHECK MÁQUINA (admin o coordinador de inspectores): asignar máquinas a los inspectores. */}
+        {puedeCoordinar ? (
           <>
             <TouchableOpacity
-              onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setCheckOpen(true); }}
+              onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); }}
               activeOpacity={0.85}
               style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
             >
@@ -1168,7 +1214,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
             </TouchableOpacity>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-              Asigna las máquinas a cada inspector (día / noche). Solo el administrador puede asignar.
+              Asigna las máquinas a cada inspector (día / noche). Solo el administrador o el coordinador de inspectores puede asignar.
             </Text>
           </>
         ) : (
@@ -1196,8 +1242,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {isAdmin && showAll ? (
-        // ADMIN: ver TODAS las máquinas (para pruebas). El inspector normal no ve esto.
+      {puedeCoordinar && showAll ? (
+        // Admin o coordinador de inspectores: ver TODAS las máquinas. El inspector normal no ve esto.
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <SectionTitle>Todas las máquinas</SectionTitle>
@@ -1213,7 +1259,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <SectionTitle>Mis máquinas asignadas</SectionTitle>
-            {isAdmin ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
+            {puedeCoordinar ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
           </View>
           {mine.length > 0 ? (
             <>
@@ -1263,34 +1309,86 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             </TouchableOpacity>
           </View>
 
-          {!checkInspector && pendOpen ? (
+          {!checkInspector && pendOpen && batchOpen ? (
+            // ── ASIGNACIÓN POR LOTES: elegir a qué inspector/turno van las N máquinas
+            //    marcadas con checkbox en "Pendientes por asignar". ──────────────────
+            <>
+              <TouchableOpacity onPress={() => setBatchOpen(false)} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Volver a la lista</Text>
+              </TouchableOpacity>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>📋 Asignar {pendSelected.size} máquina(s) por lotes</Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige el turno y luego el inspector — se les asigna a TODAS las seleccionadas de una vez.</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+                {(['day', 'night'] as Shift[]).map((s) => (
+                  <TouchableOpacity key={s} onPress={() => setBatchShift(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: batchShift === s ? colors.primary : colors.border, backgroundColor: batchShift === s ? colors.primary : colors.surface }}>
+                    <Text style={{ color: batchShift === s ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{shiftIcon(s)} {shiftLabel(s)}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput value={batchQuery} onChangeText={setBatchQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+              <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
+                {inspectors.filter((p) => !batchQuery.trim() || norm(p.name).includes(norm(batchQuery.trim()))).map((p) => (
+                  <TouchableOpacity key={p.id} disabled={batchBusy} onPress={() => assignBatch({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs, opacity: batchBusy ? 0.6 : 1 }}>
+                    <Text style={{ fontSize: 20 }}>👮</Text>
+                    <Text style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
+                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>›</Text>
+                  </TouchableOpacity>
+                ))}
+                {batchBusy ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.sm }}>Asignando…</Text> : null}
+                <View style={{ height: spacing.xl }} />
+              </ScrollView>
+            </>
+          ) : !checkInspector && pendOpen ? (
             // ── PENDIENTES POR ASIGNAR: máquinas sin inspector en día y/o noche ──
             <>
-              <TouchableOpacity onPress={() => { setPendOpen(false); setPendQuery(''); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+              <TouchableOpacity onPress={() => { setPendOpen(false); setPendQuery(''); setPendSelected(new Set()); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                 <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Volver a inspectores</Text>
               </TouchableOpacity>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15 }}>🕓 Pendientes por asignar <Text style={{ color: colors.warning }}>({pendientesCount})</Text></Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                Máquinas sin inspector en algún turno (p. ej. quedaron sin dueño al borrar un inspector). Toca <Text style={{ fontWeight: '800', color: colors.primary }}>👮 Asignar inspector</Text> para reasignarlas a cualquiera.
+                Máquinas sin inspector en algún turno (p. ej. quedaron sin dueño al borrar un inspector). Toca <Text style={{ fontWeight: '800', color: colors.primary }}>👮 Asignar inspector</Text> para reasignarlas de una en una, o marca varias con el check ☑ para asignarlas por lotes.
               </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+                <TouchableOpacity
+                  onPress={() => setPendSelected((prev) => (prev.size === pendientesList.length ? new Set() : new Set(pendientesList.map((m) => m.id))))}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}
+                >
+                  <Text style={{ fontSize: 14 }}>{pendSelected.size > 0 && pendSelected.size === pendientesList.length ? '☑' : '☐'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas</Text>
+                </TouchableOpacity>
+                {pendSelected.size > 0 ? (
+                  <TouchableOpacity onPress={() => setBatchOpen(true)} style={{ flex: 1, alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.pill, paddingVertical: 6 }}>
+                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📋 Asignar {pendSelected.size} seleccionada(s)…</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <TextInput value={pendQuery} onChangeText={setPendQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {pendientesList.slice(0, 200).map((m) => {
                   const f = faltaTurno(m);
                   const slots = assignMap[m.id] || {};
                   const edif = edificioDe(m);
+                  const checked = pendSelected.has(m.id);
                   return (
-                    <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
-                      <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {m.code}</Text>
-                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
-                      <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>📍 {edif || 'Sin edificio/referencia'}</Text>
-                      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: f.day ? colors.warning : colors.success }}>{f.day ? '☀️ falta día' : `☀️ ${slots.day?.name}`}</Text>
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: f.night ? colors.warning : colors.success }}>{f.night ? '🌙 falta noche' : `🌙 ${slots.night?.name}`}</Text>
-                      </View>
-                      <TouchableOpacity onPress={() => { setAssignFor(m); setPickShift(f.day ? 'day' : 'night'); setAssignForQuery(''); }} style={{ alignSelf: 'flex-start', borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>👮 Asignar inspector</Text>
+                    <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning, backgroundColor: colors.surface, marginBottom: spacing.xs, flexDirection: 'row', gap: spacing.sm }}>
+                      <TouchableOpacity
+                        onPress={() => setPendSelected((prev) => { const n = new Set(prev); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); return n; })}
+                        style={{ paddingTop: 2 }}
+                      >
+                        <Text style={{ fontSize: 18 }}>{checked ? '☑' : '☐'}</Text>
                       </TouchableOpacity>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>🕓 {m.code}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                        <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: f.day ? colors.warning : colors.success }}>{f.day ? '☀️ falta día' : `☀️ ${slots.day?.name}`}</Text>
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: f.night ? colors.warning : colors.success }}>{f.night ? '🌙 falta noche' : `🌙 ${slots.night?.name}`}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => { setAssignFor(m); setPickShift(f.day ? 'day' : 'night'); setAssignForQuery(''); }} style={{ alignSelf: 'flex-start', borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>👮 Asignar inspector</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   );
                 })}
@@ -1872,6 +1970,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{asisFullName(asisEmp)}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{asisEmp.cargo || 'Sin cargo'}</Text>
                     {asisEmp.cedula ? <Text style={{ color: colors.muted, fontSize: 12 }}>C.I. {asisEmp.cedula}</Text> : null}
+                    {asisEmp.status ? <Text style={{ color: EMP_STATUS_COLOR[asisEmp.status] ?? colors.muted, fontWeight: '700', fontSize: 11, marginTop: 2 }}>● {asisEmp.status}</Text> : null}
                   </View>
                   <TouchableOpacity onPress={() => { setAsisEmp(null); setAsisToday([]); }} style={{ padding: spacing.xs }}>
                     <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 16 }}>✕</Text>
