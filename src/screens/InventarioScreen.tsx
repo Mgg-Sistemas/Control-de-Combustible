@@ -16,7 +16,7 @@ import { pickAndUploadRequirementFile } from '../lib/photo';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
-import { requerimientoHtml, requerimientosBulkHtml } from '../lib/requerimiento';
+import { requerimientoHtml, requerimientosBulkHtml, requerimientosResumenHtml, ReqPdfData } from '../lib/requerimiento';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -1797,17 +1797,26 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             return norm(haystack).includes(nq);
           });
         const allSel = filteredReqs.length > 0 && filteredReqs.every((r) => reqSelIds.has(r.id));
+        const selectedOrFiltered = () => reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
+        const toReqPdfData = (r: (typeof filteredReqs)[number]): ReqPdfData => ({
+          code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
+          company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+          approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
+          items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
+        });
         const pdfMultiple = async () => {
-          const base = reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
+          const base = selectedOrFiltered();
           if (base.length === 0) return;
           try {
-            await exportPdf(requerimientosBulkHtml(base.map((r) => ({
-              code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
-              company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
-              approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
-              items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
-            }))), `Requerimientos ${dmyOf(new Date().toISOString())}`);
+            await exportPdf(requerimientosBulkHtml(base.map(toReqPdfData)), `Requerimientos ${dmyOf(new Date().toISOString())}`);
           } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
+        };
+        const pdfResumen = async () => {
+          const base = selectedOrFiltered();
+          if (base.length === 0) return;
+          try {
+            await exportPdf(requerimientosResumenHtml(base.map(toReqPdfData)), `Resumen requerimientos ${dmyOf(new Date().toISOString())}`);
+          } catch (e: any) { toast.error('No se pudo generar el resumen: ' + (e?.message ?? e)); }
         };
         return filteredReqs.length === 0 ? (
         <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
@@ -1823,9 +1832,14 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
               </View>
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              <TouchableOpacity onPress={pdfResumen} style={{ backgroundColor: colors.surfaceAlt ?? colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>📄 Resumen{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           {filteredReqs.map((r) => {
             const rSel = reqSelIds.has(r.id);
