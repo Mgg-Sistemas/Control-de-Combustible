@@ -262,10 +262,6 @@ export default function InspectionsSummary() {
           <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
             👷 POR INSPECTOR · {shortDate(selDay)} · {shiftIcon} {shiftLbl}
           </Text>
-          {/* Reporte OFICIAL de inspectores con FIRMA (día + turno, todos los inspectores). */}
-          <TouchableOpacity onPress={() => makeReport()} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', marginBottom: spacing.sm, opacity: pdfBusy !== null ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>{pdfBusy === '' ? 'Generando…' : `📄 Reporte de inspectores con firma · ${shiftIcon} ${shiftLbl}`}</Text>
-          </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
             <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
