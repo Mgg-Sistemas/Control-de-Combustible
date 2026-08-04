@@ -6,6 +6,7 @@ import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
+import { generateInspectorReport } from '../../lib/inspectorReport';
 
 /**
  * RESUMEN DE INSPECCIONES (rediseño) — dashboard analítico, autocontenido.
@@ -56,6 +57,18 @@ export default function InspectionsSummary() {
   const [selDay, setSelDay] = useState(caracasToday());
   const [inspQ, setInspQ] = useState('');
   const [selInsp, setSelInsp] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null); // '' = general, o el nombre del inspector
+
+  // Genera el REPORTE OFICIAL de inspectores (PDF con firma) para el día + turno.
+  // `inspector` opcional: solo ese inspector; si no, todos los del turno.
+  const makeReport = async (inspector?: string) => {
+    setPdfBusy(inspector ?? '');
+    try {
+      await generateInspectorReport({ date: selDay, shift, inspectors: inspector ? [inspector] : null });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
 
   // Últimos 14 días (antiguo → hoy).
   const days = useMemo(() => {
@@ -171,19 +184,6 @@ export default function InspectionsSummary() {
       <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700', textAlign: 'center' }} numberOfLines={1}>{label}</Text>
     </View>
   );
-  const Chips = ({ title, codes, color }: { title: string; codes: string[]; color: string }) => codes.length === 0 ? null : (
-    <View style={{ marginTop: spacing.xs }}>
-      <Text style={{ color, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>{title} ({codes.length})</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
-        {codes.map((c) => (
-          <View key={c} style={{ backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
-            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '600' }}>{c}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-
   return (
     <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', marginBottom: spacing.md }}>
       {/* Cabecera navy + switch de turno. */}
@@ -238,8 +238,12 @@ export default function InspectionsSummary() {
 
           {/* Barras VERTICALES por inspector (del turno). Tocar → detalle. */}
           <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-            👷 INICIADAS POR INSPECTOR · {shortDate(selDay)} · {shiftIcon} {shiftLbl}
+            👷 POR INSPECTOR · {shortDate(selDay)} · {shiftIcon} {shiftLbl}
           </Text>
+          {/* Reporte OFICIAL de inspectores con FIRMA (día + turno, todos los inspectores). */}
+          <TouchableOpacity onPress={() => makeReport()} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', marginBottom: spacing.sm, opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>{pdfBusy === '' ? 'Generando…' : `📄 Reporte de inspectores con firma · ${shiftIcon} ${shiftLbl}`}</Text>
+          </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
             <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
@@ -276,10 +280,10 @@ export default function InspectionsSummary() {
                 <MiniStat n={sel.par.length} label="Paradas" color={colors.accentSoftText} />
                 <MiniStat n={sel.ave.length} label="Averiadas" color={colors.dangerSoftText} />
               </View>
-              <Chips title="✅ Iniciadas" codes={sel.ini} color={colors.brandText} />
-              <Chips title="⏳ Pendientes por iniciar" codes={sel.pend} color={colors.muted} />
-              <Chips title="🟡 Paradas / no trabajó" codes={sel.par} color={colors.accentSoftText} />
-              <Chips title="🔴 Averiadas" codes={sel.ave} color={colors.dangerSoftText} />
+              {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
+              <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === sel.name ? 'Generando…' : `📄 Reporte de ${sel.name} (con firma)`}</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <Text style={{ color: colors.muted, fontSize: 11.5, textAlign: 'center', marginTop: spacing.xs }}>Toca la barra de un inspector para ver sus máquinas por estado.</Text>
