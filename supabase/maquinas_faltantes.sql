@@ -19,6 +19,11 @@
 -- virtual). Las bolqueta/toronto asignadas a un supervisor REAL no se tocan
 -- aquí — siguen su flujo normal (ver auto_close_jornadas.sql).
 --
+-- ACTUALIZADO 2026-08-04 (2): el turno DÍA ya no se carga "en silencio" horas
+-- después — supabase/auto_start_dia_maquinas_faltantes.sql lo arranca a las
+-- 7am (se ve "🟢 en curso" como un inspector real) y auto_close_jornadas() lo
+-- cierra solo a las 7pm. Corre ESE archivo DESPUÉS de este.
+--
 -- Cómo funciona (dos funciones + dos cron jobs):
 --   1) assign_missing_to_placeholder() — cada 15 min, por CADA turno (día/noche)
 --      de cada máquina operativa: si ese turno no tiene NINGÚN inspector (la fila
@@ -115,6 +120,12 @@ end $$;
 --    tenga uno o ambos turnos en manos del virtual. Bolqueta/toronto (camión):
 --    12h si es el turno día, 12h si es el turno noche (ambos → 24h, 12x12).
 --    Cualquier otra máquina: 12h día / 6h noche (ambos → 18h), como antes.
+--    ACTUALIZADO 2026-08-04 (ver supabase/auto_start_dia_maquinas_faltantes.sql):
+--    el turno DÍA ahora normalmente ya lo maneja auto_start_placeholder_day()
+--    (arranca jornada_start_at a las 7am, la cierra solo auto_close_jornadas()
+--    a las 7pm con horas reales) — esta función deja de asumir que la fila no
+--    existe: solo rellena day_hours/night_hours si esa columna concreta sigue
+--    en 0, como red de respaldo si algo no arrancó a tiempo.
 create or replace function public.auto_full_shift_placeholder() returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -128,7 +139,8 @@ declare
   v_night numeric;
   night_len interval;
   day_start timestamptz; day_end timestamptz; night_start timestamptz; night_end timestamptz;
-  ins_ok boolean;
+  had_day boolean;
+  had_night boolean;
 begin
   ayer := ((now() at time zone 'America/Caracas')::date) - 1;
 
@@ -154,25 +166,32 @@ begin
     night_start := day_end;
     night_end   := night_start + night_len;
 
-    ins_ok := false;
+    -- ¿Ya había algo cargado ese día (por el arranque a las 7am + cierre real,
+    -- por un inspector humano, o por una corrida anterior)? Si sí, no se toca.
+    select coalesce(day_hours, 0) > 0, coalesce(night_hours, 0) > 0
+      into had_day, had_night
+      from public.machine_rounds
+      where machinery_id = r.machinery_id and round_date = ayer and round_no = 1;
+    had_day := coalesce(had_day, false);
+    had_night := coalesce(had_night, false);
+
     insert into public.machine_rounds (machinery_id, round_date, round_no, day_hours, night_hours)
       values (r.machinery_id, ayer, 1, v_day, v_night)
-      on conflict (machinery_id, round_date, round_no) do nothing;
-    get diagnostics ins_ok = row_count;
+    on conflict (machinery_id, round_date, round_no) do update set
+      day_hours   = case when coalesce(public.machine_rounds.day_hours, 0)   = 0 and public.machine_rounds.jornada_start_at is null then excluded.day_hours   else public.machine_rounds.day_hours   end,
+      night_hours = case when coalesce(public.machine_rounds.night_hours, 0) = 0 and public.machine_rounds.jornada_start_at is null then excluded.night_hours else public.machine_rounds.night_hours end;
 
-    -- Solo si el insert realmente ocurrió (no había datos ya) se registran los
-    -- segmentos espejo de trazabilidad — igual blindaje que el script original.
-    if ins_ok then
-      if day_owned then
-        insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
-          values (r.machinery_id, ayer, 'day', day_start, day_end, 12, 'auto_full_shift',
-                  'Generado automáticamente: máquina sin inspector humano (turno día → MAQUINAS FALTANTES)');
-      end if;
-      if night_owned then
-        insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
-          values (r.machinery_id, ayer, 'night', night_start, night_end, v_night, 'auto_full_shift',
-                  'Generado automáticamente: máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
-      end if;
+    -- Solo se registra el segmento espejo de trazabilidad de lo que realmente
+    -- se rellenó en ESTA corrida (evita duplicar el de auto_close_jornadas()).
+    if day_owned and not had_day then
+      insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
+        values (r.machinery_id, ayer, 'day', day_start, day_end, 12, 'auto_full_shift',
+                'Generado automáticamente: máquina sin inspector humano (turno día → MAQUINAS FALTANTES)');
+    end if;
+    if night_owned and not had_night then
+      insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source, notes)
+        values (r.machinery_id, ayer, 'night', night_start, night_end, v_night, 'auto_full_shift',
+                'Generado automáticamente: máquina sin inspector humano (turno noche → MAQUINAS FALTANTES)');
     end if;
   end loop;
 end $$;

@@ -673,6 +673,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > SOLO en los días que no tuvieran ya un registro (nunca pisa datos de un inspector real). Guarda
 > respaldo previo en `backup_machine_rounds_20260804_backfill` / `backup_machine_work_segments_20260804_backfill`.
 >
+> **🟢 El turno DÍA de MAQUINAS FALTANTES ahora se ve "en curso" desde las 7am (04/08/2026):**
+> antes, las 12h del turno día aparecían en silencio horas después (recién a la madrugada
+> siguiente). Ahora `supabase/auto_start_dia_maquinas_faltantes.sql` arranca la jornada a las
+> **7:00am** (como si un inspector real hubiera tocado "Iniciar jornada") — la máquina se ve
+> **🟢 en curso** en el CHECK/Inspecciones durante el día, y el cron que ya cierra jornadas
+> (`auto_close_jornadas()`) la cierra solo a las 7:00pm con las 12h reales transcurridas. La
+> **noche** sigue cargándose de una vez (6h genérico / 12h camión), sin "vivirse" en tiempo real
+> — esto solo aplica al turno de la mañana, como se pidió. Nunca toca una máquina que ya tenga
+> una jornada abierta o ya tenga horas registradas ese día (de un inspector real o de este mismo
+> sistema).
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
