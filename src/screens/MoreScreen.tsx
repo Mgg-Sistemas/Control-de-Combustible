@@ -34,6 +34,16 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
 ];
 
+/** Rediseño: ícono del módulo dentro de una pastilla suave de marca (ámbar tenue). */
+function IconBadge({ icon }: { icon: string }) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.accentSoftBg, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ fontSize: 24 }}>{icon}</Text>
+    </View>
+  );
+}
+
 export default function MoreScreen({ navigation }: any) {
   const { signOut, session, configured, role, canSee, canAudit } = useAuth();
   const { colors, scheme, toggle } = useTheme();
@@ -72,7 +82,7 @@ export default function MoreScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.navigate('Combustible')}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ fontSize: 26 }}>⛽</Text>
+              <IconBadge icon="⛽" />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Combustible</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Tanques, ingresos, consumos y traslados — todo en un solo lugar</Text>
@@ -86,7 +96,7 @@ export default function MoreScreen({ navigation }: any) {
         <TouchableOpacity key={it.route} onPress={() => navigation.navigate(it.route)}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ fontSize: 26 }}>{it.icon}</Text>
+              <IconBadge icon={it.icon} />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{it.label}</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>{it.desc}</Text>
@@ -100,7 +110,7 @@ export default function MoreScreen({ navigation }: any) {
       <TouchableOpacity onPress={() => navigation.navigate('Manual')}>
         <Card>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-            <Text style={{ fontSize: 26 }}>📖</Text>
+            <IconBadge icon="📖" />
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Manual / Ayuda</Text>
               <Text style={{ color: colors.muted, fontSize: 13 }}>Guía paso a paso para usar el sistema, en lenguaje simple</Text>
@@ -113,7 +123,7 @@ export default function MoreScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.navigate('Users')}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ fontSize: 26 }}>👥</Text>
+              <IconBadge icon="👥" />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Usuarios</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Crear personas, ver conectados y asignar roles</Text>
@@ -127,7 +137,7 @@ export default function MoreScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.navigate('Audit')}>
           <Card>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <Text style={{ fontSize: 26 }}>🕵️</Text>
+              <IconBadge icon="🕵️" />
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Auditoría</Text>
                 <Text style={{ color: colors.muted, fontSize: 13 }}>Quién crea, modifica o elimina cada cosa</Text>
