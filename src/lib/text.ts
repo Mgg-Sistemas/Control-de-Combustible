@@ -32,6 +32,48 @@ export const cmpText = (a: any, b: any): number => {
 export const byText = <T>(sel: (x: T) => any) => (a: T, b: T): number =>
   cmpText(sel(a), sel(b));
 
+// ============================================================================
+// CORRECTOR ORTOGRÁFICO interno (es-VE) para el texto que escribe el usuario en
+// campos libres (referencia, sector, parroquia, encargado…). Solo corrige lo
+// que está en el diccionario/las frases; lo demás se deja EXACTAMENTE igual.
+// ============================================================================
+
+/** Frases mal escritas → corregidas. Se aplican ANTES que el diccionario de
+ *  palabras (capturan errores de varias palabras / contexto). */
+const TYPO_PHRASES: [RegExp, string][] = [
+  // "EL SU PATIO" → "EN SU PATIO"
+  [/\bel\s+su\b/gi, 'EN SU'],
+  // "SENTRO DE ACOPIIPIO" / "SENTRO SE ACOPIO" / "CENTRO DE ACOPIO" → "CENTRO DE ACOPIO"
+  [/\b[sc]entro\s+(?:de|del|se)\s+acopi\w*/gi, 'CENTRO DE ACOPIO'],
+];
+
+/** Palabras mal escritas → correcta (MAYÚSCULA). Clave = palabra normalizada
+ *  (minúscula, sin tildes). Solo se corrige la palabra EXACTA. */
+const TYPO_WORDS: Record<string, string> = {
+  sentro: 'CENTRO', sentros: 'CENTROS',
+  acopiipio: 'ACOPIO', acopipio: 'ACOPIO', acopio: 'ACOPIO',
+  edeficio: 'EDIFICIO', edeficios: 'EDIFICIOS', hedificio: 'EDIFICIO', edificiio: 'EDIFICIO',
+  frnte: 'FRENTE', frentte: 'FRENTE', frene: 'FRENTE',
+  galpon: 'GALPÓN', galpones: 'GALPONES',
+  deposito: 'DEPÓSITO', depocito: 'DEPÓSITO',
+  avenida: 'AVENIDA', avnida: 'AVENIDA',
+};
+
+/** Corrige la ortografía común del texto libre que escribe el usuario. Aplica
+ *  frases y luego palabra por palabra según el diccionario; lo no listado se
+ *  conserva igual. Colapsa espacios dobles. Pensado para engancharse al GUARDAR
+ *  (no altera serial/placa/código, eso lo decide quien lo llama). */
+export const corregirTexto = (input: any): string => {
+  let s = String(input ?? '');
+  if (!s.trim()) return s;
+  for (const [re, rep] of TYPO_PHRASES) s = s.replace(re, rep);
+  s = s.replace(/[A-Za-zÁÉÍÓÚÜáéíóúüÑñ]+/g, (w) => {
+    const fix = TYPO_WORDS[norm(w)];
+    return fix ?? w;
+  });
+  return s.replace(/[ \t]{2,}/g, ' ').trim();
+};
+
 /** Deja SOLO dígitos (para cédulas, teléfonos, fichas…). Quita letras y signos. */
 export const onlyDigits = (s: any): string => String(s ?? '').replace(/[^0-9]/g, '');
 

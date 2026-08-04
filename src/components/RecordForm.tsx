@@ -11,7 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { norm, cmpText, onlyDigits, onlyDecimal } from '../lib/text';
+import { norm, cmpText, onlyDigits, onlyDecimal, corregirTexto } from '../lib/text';
 import { caracasParts } from '../lib/jornada';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -191,7 +191,12 @@ export function RecordForm({
         if (isEdit) payload[f.key] = null;
         return;
       }
-      payload[f.key] = f.type === 'number' ? Number(raw) : raw;
+      // Corrección ortográfica interna del texto libre (referencia, sector,
+      // parroquia, encargado…). NO se toca serial/placa/código/identificador ni
+      // correos/URLs/cuentas (se dañarían); ahí se guarda tal cual.
+      const noFix = /serial|plate|placa|code|identif|mail|correo|url|http|account|cuenta|cedula|cédula/i.test(f.key);
+      const esTextoLibre = (f.type === 'text' || f.type === 'suggest') && !noFix;
+      payload[f.key] = f.type === 'number' ? Number(raw) : esTextoLibre ? corregirTexto(raw) : raw;
     });
 
     if (fixedValues) Object.assign(payload, fixedValues);
