@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, TextInput,
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius, AppColors } from '../../theme';
 import { useTable } from '../../hooks/useTable';
+import { norm } from '../../lib/text';
 import { RecordForm, Field } from '../RecordForm';
 
 /**
@@ -47,13 +48,37 @@ export function RRow({ label, value, mono = false }: { label: string; value: Rea
   );
 }
 
-/** Cifra grande (litros, monto…) en tabular-nums, como marca el rediseño. */
+/** Cifra grande (litros, monto…) en tabular-nums, como marca el rediseño.
+ *  tone 'brand' usa `brandText` (azul que ADAPTA por tema) — nunca el navy de fondo,
+ *  que sobre superficie oscura casi no se ve. */
 export function RAmount({ children, tone }: { children: React.ReactNode; tone?: 'brand' | 'text' }) {
   const { colors } = useTheme();
   return (
-    <Text style={{ color: tone === 'brand' ? colors.brand : colors.text, fontWeight: '900', fontSize: 17, fontVariant: ['tabular-nums'] as any }}>
+    <Text style={{ color: tone === 'brand' ? colors.brandText : colors.text, fontWeight: '900', fontSize: 17, fontVariant: ['tabular-nums'] as any }}>
       {children}
     </Text>
+  );
+}
+
+/** Gráfica de barras horizontales (sin librerías) para el rediseño. */
+export function RBarChart({ data, fmt, max }: { data: { label: string; value: number }[]; fmt?: (n: number) => string; max?: number }) {
+  const { colors } = useTheme();
+  const top = Math.max(1, max ?? Math.max(...data.map((d) => d.value), 0));
+  const format = fmt ?? ((n: number) => n.toLocaleString());
+  return (
+    <View style={{ gap: spacing.sm }}>
+      {data.map((d, i) => (
+        <View key={`${d.label}-${i}`}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+            <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 12.5, flex: 1, paddingRight: spacing.sm }}>{d.label}</Text>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, fontVariant: ['tabular-nums'] as any }}>{format(d.value)}</Text>
+          </View>
+          <View style={{ height: 11, backgroundColor: colors.tankTrack, borderRadius: radius.pill, overflow: 'hidden' }}>
+            <View style={{ height: 11, width: `${Math.max(2, (d.value / top) * 100)}%`, backgroundColor: colors.tankFill, borderRadius: radius.pill }} />
+          </View>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -140,8 +165,13 @@ type RListProps<T> = {
   renderItem: (item: T) => React.ReactNode;
   /** Texto del subtítulo del encabezado (recibe las filas visibles). */
   subtitle?: (shown: T[]) => string;
-  /** Contenido extra (resumen/KPIs) arriba de la lista; recibe las filas visibles. */
-  headerExtra?: (shown: T[]) => React.ReactNode;
+  /** Contenido extra (resumen/KPIs/gráficas) arriba de la lista; recibe las filas
+   *  visibles y el contexto de filtros (para mostrar más/menos según haya rango o búsqueda). */
+  headerExtra?: (shown: T[], ctx: { from: string; to: string; dateActive: boolean; searching: boolean }) => React.ReactNode;
+  /** Si se define, muestra un buscador que filtra por el texto que devuelva esta función
+   *  (concatena todas las características por las que se pueda buscar). */
+  searchText?: (item: T) => string;
+  searchPlaceholder?: string;
 };
 
 /** Lista genérica restilizada. Misma API que ListScreen; look del rediseño. */
@@ -149,7 +179,7 @@ export function RList<T extends { id: string }>({
   title, table, orderBy = 'created_at', ascending, select = '*',
   editable = false, dateField, formFields, formTitle, autoUserField,
   addLabel = '+ Nuevo', emptyTitle, emptySubtitle, emptyIcon,
-  renderItem, subtitle, headerExtra,
+  renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…',
 }: RListProps<T>) {
   const { colors } = useTheme();
   const { data, loading, refetch } = useTable<T>(table, { orderBy, select, ...(ascending != null ? { ascending } : {}) });
@@ -157,17 +187,21 @@ export function RList<T extends { id: string }>({
   const [editing, setEditing] = useState<T | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [q, setQ] = useState('');
 
   const shown = useMemo(() => {
-    if (!dateField || (!from && !to)) return data;
+    const nq = norm(q.trim());
     return data.filter((item) => {
-      const v = String((item as any)[dateField] ?? '').slice(0, 10);
-      if (!v) return false;
-      if (from && v < from) return false;
-      if (to && v > to) return false;
+      if (dateField && (from || to)) {
+        const v = String((item as any)[dateField] ?? '').slice(0, 10);
+        if (!v) return false;
+        if (from && v < from) return false;
+        if (to && v > to) return false;
+      }
+      if (nq && searchText && !norm(searchText(item)).includes(nq)) return false;
       return true;
     });
-  }, [data, dateField, from, to]);
+  }, [data, dateField, from, to, q, searchText]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (item: T) => { setEditing(item); setFormOpen(true); };
@@ -182,6 +216,23 @@ export function RList<T extends { id: string }>({
         <View style={{ paddingTop: spacing.xl, alignItems: 'center' }}><ActivityIndicator color={colors.brand} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: spacing.sm, paddingBottom: spacing.xl }} keyboardShouldPersistTaps="handled">
+          {searchText ? (
+            <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <Text style={{ fontSize: 15 }}>🔎</Text>
+              <TextInput
+                value={q}
+                onChangeText={setQ}
+                placeholder={searchPlaceholder}
+                placeholderTextColor={colors.muted}
+                style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 2 }}
+              />
+              {q ? (
+                <TouchableOpacity onPress={() => setQ('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 15 }}>✕</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
           {dateField ? (
             <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Filtrar por rango de fecha</Text>
@@ -206,10 +257,10 @@ export function RList<T extends { id: string }>({
             </View>
           ) : null}
 
-          {headerExtra ? headerExtra(shown) : null}
+          {headerExtra ? headerExtra(shown, { from, to, dateActive: !!(from || to), searching: !!q.trim() }) : null}
 
           {shown.length === 0 ? (
-            <REmpty icon={emptyIcon} title={(from || to) ? 'Sin resultados en el rango' : emptyTitle} subtitle={(from || to) ? 'Prueba con otras fechas.' : emptySubtitle} />
+            <REmpty icon={emptyIcon} title={(from || to || q) ? 'Sin resultados' : emptyTitle} subtitle={(from || to || q) ? 'Prueba con otra búsqueda o rango de fechas.' : emptySubtitle} />
           ) : (
             shown.map((item) => (
               <RCard key={item.id} onPress={editable && formFields ? () => openEdit(item) : undefined}>

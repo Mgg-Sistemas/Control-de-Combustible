@@ -1,56 +1,50 @@
 -- ============================================================================
 -- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-04:
---   • CAMIÓN (volteo/toronto/volqueta) → cierra a la 1:00am.
---       - turno DÍA  → 12h día + 6h noche = 18h.
---       - turno NOCHE → 6h noche.
---   • DÍA   (no camión) → cierra a las 7:00pm (horas reales).
---   • NOCHE (no camión) → cierra a las 7:00am del día siguiente (horas reales).
---   Candado: SOLO cierra si la hora de fin es 1, 7 o 19 (Caracas) → nunca medianoche.
+--   Se quitó el trato especial que forzaba a TODO camión (volteo/toronto/
+--   volqueta) a cerrar a la 1:00am con horas fijas (12h día + 6h noche), sin
+--   importar quién lo maneja. Confirmado por el cliente: eso solo debe pasar
+--   con las bolqueta/toronto que están en manos del usuario virtual "MAQUINAS
+--   FALTANTES" (sin inspector humano) — y esas NUNCA pasan por esta función,
+--   porque el virtual nunca presiona "Iniciar jornada" (sus horas las carga
+--   directo supabase/maquinas_faltantes.sql, ya en patrón 12x12 = 24h).
+--
+--   Cuando un supervisor/inspector REAL inicia jornada en un camión, ahora
+--   sigue el flujo NORMAL, igual que cualquier otra máquina:
+--     • turno DÍA   -> cierra a las 7:00pm del round_date, horas reales.
+--     • turno NOCHE -> cierra a las 7:00am del día siguiente, horas reales.
+--   Candado: SOLO cierra si la hora de fin es 7 o 19 (Caracas) → nunca medianoche.
 --   Guarda de recencia: no auto-cierra jornadas cuyo fin fue hace +2 días (debris → manual).
--- Corre CADA 10 MIN con pg_cron.
+--   Corre CADA 10 MIN con pg_cron.
 --
--- FIX vs la versión anterior (que "perdía horas"): ahora SOLO cierra la jornada si
--- su INICIO es ANTERIOR al fin del turno (`jornada_start_at < end_ts`). Antes, una
--- jornada iniciada fuera de su ventana daba horas = max(0, negativo) = 0 y se
--- cerraba EN BLANCO (perdiendo el segmento). Las horas ya guardadas nunca se pisan
--- (siempre se SUMA con coalesce). Idempotente. Correr una vez en Supabase.
---
--- NOTA: pg_cron debe estar habilitado (Database → Extensions → pg_cron).
+-- NOTA: no pisa horas ya guardadas (siempre se SUMA con coalesce). Idempotente.
+-- Correr una vez en Supabase. pg_cron debe estar habilitado (Database → Extensions).
 -- ============================================================================
 create extension if not exists pg_cron;
 
 create or replace function public.auto_close_jornadas() returns void
 language plpgsql security definer set search_path = public as $$
-declare r record; end_ts timestamptz; hrs numeric; es_camion boolean;
+declare r record; end_ts timestamptz; hrs numeric;
 begin
   for r in
-    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mch.code, mr.machinery_id
+    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mr.machinery_id
     from public.machine_rounds mr
-    join public.machinery mch on mch.id = mr.machinery_id
     where mr.jornada_start_at is not null
   loop
-    es_camion := lower(coalesce(r.code, '')) ~ 'volteo|toronto|volqueta';
-    -- Fin del turno (hora Caracas):
-    --   • CAMIÓN (volteo/toronto/volqueta), día o noche → 1:00am. El de DÍA trabaja
-    --     12h día + 6h noche (hasta la 1am) = 18h; el de NOCHE, 6h.
-    --   • NOCHE (no camión) → 7:00am del día siguiente.
-    --   • DÍA   (no camión) → 7:00pm del round_date.
-    if es_camion then
-      end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';   -- camión → 1am
-    elsif r.jornada_shift = 'night' then
-      end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';    -- noche → 7am
+    -- Fin del turno (hora Caracas): NOCHE -> 7:00am del día siguiente; DÍA -> 7:00pm.
+    if r.jornada_shift = 'night' then
+      end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';
     else
-      end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';           -- día → 7pm
+      end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
     -- BLINDAJE: solo se cierra en las horas de fin de turno VÁLIDAS (Caracas):
-    -- 01:00 (camión), 07:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`,
-    -- si su hora no es 1, 7 ni 19 se salta → JAMÁS a medianoche/12 ni al mediodía.
-    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (1, 7, 19) then
+    -- 07:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`, si su hora
+    -- no es 7 ni 19 se salta → JAMÁS a medianoche/12 ni al mediodía.
+    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (7, 19) then
       continue;
     end if;
     -- No RESUCITAR jornadas viejas: si su fin fue hace más de 2 días, quedó abierta por
-    -- error ("debris") → se deja para cierre manual; NO se auto-cierra con horas fijas
-    -- retroactivas (evita inflar días pasados de camiones ya cerrados/facturados).
+    -- error ("debris") → se deja para cierre manual; NO se auto-cierra con horas
+    -- retroactivas (evita inflar días pasados ya cerrados/facturados).
     if now() - end_ts > interval '2 days' then
       continue;
     end if;
@@ -58,24 +52,11 @@ begin
     -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
     if now() >= end_ts and r.jornada_start_at < end_ts then
       hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
-      if es_camion then
-        -- CAMIÓN: horas FIJAS. Día = 12h día + 6h noche (18h). Noche = 6h.
-        if r.jornada_shift = 'night' then
-          update public.machine_rounds
-            set night_hours = 6, jornada_start_at = null, status = 'operativa'
-            where id = r.id;
-        else
-          update public.machine_rounds
-            set day_hours = 12, night_hours = 6, jornada_start_at = null, status = 'operativa'
-            where id = r.id;
-        end if;
-      elsif r.jornada_shift = 'night' then
-        -- NOCHE (no camión): horas reales hasta las 7am (se SUMAN, nunca se pisan).
+      if r.jornada_shift = 'night' then
         update public.machine_rounds
           set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
       else
-        -- DÍA (no camión): horas reales hasta las 7pm.
         update public.machine_rounds
           set day_hours = coalesce(day_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
