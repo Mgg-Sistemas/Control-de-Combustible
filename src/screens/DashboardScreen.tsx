@@ -179,7 +179,9 @@ export default function DashboardScreen({ navigation }: any) {
   useEffect(() => { setChart(null); loadChart(chartMode); }, [chartMode, loadChart]);
 
   const totalCurrent = tanks.reduce((s, t) => s + Number(t.current_l || 0), 0);
-  const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 30).length;
+  // Umbral de "stock bajo" (20%): mismo valor que usa el módulo Combustible ▸ Tanques
+  // (TanksShowcase/TanksPilot, LOW_PCT) y que el medidor TankLevel usa por defecto.
+  const lowTanks = tanks.filter((t) => (t.pct ?? 0) <= 20).length;
   const modeLabel = chartMode === 'dia' ? 'hoy' : chartMode === 'mes' ? 'este mes' : 'este año';
 
   return (
@@ -316,8 +318,9 @@ export default function DashboardScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: 6 }}>
                   {Number(t.current_l).toLocaleString()} / {Number(t.capacity_l).toLocaleString()} L ({pct}%)
                 </Text>
-                {/* Rediseño: medidor con marca de umbral (umbral 30% = "stock bajo" del panel). */}
-                <TankGauge pct={pct} thresholdPct={30} height={9} />
+                {/* Rediseño: medidor con marca de umbral (umbral 20% = "stock bajo" del panel,
+                    igual al umbral del módulo Combustible ▸ Tanques). */}
+                <TankGauge pct={pct} thresholdPct={20} height={9} />
               </Card>
             </TouchableOpacity>
           );
