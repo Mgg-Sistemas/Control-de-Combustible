@@ -140,6 +140,9 @@ export default function PagoPersonalScreen() {
   // Detalle
   const [sel, setSel] = useState<StaffPayPeriod | null>(null);
   const [items, setItems] = useState<StaffPayItem[]>([]);
+  // Estado ACTUAL (no el que tenía al momento de incluirlo) de los empleados de este
+  // período, para poder marcar en la lista a quien ya fue desincorporado. employee_id → status.
+  const [itemEmployeeStatus, setItemEmployeeStatus] = useState<Map<string, string>>(new Map());
   const [pays, setPays] = useState<StaffPayPayment[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -204,9 +207,16 @@ export default function PagoPersonalScreen() {
     const { data: actives } = await supabase.from('employees').select('id').eq('status', 'activo');
     const have = new Set(list.map((i) => i.employee_id));
     setFaltantesCount((actives ?? []).filter((e: any) => !have.has(e.id)).length);
+    // Estado ACTUAL de los empleados ya incluidos (puede haber cambiado desde que se
+    // agregaron al período) → para marcar "Desincorporado" en la lista sin afectar montos.
+    const empIds = Array.from(new Set(list.map((i) => i.employee_id).filter((id): id is string => !!id)));
+    const { data: empStatus } = empIds.length
+      ? await supabase.from('employees').select('id, status').in('id', empIds)
+      : { data: [] as { id: string; status: string }[] };
+    setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setCargoSel(new Set()); setCargoOpen(false); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setCargoSel(new Set()); setCargoOpen(false); loadDetail(p); };
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));
@@ -881,11 +891,19 @@ export default function PagoPersonalScreen() {
                 itemsShown.map((it) => {
                   const pagado = paidOf(it.id); const saldo = saldoOf(it);
                   const abonos = pays.filter((p) => p.item_id === it.id);
+                  // Estado ACTUAL del empleado (puede haber cambiado desde que se incluyó en
+                  // el período): si ya fue desincorporado, se avisa con un badge (solo visual,
+                  // no afecta el pago ya cargado).
+                  const empStatusNow = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
+                  const desincorporado = empStatusNow === 'inactivo' || empStatusNow === 'suspendido';
                   return (
                     <Card key={it.id}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{it.person_name}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{it.person_name}</Text>
+                            {desincorporado ? <Badge label="Desincorporado" tone="danger" /> : null}
+                          </View>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>
                             {[it.cargo, it.source === 'auto' ? '⚙️ operador (auto)' : '✍️ manual'].filter(Boolean).join(' · ')}
                           </Text>

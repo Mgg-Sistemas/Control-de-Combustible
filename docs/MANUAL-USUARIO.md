@@ -1260,14 +1260,9 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
 - **🟡 Opcional** — `supabase/fix_user_role_enum_drift.sql`: agrega el valor `'coordinador_patio'`
   al enum `user_role` de forma idempotente (se sospecha que ya existía en producción agregado a
   mano; el script no falla si ya está). Ejecutar si no se está seguro de que ya existe.
-- **⚠️ NO EJECUTAR SIN REVISAR** — `supabase/auto_full_shift_no_asignada.sql`: programa un cron
-  (pg_cron, 00:15 hora Caracas) que le carga **18h fijas** (12 día + 6 noche) a toda máquina
-  operativa que **no tenga ningún inspector asignado** (tabla `machine_inspectors`). Impacta
-  horómetro, alertas de mantenimiento y posiblemente el cálculo de pago. **Nunca sobreescribe** un
-  día que ya tenga datos (usa `on conflict ... do nothing`). Antes de dejarlo activo en producción,
-  confirmar que "sin inspector asignado" = "no asignada" es la definición correcta del negocio, y
-  probar corriendo `select public.auto_full_shift_no_asignada();` a mano una vez para revisar el
-  resultado. Para desactivarlo: `select cron.unschedule('auto-full-shift-no-asignada');`.
+- **`supabase/auto_full_shift_no_asignada.sql` — SUPERADO, no ejecutar.** Quedó reemplazado por
+  `supabase/maquinas_faltantes.sql` (ver siguiente sección), que sí tiene la definición de negocio
+  ya confirmada por el cliente.
 
 **Auditoría RBAC — mapeo de los 8 cargos pedidos a las pantallas ya existentes:**
 
@@ -1290,6 +1285,38 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
 > `coordinador_patio` y `chofer_combustible`). Si alguno de estos cargos necesita trabajar
 > principalmente desde el teléfono con su propio panel (no la vista de Inspector), avisar para
 > agregar esa intercepción específica en `navigation/index.tsx`.
+
+### Jornadas por turno, filtro "Suyas" y MAQUINAS FALTANTES (04/08/2026)
+
+- **Sin SQL pendiente** — Inspecciones → "Jornadas de máquina": los botones "Expandir todo /
+  Colapsar todo / Reporte resumen por inspector" se quitaron. En su lugar hay un filtro
+  **☀️ Día / 🌙 Noche** que arranca solo en el turno actual (según la hora de Caracas) y se puede
+  cambiar en cualquier momento; se combina con la búsqueda libre.
+- **Sin SQL pendiente** — Coordinador de Inspectores (teléfono) → "✅ CHECK máquina → Asignar": al
+  elegir un inspector, la lista arranca mostrando **solo sus máquinas** ("👤 Suyas"). Para
+  reasignarle una máquina de otro inspector o agregarle una nueva, toca "Todas" y búscala — la
+  reasignación funciona igual que antes en cualquiera de los 3 modos.
+- **Sin SQL pendiente** — Nómina "Por período": si un empleado que ya estaba incluido en un período
+  fue desincorporado (inactivo/suspendido) después, ahora se le ve un badge rojo "Desincorporado"
+  junto a su nombre en el detalle del período. Es solo un aviso visual, no cambia el monto ya
+  cargado ni quita a la persona de la lista.
+- **⚠️ SQL pendiente de ejecutar (revisar antes)** — `supabase/maquinas_faltantes.sql`: crea un
+  usuario **virtual** "MAQUINAS FALTANTES" (cuenta de sistema, nunca inicia sesión — no borrarlo) y
+  programa 2 cron jobs:
+  - `assign_missing_to_placeholder()` cada 15 min: a cualquier máquina operativa que le falte
+    inspector en el turno día y/o noche, se lo asigna automáticamente a MAQUINAS FALTANTES (se ve
+    igual que cualquier inspector real en "Resumen"/"Jornadas de máquina").
+  - `auto_full_shift_placeholder()` 1 vez al día (00:15 Caracas): le carga **12h** al turno día y/o
+    **6h** al turno noche de "ayer" a toda máquina cuyo turno siga en manos de MAQUINAS FALTANTES
+    (18h si le faltan los dos). En cuanto un inspector/supervisor reasigna ese turno a una persona
+    real desde la app (como siempre se ha hecho), el cron deja de tocarlo.
+  - Impacta horómetro, alertas de mantenimiento y nómina. **Nunca sobreescribe** un día que ya
+    tenga datos. Antes de confiar en el cron en producción, correr a mano
+    `select public.assign_missing_to_placeholder();` y
+    `select public.auto_full_shift_placeholder();`, y revisar `machine_rounds` /
+    `machine_work_segments` (instrucciones completas en la cabecera del archivo). Para
+    desactivarlo: `select cron.unschedule('assign-missing-to-placeholder');` y
+    `select cron.unschedule('auto-full-shift-placeholder');`.
 
 ---
 

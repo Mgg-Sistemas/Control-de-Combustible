@@ -154,7 +154,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Selección MÚLTIPLE para asignar/reasignar por LOTE (paso 2). Filtro "solo pendientes".
   const [selIds, setSelIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
-  const [onlyPend, setOnlyPend] = useState(false);
+  type CheckFilterMode = 'mine' | 'pending' | 'all';
+  const [checkFilter, setCheckFilter] = useState<CheckFilterMode>('mine');
   // Acordeón del Resumen: inspectores/pendientes expandidos (por id o 'pend').
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // CHECK · modo "🕓 Pendientes por asignar": máquinas que quedaron sin inspector en
@@ -1593,7 +1594,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 {inspectors.filter((p) => !inspQuery.trim() || norm(p.name).includes(norm(inspQuery.trim()))).map((p) => {
                   const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
                   return (
-                    <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                    <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); setCheckFilter('mine'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
                       <Text style={{ fontSize: 20 }}>👮</Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{p.name}</Text>
@@ -1610,24 +1611,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           ) : (
             // ── PASO 2: asignar máquinas al inspector — con SELECCIÓN MÚLTIPLE (lote) ──
             (() => {
-              const filtered = checkList.filter((m) => { if (!onlyPend) return true; const f = faltaTurno(m); return f.day || f.night; });
+              const filtered = checkList.filter((m) => {
+                if (checkFilter === 'pending') { const f = faltaTurno(m); return f.day || f.night; }
+                if (checkFilter === 'mine') { const s = assignMap[m.id] || {}; return s.day?.id === checkInspector.id || s.night?.id === checkInspector.id; }
+                return true; // 'all'
+              });
               const shown = filtered.slice(0, 300);
               const allSel = shown.length > 0 && shown.every((m) => selIds.has(m.id));
               return (
                 <>
-                  <TouchableOpacity onPress={() => { setCheckInspector(null); setInspQuery(''); setSelIds(new Set()); setOnlyPend(false); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                  <TouchableOpacity onPress={() => { setCheckInspector(null); setInspQuery(''); setSelIds(new Set()); setCheckFilter('mine'); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                     <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Cambiar inspector</Text>
                   </TouchableOpacity>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                     Marca varias con ☑️ y asígnalas por LOTE a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text>, o toca ☀️/🌙 en una para asignar/quitar directo. Reasignar es directo (si la tiene otro, se la pasas al elegido).
                   </Text>
-                  {/* Filtro Todas / Solo pendientes */}
+                  {/* Filtro Suyas / Todas / Solo pendientes */}
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
-                    {([['Todas', false], ['Solo pendientes', true]] as const).map(([lbl, v]) => {
-                      const on = onlyPend === v;
+                    {([['👤 Suyas', 'mine'], ['Todas', 'all'], ['Pendientes', 'pending']] as const).map(([lbl, v]) => {
+                      const on = checkFilter === v;
                       return (
-                        <TouchableOpacity key={lbl} onPress={() => setOnlyPend(v)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
+                        <TouchableOpacity key={lbl} onPress={() => setCheckFilter(v)} style={{ flex: 1, alignItems: 'center', paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                          <Text numberOfLines={1} style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -1699,7 +1704,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                       );
                     })}
-                    {filtered.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o quita el filtro." /> : null}
+                    {filtered.length === 0 ? (
+                      <EmptyState
+                        title="Sin resultados"
+                        subtitle={checkFilter === 'mine' ? `${checkInspector.name} no tiene máquinas asignadas todavía. Toca "Todas" para buscar y asignarle.` : 'Prueba con otro nombre o quita el filtro.'}
+                      />
+                    ) : null}
                     <View style={{ height: spacing.xl }} />
                   </ScrollView>
                 </>
