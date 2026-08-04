@@ -27,6 +27,19 @@ export type AppColors = {
   infoSoftBg: string;
   infoSoftBorder: string;
   infoSoftText: string;
+  // ── Identidad de marca del REDISEÑO (aditivo; no reemplaza los tokens de arriba).
+  //    Navy = color ancla de marca; ámbar = ÚNICO acento para lo accionable/urgente.
+  //    Los tokens `tank*` colorean el medidor de nivel según el porcentaje.
+  brand: string;            // navy de marca (#1E3A5F)
+  brandContrast: string;    // texto sobre navy
+  accent: string;           // ámbar accionable (#FFB020)
+  accentContrast: string;   // texto sobre ámbar
+  accentSoftBg: string;     // pastel ámbar (chips/badges)
+  accentSoftText: string;
+  tankTrack: string;        // fondo de la barra de nivel
+  tankFill: string;         // nivel normal
+  tankWarn: string;         // nivel bajo (ámbar)
+  tankCrit: string;         // nivel crítico (rojo)
 };
 
 export const lightColors: AppColors = {
@@ -53,6 +66,16 @@ export const lightColors: AppColors = {
   infoSoftBg: '#EAF1FB',
   infoSoftBorder: '#2563EB',
   infoSoftText: '#12356B',
+  brand: '#1E3A5F',
+  brandContrast: '#FFFFFF',
+  accent: '#FFB020',
+  accentContrast: '#3A2703',
+  accentSoftBg: '#FFF3DA',
+  accentSoftText: '#8A5B00',
+  tankTrack: '#EDF1F5',
+  tankFill: '#2C5486',
+  tankWarn: '#FFB020',
+  tankCrit: '#D93A32',
 };
 
 export const darkColors: AppColors = {
@@ -79,6 +102,16 @@ export const darkColors: AppColors = {
   infoSoftBg: '#132A4A',
   infoSoftBorder: '#3B82F6',
   infoSoftText: '#9DC0F5',
+  brand: '#2C5486',
+  brandContrast: '#FFFFFF',
+  accent: '#FFB020',
+  accentContrast: '#3A2703',
+  accentSoftBg: '#3A2C0F',
+  accentSoftText: '#F5CB7A',
+  tankTrack: '#3F3F46',
+  tankFill: '#4E7CB0',
+  tankWarn: '#FFB020',
+  tankCrit: '#EF4444',
 };
 
 export const spacing = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
