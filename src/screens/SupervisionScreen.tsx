@@ -9,7 +9,6 @@ import { listInspectorAssignments, assignInspector, unassignInspector, Assignmen
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { generateEstadoReport } from '../lib/inspectorEstadoReport';
-import { generateSummaryReport } from '../lib/inspectorSummaryReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
@@ -502,6 +501,8 @@ export default function SupervisionScreen({ navigation }: any) {
   const [machJorQuery, setMachJorQuery] = useState('');                        // búsqueda libre
   const [machJorExpanded, setMachJorExpanded] = useState<Set<string>>(new Set()); // inspectores expandidos (por defecto: colapsados)
   const toggleMachJorCollapsed = (name: string) => setMachJorExpanded((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  // Filtro DÍA/NOCHE: autodetecta el turno actual (hora Caracas) al montar la pantalla.
+  const [machJorShiftFilter, setMachJorShiftFilter] = useState<'day' | 'night'>(() => paradaShiftOf(new Date().toISOString()));
   const machJornadasByInspector = useMemo(() => {
     const q = machJorQuery.trim().toLowerCase();
     // Objetivo: por inspector se ven TODAS sus máquinas (columna vertebral = las
@@ -559,12 +560,14 @@ export default function SupervisionScreen({ navigation }: any) {
     // jornada que el inspector inició en máquina de otro cuelga del dueño por SU
     // asignación, no de quien la inició. Así el conteo cuadra en ambas vistas.
     const byKey = new Map<string, any>();
-    assigns.forEach((a) => {
-      const insp = a.inspector_name || '—';
-      const k = `${insp}|${a.machinery_id}`;
-      if (byKey.has(k)) return;
-      byKey.set(k, buildRow(insp, a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
-    });
+    assigns
+      .filter((a) => (a.shift === 'night' ? 'night' : 'day') === machJorShiftFilter)
+      .forEach((a) => {
+        const insp = a.inspector_name || '—';
+        const k = `${insp}|${a.machinery_id}`;
+        if (byKey.has(k)) return;
+        byKey.set(k, buildRow(insp, a.machinery_id, a, a.shift === 'night' ? 'night' : 'day'));
+      });
 
     const all = Array.from(byKey.values());
     const filtered = q
@@ -582,7 +585,7 @@ export default function SupervisionScreen({ navigation }: any) {
       return rank(a) - rank(b) || cmpText(a.code, b.code);
     }));
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
-  }, [assigns, rawRounds, paradaByMachine, machJorQuery]);
+  }, [assigns, rawRounds, paradaByMachine, machJorQuery, machJorShiftFilter]);
 
   // 🚚 Asistencia de camiones del día: por camión, su SALIDA (al iniciar jornada) y
   // ENTRADA (al finalizar). Presente = tuvo salida. Ordenado A→Z por código.
@@ -1144,17 +1147,16 @@ export default function SupervisionScreen({ navigation }: any) {
             <TextInput value={machJorQuery} onChangeText={setMachJorQuery} placeholder="Buscar: inspector, máquina o empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
             {machJorQuery ? <TouchableOpacity onPress={() => setMachJorQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
           </View>
-          {/* Expandir / colapsar todos los inspectores + reporte resumen (PDF). */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xs }}>
-            <TouchableOpacity onPress={() => setMachJorExpanded(new Set(machJornadasByInspector.map(([n]) => n)))} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
-              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▾ Expandir todo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setMachJorExpanded(new Set())} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.border }}>
-              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>▸ Colapsar todo</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => generateSummaryReport({ date })} style={{ borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, borderWidth: 1, borderColor: colors.primary }}>
-              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>📄 Reporte resumen por inspector</Text>
-            </TouchableOpacity>
+          {/* Filtro de turno: DÍA / NOCHE (autodetecta el turno actual al abrir la pantalla). */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xs }}>
+            {(['day', 'night'] as const).map((s) => {
+              const on = machJorShiftFilter === s;
+              return (
+                <TouchableOpacity key={s} onPress={() => setMachJorShiftFilter(s)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{shiftIcon(s)} {shiftLabel(s)}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
           {machJornadasByInspector.length === 0 ? (
             <EmptyState title="Sin resultados" subtitle="Ninguna jornada coincide con la búsqueda." />
