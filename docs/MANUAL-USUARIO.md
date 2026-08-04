@@ -915,6 +915,14 @@ escritura en Inventario.
 > equivocación, el administrador toca **"↩ Volver a pendiente"**: vuelve a **Pendiente** (se limpia
 > el rechazo) y se **notifica a los administradores** que quedó pendiente otra vez.
 
+> **Filtrar y descargar varios de una vez (04/08/2026):** encima de la lista hay un buscador
+> "🔎 Buscar" (código, título, nota, solicitante, empresa o producto) y un rango de fechas
+> (**Desde** / **Hasta**), combinables con los chips de estatus (Pendientes/Aprobados/etc.). Cada
+> requerimiento tiene un checkbox y hay un botón **"Seleccionar todos"** que marca a los que están
+> visibles según el filtro activo. El botón **"📥 PDF"** descarga en **un solo documento** (uno por
+> página) a los que estén marcados; si no hay ninguno marcado, descarga TODOS los que quedaron
+> filtrados. El botón **"🧾 PDF"** de cada tarjeta sigue igual para bajar uno solo.
+
 **🔁 Nota de traslado (entre máquinas):** pestaña **🔁 Nota de traslado**. Tiene dos vistas:
 **🔁 Trasladar** y **📋 Realizados**.
 - **Trasladar:** eliges los materiales con stock, defines el **Origen** (máquina + responsable) y el

@@ -34,7 +34,28 @@ const money = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocale
 const toUsd = (price: number, currency: 'USD' | 'VES', rate: number | null) =>
   currency === 'USD' ? price : (rate && rate > 0 ? price / rate : 0);
 
-export function requerimientoHtml(d: ReqPdfData): string {
+const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+      th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+      td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800}
+      tr:nth-child(even) td{background:#f4f7fb}
+      .new{background:#0F766E;color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;font-weight:800}
+      .tot{margin-top:12px;text-align:right;font-size:13px;font-weight:800;color:#16324F}
+      .note{margin-top:10px;font-size:11px}
+      .reqhead{font-size:13px;font-weight:800;color:#16324F;margin-bottom:2px}
+      /* La firma queda AL FONDO de la página: el cuerpo llena el alto y el espaciador
+         (.push) empuja la firma hacia abajo. Si el contenido es largo, el espaciador
+         se encoge y la firma cae justo debajo (sin romper la página). */
+      .reqbody{display:flex;flex-direction:column;min-height:20cm}
+      .push{flex:1 1 auto;min-height:24px}
+      .firma{text-align:center;page-break-inside:avoid}
+      .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
+      .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
+      .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}
+      .pgbreak{page-break-after:always}`;
+
+/** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
+ *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
+function reqBodyHtml(d: ReqPdfData, heading?: string): string {
   let totalUsd = 0;
   const rows = d.items.map((it, i) => {
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
@@ -58,28 +79,10 @@ export function requerimientoHtml(d: ReqPdfData): string {
     ? `<img src="${signer.img}"${signer.flip ? ' style="transform:scaleX(-1)"' : ''}/><div class="line">${esc(signer.label)}</div>${aprobador ? `<div class="firmante">${esc(aprobador.toUpperCase())}</div>` : ''}`
     : `<div class="line">Aprobado por (jefe)</div>`;
 
-  return pdfDocument({
-    title: 'Requerimiento de compra',
-    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`,
-    extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
-      th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
-      td.c{text-align:center} td.r{text-align:right} td.b{font-weight:800}
-      tr:nth-child(even) td{background:#f4f7fb}
-      .new{background:#0F766E;color:#fff;font-size:9px;padding:1px 5px;border-radius:6px;font-weight:800}
-      .tot{margin-top:12px;text-align:right;font-size:13px;font-weight:800;color:#16324F}
-      .note{margin-top:10px;font-size:11px}
-      /* La firma queda AL FONDO de la página: el cuerpo llena el alto y el espaciador
-         (.push) empuja la firma hacia abajo. Si el contenido es largo, el espaciador
-         se encoge y la firma cae justo debajo (sin romper la página). */
-      .reqbody{display:flex;flex-direction:column;min-height:20cm}
-      .push{flex:1 1 auto;min-height:24px}
-      .firma{text-align:center;page-break-inside:avoid}
-      .firma img{height:auto;max-height:110px;max-width:260px;display:block;margin:0 auto 2px}
-      .firma .line{width:300px;margin:0 auto;border-top:1px solid #1a1a1a;padding-top:6px;font-weight:800;color:#16324F}
-      .firma .firmante{margin-top:2px;font-size:12px;font-weight:700;color:#333;letter-spacing:.3px}`,
-    body: `
+  return `
       <div class="reqbody">
         <div>
+          ${heading ? `<div class="reqhead">${heading}</div>` : ''}
           ${d.title ? `<div class="note"><b>${esc(d.title)}</b></div>` : ''}
           <table>
             <thead><tr><th style="width:26px" class="c">#</th><th>Producto</th><th class="c">Cantidad</th>
@@ -94,6 +97,35 @@ export function requerimientoHtml(d: ReqPdfData): string {
         <div class="firma">
           ${firmaBlock}
         </div>
-      </div>`,
+      </div>`;
+}
+
+export function requerimientoHtml(d: ReqPdfData): string {
+  return pdfDocument({
+    title: 'Requerimiento de compra',
+    subtitle: `${d.code ? d.code + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`,
+    extraCss: REQ_CSS,
+    body: reqBodyHtml(d),
+  });
+}
+
+/**
+ * PDF de VARIOS requerimientos en un solo documento (uno por página, con su propia
+ * tabla/total/firma) — para descargar de una vez los que el usuario filtró/seleccionó
+ * en vez de uno por uno. `list` ya viene ordenada como se quiere ver en el PDF.
+ */
+export function requerimientosBulkHtml(list: ReqPdfData[]): string {
+  const body = list
+    .map((d, i) => {
+      const heading = `${i + 1}/${list.length} · ${d.code ? esc(d.code) + ' · ' : ''}${esc(d.fecha)} · Estado: ${esc(d.statusLabel)}${d.company ? ' · Empresa: ' + esc(d.company) : ''}${d.requestedBy ? ' · Solicita: ' + esc(d.requestedBy) : ''}`;
+      const block = reqBodyHtml(d, heading);
+      return i < list.length - 1 ? `${block}<div class="pgbreak"></div>` : block;
+    })
+    .join('');
+  return pdfDocument({
+    title: 'Requerimientos de compra',
+    subtitle: `${list.length} requerimiento(s)`,
+    extraCss: REQ_CSS,
+    body,
   });
 }

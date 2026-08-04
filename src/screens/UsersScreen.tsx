@@ -145,7 +145,7 @@ export default function UsersScreen() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Usuarios</SectionTitle>
         <TouchableOpacity style={styles.addBtn} onPress={() => setFormOpen(true)}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+          <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>+ Nuevo</Text>
         </TouchableOpacity>
       </View>
 
@@ -287,7 +287,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
   const baseList = ROLES.filter((r) => !nq || norm(roleLabel(r)).includes(nq));
   const appList = roles.filter((r) => !nq || norm(r.name).includes(nq));
   const isCur = (sel: RoleSel) => current && current.kind === sel.kind && (sel.kind === 'base' ? (current as any).role === sel.role : (current as any).id === sel.id);
-  const rowStyle = (on: boolean) => ({ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, marginBottom: spacing.xs, backgroundColor: on ? colors.primary : colors.surface });
+  const rowStyle = (on: boolean) => ({ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, marginBottom: spacing.xs, backgroundColor: on ? colors.brand : colors.surface });
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -301,7 +301,7 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
               const on = !!isCur({ kind: 'base', role: r });
               return (
                 <TouchableOpacity key={r} onPress={() => onPick({ kind: 'base', role: r })} style={rowStyle(on)}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{roleLabel(r)}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{roleLabel(r)}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -310,8 +310,8 @@ function UnifiedRolePicker({ visible, roles, current, onPick, onClose }: {
               const on = !!isCur({ kind: 'app', id: r.id });
               return (
                 <TouchableOpacity key={r.id} onPress={() => onPick({ kind: 'app', id: r.id })} style={rowStyle(on)}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{r.panel_type === 'coordinador_qr' ? 'Panel coordinador QR' : r.panel_type === 'chofer_combustible' ? 'Panel chofer de combustible' : `${Object.keys(r.modules ?? {}).length} módulo(s)`}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{r.name}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 11 }}>{r.panel_type === 'coordinador_qr' ? 'Panel coordinador QR' : r.panel_type === 'chofer_combustible' ? 'Panel chofer de combustible' : `${Object.keys(r.modules ?? {}).length} módulo(s)`}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -386,8 +386,8 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
         <View style={[styles.sheet, { maxHeight: '92%' }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🏷️ Roles del sistema</Text>
-            <TouchableOpacity onPress={() => (editing ? resetForm() : openCreate())} style={{ backgroundColor: editing ? colors.surfaceAlt : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-              <Text style={{ color: editing ? colors.text : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{editing ? 'Cancelar' : '+ Crear rol'}</Text>
+            <TouchableOpacity onPress={() => (editing ? resetForm() : openCreate())} style={{ backgroundColor: editing ? colors.surfaceAlt : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: editing ? colors.text : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{editing ? 'Cancelar' : '+ Crear rol'}</Text>
             </TouchableOpacity>
           </View>
 
@@ -401,8 +401,8 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                 {([['modulos', '📋 Módulos'], ['coordinador_qr', '📷 Coordinador QR'], ['chofer_combustible', '⛽ Chofer combustible']] as const).map(([v, l]) => {
                   const on = panelType === v;
                   return (
-                    <TouchableOpacity key={v} onPress={() => setPanelType(v)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, alignItems: 'center' }}>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{l}</Text>
+                    <TouchableOpacity key={v} onPress={() => setPanelType(v)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, alignItems: 'center' }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{l}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -425,8 +425,8 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                           {LEVELS.map((lv) => {
                             const active = cur === lv.value;
                             return (
-                              <TouchableOpacity key={lv.value} onPress={() => setMods((p) => ({ ...p, [mod.key]: lv.value }))} style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface, alignItems: 'center' }}>
-                                <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
+                              <TouchableOpacity key={lv.value} onPress={() => setMods((p) => ({ ...p, [mod.key]: lv.value }))} style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface, alignItems: 'center' }}>
+                                <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
                               </TouchableOpacity>
                             );
                           })}
@@ -436,8 +436,8 @@ function RolesManagerModal({ visible, roles, userCounts, onClose, onChanged }: {
                   })}
                 </>
               )}
-              <TouchableOpacity onPress={guardar} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear rol'}</Text>
+              <TouchableOpacity onPress={guardar} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear rol'}</Text>
               </TouchableOpacity>
               <View style={{ height: spacing.lg }} />
             </ScrollView>
@@ -588,8 +588,8 @@ function NewUserForm({
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={onClose}>
               <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={submit} disabled={saving}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand }]} onPress={submit} disabled={saving}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>
                 {saving ? 'Creando…' : 'Crear usuario'}
               </Text>
             </TouchableOpacity>
@@ -790,8 +790,8 @@ function EditUserForm({
                 </Text>
                 {/* Atajos: aplicar a TODOS los módulos de una vez. */}
                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
-                  <TouchableOpacity onPress={() => setAllPerms('full')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
-                    <Text style={{ color: colors.primaryContrast, fontSize: 12, fontWeight: '800' }}>✅ Full a todo</Text>
+                  <TouchableOpacity onPress={() => setAllPerms('full')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                    <Text style={{ color: colors.brandContrast, fontSize: 12, fontWeight: '800' }}>✅ Full a todo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setAllPerms('lectura')} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>📖 Lectura a todo</Text>
@@ -814,9 +814,9 @@ function EditUserForm({
                         <TouchableOpacity
                           key={lv.value}
                           onPress={() => setPerm(mod.key, lv.value)}
-                          style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface, alignItems: 'center' }}
+                          style={{ flex: 1, paddingVertical: 7, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface, alignItems: 'center' }}
                         >
-                          <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
+                          <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>{lv.short}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -831,8 +831,8 @@ function EditUserForm({
             <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt }]} onPress={onClose}>
               <Text style={{ color: colors.text, fontWeight: '600' }}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.primary }]} onPress={save} disabled={saving}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
+            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand }]} onPress={save} disabled={saving}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
             </TouchableOpacity>
           </View>
           {!isSelf ? (
@@ -865,7 +865,7 @@ function EditUserForm({
 
 const makeStyles = (colors: AppColors) => StyleSheet.create({
   addBtn: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
@@ -878,7 +878,7 @@ const makeStyles = (colors: AppColors) => StyleSheet.create({
     paddingVertical: spacing.xs,
     backgroundColor: colors.surface,
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.background,

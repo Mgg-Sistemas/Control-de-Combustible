@@ -16,7 +16,7 @@ import { pickAndUploadRequirementFile } from '../lib/photo';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
 import { notaTrasladoHtml, TrasladoItem } from '../lib/notaTraslado';
 import { buildXlsx, readXlsx } from '../lib/xlsx';
-import { requerimientoHtml } from '../lib/requerimiento';
+import { requerimientoHtml, requerimientosBulkHtml } from '../lib/requerimiento';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -1435,6 +1435,15 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   // Filtro por estatus del requerimiento (+ "sin precio" para ubicar los que faltan cargar precio).
   const [filterStatus, setFilterStatus] = useState<'todos' | 'pendiente' | 'aprobado' | 'rechazado' | 'recibido' | 'sin_precio'>('todos');
   const faltaPrecioDe = (r: InventoryRequirement) => r.items.some((it) => !(Number(it.est_price) > 0));
+  // Búsqueda libre (código, título, nota, solicitante, empresa, nombre de los ítems) +
+  // rango de fecha (por created_at, ISO AAAA-MM-DD) — se combinan con el filtro de estatus.
+  const [listQuery, setListQuery] = useState('');
+  const [reqDateFrom, setReqDateFrom] = useState('');
+  const [reqDateTo, setReqDateTo] = useState('');
+  // Selección manual (checkbox) para descargar en UN SOLO PDF a los elegidos; si no hay
+  // ninguno seleccionado, el PDF por lote toma a TODOS los que quedaron filtrados.
+  const [reqSelIds, setReqSelIds] = useState<Set<string>>(new Set());
+  const toggleReqSel = (id: string) => setReqSelIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const { data: levels } = useTable<InventoryLevel>('inventory_levels', { orderBy: 'name' });
   const { data: companies } = useTable<Company>('companies', { orderBy: 'name', ascending: true });
   const companyName = (id: string | null) => (id ? companies.find((c) => c.id === id)?.name ?? null : null);
@@ -1751,13 +1760,84 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
         })}
       </View>
 
+      {/* Búsqueda libre (código, título, nota, solicitante, empresa, ítems) + rango de fecha. */}
+      <TextInput
+        value={listQuery}
+        onChangeText={setListQuery}
+        placeholder="🔎 Buscar: código, título, nota, solicitante, empresa, producto…"
+        placeholderTextColor={colors.muted}
+        style={{ ...inp, marginBottom: spacing.xs }}
+      />
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+          <DateField value={reqDateFrom} onChange={setReqDateFrom} placeholder="Cualquiera" maxISO={reqDateTo || undefined} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+          <DateField value={reqDateTo} onChange={setReqDateTo} placeholder="Cualquiera" minISO={reqDateFrom || undefined} />
+        </View>
+        {reqDateFrom || reqDateTo ? (
+          <TouchableOpacity onPress={() => { setReqDateFrom(''); setReqDateTo(''); }} style={{ alignSelf: 'flex-end', paddingVertical: spacing.sm, paddingHorizontal: spacing.sm }}>
+            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
       {(() => {
-        const filteredReqs = filterStatus === 'todos' ? reqs
-          : filterStatus === 'sin_precio' ? reqs.filter(faltaPrecioDe)
-          : reqs.filter((r) => r.status === filterStatus);
+        const nq = norm(listQuery);
+        const filteredReqs = reqs
+          .filter((r) => filterStatus === 'todos' ? true : filterStatus === 'sin_precio' ? faltaPrecioDe(r) : r.status === filterStatus)
+          .filter((r) => !reqDateFrom || r.created_at.slice(0, 10) >= reqDateFrom)
+          .filter((r) => !reqDateTo || r.created_at.slice(0, 10) <= reqDateTo)
+          .filter((r) => {
+            if (!nq) return true;
+            const haystack = [r.code, r.title, r.note, r.requested_by_name, r.decided_by_name, companyName(r.company_id), ...r.items.map((it) => it.name)]
+              .filter(Boolean).join(' ');
+            return norm(haystack).includes(nq);
+          });
+        const allSel = filteredReqs.length > 0 && filteredReqs.every((r) => reqSelIds.has(r.id));
+        const pdfMultiple = async () => {
+          const base = reqSelIds.size ? filteredReqs.filter((r) => reqSelIds.has(r.id)) : filteredReqs;
+          if (base.length === 0) return;
+          try {
+            await exportPdf(requerimientosBulkHtml(base.map((r) => ({
+              code: r.code, fecha: dmyOf(r.created_at), title: r.title, note: r.note,
+              company: companyName(r.company_id), requestedBy: r.requested_by_name, statusLabel: REQ_STATUS[r.status]?.short ?? r.status, rate,
+              approved: r.status === 'aprobado', decidedBy: r.decided_by_name,
+              items: r.items.map((it) => ({ name: it.name, unit: it.unit, qty: it.qty, est_price: it.est_price, currency: it.currency, isNew: !it.product_id })),
+            }))), `Requerimientos ${dmyOf(new Date().toISOString())}`);
+          } catch (e: any) { toast.error('No se pudo generar el PDF: ' + (e?.message ?? e)); }
+        };
         return filteredReqs.length === 0 ? (
-        <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'No hay requerimientos con ese estatus.'} />
-      ) : filteredReqs.map((r) => {
+        <EmptyState title="Sin requerimientos" subtitle={filterStatus === 'todos' && !listQuery && !reqDateFrom && !reqDateTo ? 'Crea uno con ➕ Nuevo para pasárselo al jefe.' : 'Ningún requerimiento coincide con el filtro/búsqueda.'} />
+      ) : (
+        <>
+          {/* Selección para el PDF por lote: "Seleccionar todos" marca los VISIBLES (ya
+              filtrados/buscados); el botón exporta solo los marcados, o todos los
+              filtrados si no hay ninguno marcado. */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap', gap: spacing.xs }}>
+            <TouchableOpacity onPress={() => setReqSelIds(allSel ? new Set() : new Set(filteredReqs.map((r) => r.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.primary : colors.border, backgroundColor: allSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                {allSel ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+              </View>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({filteredReqs.length})</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={pdfMultiple} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📥 PDF{reqSelIds.size ? ` (${reqSelIds.size})` : ` (${filteredReqs.length})`}</Text>
+            </TouchableOpacity>
+          </View>
+          {filteredReqs.map((r) => {
+            const rSel = reqSelIds.has(r.id);
+            return (
+            <View key={r.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs }}>
+              <TouchableOpacity onPress={() => toggleReqSel(r.id)} style={{ paddingTop: spacing.md }}>
+                <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: rSel ? colors.primary : colors.border, backgroundColor: rSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {rSel ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                </View>
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+              {(() => {
         const st = REQ_STATUS[r.status] ?? REQ_STATUS.pendiente;
         const tUsd = totalUsdDe(r);
         const faltaPrecio = faltaPrecioDe(r);
@@ -1850,7 +1930,13 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
             }
           />
         );
-      });
+      })()}
+              </View>
+            </View>
+            );
+          })}
+        </>
+      );
       })()}
 
       {/* ── Crear requerimiento ── */}
