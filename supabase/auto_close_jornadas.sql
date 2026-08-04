@@ -1,9 +1,12 @@
 -- ============================================================================
--- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — VERSIÓN CORREGIDA (2026-08-02):
---   • Jornada de DÍA  cierra a las 7:00pm — EXCEPTO VOLTEO/TORONTO/VOLQUETAS
---     (esos usan el flujo de patio de camiones de día).
---   • Jornada de NOCHE cierra a las 7:00am (del día siguiente) — TODAS las máquinas,
---     incluidos VOLTEO/TORONTO/VOLQUETAS (petición: cerrar TODO lo de noche a las 7am).
+-- AUTO-CIERRE de jornadas (hora Caracas, UTC-4) — ACTUALIZADO 2026-08-04:
+--   • CAMIÓN (volteo/toronto/volqueta) → cierra a la 1:00am.
+--       - turno DÍA  → 12h día + 6h noche = 18h.
+--       - turno NOCHE → 6h noche.
+--   • DÍA   (no camión) → cierra a las 7:00pm (horas reales).
+--   • NOCHE (no camión) → cierra a las 7:00am del día siguiente (horas reales).
+--   Candado: SOLO cierra si la hora de fin es 1, 7 o 19 (Caracas) → nunca medianoche.
+--   Guarda de recencia: no auto-cierra jornadas cuyo fin fue hace +2 días (debris → manual).
 -- Corre CADA 10 MIN con pg_cron.
 --
 -- FIX vs la versión anterior (que "perdía horas"): ahora SOLO cierra la jornada si
@@ -28,37 +31,51 @@ begin
   loop
     es_camion := lower(coalesce(r.code, '')) ~ 'volteo|toronto|volqueta';
     -- Fin del turno (hora Caracas):
-    --   • DÍA (no camión) → 7pm del round_date.
-    --   • NOCHE camión (volteo/toronto/volqueta) → 1:00am (trabajan 6h de noche: 7pm+6h).
-    --   • NOCHE resto → 7:00am del día siguiente.
-    if r.jornada_shift = 'night' then
-      if es_camion then
-        end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';  -- camión noche → 1am (6h)
-      else
-        end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';  -- noche → 7am
-      end if;
+    --   • CAMIÓN (volteo/toronto/volqueta), día o noche → 1:00am. El de DÍA trabaja
+    --     12h día + 6h noche (hasta la 1am) = 18h; el de NOCHE, 6h.
+    --   • NOCHE (no camión) → 7:00am del día siguiente.
+    --   • DÍA   (no camión) → 7:00pm del round_date.
+    if es_camion then
+      end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';   -- camión → 1am
+    elsif r.jornada_shift = 'night' then
+      end_ts := ((r.round_date + 1) + time '07:00') at time zone 'America/Caracas';    -- noche → 7am
     else
-      -- DÍA: los camiones NO se autocierran aquí (usan el flujo de patio de camiones).
-      if es_camion then continue; end if;
-      end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
+      end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';           -- día → 7pm
     end if;
     -- BLINDAJE: solo se cierra en las horas de fin de turno VÁLIDAS (Caracas):
-    -- 01:00 (camión de noche, 6h), 07:00 (noche) o 19:00 (día). Aunque alguien edite mal
-    -- `end_ts`, si su hora no es 1, 7 ni 19 se salta la jornada → JAMÁS a medianoche/12 ni al mediodía.
+    -- 01:00 (camión), 07:00 (noche) o 19:00 (día). Aunque alguien edite mal `end_ts`,
+    -- si su hora no es 1, 7 ni 19 se salta → JAMÁS a medianoche/12 ni al mediodía.
     if extract(hour from (end_ts at time zone 'America/Caracas')) not in (1, 7, 19) then
+      continue;
+    end if;
+    -- No RESUCITAR jornadas viejas: si su fin fue hace más de 2 días, quedó abierta por
+    -- error ("debris") → se deja para cierre manual; NO se auto-cierra con horas fijas
+    -- retroactivas (evita inflar días pasados de camiones ya cerrados/facturados).
+    if now() - end_ts > interval '2 days' then
       continue;
     end if;
     -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
     -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
     if now() >= end_ts and r.jornada_start_at < end_ts then
       hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
-      if r.jornada_shift = 'night' then
-        -- Camión de noche: 6h FIJAS (trabaja 6h). Resto: horas reales hasta las 7am.
+      if es_camion then
+        -- CAMIÓN: horas FIJAS. Día = 12h día + 6h noche (18h). Noche = 6h.
+        if r.jornada_shift = 'night' then
+          update public.machine_rounds
+            set night_hours = 6, jornada_start_at = null, status = 'operativa'
+            where id = r.id;
+        else
+          update public.machine_rounds
+            set day_hours = 12, night_hours = 6, jornada_start_at = null, status = 'operativa'
+            where id = r.id;
+        end if;
+      elsif r.jornada_shift = 'night' then
+        -- NOCHE (no camión): horas reales hasta las 7am (se SUMAN, nunca se pisan).
         update public.machine_rounds
-          set night_hours = case when es_camion then 6 else coalesce(night_hours, 0) + hrs end,
-              jornada_start_at = null, status = 'operativa'
+          set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
       else
+        -- DÍA (no camión): horas reales hasta las 7pm.
         update public.machine_rounds
           set day_hours = coalesce(day_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
