@@ -1359,8 +1359,13 @@ ni pisar nada anterior. Se ve desde el botón "🕒 Ver tramos" en Control de Ma
 - **Sin SQL pendiente** — Nómina "Por período": el cliente pidió, además del badge "Desincorporado"
   agregado antes, poder filtrar esa misma lista — ahora hay un buscador por nombre y los mismos 3
   chips de "Por persona" (Activos/Todos/Inactivos-Desincorporados) en el detalle del período,
-  combinables con el filtro de cargo que ya existía. No afecta el Excel/PDF del período (siguen
-  exportando todo, no lo filtrado en pantalla).
+  combinables con el filtro de cargo que ya existía.
+- **Sin SQL pendiente** — Nómina "Por período" (ampliación el mismo día): cada persona tiene un
+  checkbox y hay un botón "Seleccionar todos" que marca a los que están visibles según el filtro
+  activo (p. ej. filtrar a "Inactivos/Desincorporados" y seleccionarlos todos). El botón Excel
+  exporta SOLO a los seleccionados si hay alguno marcado; si no hay ninguno, exporta todos
+  (respetando el filtro de cargo, como siempre). El PDF del período no cambió, sigue exportando
+  todo.
 - **Sigue sin hacer, a propósito:** el aumento de fuente de metadatos (10–11px → 12–13px) del
   diagnóstico original — es un cambio transversal a toda la app, alto riesgo de romper
   layouts ajustados y no se puede verificar sin QA visual real; y las notificaciones push
