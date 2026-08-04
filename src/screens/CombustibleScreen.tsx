@@ -3,18 +3,22 @@ import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { TanksScreen, IntakesScreen, DispatchesScreen } from './modules';
-import TanksPilot from './TanksPilot'; // PILOTO rediseño (rama feature/rediseno-tanques)
-import AuthorizationsScreen from './AuthorizationsScreen';
+// Piloto de rediseño: versiones restilizadas (mismo comportamiento, look nuevo).
+// Las originales (modules / AuthorizationsScreen) siguen registradas como pantallas
+// sueltas en la navegación; aquí las pestañas de Combustible usan las restilizadas.
+import TanksPilot from './TanksPilot';
+import IntakesPilot from './redesign/IntakesPilot';
+import DispatchesPilot from './redesign/DispatchesPilot';
+import AuthorizationsPilot from './redesign/AuthorizationsPilot';
 
 // Un solo módulo "Combustible" que agrupa lo que antes eran secciones separadas.
 // Cada sub-pestaña respeta el permiso de su módulo (tanques/ingresos/consumos/
 // traslados/autorizaciones) y muestra la MISMA pantalla que ya existía.
 const TABS: { key: string; label: string; icon: string; Comp: React.ComponentType<any> }[] = [
   { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksPilot },
-  { key: 'ingresos', label: 'Ingresos', icon: '⬇️', Comp: IntakesScreen },
-  { key: 'consumos', label: 'Consumos', icon: '⛽', Comp: DispatchesScreen },
-  { key: 'autorizaciones', label: 'Solicitudes', icon: '✅', Comp: AuthorizationsScreen },
+  { key: 'ingresos', label: 'Ingresos', icon: '⬇️', Comp: IntakesPilot },
+  { key: 'consumos', label: 'Consumos', icon: '⛽', Comp: DispatchesPilot },
+  { key: 'autorizaciones', label: 'Solicitudes', icon: '✅', Comp: AuthorizationsPilot },
 ];
 
 export default function CombustibleScreen() {

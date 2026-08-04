@@ -148,6 +148,11 @@ export default function PagoPersonalScreen() {
   // Estado ACTUAL (no el que tenía al momento de incluirlo) de los empleados de este
   // período, para poder marcar en la lista a quien ya fue desincorporado. employee_id → status.
   const [itemEmployeeStatus, setItemEmployeeStatus] = useState<Map<string, string>>(new Map());
+  // Selección manual de renglones del período, para exportar SOLO esos al Excel (p. ej.
+  // filtrar a "Inactivos/Desincorporados" y seleccionarlos para un Excel aparte). Vacío =
+  // exporta todos (respetando el filtro de cargo, como ya hacía antes).
+  const [itemSelIds, setItemSelIds] = useState<Set<string>>(new Set());
+  const toggleItemSel = (id: string) => setItemSelIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const [pays, setPays] = useState<StaffPayPayment[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -221,7 +226,7 @@ export default function PagoPersonalScreen() {
     setItemEmployeeStatus(new Map((empStatus ?? []).map((e: any) => [e.id, e.status])));
     setItemsLoading(false);
   };
-  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setCargoSel(new Set()); setCargoOpen(false); loadDetail(p); };
+  const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));
@@ -550,12 +555,17 @@ export default function PagoPersonalScreen() {
 
   // ── Excel: pagos del período abierto ────────────────────────────────────────
   // Lista por PERSONA lo trabajado y lo PAGADO/adeudado (no tarifas del empleado,
-  // eso se ve en "Empleados"). Respeta el filtro de cargo activo. Los montos en Bs
-  // son fórmulas referenciando la tasa BCV del día (celda editable).
+  // eso se ve en "Empleados"). Los montos en Bs son fórmulas referenciando la tasa
+  // BCV del día (celda editable). Si hay renglones seleccionados a mano (checkbox),
+  // exporta SOLO esos (p. ej. filtrar a "Inactivos/Desincorporados" y seleccionarlos);
+  // si no hay ninguno seleccionado, exporta todos respetando el filtro de cargo (como
+  // ya hacía antes de agregar la selección).
   const exportarExcel = () => {
     if (!sel) return;
     if (Platform.OS !== 'web') { toast.info('La descarga de Excel se hace desde el navegador (versión web).'); return; }
-    const base = cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    const base = itemSelIds.size
+      ? items.filter((it) => itemSelIds.has(it.id))
+      : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
     const ok = exportPagoPersonalXlsx(
       base.map((it) => ({
         nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
@@ -568,7 +578,9 @@ export default function PagoPersonalScreen() {
         periodo: sel.name, tipo: TYPE_LABEL[sel.period_type], desde: fmtDMY(sel.date_from), hasta: fmtDMY(sel.date_to),
         modo: MODE_LABEL[sel.mode], estado: sel.status.charAt(0).toUpperCase() + sel.status.slice(1),
         empresa: companyName(sel.company_id),
-        cargoFiltro: cargoSel.size ? [...cargoSel].sort((a, b) => cmpText(a, b)).join(', ') : undefined,
+        cargoFiltro: itemSelIds.size
+          ? `selección manual de ${itemSelIds.size} persona(s)`
+          : cargoSel.size ? [...cargoSel].sort((a, b) => cmpText(a, b)).join(', ') : undefined,
       }
     );
     if (!ok) toast.error('No se pudo generar el Excel.');
@@ -843,7 +855,7 @@ export default function PagoPersonalScreen() {
                   </TouchableOpacity>
                 ) : null}
                 <TouchableOpacity onPress={exportarExcel} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel</Text>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#111827' }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
@@ -924,7 +936,27 @@ export default function PagoPersonalScreen() {
               ) : itemsShown.length === 0 ? (
                 <EmptyState title="Sin resultados" subtitle="Ningún empleado del período coincide con el cargo, la búsqueda o el estado filtrados." />
               ) : (
-                itemsShown.map((it) => {
+                <>
+                  {/* Selección manual (checkbox por persona) para exportar SOLO esos al
+                      Excel — "Seleccionar todos" marca los que están VISIBLES ahora mismo
+                      (respeta cargo/nombre/estado filtrados), no el período completo. */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs }}>
+                    <TouchableOpacity
+                      onPress={() => setItemSelIds((prev) => (itemsShown.every((it) => prev.has(it.id)) ? new Set() : new Set(itemsShown.map((it) => it.id))))}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                    >
+                      <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: itemsShown.every((it) => itemSelIds.has(it.id)) ? colors.primary : colors.border, backgroundColor: itemsShown.every((it) => itemSelIds.has(it.id)) ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {itemsShown.every((it) => itemSelIds.has(it.id)) ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                      </View>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todos ({itemsShown.length})</Text>
+                    </TouchableOpacity>
+                    {itemSelIds.size > 0 ? (
+                      <TouchableOpacity onPress={() => setItemSelIds(new Set())}>
+                        <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección ({itemSelIds.size})</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {itemsShown.map((it) => {
                   const pagado = paidOf(it.id); const saldo = saldoOf(it);
                   const abonos = pays.filter((p) => p.item_id === it.id);
                   // Estado ACTUAL del empleado (puede haber cambiado desde que se incluyó en
@@ -932,9 +964,15 @@ export default function PagoPersonalScreen() {
                   // no afecta el pago ya cargado).
                   const empStatusNow = it.employee_id ? itemEmployeeStatus.get(it.employee_id) : undefined;
                   const desincorporado = empStatusNow === 'inactivo' || empStatusNow === 'suspendido';
+                  const itSel = itemSelIds.has(it.id);
                   return (
                     <Card key={it.id}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <TouchableOpacity onPress={() => toggleItemSel(it.id)} style={{ paddingTop: 2, paddingRight: spacing.sm }}>
+                          <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: itSel ? colors.primary : colors.border, backgroundColor: itSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                            {itSel ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                          </View>
+                        </TouchableOpacity>
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{it.person_name}</Text>
@@ -985,7 +1023,8 @@ export default function PagoPersonalScreen() {
                       </View>
                     </Card>
                   );
-                })
+                  })}
+                </>
               )}
 
               {sel.status === 'borrador' ? (
