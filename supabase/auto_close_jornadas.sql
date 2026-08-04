@@ -36,6 +36,12 @@ begin
       if es_camion then continue; end if;
       end_ts := (r.round_date + time '19:00') at time zone 'America/Caracas';
     end if;
+    -- BLINDAJE: NUNCA cerrar fuera de las 07:00 (noche) o 19:00 (día) hora Caracas.
+    -- Aunque alguien edite mal `end_ts`, si su hora local no es 7 ni 19 se salta esta
+    -- jornada (jamás cierra a medianoche/12 ni al mediodía). El cierre manual va por otro lado.
+    if extract(hour from (end_ts at time zone 'America/Caracas')) not in (7, 19) then
+      continue;
+    end if;
     -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
     -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
     if now() >= end_ts and r.jornada_start_at < end_ts then
