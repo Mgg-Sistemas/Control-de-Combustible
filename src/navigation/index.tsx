@@ -356,7 +356,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, fullName, signOut } = useAuth();
+  const { session, configured, locked, role, appRole, fullName, signOut, loading } = useAuth();
   // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
   // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
   // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
@@ -460,6 +460,21 @@ export default function RootNavigator() {
   };
   // En modo demo (sin Supabase) o con sesión NO anónima, mostramos la app.
   const showApp = !configured || (!!session && !isAnon);
+  // ⏳ NO montar el navegador hasta que el auth resuelva (la sesión de Supabase se
+  // restaura de forma ASÍNCRONA) y, si hay sesión, hasta saber el ROL. Motivo: si
+  // <Tabs/> (u otro navegador por rol) monta DESPUÉS del contenedor, React
+  // Navigation ya no aplica `initialState` y se pierde la pantalla al recargar;
+  // peor aún, el primer `onStateChange` guarda el estado por defecto y PISA el que
+  // estaba. Con este gate, al terminar la carga el navegador CORRECTO es el primero
+  // en montar y `initialState` sí restaura la última pantalla. (Un QR sin sesión no
+  // dispara roleLoading, así que su pantalla de entrada aparece igual de rápido.)
+  if (loading || roleLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
   return (
     <NavigationContainer
       theme={navTheme}
