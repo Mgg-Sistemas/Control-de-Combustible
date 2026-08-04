@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '../components/ui';
+import { Screen, Card, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -828,7 +828,6 @@ export default function SupervisionScreen({ navigation }: any) {
       {/* El navegador de FECHA vive ARRIBA, dentro del dashboard (junto a las gráficas);
           esa misma fecha controla la lista de rondas de abajo. */}
       <InspectionsSummary date={date} onDateChange={setDate} />
-      <SectionTitle>🪖 Inspecciones — rondas del día · {date}</SectionTitle>
 
       <Card>
         {/* (El navegador de fecha y los resúmenes Día/Noche viven ahora en el dashboard
