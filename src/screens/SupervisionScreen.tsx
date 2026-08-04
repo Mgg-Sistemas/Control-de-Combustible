@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '../components/ui';
+import { Screen, Card, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -8,7 +8,6 @@ import { listVisits, VisitRow } from '../lib/supervisorVisits';
 import { listInspectorAssignments, assignInspector, unassignInspector, AssignmentRow, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { generateEstadoReport } from '../lib/inspectorEstadoReport';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { isVolteoVolqueta } from '../lib/equipos';
@@ -828,17 +827,13 @@ export default function SupervisionScreen({ navigation }: any) {
       {/* El navegador de FECHA vive ARRIBA, dentro del dashboard (junto a las gráficas);
           esa misma fecha controla la lista de rondas de abajo. */}
       <InspectionsSummary date={date} onDateChange={setDate} />
-      <SectionTitle>🪖 Inspecciones — rondas del día · {date}</SectionTitle>
 
       <Card>
-        {/* (El navegador de fecha y los resúmenes Día/Noche viven ahora en el dashboard
-            "RESUMEN DE INSPECCIONES" de arriba — se quitaron de aquí para no duplicar). */}
-        {/* 📄 Reporte de estado del día (4 secciones): iniciadas · pendientes · averiadas · finalizadas. */}
-        <TouchableOpacity onPress={() => generateEstadoReport({ date })} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📄 Reporte de estado (iniciadas · pendientes · averiadas · finalizadas)</Text>
-        </TouchableOpacity>
+        {/* (El navegador de fecha, los resúmenes Día/Noche y el reporte de estado del
+            día viven ahora en el dashboard "RESUMEN DE INSPECCIONES" de arriba. Los
+            reportes con firma son solo INDIVIDUALES, por inspector). */}
         {/* 📚 Histórico + 📱 Vista de inspector: DOS botones a media pantalla (fila). */}
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+        <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector</Text>
           </TouchableOpacity>

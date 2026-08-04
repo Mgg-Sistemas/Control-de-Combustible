@@ -109,14 +109,6 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors'], load);
 
-  // Iniciadas por día (según turno) para la gráfica de días.
-  const perDay = useMemo(() => {
-    const m = new Map<string, Set<string>>(); days.forEach((d) => m.set(d, new Set()));
-    rounds.forEach((r) => { if (startedForShift(r, shift)) m.get(r.round_date)?.add(r.machinery_id); });
-    return m;
-  }, [rounds, shift, days]);
-  const maxBar = Math.max(1, ...days.map((d) => perDay.get(d)?.size ?? 0));
-
   // Conjuntos de estado para el DÍA + TURNO elegidos.
   const daySets = useMemo(() => {
     // Iniciadas del día elegido, directo de las rondas (robusto aunque el día quede
@@ -269,23 +261,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ave)} />
           </View>
 
-          {/* Gráfica horizontal: iniciadas por día. */}
-          <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3 }}>
-            📊 MÁQUINAS INICIADAS POR DÍA · {shiftIcon} {shiftLbl}
+          {/* Barras de los TOTALES del día elegido (comparación visual por estado).
+              Tocar una barra abre la lista de esas máquinas. */}
+          <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.sm, letterSpacing: 0.3 }}>
+            📊 TOTALES DEL DÍA · {shortDate(selDay)} · {shiftIcon} {shiftLbl}
           </Text>
-          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Toca un día para sincronizar los datos y ver el desglose.</Text>
-          <View style={{ gap: 5 }}>
-            {[...days].reverse().map((d) => {
-              const n = perDay.get(d)?.size ?? 0;
-              const on = d === selDay;
+          <View style={{ gap: 8 }}>
+            {[
+              { label: '✅ Iniciadas', value: top.iniciadas, color: colors.tankFill, codes: topCodes.ini, title: `✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '⏳ Pendientes por iniciar', value: top.pendientes, color: colors.muted, codes: topCodes.pend, title: `⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '🟡 Paradas / no trabajó', value: top.paradas, color: colors.accent, codes: topCodes.par, title: `🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '🔴 Averiadas', value: top.averiadas, color: colors.danger, codes: topCodes.ave, title: `🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}` },
+            ].map((r) => {
+              const maxTotal = Math.max(1, top.iniciadas, top.pendientes, top.paradas, top.averiadas);
               return (
-                <TouchableOpacity key={d} onPress={() => { setSelDay(d); setSelInsp(null); }} activeOpacity={0.7}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-                    <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: on ? '900' : '600', fontSize: 12 }}>{shortDate(d)}{on ? '  ◀' : ''}</Text>
-                    <Text style={{ color: on ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{n}</Text>
+                <TouchableOpacity key={r.label} onPress={() => openList(r.title, r.codes)} activeOpacity={0.7}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{r.label} ›</Text>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{r.value}</Text>
                   </View>
-                  <View style={{ height: 12, backgroundColor: colors.tankTrack, borderRadius: radius.pill, overflow: 'hidden' }}>
-                    <View style={{ height: 12, width: `${Math.max(2, (n / maxBar) * 100)}%`, backgroundColor: on ? colors.accent : colors.tankFill, borderRadius: radius.pill }} />
+                  <View style={{ height: 16, backgroundColor: colors.tankTrack, borderRadius: radius.pill, overflow: 'hidden' }}>
+                    <View style={{ height: 16, width: `${Math.max(2, (r.value / maxTotal) * 100)}%`, backgroundColor: r.color, borderRadius: radius.pill }} />
                   </View>
                 </TouchableOpacity>
               );
