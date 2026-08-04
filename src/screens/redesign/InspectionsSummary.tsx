@@ -7,6 +7,7 @@ import { cmpText, norm } from '../../lib/text';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
+import { DateField } from '../../components/DateField';
 
 /**
  * RESUMEN DE INSPECCIONES (rediseño) — dashboard analítico, autocontenido.
@@ -47,14 +48,27 @@ const roundShift = (r: Round): 'day' | 'night' =>
     : ((Number(r.night_hours) || 0) > 0 && (Number(r.day_hours) || 0) === 0 ? 'night' : 'day');
 const startedForShift = (r: Round, sh: 'day' | 'night') => roundStarted(r) && roundShift(r) === sh;
 
-export default function InspectionsSummary() {
+export default function InspectionsSummary({ date, onDateChange }: { date?: string; onDateChange?: (d: string) => void } = {}) {
   const { colors } = useTheme();
   const [shift, setShift] = useState<'day' | 'night'>('day');
   const [rounds, setRounds] = useState<Round[]>([]);
   const [maint, setMaint] = useState<Maint[]>([]);
   const [assignments, setAssignments] = useState<Assign[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selDay, setSelDay] = useState(caracasToday());
+  // El día visible puede venir CONTROLADO por la pantalla padre (para compartir la
+  // misma fecha con la lista de rondas de abajo); si no, se maneja internamente.
+  const [internalDay, setInternalDay] = useState(caracasToday());
+  const selDay = date ?? internalDay;
+  const setSelDay = useCallback((d: string) => { if (onDateChange) onDateChange(d); else setInternalDay(d); }, [onDateChange]);
+  // Navegar ±1 día (sin pasar de hoy). Al cambiar el día se limpia el inspector abierto.
+  const shiftDay = (delta: number) => {
+    const d = new Date(selDay + 'T12:00:00');
+    d.setDate(d.getDate() + delta);
+    const iso = d.toISOString().slice(0, 10);
+    const today = caracasToday();
+    setSelDay(iso > today ? today : iso);
+    setSelInsp(null);
+  };
   const [inspQ, setInspQ] = useState('');
   const [selInsp, setSelInsp] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState<string | null>(null); // '' = general, o el nombre del inspector
@@ -78,8 +92,11 @@ export default function InspectionsSummary() {
   const fromDate = days[0];
 
   const load = useCallback(async () => {
+    // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
+    // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
+    const minDate = selDay < fromDate ? selDay : fromDate;
     const [roundsRows, maintRes, asg] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, machine:machinery_id(code)', (q) => q.gte('round_date', fromDate)),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
     ]);
@@ -87,7 +104,7 @@ export default function InspectionsSummary() {
     setMaint((maintRes.data ?? []) as any);
     setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
     setLoading(false);
-  }, [fromDate]);
+  }, [fromDate, selDay]);
 
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors'], load);
@@ -102,7 +119,10 @@ export default function InspectionsSummary() {
 
   // Conjuntos de estado para el DÍA + TURNO elegidos.
   const daySets = useMemo(() => {
-    const startedSet = perDay.get(selDay) ?? new Set<string>();
+    // Iniciadas del día elegido, directo de las rondas (robusto aunque el día quede
+    // fuera de la ventana de 14 días de la gráfica).
+    const startedSet = new Set<string>();
+    rounds.forEach((r) => { if (r.round_date === selDay && startedForShift(r, shift)) startedSet.add(r.machinery_id); });
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
     const averSet = new Set<string>();
@@ -118,7 +138,7 @@ export default function InspectionsSummary() {
     });
     const assignedShift = new Set(assignments.filter((a) => a.shift === shift).map((a) => a.machinery_id));
     return { startedSet, paradaSet, averSet, assignedShift };
-  }, [perDay, selDay, shift, maint, assignments]);
+  }, [rounds, selDay, shift, maint, assignments]);
 
   // KPIs del día (totales).
   const top = useMemo(() => {
@@ -227,6 +247,20 @@ export default function InspectionsSummary() {
         <View style={{ padding: spacing.xl, alignItems: 'center' }}><ActivityIndicator color={colors.brand} /></View>
       ) : (
         <View style={{ padding: spacing.md }}>
+          {/* Navegador de FECHA (arriba, junto a las gráficas). Controla los KPIs, las
+              barras y la lista de rondas de abajo (misma fecha en todo). */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
+            <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.background }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>◀</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <DateField value={selDay} onChange={(d) => { setSelDay(d); setSelInsp(null); }} maxISO={caracasToday()} />
+            </View>
+            <TouchableOpacity onPress={() => shiftDay(1)} disabled={selDay >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.background, opacity: selDay >= caracasToday() ? 0.4 : 1 }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>▶</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
             <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ini)} />

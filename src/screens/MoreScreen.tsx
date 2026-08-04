@@ -1,20 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Text, TouchableOpacity, View, Switch, Modal, ScrollView, Animated, Dimensions, Pressable } from 'react-native';
-import { Screen, Card, SectionTitle } from '../components/ui';
+import React, { useMemo } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
+import { Screen } from '../components/ui';
 import { cmpText } from '../lib/text';
 import { ConfigBanner } from '../components/ConfigBanner';
-import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
-import {
-  isBiometricSupported,
-  isBiometricEnabled,
-  enableBiometric,
-  disableBiometric,
-} from '../lib/biometric';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
-import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 const items: { label: string; route: string; desc: string; icon: string; module: string }[] = [
   { label: 'Control de Pagos', route: 'ControlPagos', desc: 'Cuentas por pagar por empresa y semana', icon: '💰', module: 'control_pagos' },
@@ -36,56 +27,12 @@ const items: { label: string; route: string; desc: string; icon: string; module:
 ];
 
 export default function MoreScreen({ navigation }: any) {
-  const { signOut, session, configured, role, canSee, canAudit } = useAuth();
-  const { colors, scheme, toggle } = useTheme();
-  const toast = useToast();
-  const [bioSupported, setBioSupported] = useState(false);
-  const [bioOn, setBioOn] = useState(false);
+  const { role, canSee, canAudit } = useAuth();
+  const { colors } = useTheme();
 
-  // Cajón (drawer) del menú: cerrado se ven solo los íconos en columna; al tocar
-  // "☰ MENÚ" se desliza el panel con los nombres completos. Animación con el
-  // Animated nativo de RN (sin reanimated/gesture-handler → no toca App.tsx).
-  const PANEL_W = Math.min(320, Math.round(Dimensions.get('window').width * 0.82));
-  const [drawerMounted, setDrawerMounted] = useState(false);
-  const anim = useRef(new Animated.Value(0)).current; // 0 = oculto, 1 = visible
-
-  const openDrawer = () => {
-    setDrawerMounted(true);
-    Animated.timing(anim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
-  };
-  const closeDrawer = () => {
-    Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }).start(({ finished }) => {
-      if (finished) setDrawerMounted(false);
-    });
-  };
-  const goTo = (route: string) => {
-    closeDrawer();
-    navigation.navigate(route);
-  };
-
-  useEffect(() => {
-    (async () => {
-      setBioSupported(await isBiometricSupported());
-      setBioOn(await isBiometricEnabled());
-    })();
-  }, []);
-
-  const toggleBio = async (value: boolean) => {
-    if (value) {
-      const ok = await enableBiometric();
-      if (!ok) {
-        toast.error('No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.');
-        return;
-      }
-    } else {
-      await disableBiometric();
-    }
-    setBioOn(value);
-  };
-
-  // Menú unificado en ORDEN ALFABÉTICO. Colapsable: por defecto se ven solo los
-  // íconos (compacto); al tocar "Ver nombres" se despliega cada módulo con su
-  // nombre y descripción completos.
+  // Menú unificado de módulos en ORDEN ALFABÉTICO (una fila por módulo). Las
+  // preferencias de cuenta/dispositivo (apariencia, seguridad, cerrar sesión)
+  // viven ahora en su propio módulo "Ajustes".
   const menu = useMemo(() => {
     const list: { label: string; route: string; desc: string; icon: string }[] = [];
     if (canSee('tanques') || canSee('ingresos') || canSee('consumos') || canSee('traslados')) {
@@ -95,6 +42,7 @@ export default function MoreScreen({ navigation }: any) {
     list.push({ label: 'Manual / Ayuda', route: 'Manual', desc: 'Guía paso a paso para usar el sistema, en lenguaje simple', icon: '📖' });
     if (role === 'admin') list.push({ label: 'Usuarios', route: 'Users', desc: 'Crear personas, ver conectados y asignar roles', icon: '👥' });
     if (canAudit) list.push({ label: 'Auditoría', route: 'Audit', desc: 'Quién crea, modifica o elimina cada cosa', icon: '🕵️' });
+    list.push({ label: 'Ajustes', route: 'Ajustes', desc: 'Apariencia (modo oscuro), seguridad (contraseña y huella) y cerrar sesión', icon: '⚙️' });
     return list.sort((a, b) => cmpText(a.label, b.label));
   }, [canSee, role, canAudit]);
 
@@ -102,21 +50,10 @@ export default function MoreScreen({ navigation }: any) {
     <Screen>
       <ConfigBanner />
 
-      {/* Encabezado del menú: al tocar "☰ MENÚ" se despliega el cajón con los
-          nombres completos. Cerrado, debajo se ven solo los íconos en columna. */}
-      <TouchableOpacity
-        onPress={openDrawer}
-        activeOpacity={0.7}
-        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, marginBottom: spacing.sm }}
-      >
-        <Text style={{ color: colors.brandContrast, fontSize: 18 }}>☰</Text>
-        <Text style={{ color: colors.brandContrast, fontSize: 14, fontWeight: '800', letterSpacing: 1.2, flex: 1 }}>MENÚ</Text>
-        <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 12, fontWeight: '700' }}>Ver todo ›</Text>
-      </TouchableOpacity>
-
-      {/* Columna de íconos (menú colapsado): cada ícono navega directo; el nombre
-          aparece pequeño debajo. En orden alfabético; Combustible destacado. */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+      {/* Menú: una fila por módulo (ícono + nombre + descripción + chevron), en
+          orden alfabético. Combustible va destacado (acento ámbar). */}
+      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: spacing.sm }}>MENÚ</Text>
+      <View style={{ gap: 4 }}>
         {menu.map((m) => {
           const feat = m.route === 'Combustible';
           return (
@@ -124,107 +61,19 @@ export default function MoreScreen({ navigation }: any) {
               key={m.route}
               onPress={() => navigation.navigate(m.route)}
               activeOpacity={0.7}
-              style={{ width: 76, alignItems: 'center', gap: 4, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: 1, borderColor: feat ? colors.accent : colors.border }}
+              style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: 1, borderColor: feat ? colors.accent : colors.border, overflow: 'hidden' }}
             >
-              <Text style={{ fontSize: 26 }}>{m.icon}</Text>
-              <Text numberOfLines={2} style={{ fontSize: 10.5, lineHeight: 13, textAlign: 'center', color: colors.muted, fontWeight: feat ? '800' : '600' }}>{m.label}</Text>
+              {feat ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
+              <Text style={{ fontSize: 24, width: 30, textAlign: 'center' }}>{m.icon}</Text>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
+                <Text numberOfLines={1} style={{ fontSize: 11.5, color: colors.muted, marginTop: 1 }}>{m.desc}</Text>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
             </TouchableOpacity>
           );
         })}
       </View>
-
-      <SectionTitle>Apariencia</SectionTitle>
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: spacing.md }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Modo oscuro</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {scheme === 'dark' ? 'Activado' : 'Desactivado'} · cambia el tema de la app
-            </Text>
-          </View>
-          <Switch value={scheme === 'dark'} onValueChange={toggle} />
-        </View>
-      </Card>
-
-      <SectionTitle>Seguridad</SectionTitle>
-      <View style={{ marginBottom: spacing.md }}>
-        <ChangePasswordButton variant="row" />
-      </View>
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: spacing.md }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Iniciar sesión con huella</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {bioSupported
-                ? 'Pide tu huella o Face ID al abrir la app.'
-                : 'Tu dispositivo no tiene huella o Face ID configurado.'}
-            </Text>
-          </View>
-          <Switch value={bioOn} onValueChange={toggleBio} disabled={!bioSupported} />
-        </View>
-      </Card>
-
-      <View style={{ height: spacing.lg }} />
-      {configured && session ? (
-        <TouchableOpacity onPress={signOut}>
-          <Card style={{ alignItems: 'center' }}>
-            <Text style={{ color: colors.danger, fontWeight: '700' }}>Cerrar sesión</Text>
-          </Card>
-        </TouchableOpacity>
-      ) : null}
-
-      {/* CAJÓN del menú: scrim + panel que se desliza desde la izquierda. */}
-      <Modal visible={drawerMounted} transparent animationType="none" onRequestClose={closeDrawer}>
-        <View style={{ flex: 1, flexDirection: 'row' }}>
-          {/* Scrim (fondo oscurecido): tocarlo cierra el cajón. */}
-          <Animated.View style={{ ...StyleSheetAbsoluteFill, opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] }) }}>
-            <Pressable onPress={closeDrawer} style={{ flex: 1, backgroundColor: '#000' }} />
-          </Animated.View>
-
-          {/* Panel deslizante con los nombres completos. */}
-          <Animated.View
-            style={{
-              width: PANEL_W,
-              height: '100%',
-              backgroundColor: colors.background,
-              borderRightWidth: 1,
-              borderRightColor: colors.border,
-              transform: [{ translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [-PANEL_W, 0] }) }],
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing.md, backgroundColor: colors.brand }}>
-              <Text style={{ color: colors.brandContrast, fontSize: 16, fontWeight: '900', letterSpacing: 1, flex: 1 }}>MENÚ</Text>
-              <TouchableOpacity onPress={closeDrawer} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Text style={{ color: colors.brandContrast, fontSize: 22, fontWeight: '700' }}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ paddingVertical: spacing.sm }}>
-              {menu.map((m) => {
-                const feat = m.route === 'Combustible';
-                return (
-                  <TouchableOpacity
-                    key={m.route}
-                    onPress={() => goTo(m.route)}
-                    activeOpacity={0.7}
-                    style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, backgroundColor: feat ? colors.surface : 'transparent', overflow: 'hidden' }}
-                  >
-                    {feat ? <View style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
-                    <Text style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{m.icon}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
-                      <Text numberOfLines={1} style={{ fontSize: 11.5, color: colors.muted, marginTop: 1 }}>{m.desc}</Text>
-                    </View>
-                    <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </Animated.View>
-        </View>
-      </Modal>
     </Screen>
   );
 }
-
-// Estilo absoluto reutilizado por el scrim del cajón.
-const StyleSheetAbsoluteFill = { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0 };
