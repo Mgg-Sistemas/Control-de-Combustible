@@ -9,7 +9,7 @@ import { elapsedSince } from '../lib/time';
 import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
-import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard } from '../types/database';
+import { Machinery, MachineRound, MachineDayOperator, ControlClosure, ClosureMachine, MachineGuard, MachineWorkSegment } from '../types/database';
 import { DateField } from '../components/DateField';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
@@ -232,6 +232,37 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     }, 400);
     return () => { cancel = true; clearTimeout(t); };
   }, [opCedula, opFor]);
+
+  // Visor de tramos (solo lectura): muestra el detalle auditable de machine_work_segments
+  // para la máquina + día elegidos, en paralelo a day_hours/night_hours (que no se tocan).
+  const [segmentsFor, setSegmentsFor] = useState<{ m: Machinery; d: string } | null>(null);
+  const [segmentsList, setSegmentsList] = useState<MachineWorkSegment[]>([]);
+  const [segmentsLoading, setSegmentsLoading] = useState(false);
+  const openSegments = async (m: Machinery, dISO: string) => {
+    setSegmentsFor({ m, d: dISO });
+    setSegmentsList([]);
+    setSegmentsLoading(true);
+    try {
+      const { data } = await supabase
+        .from('machine_work_segments')
+        .select('*')
+        .eq('machinery_id', m.id)
+        .eq('round_date', dISO)
+        .order('started_at');
+      setSegmentsList((data as MachineWorkSegment[]) ?? []);
+    } catch {
+      setSegmentsList([]);
+    } finally {
+      setSegmentsLoading(false);
+    }
+  };
+  const SEGMENT_SOURCE_LABEL: Record<MachineWorkSegment['source'], string> = {
+    manual_finish: '🏁 Cierre manual',
+    parada_averia: '🔧 Parada por avería',
+    parada_no_trabajo: '📍 Parada / no trabajó',
+    auto_close: '🤖 Cierre automático',
+    ajuste_manual: '✏️ Ajuste manual',
+  };
 
   // Bloque de días: arranca el lunes de la fecha elegida y muestra `dayCount` días
   // (por defecto 7, pero se pueden añadir 8, 10, … los que se necesiten).
@@ -503,6 +534,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     if (hoursInput[ik] !== undefined) patch.hours_stopped = Math.max(0, Number(hoursInput[ik].replace(',', '.')) || 0);
     if (overtimeInput[ik] !== undefined) patch.overtime_hours = Math.max(0, Number(overtimeInput[ik].replace(',', '.')) || 0);
     await upsertRound(m, dISO, patch);
+    // Log auditable EN PARALELO (no bloqueante): deja trazabilidad del ajuste manual
+    // sin alterar en nada el guardado de day_hours/night_hours de arriba.
+    if (hoursVal !== curTurno) {
+      const delta = Math.round((hoursVal - curTurno) * 100) / 100;
+      supabase.from('machine_work_segments').insert({
+        machinery_id: m.id, round_date: dISO, shift: which,
+        started_at: new Date().toISOString(), ended_at: new Date().toISOString(), hours: delta,
+        source: 'ajuste_manual', recorded_by: session?.user?.id ?? null,
+        notes: `Ajuste manual: ${curTurno}h → ${hoursVal}h`,
+      }).then(() => {}, () => {});
+    }
     // Al asignar un turno y si aún no hay operador de esa jornada, pedir sus datos.
     if (hoursVal > 0 && !hadOp) openOperator(m, dISO, which);
   };
@@ -1842,6 +1884,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           {b?.closed ? (
                             <Text style={{ color: colors.warning, fontSize: 10, fontWeight: '800' }}>🔒 cerrado</Text>
                           ) : null}
+                          <TouchableOpacity
+                            onPress={() => openSegments(m, dISO)}
+                            style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
+                          >
+                            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700' }}>🕒 Ver tramos</Text>
+                          </TouchableOpacity>
                         </View>
                         <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13 }}>{Math.round(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
@@ -2543,6 +2591,57 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             </>
           ) : null}
         </Screen>
+      </Modal>
+
+      {/* Visor de tramos (solo lectura): detalle auditable de machine_work_segments
+          para la máquina + día elegidos. No permite editar ni borrar nada — los
+          ajustes se siguen haciendo desde los campos de arriba. */}
+      <Modal visible={!!segmentsFor} transparent animationType="fade" onRequestClose={() => setSegmentsFor(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '80%' }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>
+              🕒 Tramos del día{segmentsFor ? ` · ${segmentsFor.m.code}` : ''}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+              {segmentsFor ? dayLabel(segmentsFor.d) : ''}
+            </Text>
+            {segmentsLoading ? (
+              <Loading />
+            ) : segmentsList.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.lg }}>
+                Sin tramos registrados para este día — el total mostrado arriba es el valor guardado directamente.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }}>
+                {segmentsList.map((s) => {
+                  const isAjuste = s.started_at === s.ended_at;
+                  const start = new Date(s.started_at);
+                  const end = new Date(s.ended_at);
+                  const fmtHM = (d: Date) => d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+                  const hoursTxt = `${s.hours > 0 ? '+' : ''}${s.hours} h`;
+                  return (
+                    <View key={s.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: spacing.sm, gap: 2 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
+                          {isAjuste ? 'Ajuste' : `${fmtHM(start)} → ${fmtHM(end)}`}
+                        </Text>
+                        <Text style={{ color: s.hours < 0 ? colors.danger : colors.success, fontWeight: '800', fontSize: 13 }}>{hoursTxt}</Text>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>{SEGMENT_SOURCE_LABEL[s.source] ?? s.source} · {s.shift === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
+                      {s.notes ? <Text style={{ color: colors.muted, fontSize: 11 }}>{s.notes}</Text> : null}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}
+              onPress={() => setSegmentsFor(null)}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </Screen>
   );

@@ -789,6 +789,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
+    // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
+    // romper el cierre de jornada si falla).
+    supabase.from('machine_work_segments').insert({
+      machinery_id: ci.id, round_date: roundDate, shift: jornadaShift,
+      started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
+      source: 'manual_finish', recorded_by: uid || null,
+    }).then(() => {}, () => {});
     reloadEstados();
     setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
   };
@@ -816,7 +823,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // INSPECCIONES y, si hay una jornada ABIERTA, primero BANCA las horas ya
   // trabajadas para que NO se pierdan (ej.: inició 7am, parada 9am → se guardan
   // esas 2h). Luego, al reiniciar y finalizar, se suma sobre lo bancado.
-  const registrarParadaBase = async (): Promise<boolean> => {
+  const registrarParadaBase = async (source: 'parada_averia' | 'parada_no_trabajo'): Promise<boolean> => {
     if (!ci) return false;
     const vis = await registrarVisita('parada');
     if (!vis) return false;
@@ -827,6 +834,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const base = Number((prevRound as any)?.[key] ?? 0);
       const total = Math.round((base + horas) * 100) / 100;
       await upsertMachineRound(ci.id, today, { [key]: total, jornada_start_at: null }, uid || null);
+      // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
+      // romper el registro de la parada si falla).
+      supabase.from('machine_work_segments').insert({
+        machinery_id: ci.id, round_date: today, shift: jornadaShift,
+        started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
+        source, recorded_by: uid || null,
+      }).then(() => {}, () => {});
       setJornadaStart(null);
       setCurRoundHours((h) => ({ ...h, [jornadaShift === 'night' ? 'night' : 'day']: total }));
     }
@@ -842,7 +856,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!paMaterial) { setNotice('⚠️ Elige el material que necesita la máquina.'); return; }
     if (paMaterial === 'otro' && !ciMotivo.trim()) { setNotice('⚠️ Describe la falla para registrar "Otro".'); return; }
     setCiSaving(true); setNotice(null);
-    const ok = await registrarParadaBase();
+    const ok = await registrarParadaBase('parada_averia');
     if (!ok) { setCiSaving(false); return; }
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('maintenance_requests').insert({
@@ -870,7 +884,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || ciSaving) return;
     if (!ntCoords) { setNotice('⚠️ Captura la ubicación GPS antes de confirmar.'); return; }
     setCiSaving(true); setNotice(null);
-    const ok = await registrarParadaBase();
+    const ok = await registrarParadaBase('parada_no_trabajo');
     if (!ok) { setCiSaving(false); return; }
     const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
     const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'} · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}`;

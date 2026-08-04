@@ -685,6 +685,23 @@ export interface MachineRound {
   created_at: string;
 }
 
+/** Historial AUDITABLE de cada tramo de trabajo de una máquina (hora de inicio /
+ *  hora de parada), EN PARALELO a day_hours/night_hours de MachineRound (que no
+ *  se toca). Solo agrega trazabilidad fila-por-tramo. */
+export interface MachineWorkSegment {
+  id: string;
+  machinery_id: string;
+  round_date: string;
+  shift: 'day' | 'night';
+  started_at: string;
+  ended_at: string;
+  hours: number;
+  source: 'manual_finish' | 'parada_averia' | 'parada_no_trabajo' | 'auto_close' | 'ajuste_manual';
+  recorded_by: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 /** Asignación de una máquina a un operador en un día (módulo OPERADORES).
  *  Regla: 1 máquina por operador por día (único por cédula + fecha). En una
  *  semana un operador sí puede tener varias máquinas, pero no en el mismo día. */

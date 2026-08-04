@@ -21,7 +21,7 @@ language plpgsql security definer set search_path = public as $$
 declare r record; end_ts timestamptz; hrs numeric; es_camion boolean;
 begin
   for r in
-    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mch.code
+    select mr.id, mr.round_date, mr.jornada_start_at, mr.jornada_shift, mch.code, mr.machinery_id
     from public.machine_rounds mr
     join public.machinery mch on mch.id = mr.machinery_id
     where mr.jornada_start_at is not null
@@ -55,6 +55,8 @@ begin
           set day_hours = coalesce(day_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
       end if;
+      insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
+        values (r.machinery_id, r.round_date, r.jornada_shift, r.jornada_start_at, end_ts, hrs, 'auto_close');
     end if;
   end loop;
 end $$;
