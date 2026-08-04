@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 // Piloto de rediseño: versiones restilizadas (mismo comportamiento, look nuevo).
 // Las originales (modules / AuthorizationsScreen) siguen registradas como pantallas
 // sueltas en la navegación; aquí las pestañas de Combustible usan las restilizadas.
-import TanksPilot from './TanksPilot';
+import TanksShowcase from './redesign/TanksShowcase'; // SHOWCASE plantilla (fuentes + KPIs + tarjetas firma)
 import IntakesPilot from './redesign/IntakesPilot';
 import DispatchesPilot from './redesign/DispatchesPilot';
 import AuthorizationsPilot from './redesign/AuthorizationsPilot';
@@ -15,7 +15,7 @@ import AuthorizationsPilot from './redesign/AuthorizationsPilot';
 // Cada sub-pestaña respeta el permiso de su módulo (tanques/ingresos/consumos/
 // traslados/autorizaciones) y muestra la MISMA pantalla que ya existía.
 const TABS: { key: string; label: string; icon: string; Comp: React.ComponentType<any> }[] = [
-  { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksPilot },
+  { key: 'tanques', label: 'Tanques', icon: '🛢️', Comp: TanksShowcase },
   { key: 'ingresos', label: 'Ingresos', icon: '⬇️', Comp: IntakesPilot },
   { key: 'consumos', label: 'Consumos', icon: '⛽', Comp: DispatchesPilot },
   { key: 'autorizaciones', label: 'Solicitudes', icon: '✅', Comp: AuthorizationsPilot },
