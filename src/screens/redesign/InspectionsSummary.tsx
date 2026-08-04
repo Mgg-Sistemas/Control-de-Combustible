@@ -7,6 +7,7 @@ import { cmpText, norm } from '../../lib/text';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
+import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
 
 /**
@@ -29,15 +30,33 @@ function caracasToday(): string {
   return `${p.year}-${p.month}-${p.day}`;
 }
 const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
+// Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
+// el dashboard en el turno correcto (antes abría siempre en DÍA).
+function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
 // Turno de una PARADA por la hora (Caracas) en que se marcó: día 7-19, resto noche.
 const paradaShiftOf = (iso: string): 'day' | 'night' => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; };
 
 type Round = {
   machinery_id: string; round_date: string; day_hours: number | null; night_hours: number | null;
-  jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null; machine?: { code?: string } | null;
+  jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null;
+  horometro_inicial: number | null; horometro_final: number | null; machine?: { code?: string } | null;
 };
 type Maint = { machinery_id: string; material: string | null; created_at: string; machine?: { code?: string } | null };
 type Assign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; code: string };
+// Ficha del catálogo (machinery) por máquina — para el detalle del modal.
+type MachRow = {
+  id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
+  encargado: string | null; location: string | null; referencia: string | null; sector: string | null;
+  zona: string | null; tipo: string | null; clasificacion: string | null; machinery_type: string | null;
+  last_horometro: number | null; company?: { name?: string } | null;
+};
+type MInfo = {
+  id: string; code: string; plate: string | null; serial: string | null; identifier: string | null;
+  company: string | null; encargado: string | null; location: string | null; referencia: string | null;
+  sector: string | null; zona: string | null; tipo: string | null; clasificacion: string | null;
+  machinery_type: string | null; lastHoro: number | null;
+};
+type Estado = 'iniciada' | 'pendiente' | 'parada' | 'averiada';
 
 // ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Igual que SupervisionScreen.
 const roundStarted = (r: Round) => !!r.jornada_start_at || (Number(r.day_hours) || 0) > 0 || (Number(r.night_hours) || 0) > 0;
@@ -50,10 +69,12 @@ const startedForShift = (r: Round, sh: 'day' | 'night') => roundStarted(r) && ro
 
 export default function InspectionsSummary({ date, onDateChange }: { date?: string; onDateChange?: (d: string) => void } = {}) {
   const { colors } = useTheme();
-  const [shift, setShift] = useState<'day' | 'night'>('day');
+  const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [maint, setMaint] = useState<Maint[]>([]);
   const [assignments, setAssignments] = useState<Assign[]>([]);
+  const [machList, setMachList] = useState<MachRow[]>([]);       // ficha del catálogo por máquina
+  const [fuelDay, setFuelDay] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en selDay
   const [loading, setLoading] = useState(true);
   // El día visible puede venir CONTROLADO por la pantalla padre (para compartir la
   // misma fecha con la lista de rondas de abajo); si no, se maneja internamente.
@@ -95,14 +116,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
-    const [roundsRows, maintRes, asg] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
+    const [roundsRows, maintRes, asg, machRows] = await Promise.all([
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
+      // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, company:company_id(name)'),
     ]);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRes.data ?? []) as any);
     setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
+    setMachList((machRows ?? []) as any);
+    // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
+    loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
     setLoading(false);
   }, [fromDate, selDay]);
 
@@ -148,25 +174,89 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return m;
   }, [assignments, rounds, maint]);
 
-  // Códigos de máquina por estado (para la lista al tocar una KPI de arriba).
-  const topCodes = useMemo(() => {
+  // Ficha COMPLETA por máquina (placa, serial, ubicación, empresa, encargado…).
+  const machineInfo = useMemo(() => {
+    const map = new Map<string, MInfo>();
+    machList.forEach((m) => {
+      map.set(m.id, {
+        id: m.id,
+        code: m.code ?? codeById.get(m.id) ?? '—',
+        plate: m.plate ?? null,
+        serial: m.serial ?? null,
+        identifier: m.identifier ?? null,
+        company: m.company?.name ?? null,
+        encargado: m.encargado ?? null,
+        location: m.location ?? null,
+        referencia: m.referencia ?? null,
+        sector: m.sector ?? null,
+        zona: m.zona ?? null,
+        tipo: m.tipo ?? null,
+        clasificacion: m.clasificacion ?? null,
+        machinery_type: m.machinery_type ?? null,
+        lastHoro: m.last_horometro != null ? Number(m.last_horometro) : null,
+      });
+    });
+    return map;
+  }, [machList, codeById]);
+
+  // Horas + horómetro del DÍA elegido por máquina (de las rondas de selDay).
+  const roundDetail = useMemo(() => {
+    const map = new Map<string, { dayH: number; nightH: number; horoIni: number | null; horoFin: number | null; shift: 'day' | 'night' }>();
+    rounds.forEach((r) => {
+      if (r.round_date !== selDay) return;
+      const cur = map.get(r.machinery_id) ?? { dayH: 0, nightH: 0, horoIni: null, horoFin: null, shift: roundShift(r) };
+      cur.dayH += Number(r.day_hours) || 0;
+      cur.nightH += Number(r.night_hours) || 0;
+      if (r.horometro_inicial != null) cur.horoIni = Number(r.horometro_inicial);
+      if (r.horometro_final != null) cur.horoFin = Number(r.horometro_final);
+      cur.shift = roundShift(r);
+      map.set(r.machinery_id, cur);
+    });
+    return map;
+  }, [rounds, selDay]);
+
+  // Estado (iniciada/averiada/parada/pendiente) de una máquina en selDay+turno.
+  // Misma prioridad que el desglose por inspector: iniciada > averiada > parada > pendiente.
+  const estadoOf = useCallback((id: string): Estado => {
+    const { startedSet, averSet, paradaSet } = daySets;
+    return startedSet.has(id) ? 'iniciada' : averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : 'pendiente';
+  }, [daySets]);
+
+  // IDs de máquina por estado (para la lista al tocar una KPI de arriba). Ordenados por código.
+  const cmpId = useCallback((a: string, b: string) => cmpText(codeById.get(a) || '', codeById.get(b) || ''), [codeById]);
+  const topIds = useMemo(() => {
     const { startedSet, paradaSet, averSet, assignedShift } = daySets;
-    const codeOf = (id: string) => codeById.get(id) || '—';
     const pendIds: string[] = [];
     assignedShift.forEach((id) => { if (!startedSet.has(id) && !paradaSet.has(id) && !averSet.has(id)) pendIds.push(id); });
-    const s = (ids: Iterable<string>) => [...ids].map(codeOf).sort(cmpText);
+    const s = (ids: Iterable<string>) => [...ids].sort(cmpId);
     return { ini: s(startedSet), pend: s(pendIds), par: s(paradaSet), ave: s(averSet) };
-  }, [daySets, codeById]);
+  }, [daySets, cmpId]);
 
-  // Modal de LISTA de máquinas de un estado (filtrable).
-  const [listModal, setListModal] = useState<{ title: string; codes: string[] } | null>(null);
+  // Modal de LISTA de máquinas de un estado (filtrable por TODAS sus características).
+  const [listModal, setListModal] = useState<{ title: string; ids: string[] } | null>(null);
   const [listQ, setListQ] = useState('');
-  const openList = (title: string, codes: string[]) => { setListQ(''); setListModal({ title, codes }); };
-  const listShown = useMemo(() => {
+  const [listExpanded, setListExpanded] = useState<string | null>(null);
+  const openList = (title: string, ids: string[]) => { setListQ(''); setListExpanded(null); setListModal({ title, ids }); };
+  // Filas enriquecidas del modal (código + estado + ficha + horas/litros del día).
+  const listRows = useMemo(() => {
     if (!listModal) return [];
+    return listModal.ids.map((id) => {
+      const info = machineInfo.get(id) ?? null;
+      const rd = roundDetail.get(id) ?? null;
+      const fuel = fuelDay[id] ?? null;
+      const worked = rd ? rd.dayH + rd.nightH : 0;
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id) };
+    });
+  }, [listModal, machineInfo, roundDetail, fuelDay, codeById, estadoOf]);
+  const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
-    return nq ? listModal.codes.filter((c) => norm(c).includes(nq)) : listModal.codes;
-  }, [listModal, listQ]);
+    if (!nq) return listRows;
+    return listRows.filter((r) => {
+      const i = r.info;
+      return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type]
+        .some((v) => norm(v).includes(nq));
+    });
+  }, [listRows, listQ]);
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
@@ -181,13 +271,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return [...byName.values()].map((e) => {
       const ini: string[] = [], pend: string[] = [], par: string[] = [], ave: string[] = [];
       e.ids.forEach((id) => {
-        const c = e.code.get(id) || '—';
-        if (startedSet.has(id)) ini.push(c);          // iniciada gana (trabajó)
-        else if (averSet.has(id)) ave.push(c);
-        else if (paradaSet.has(id)) par.push(c);
-        else pend.push(c);
+        if (startedSet.has(id)) ini.push(id);          // iniciada gana (trabajó)
+        else if (averSet.has(id)) ave.push(id);
+        else if (paradaSet.has(id)) par.push(id);
+        else pend.push(id);
       });
-      const s = (a: string[]) => a.sort(cmpText);
+      // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
+      const s = (a: string[]) => a.sort((x, y) => cmpText(e.code.get(x) || '', e.code.get(y) || ''));
       return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets]);
@@ -218,6 +308,23 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       </Comp>
     );
   };
+  // Etiqueta + color del estado para el pill del modal.
+  const estadoMeta = (e: Estado): { label: string; fg: string; bg: string } => {
+    switch (e) {
+      case 'iniciada': return { label: '✅ Iniciada', fg: colors.brandText, bg: colors.surfaceAlt };
+      case 'averiada': return { label: '🔴 Averiada', fg: colors.dangerSoftText, bg: colors.dangerSoftBg };
+      case 'parada': return { label: '🟡 Parada', fg: colors.accentSoftText, bg: colors.accentSoftBg };
+      default: return { label: '⏳ Pendiente', fg: colors.muted, bg: colors.surfaceAlt };
+    }
+  };
+  // Fila etiqueta/valor del detalle expandido de una máquina.
+  const detailRow = (label: string, value: React.ReactNode) => (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+      <Text style={{ color: colors.muted, fontSize: 11.5, flexShrink: 0 }}>{label}</Text>
+      <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', flex: 1, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{value}</Text>
+    </View>
+  );
+
   return (
     <View style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden', marginBottom: spacing.md }}>
       {/* Cabecera navy + switch de turno. */}
@@ -255,10 +362,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ini)} />
-            <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topCodes.pend)} />
-            <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topCodes.par)} />
-            <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topCodes.ave)} />
+            <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
+            <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topIds.pend)} />
+            <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topIds.par)} />
+            <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ave)} />
           </View>
 
           {/* Barras de los TOTALES del día elegido (comparación visual por estado).
@@ -268,14 +375,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </Text>
           <View style={{ gap: 8 }}>
             {[
-              { label: '✅ Iniciadas', value: top.iniciadas, color: colors.tankFill, codes: topCodes.ini, title: `✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}` },
-              { label: '⏳ Pendientes por iniciar', value: top.pendientes, color: colors.muted, codes: topCodes.pend, title: `⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}` },
-              { label: '🟡 Paradas / no trabajó', value: top.paradas, color: colors.accent, codes: topCodes.par, title: `🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}` },
-              { label: '🔴 Averiadas', value: top.averiadas, color: colors.danger, codes: topCodes.ave, title: `🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '✅ Iniciadas', value: top.iniciadas, color: colors.tankFill, ids: topIds.ini, title: `✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '⏳ Pendientes por iniciar', value: top.pendientes, color: colors.muted, ids: topIds.pend, title: `⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '🟡 Paradas / no trabajó', value: top.paradas, color: colors.accent, ids: topIds.par, title: `🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '🔴 Averiadas', value: top.averiadas, color: colors.danger, ids: topIds.ave, title: `🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}` },
             ].map((r) => {
               const maxTotal = Math.max(1, top.iniciadas, top.pendientes, top.paradas, top.averiadas);
               return (
-                <TouchableOpacity key={r.label} onPress={() => openList(r.title, r.codes)} activeOpacity={0.7}>
+                <TouchableOpacity key={r.label} onPress={() => openList(r.title, r.ids)} activeOpacity={0.7}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12.5 }}>{r.label} ›</Text>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{r.value}</Text>
@@ -344,26 +451,75 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         <Pressable onPress={() => setListModal(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, gap: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{listModal?.title} ({listModal?.codes.length ?? 0})</Text>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{listModal?.title} ({listModal?.ids.length ?? 0})</Text>
               <TouchableOpacity onPress={() => setListModal(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
               </TouchableOpacity>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
               <Text style={{ fontSize: 14 }}>🔎</Text>
-              <TextInput value={listQ} onChangeText={setListQ} placeholder="Filtrar máquina…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
+              <TextInput value={listQ} onChangeText={setListQ} placeholder="Filtrar: código, placa, serial, ubicación, empresa, encargado…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
               {listQ ? <TouchableOpacity onPress={() => setListQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
             </View>
-            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled">
               {listShown.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.lg }}>Sin máquinas.</Text>
               ) : (
-                listShown.map((c, i) => (
-                  <View key={`${c}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border }}>
-                    <Text style={{ color: colors.muted, fontSize: 12, width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{i + 1}</Text>
-                    <Text style={{ color: colors.text, fontSize: 13.5, fontWeight: '700', flex: 1 }}>{c}</Text>
-                  </View>
-                ))
+                listShown.map((r, i) => {
+                  const em = estadoMeta(r.estado);
+                  const info = r.info;
+                  const open = listExpanded === r.id;
+                  const lph = r.fuel ? lphOf(r.fuel.liters, r.worked) : null;
+                  const litros = r.fuel && r.fuel.liters > 0 ? `${litersLabel(r.fuel.liters)} L` : '—';
+                  const ubic = info?.referencia || info?.location || info?.sector || null;
+                  const turnoLbl = r.rd ? (r.rd.shift === 'night' ? '🌙 Noche' : '☀️ Día') : '—';
+                  return (
+                    <View key={`${r.id}-${i}`} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: 10 }}>
+                      <TouchableOpacity onPress={() => setListExpanded(open ? null : r.id)} activeOpacity={0.6} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                        <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{i + 1}</Text>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                            <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>{r.code}</Text>
+                            <View style={{ backgroundColor: em.bg, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                              <Text style={{ color: em.fg, fontSize: 10, fontWeight: '900' }}>{em.label}</Text>
+                            </View>
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={open ? undefined : 1}>
+                            {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                            ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
+                          </Text>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '800' }}>{open ? '▲' : '▼'}</Text>
+                      </TouchableOpacity>
+
+                      {open ? (
+                        <View style={{ marginTop: spacing.sm, marginLeft: 26 + spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                          {detailRow('Código', r.code)}
+                          {detailRow('Estado', em.label)}
+                          {detailRow('Empresa', info?.company || '—')}
+                          {detailRow('Placa', info?.plate || '—')}
+                          {detailRow('Serial', info?.serial || '—')}
+                          {detailRow('Identificador', info?.identifier || '—')}
+                          {detailRow('Ubicación / referencia', info?.referencia || '—')}
+                          {detailRow('Zona', info?.location || '—')}
+                          {detailRow('Sector', info?.sector || '—')}
+                          {detailRow('A disposición de', info?.zona || '—')}
+                          {detailRow('Encargado / operador', info?.encargado || '—')}
+                          {detailRow('Modelo', info?.tipo || '—')}
+                          {detailRow('Clasificación', info?.clasificacion || info?.machinery_type || '—')}
+                          {detailRow('Turno', turnoLbl)}
+                          {detailRow('Horas del día (día / noche)', r.rd ? `${r.rd.dayH} h / ${r.rd.nightH} h` : '—')}
+                          {detailRow('Total de horas', `${r.worked} h`)}
+                          {detailRow('Combustible del día', litros + (lph != null ? ` · ${lph} L/h` : ''))}
+                          {detailRow('Horómetro del día', r.rd ? `${r.rd.horoIni ?? '—'} → ${r.rd.horoFin ?? '—'}` : '—')}
+                          {detailRow('Último horómetro', info?.lastHoro != null ? String(info.lastHoro) : '—')}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })
               )}
             </ScrollView>
           </Pressable>
