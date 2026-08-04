@@ -95,6 +95,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const { session, signOut, role, canSee, appRole } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasToday();
+  // AYER (Caracas): una jornada de NOCHE cruza la medianoche (round_date = ayer). Sin
+  // esto, al pasar las 12 la vista solo miraba "hoy" y la jornada de noche desaparecía
+  // (parecía cerrada a medianoche). Se usa para rescatar la noche de ayer aún abierta.
+  const yesterday = useMemo(() => { const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 1); return caracasParts(d).iso; }, [today]);
   const consumedRef = useRef(false);
   // Solo los usuarios con permiso del módulo 'asistencia' pueden marcar la
   // asistencia del personal desde esta vista (botón + modal más abajo).
@@ -273,7 +277,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setIniShift(defShift);
     setIniTime(defShift === 'night' ? '19:00' : '07:00');
     (async () => {
-      const r = await getMachineRound(ci.id, today);
+      let r = await getMachineRound(ci.id, today);
+      // Si HOY no tiene jornada abierta, rescata la de NOCHE de AYER si sigue abierta
+      // (cruza la medianoche). Así, tras las 12, el inspector la ve "en curso" y puede
+      // finalizarla — no reaparece como "sin jornada" (falso cierre a medianoche).
+      if (!(r as any)?.jornada_start_at) {
+        const ry = await getMachineRound(ci.id, yesterday);
+        if ((ry as any)?.jornada_start_at && (ry as any)?.jornada_shift === 'night') r = ry;
+      }
       setCurRoundHours({ day: Number((r as any)?.day_hours) || 0, night: Number((r as any)?.night_hours) || 0 });
       const open = (r as any)?.jornada_start_at ?? null;
       setJornadaStart(open);
@@ -323,8 +334,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina para el círculo de color: rondas del día
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
-    const [{ data: rs }, { data: par }] = await Promise.all([
+    const [{ data: rs }, { data: rsNoche }, { data: par }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
+      // Jornadas de NOCHE de AYER aún ABIERTAS (cruzan la medianoche): sin esto el
+      // círculo 🟢 se apagaba al pasar las 12 (parecía cierre a medianoche en el tlf).
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -333,6 +347,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
       rmap[r.machinery_id] = { open: !!r.jornada_start_at, worked: (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) };
+    });
+    // La noche de ayer aún abierta cuenta como 🟢 trabajando (a menos que hoy ya tenga algo).
+    ((rsNoche ?? []) as any[]).forEach((r) => {
+      if (!rmap[r.machinery_id]?.open) rmap[r.machinery_id] = { open: true, worked: rmap[r.machinery_id]?.worked ?? 0 };
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -592,7 +610,31 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setPickShift(null);
   };
 
+  // ¿El usuario actual puede ESCANEAR/MARCAR esta máquina? Un inspector solo puede
+  // tocar máquinas asignadas a ÉL (día o noche) o SIN asignar; NO las de otro inspector.
+  // Admin y coordinadores (patio / QR), cualquiera.
+  const puedeMarcar = (m: Mach): boolean => {
+    const puedeCualquiera = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    if (puedeCualquiera) return true;
+    const slots = assignMap[m.id] || {};
+    const mia = slots.day?.id === uid || slots.night?.id === uid;
+    const deOtro = (!!slots.day?.id && slots.day.id !== uid) || (!!slots.night?.id && slots.night.id !== uid);
+    return mia || !deOtro; // mía (algún turno) o sin dueño → sí; de otro → no
+  };
+  const otroInspectorNombre = (m: Mach): string => {
+    const slots = assignMap[m.id] || {};
+    if (slots.day?.id && slots.day.id !== uid) return slots.day.name;
+    if (slots.night?.id && slots.night.id !== uid) return slots.night.name;
+    return 'OTRO inspector';
+  };
+
   const openCheckin = (m: Mach) => {
+    // Bloqueo: un inspector NO puede escanear/abrir/marcar la máquina de OTRO inspector.
+    if (!puedeMarcar(m)) {
+      setScanOpen(false);
+      setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector o un administrador).`);
+      return;
+    }
     setCi(m);
     setCiStatus('trabajando');
     setCiNote('');
