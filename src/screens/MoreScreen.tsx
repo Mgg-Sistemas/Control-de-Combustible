@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Text, TouchableOpacity, View, Switch, Modal, TextInput, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
+import { cmpText } from '../lib/text';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
@@ -50,6 +51,7 @@ export default function MoreScreen({ navigation }: any) {
   const toast = useToast();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
+  const [showNames, setShowNames] = useState(true); // menú: expandido (sidebar con nombres) por defecto ↔ colapsado (solo íconos)
 
   useEffect(() => {
     (async () => {
@@ -71,81 +73,77 @@ export default function MoreScreen({ navigation }: any) {
     setBioOn(value);
   };
 
+  // Menú unificado en ORDEN ALFABÉTICO. Colapsable: por defecto se ven solo los
+  // íconos (compacto); al tocar "Ver nombres" se despliega cada módulo con su
+  // nombre y descripción completos.
+  const menu = useMemo(() => {
+    const list: { label: string; route: string; desc: string; icon: string }[] = [];
+    if (canSee('tanques') || canSee('ingresos') || canSee('consumos') || canSee('traslados')) {
+      list.push({ label: 'Combustible', route: 'Combustible', desc: 'Tanques, ingresos, consumos y traslados — todo en un solo lugar', icon: '⛽' });
+    }
+    items.filter((it) => canSee(it.module)).forEach((it) => list.push({ label: it.label, route: it.route, desc: it.desc, icon: it.icon }));
+    list.push({ label: 'Manual / Ayuda', route: 'Manual', desc: 'Guía paso a paso para usar el sistema, en lenguaje simple', icon: '📖' });
+    if (role === 'admin') list.push({ label: 'Usuarios', route: 'Users', desc: 'Crear personas, ver conectados y asignar roles', icon: '👥' });
+    if (canAudit) list.push({ label: 'Auditoría', route: 'Audit', desc: 'Quién crea, modifica o elimina cada cosa', icon: '🕵️' });
+    return list.sort((a, b) => cmpText(a.label, b.label));
+  }, [canSee, role, canAudit]);
+
   return (
     <Screen>
       <ConfigBanner />
-      <SectionTitle>Más</SectionTitle>
 
-      {/* Combustible: un solo módulo (tanques + ingresos + consumos + traslados).
-          Visible si el usuario puede ver al menos una de sus sub-secciones. */}
-      {(canSee('tanques') || canSee('ingresos') || canSee('consumos') || canSee('traslados')) ? (
-        <TouchableOpacity onPress={() => navigation.navigate('Combustible')}>
-          <Card>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <IconBadge icon="⛽" />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Combustible</Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Tanques, ingresos, consumos y traslados — todo en un solo lugar</Text>
-              </View>
-            </View>
-          </Card>
+      {/* Encabezado de sección (tipo sidebar) + toggle colapsar/expandir. */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5 }}>MENÚ</Text>
+        <TouchableOpacity
+          onPress={() => setShowNames((v) => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>
+            {showNames ? '⊟ Solo íconos' : '☰ Ver nombres'}
+          </Text>
         </TouchableOpacity>
-      ) : null}
+      </View>
 
-      {items.filter((it) => canSee(it.module)).map((it) => (
-        <TouchableOpacity key={it.route} onPress={() => navigation.navigate(it.route)}>
-          <Card>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <IconBadge icon={it.icon} />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>{it.label}</Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>{it.desc}</Text>
-              </View>
-            </View>
-          </Card>
-        </TouchableOpacity>
-      ))}
-
-      {/* Manual / Ayuda: visible para todos, sin permiso especial. */}
-      <TouchableOpacity onPress={() => navigation.navigate('Manual')}>
+      {showNames ? (
+        // EXPANDIDO (sidebar): fila por módulo con ícono + nombre + chevron.
+        // El módulo Combustible va destacado (acento ámbar) por ser el eje del sistema.
+        <View style={{ gap: 3 }}>
+          {menu.map((m) => {
+            const feat = m.route === 'Combustible';
+            return (
+              <TouchableOpacity
+                key={m.route}
+                onPress={() => navigation.navigate(m.route)}
+                activeOpacity={0.7}
+                style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: feat ? 1 : 0, borderColor: feat ? colors.accent : 'transparent', overflow: 'hidden' }}
+              >
+                {feat ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
+                <Text style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{m.icon}</Text>
+                <Text numberOfLines={1} style={{ flex: 1, fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
+                <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : (
+        // COLAPSADO: solo íconos (rejilla compacta). Toca uno para entrar.
         <Card>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-            <IconBadge icon="📖" />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Manual / Ayuda</Text>
-              <Text style={{ color: colors.muted, fontSize: 13 }}>Guía paso a paso para usar el sistema, en lenguaje simple</Text>
-            </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'flex-start' }}>
+            {menu.map((m) => (
+              <TouchableOpacity
+                key={m.route}
+                onPress={() => navigation.navigate(m.route)}
+                accessibilityLabel={m.label}
+                style={{ width: 72, alignItems: 'center' }}
+              >
+                <IconBadge icon={m.icon} />
+                <Text numberOfLines={2} style={{ color: colors.muted, fontSize: 10, fontWeight: '600', textAlign: 'center', marginTop: 4 }}>{m.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </Card>
-      </TouchableOpacity>
-
-      {role === 'admin' ? (
-        <TouchableOpacity onPress={() => navigation.navigate('Users')}>
-          <Card>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <IconBadge icon="👥" />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Usuarios</Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Crear personas, ver conectados y asignar roles</Text>
-              </View>
-            </View>
-          </Card>
-        </TouchableOpacity>
-      ) : null}
-
-      {canAudit ? (
-        <TouchableOpacity onPress={() => navigation.navigate('Audit')}>
-          <Card>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
-              <IconBadge icon="🕵️" />
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>Auditoría</Text>
-                <Text style={{ color: colors.muted, fontSize: 13 }}>Quién crea, modifica o elimina cada cosa</Text>
-              </View>
-            </View>
-          </Card>
-        </TouchableOpacity>
-      ) : null}
+      )}
 
       <SectionTitle>Apariencia</SectionTitle>
       <Card>
