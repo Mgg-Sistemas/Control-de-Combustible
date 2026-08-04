@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Image, Linking } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
@@ -523,7 +523,7 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
     toast.success(`Se cargaron ${ok.length} producto(s).`);
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
@@ -1043,7 +1043,7 @@ function MovimientosTab() {
     await exportPdf(html, `Reporte de movimientos - ${hoyDmy()}`);
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
@@ -1250,7 +1250,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
     toast.success('Nota generada. La salida se descontó del inventario.');
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
@@ -1714,7 +1714,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
 
   const createTotalUsd = rows.reduce((s, x) => s + (x.currency === 'USD' ? parseNum(x.price) : usdFromBs(parseNum(x.price), rate || 0)) * parseNum(x.qty), 0);
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>
@@ -2270,7 +2270,7 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
     await exportPdf(html, `Traslados - ${dmy}`);
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   const recargar = () => { refetch(); refetchTr(); };
 
@@ -2590,7 +2590,7 @@ function GastosTab() {
     await exportPdf(html, `Gastos de inventario ${periodoLabel} - ${dmy}`);
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   const recargar = () => { refetch(); refetchItems(); };
 

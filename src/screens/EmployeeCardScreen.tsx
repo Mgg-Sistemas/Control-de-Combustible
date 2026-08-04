@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
-import { Screen, Card, Loading } from '../components/ui';
+import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { supabase } from '../lib/supabase';
 import { Employee } from '../types/database';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
@@ -118,7 +118,7 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
     });
   };
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
   // Empleado eliminado → QR DESACTIVADO: solo el logo de la empresa (sin datos).
   if (!emp) return <QrInactive />;
 

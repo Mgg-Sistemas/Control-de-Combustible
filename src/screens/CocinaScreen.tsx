@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Image, Platform } from 'react-native';
-import { Screen, Card, SectionTitle, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, Loading, SkeletonList } from '../components/ui';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
@@ -253,7 +253,7 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
   };
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const totalHoy = todayList.reduce((a, d) => a + (Number(d.meals) || 0), 0);
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
+import { Screen, Card, SectionTitle, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { listFoodByDate } from '../lib/foodDistributions';
@@ -300,7 +300,7 @@ export default function ComidaScreen() {
     return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [rows]);
 
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const kpi = (label: string, value: React.ReactNode, color: string) => (
     <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>

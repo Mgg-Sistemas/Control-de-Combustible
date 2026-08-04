@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard, AccordionGroup, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { ListScreen } from '../components/ListScreen';
 import { supabase } from '../lib/supabase';
@@ -541,7 +541,7 @@ function ResumenTab() {
     </View>
   );
 
-  if (loading) return <Screen><Loading /></Screen>;
+  if (loading) return <Screen><SkeletonList /></Screen>;
 
   return (
     <Screen onRefresh={refetch} refreshing={loading}>

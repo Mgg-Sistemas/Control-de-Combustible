@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, ActivityIndicator } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
@@ -272,7 +272,7 @@ export default function AsistenciaCamionesScreen() {
     setNotice(`✅ Avería registrada · ${code}. Va a Mantenimiento.`);
   };
 
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const input = { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
   const actionBtn = (label: string, color: string, fr: PickFor) => (

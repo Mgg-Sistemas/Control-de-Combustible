@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
-import { Screen, Card, SectionTitle, Loading, EmptyState, Badge } from '../components/ui';
+import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BiometricToggle } from '../components/BiometricToggle';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -18,6 +18,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
+import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel } from '../lib/machineInspectors';
 import { logAudit } from '../lib/audit';
@@ -56,12 +57,11 @@ function elapsedLabel(startISO: string, nowMs: number): string {
 
 type Mach = Machinery & { companyName?: string; latitude?: number | null; longitude?: number | null };
 
-const STATUS_OPTS: { key: VisitStatus; label: string; icon: string; color: string }[] = [
-  { key: 'trabajando', label: 'Trabajando', icon: '🟢', color: '#1E9E4A' },
-  { key: 'parada', label: 'Parada', icon: '🟡', color: '#D9A200' },
-  { key: 'no_esta', label: 'No está', icon: '🔴', color: '#D22B2B' },
-];
-const statusLabel = (s: VisitStatus) => STATUS_OPTS.find((o) => o.key === s)?.label ?? s;
+// Estado de visita (trabajando/parada/no está): antes duplicado aquí con hex
+// propio, ahora tomado de src/lib/statusMeta.ts (mismo mapa que usa SupervisionScreen).
+const STATUS_OPTS: { key: VisitStatus; label: string; icon: string; color: string }[] =
+  (Object.keys(VISIT_STATUS_META) as VisitStatus[]).map((key) => ({ key, ...VISIT_STATUS_META[key] }));
+const statusLabel = (s: VisitStatus) => VISIT_STATUS_META[s]?.label ?? s;
 // Tono del Badge para el estatus del empleado (activo/inactivo/suspendido),
 // usado en la ficha de asistencia.
 const empStatusTone = (s: string): 'success' | 'warning' | 'danger' | 'muted' =>
@@ -1202,7 +1202,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
-  if (loading) return <Screen><ConfigBanner /><Loading /></Screen>;
+  if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   // ¿La referencia es un edificio legible? (descarta coordenadas / solo números).
   const edificioDe = (m: Mach): string | null => {

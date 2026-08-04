@@ -1117,12 +1117,12 @@ export default function ControlPagosScreen({ navigation }: any) {
 
       {/* Alerta de los lunes para admin/supervisor */}
       {showMondayAlert ? (
-        <Card style={{ backgroundColor: colors.warning, borderColor: colors.warning }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
+        <Card style={{ backgroundColor: colors.warningSoftBg, borderColor: colors.warningSoftBorder }}>
+          <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
             ⏰ Recordatorio de pagos (lunes)
           </Text>
           {outstandingByCompany.map(([c, amt]) => (
-            <Text key={c} style={{ color: '#fff', fontSize: 13 }}>
+            <Text key={c} style={{ color: colors.warningSoftText, fontSize: 13 }}>
               • Se le deben <Text style={{ fontWeight: '800' }}>${money(amt)}</Text> a {c}
             </Text>
           ))}

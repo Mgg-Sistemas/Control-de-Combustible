@@ -512,8 +512,8 @@ export default function MantenimientoMaquinariaScreen() {
                         </TouchableOpacity>
                       </View>
                     ) : (
-                      <TouchableOpacity onPress={() => openRepair(mac)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: '#B45309', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: '#B45309', fontWeight: '800', fontSize: 12 }}>🔧 Enviar a reparación</Text>
+                      <TouchableOpacity onPress={() => openRepair(mac)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔧 Enviar a reparación</Text>
                       </TouchableOpacity>
                     )}
                   </Card>
@@ -580,7 +580,7 @@ export default function MantenimientoMaquinariaScreen() {
           // Caso de cada equipo.
           const casoOf = (id: string, total: number): 'con' | 'sin_insp' | 'sin_averia' => (total > 0 ? (hasInsp(id) ? 'con' : 'sin_insp') : 'sin_averia');
           const CASO_BADGE: Record<string, { label: string; color: string }> = {
-            con: { label: '🔧🔍 Avería + inspección', color: '#B45309' },
+            con: { label: '🔧🔍 Avería + inspección', color: colors.warning },
             sin_insp: { label: '🔧 Avería sin inspección', color: colors.danger },
             sin_averia: { label: '🔍 Inspección sin avería', color: '#2563EB' },
           };
