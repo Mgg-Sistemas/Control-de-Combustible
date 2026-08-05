@@ -238,6 +238,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (startedForShift(r, 'day')) day.add(r.machinery_id);
       if (startedForShift(r, 'night')) night.add(r.machinery_id);
     });
+    // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche) — mismo rescate
+    // que en `daySets`, para que el panel no la muestre como "Pendiente" ni deje
+    // marcarla como tal por error mientras sigue trabajando hasta las 7am.
+    const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
+    const yesterdayIso = y.toISOString().slice(0, 10);
+    rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) night.add(r.machinery_id); });
     return { day, night };
   }, [rounds, selDay]);
   // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
@@ -312,21 +318,35 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const items = [...bulkSel].map((k) => { const [id, sh] = k.split('::'); return { id, shift: sh as 'day' | 'night' }; });
       const uid = session?.user?.id ?? null;
       const codeOf = (id: string) => assignments.find((a) => a.machinery_id === id)?.code || '—';
+      // Si es de turno NOCHE y la jornada abierta en realidad vive en la fila de
+      // AYER (cruzó la medianoche, ver `startedTodayByShift`), hay que operar sobre
+      // ESA fila — si actuáramos siempre sobre "hoy" crearíamos una fila nueva
+      // vacía y dejaríamos la jornada real de ayer abierta sin tocar.
+      const yD = new Date(selDay + 'T12:00:00-04:00'); yD.setUTCDate(yD.getUTCDate() - 1);
+      const yesterdayIso = yD.toISOString().slice(0, 10);
+      const roundDateFor = (id: string, sh: 'day' | 'night') => {
+        if (sh === 'night') {
+          const yRow = rounds.find((r) => r.machinery_id === id && r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at);
+          if (yRow) return yesterdayIso;
+        }
+        return selDay;
+      };
       if (action === 'start') {
         const nowIso = new Date().toISOString();
-        const rows = items.map((it) => ({ machinery_id: it.id, round_date: selDay, round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
+        const rows = items.map((it) => ({ machinery_id: it.id, round_date: roundDateFor(it.id, it.shift), round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
         await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
         await Promise.all(items.map((it) =>
           logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
         ));
       } else {
         for (const it of items) {
-          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === selDay);
+          const rd = roundDateFor(it.id, it.shift);
+          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === rd);
           const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
           const patch: Record<string, any> = it.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 };
           if (existing?.jornada_start_at && roundShift(existing) === it.shift) patch.jornada_start_at = null;
           await supabase.from('machine_rounds').upsert(
-            { machinery_id: it.id, round_date: selDay, round_no: 1, ...patch },
+            { machinery_id: it.id, round_date: rd, round_no: 1, ...patch },
             { onConflict: 'machinery_id,round_date,round_no' }
           );
           // Si ya tenía horas trabajadas, quedan a salvo en machine_work_segments
@@ -335,7 +355,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             const endedAt = new Date();
             const startedAt = new Date(endedAt.getTime() - prevHours * 3600_000);
             await supabase.from('machine_work_segments').insert({
-              machinery_id: it.id, round_date: selDay, shift: it.shift,
+              machinery_id: it.id, round_date: rd, shift: it.shift,
               started_at: startedAt.toISOString(), ended_at: endedAt.toISOString(), hours: prevHours,
               source: 'ajuste_manual', recorded_by: uid,
               notes: 'Marcado como Pendiente desde el panel de Inspecciones (admin) — horas previas conservadas aquí.',
@@ -357,6 +377,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // fuera de la ventana de 14 días de la gráfica).
     const startedSet = new Set<string>();
     rounds.forEach((r) => { if (r.round_date === selDay && startedForShift(r, shift)) startedSet.add(r.machinery_id); });
+    // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche, termina a las 7am):
+    // sin esto, al ver "hoy" recién pasada la medianoche esas máquinas parecían
+    // "pendientes" aunque siguen trabajando hasta las 7am. Mismo criterio que
+    // SupervisorScreen.tsx (rescata la noche de ayer aún abierta).
+    if (shift === 'night') {
+      const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
+      const yesterdayIso = y.toISOString().slice(0, 10);
+      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) startedSet.add(r.machinery_id); });
+    }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
     const averSet = new Set<string>();
