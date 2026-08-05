@@ -160,15 +160,27 @@ export async function generateSummaryReport(opts: { date: string }): Promise<boo
     </tr></thead><tbody>${rows}</tbody></table>`;
   };
 
-  const secciones = inspectores.map(([name, list]) => {
+  // Color según el % de eficiencia: verde 100%, ámbar 50-99%, rojo <50%.
+  const efiColor = (e: number): string => (e >= 100 ? '#1E9E4A' : e >= 50 ? '#D9A200' : '#D22B2B');
+
+  const inspectoresConEficiencia = inspectores.map(([name, list]) => {
     const iniciadas = list.filter((r) => r.enCurso || r.finalizada).length;
     const averiadas = list.filter((r) => r.parada).length;
     const pendientes = list.filter((r) => r.pendiente);
+    const chequeadas = list.length - pendientes.length;
+    const eficiencia = list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
+    return { name, list, iniciadas, averiadas, pendientes, chequeadas, eficiencia };
+  });
+
+  const secciones = inspectoresConEficiencia.map(({ name, list, iniciadas, averiadas, pendientes, eficiencia }) => {
+    const efiTxt = eficiencia === null ? '—' : `${eficiencia}%`;
+    const efiColorTxt = eficiencia === null ? '#6B7280' : efiColor(eficiencia);
     const resumen = `<p class="sum">
       <b>${list.length}</b> máquina(s) asignada(s) ·
       <b style="color:#1E9E4A">🟢 ${iniciadas} iniciada(s)</b> ·
       <b style="color:#D22B2B">🔴 ${averiadas} averiada(s)/parada(s)</b> ·
-      <b style="color:#D9A200">⏳ ${pendientes.length} sin iniciar</b>
+      <b style="color:#D9A200">⏳ ${pendientes.length} sin iniciar</b> ·
+      <b style="color:${efiColorTxt}">⚡ Eficiencia: ${efiTxt}</b>
     </p>`;
     const detalle = pendientes.length
       ? `<h4>⏳ Máquinas que faltaron por iniciar jornada</h4>${tablePendientes(pendientes)}`
@@ -176,9 +188,31 @@ export async function generateSummaryReport(opts: { date: string }): Promise<boo
     return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>${resumen}${detalle}`;
   }).join('');
 
+  // Tabla-resumen de eficiencia por inspector, ordenada de menor a mayor eficiencia
+  // (los más bajos primero, para que el jefe los identifique de un vistazo).
+  const efiRankeados = inspectoresConEficiencia.slice().sort((a, b) => (a.eficiencia ?? -1) - (b.eficiencia ?? -1));
+  const filasEficiencia = efiRankeados.map(({ name, list, chequeadas, pendientes, eficiencia }, i) => {
+    const efiTxt = eficiencia === null ? '—' : `${eficiencia}%`;
+    const efiColorTxt = eficiencia === null ? '#6B7280' : efiColor(eficiencia);
+    return `<tr>
+      <td>${i + 1}</td><td><b>${esc(name)}</b></td><td>${list.length}</td><td>${chequeadas}</td>
+      <td>${pendientes.length}</td>
+      <td style="background:${efiColorTxt};color:#fff;font-weight:700;text-align:center">${efiTxt}</td>
+    </tr>`;
+  }).join('');
+  const tablaEficiencia = `
+    <h3>⚡ Eficiencia por inspector</h3>
+    <p class="sum">100% = chequeó todas sus máquinas asignadas (trabajando, parada o con avería reportada). Menos de 100% = le quedaron máquinas sin chequear.</p>
+    <table class="efi"><thead><tr>
+      <th style="width:24px">Nº</th><th>Inspector</th><th>Asignadas</th><th>Chequeadas</th><th>Sin chequear</th><th>Eficiencia</th>
+    </tr></thead><tbody>${filasEficiencia || '<tr><td colspan="6">Sin inspectores para este día.</td></tr>'}</tbody></table>
+  `;
+
   const totalIni = all.filter((r) => r.enCurso || r.finalizada).length;
   const totalAver = all.filter((r) => r.parada).length;
   const totalPend = all.filter((r) => r.pendiente).length;
+  const eficienciasValidas = inspectoresConEficiencia.map((e) => e.eficiencia).filter((e): e is number => e !== null);
+  const eficienciaProm = eficienciasValidas.length ? Math.round(eficienciasValidas.reduce((a, b) => a + b, 0) / eficienciasValidas.length) : null;
 
   const extraCss = `
     h3{margin:18px 0 2px;font-size:14px;color:#1E3A5F;padding-bottom:4px;border-bottom:2px solid #1E3A5F}
@@ -189,14 +223,17 @@ export async function generateSummaryReport(opts: { date: string }): Promise<boo
     table.ir{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11px}
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
+    table.efi{width:100%;border-collapse:collapse;margin:4px 0 16px;font-size:11px}
+    table.efi th,table.efi td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
+    table.efi th{background:#1E3A5F;color:#fff}
   `;
 
-  const subtitle = `${fecha} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔴 ${totalAver} averiadas · ⏳ ${totalPend} sin iniciar`;
+  const subtitle = `${fecha} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔴 ${totalAver} averiadas · ⏳ ${totalPend} sin iniciar${eficienciaProm !== null ? ` · ⚡ eficiencia promedio ${eficienciaProm}%` : ''}`;
 
   const html = pdfDocument({
     title: 'REPORTE RESUMEN POR INSPECTOR',
     subtitle,
-    body: secciones || '<p class="none">Sin asignaciones para este día.</p>',
+    body: inspectores.length ? (tablaEficiencia + secciones) : '<p class="none">Sin asignaciones para este día.</p>',
     extraCss,
   });
   return await exportPdf(html, `Reporte - Resumen por inspector ${fecha}`);
