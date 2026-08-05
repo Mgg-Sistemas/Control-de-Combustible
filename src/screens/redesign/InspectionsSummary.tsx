@@ -4,6 +4,7 @@ import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
+import { useAuth } from '../../context/AuthContext';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
@@ -51,7 +52,7 @@ type MachRow = {
   id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
   encargado: string | null; location: string | null; referencia: string | null; sector: string | null;
   zona: string | null; tipo: string | null; clasificacion: string | null; machinery_type: string | null;
-  last_horometro: number | null; company?: { name?: string } | null;
+  last_horometro: number | null; operational: boolean | null; company?: { name?: string } | null;
 };
 type MInfo = {
   id: string; code: string; plate: string | null; serial: string | null; identifier: string | null;
@@ -70,8 +71,16 @@ const roundShift = (r: Round): 'day' | 'night' =>
     : ((Number(r.night_hours) || 0) > 0 && (Number(r.day_hours) || 0) === 0 ? 'night' : 'day');
 const startedForShift = (r: Round, sh: 'day' | 'night') => roundStarted(r) && roundShift(r) === sh;
 
+// Cuentas con permiso para el panel de "Activar/desactivar máquinas por supervisor"
+// (herramienta delicada: cambia el estado operativo real de la máquina). Solo
+// Angélica (C.I./usuario 27514385) y Anthony (usuario sistemas2), a pedido directo
+// del cliente 04/08/2026 — nadie más debe ver ni usar esta sección.
+const BULK_TOGGLE_USERNAMES = ['27514385', 'sistemas2'];
+const BULK_TOGGLE_CEDULAS = ['27514385'];
+
 export default function InspectionsSummary({ date, onDateChange }: { date?: string; onDateChange?: (d: string) => void } = {}) {
   const { colors } = useTheme();
+  const { session } = useAuth();
   const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [maint, setMaint] = useState<Maint[]>([]);
@@ -147,7 +156,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
-      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, company:company_id(name)'),
     ]);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRes.data ?? []) as any);
@@ -160,6 +169,70 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors'], load);
+
+  // ¿Esta cuenta puede ver el panel de activar/desactivar por supervisor? Se resuelve
+  // aparte (no viene en useAuth) para no tocar el contexto global por una excepción
+  // de 2 personas. Cierra por defecto (false) hasta confirmar.
+  const [bulkAllowed, setBulkAllowed] = useState(false);
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) { setBulkAllowed(false); return; }
+    let active = true;
+    supabase.from('profiles').select('cedula, username').eq('id', uid).single().then(({ data }) => {
+      if (!active) return;
+      const un = String((data as any)?.username ?? '').trim().toLowerCase();
+      const ci = String((data as any)?.cedula ?? '').trim();
+      setBulkAllowed(BULK_TOGGLE_USERNAMES.includes(un) || BULK_TOGGLE_CEDULAS.includes(ci));
+    });
+    return () => { active = false; };
+  }, [session?.user?.id]);
+
+  // Panel "Activar/desactivar máquinas por supervisor" (solo bulkAllowed).
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSel, setBulkSel] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const machOperational = useMemo(() => {
+    const m = new Map<string, boolean>();
+    machList.forEach((mm) => m.set(mm.id, (mm as any).operational !== false));
+    return m;
+  }, [machList]);
+  // Máquinas del turno elegido, agrupadas por su inspector/supervisor (mismas
+  // asignaciones que la gráfica "POR INSPECTOR"), con su estado operativo actual.
+  const bulkGroups = useMemo(() => {
+    const byName = new Map<string, { name: string; items: { id: string; code: string; operational: boolean }[] }>();
+    assignments.filter((a) => a.shift === shift).forEach((a) => {
+      const nm = a.inspector_name || '—';
+      const e = byName.get(nm) ?? { name: nm, items: [] };
+      e.items.push({ id: a.machinery_id, code: a.code || '—', operational: machOperational.get(a.machinery_id) ?? true });
+      byName.set(nm, e);
+    });
+    return [...byName.values()]
+      .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code)) }))
+      .sort((a, b) => cmpText(a.name, b.name));
+  }, [assignments, shift, machOperational]);
+  const bulkAllIds = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.id)), [bulkGroups]);
+  const toggleBulkOne = (id: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleBulkGroup = (ids: string[]) => setBulkSel((prev) => {
+    const allIn = ids.every((id) => prev.has(id));
+    const n = new Set(prev);
+    ids.forEach((id) => (allIn ? n.delete(id) : n.add(id)));
+    return n;
+  });
+  const toggleBulkAll = () => setBulkSel((prev) => (bulkAllIds.every((id) => prev.has(id)) ? new Set() : new Set(bulkAllIds)));
+  // Aplica el cambio de verdad: marca `machinery.operational` para las seleccionadas
+  // y refresca (misma acción que el botón ⛔ Inactiva / ✅ Operativa de Equipos, pero
+  // en bloque). No toca horas ni jornada — solo el estado operativo del catálogo.
+  const applyBulk = async (makeOperational: boolean) => {
+    if (bulkSel.size === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const ids = [...bulkSel];
+      const { error } = await supabase.from('machinery').update({ operational: makeOperational }).in('id', ids);
+      if (!error) { setBulkSel(new Set()); await load(); }
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   // Conjuntos de estado para el DÍA + TURNO elegidos.
   const daySets = useMemo(() => {
@@ -435,6 +508,77 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           <TouchableOpacity onPress={makePorAsignarReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Reporte de máquinas por asignar / por iniciar'}</Text>
           </TouchableOpacity>
+
+          {/* Panel "Activar/desactivar máquinas por supervisor" — SOLO visible para las
+              2 cuentas en BULK_TOGGLE_USERNAMES/CEDULAS (ver arriba). Cambia el estado
+              operativo real de la máquina (igual que ⛔ Inactiva / ✅ Operativa en
+              Equipos), en bloque, agrupado por inspector del turno elegido. */}
+          {bulkAllowed ? (
+            <View style={{ marginTop: spacing.md }}>
+              <TouchableOpacity onPress={() => setBulkOpen((o) => !o)} activeOpacity={0.85} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>🔧 Activar / desactivar máquinas por supervisor {bulkOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+              {bulkOpen ? (
+                <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+                    <TouchableOpacity onPress={toggleBulkAll} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : colors.border, backgroundColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                      </View>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas ({bulkAllIds.length})</Text>
+                    </TouchableOpacity>
+                    {bulkSel.size > 0 ? (
+                      <TouchableOpacity onPress={() => setBulkSel(new Set())}>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección ({bulkSel.size})</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {bulkGroups.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12.5, textAlign: 'center', paddingVertical: spacing.md }}>Sin máquinas asignadas en este turno.</Text>
+                  ) : (
+                    <ScrollView style={{ maxHeight: 360 }}>
+                      {bulkGroups.map((g) => {
+                        const ids = g.items.map((i) => i.id);
+                        const allIn = ids.length > 0 && ids.every((id) => bulkSel.has(id));
+                        return (
+                          <View key={g.name} style={{ marginBottom: spacing.sm }}>
+                            <TouchableOpacity onPress={() => toggleBulkGroup(ids)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                              <View style={{ width: 16, height: 16, borderRadius: 4, borderWidth: 2, borderColor: allIn ? colors.brand : colors.border, backgroundColor: allIn ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                {allIn ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 10 }}>✓</Text> : null}
+                              </View>
+                              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>👷 {g.name} ({g.items.length})</Text>
+                            </TouchableOpacity>
+                            {g.items.map((it) => {
+                              const on = bulkSel.has(it.id);
+                              return (
+                                <TouchableOpacity key={it.id} onPress={() => toggleBulkOne(it.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: spacing.md }}>
+                                  <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                    {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>✓</Text> : null}
+                                  </View>
+                                  <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{it.code}</Text>
+                                  <Text style={{ color: it.operational ? colors.brandText : colors.dangerSoftText, fontWeight: '700', fontSize: 11 }}>{it.operational ? '● Operativa' : '● Inactiva'}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                    <TouchableOpacity onPress={() => applyBulk(true)} disabled={bulkSel.size === 0 || bulkBusy} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `✅ Activar seleccionadas (${bulkSel.size})`}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => applyBulk(false)} disabled={bulkSel.size === 0 || bulkBusy} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⛔ Desactivar seleccionadas (${bulkSel.size})`}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           {/* Barras VERTICALES por inspector (del turno). Tocar → detalle. */}
           <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
