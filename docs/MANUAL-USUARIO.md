@@ -442,10 +442,21 @@ depende** (reporta a) y qué **personal tiene a su cargo** (subordinados). Toca 
 todos los cargos"** para un solo documento con todos los cargos agrupados por área, o toca un
 **cargo de la lista** para descargar solo su ficha individual.
 
-### 4.6c. Distribución de uniformes (dentro de Nómina)
-Lleva las **tallas de uniforme** de cada empleado e imprime el listado para la entrega. Está
-dentro de **Nómina** → **👕 Distribución de uniformes**.
+### 4.6c. Distribución de uniformes (módulo propio, antes solo dentro de Nómina)
+Lleva las **tallas de uniforme** de cada empleado, sus entregas, e imprime el listado para la
+entrega. Tiene **2 pestañas**: **🧥 Dotación básica** (tallas + entregas de uniforme, lo de
+siempre) y **🧰 Otras entregas / herramientas** (nueva, 05/08/2026 — ver más abajo).
 
+> **Acceso y permisos (05/08/2026):** este módulo ahora tiene su **propio permiso** llamado
+> **"Distribución de uniformes"**, configurable desde **Usuarios → permisos por módulo** (o desde
+> un rol dinámico), igual que cualquier otro módulo — antes no existía este permiso y cualquiera
+> que llegara a la pantalla podía editar. Por defecto queda **restringido** (como Nómina o
+> Empleados): hay que otorgarlo explícitamente a quien lo necesite. También aparece ahora como
+> entrada propia **"🦺 Distribución de uniformes"** en el menú **Más** (antes solo se llegaba
+> navegando desde dentro de Nómina) — así se le puede dar acceso a alguien SOLO a este módulo, sin
+> darle Nómina completa (por ejemplo, a la persona encargada de dotación).
+
+**🧥 Dotación básica:**
 1. Verás el **listado de empleados** agrupado por empresa (con **Activos / Todos** y un
    **buscador** por nombre, cédula o cargo).
 2. **Toca un empleado**: se abre para cargar su **👕 talla de camisa**, **👖 talla de
@@ -467,6 +478,20 @@ dentro de **Nómina** → **👕 Distribución de uniformes**.
 > Los PDF respetan el filtro y la búsqueda: incluyen exactamente los empleados que estás viendo.
 > **Talla** = el número/letra de cada prenda; **Entrega** = cuántas piezas se le han dado (con su
 > fecha y hora).
+> Quien tenga solo **lectura** en este módulo ve el listado y el historial, pero no puede editar
+> tallas ni registrar entregas nuevas (esos controles se ocultan).
+
+**🧰 Otras entregas / herramientas (05/08/2026):** pestaña de **solo lectura**, sin formulario
+propio — se llena SOLA a partir de lo que ya se registra en **Inventario**:
+- **Salidas de Almacén** (Inventario → 📤 Salida) con empleado(s) marcados como "Recibe".
+- **Traslados de Inventario** (Inventario → 🔁 Nota de traslado) dirigidos a un empleado en Destino.
+
+Filtrable por **empleado** y **rango de fecha**, con botón de **reporte PDF** (Fecha, Empleado,
+Cédula, Cargo, Detalle, Origen). Sirve para ver de un vistazo qué herramientas, EPP, insumos o
+calzado (fuera de la dotación básica de camisas/pantalones/zapatos) se le han entregado a cada
+trabajador, sin tener que ir a buscarlo en Inventario. No es lo mismo que la pestaña **"👷
+Dotación"** de Inventario (ver 4.8d): esa junta salidas + entregas de uniforme; esta junta salidas
++ traslados, y vive dentro de Uniformes.
 
 **Reporte de productos y estado (pestaña Existencias):**
 - Cada producto muestra **CÓMO SE ENCUENTRA** con su color: **🔵 Nuevo**, **🟢 Bueno**,
@@ -741,7 +766,11 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 - **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas** y el **horómetro
   final**; al aceptar, las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️
   día / 🌙 noche. **Regla:** ese **horómetro final será el inicial de la próxima jornada**.
-- **🟡 PARADA** — al tocarlo se despliegan **2 caminos** para elegir:
+  > **Acumulado del turno (05/08/2026):** tanto en la confirmación como en el aviso final, además
+  > del total de la sesión que se está cerrando, se muestra el **acumulado del turno en el día**
+  > (lo ya trabajado antes + lo que se acaba de cerrar) — para ver de una vez el total real del
+  > turno, no solo el último tramo. Aplica igual en teléfono y en PC.
+- **⛔ Detener la máquina → 🟡 PARADA** — al tocarlo se despliegan **2 caminos** para elegir:
   - **🔧 Por avería** — elige el **material** (🛞 Caucho · 🛢️ Aceite · 🧴 Filtro · 🔩 Repuesto ·
     ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,
     una **foto**. Al confirmar (**"🟡 Confirmar PARADA + avería"**) crea la solicitud en
@@ -752,6 +781,25 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
     (**no** crea nada en Mantenimiento de Maquinaria).
   - En ambos casos la máquina queda marcada **🟡 PARADA** y en Control sale **🔴 MÁQUINA PARADA**;
     desde la ficha de la máquina sale **🟢 Volver a OPERATIVA** para revertirla.
+  - **📋 Reportar sin detener la máquina → 🛠️ Avería de maquinaria** (sección aparte, más abajo en
+    la misma ficha): reporta una falla a Mantenimiento **sin** marcar la máquina como parada — la
+    máquina sigue en su estado actual. Es distinto de "⛔ Detener la máquina → 🔧 Por avería", que
+    SÍ la marca parada. Desde 05/08/2026 ambas secciones traen un texto corto aclarando cuál hace
+    qué, para no confundirlas.
+
+> **Segmentación por estatus (05/08/2026):** arriba de "Mis máquinas asignadas" (y de "Todas las
+> máquinas" para admin/coordinador) hay chips con contador para filtrar de un vistazo: **Todas ·
+> ⏳ Pendientes por iniciar · 🟢 Iniciadas · 🟡 Paradas · 🔧 Por avería**. Se combinan con el
+> buscador de texto. "🔧 Por avería" son las máquinas con una falla real reportada y pendiente
+> (distinto de "🟡 Paradas", que puede ser por avería o por un motivo operativo como clima o falta
+> de operador).
+
+> **Máquinas inactivas ocultas (05/08/2026):** una máquina marcada **inactiva** o **averiada**
+> (`operational`/`active` en `false`, desde el Catálogo) deja de aparecer en la lista operativa del
+> inspector — **salvo** que tenga una jornada abierta ahora mismo (así siempre se puede cerrar).
+> Al reactivarla desde el Catálogo, reaparece sola, sin ningún paso extra. El **✅ CHECK MÁQUINA**
+> (asignación, uso de administrador/coordinador) sigue mostrando el catálogo completo a propósito,
+> para poder reactivar equipos desde ahí.
 
 > El inspector puede marcar **cualquier** máquina (no tiene la restricción por empresa del
 > operador). El operador, en cambio, solo puede usar equipos de **su** empresa.
@@ -1323,6 +1371,33 @@ queden 100% operativas:
     (por nombre completo, sin distinguir mayúsculas/tildes) es suficiente, o si se prefiere
     matchear por **cédula/ID de perfil** en vez de `full_name` (el nombre podría cambiar si se
     edita el perfil).
+
+### Continuidad de turnos / fecha operativa — equivalencia de campos (05/08/2026)
+
+El cliente pidió modelar los turnos con campos `tipo` (DIA/NOCHE), `fecha_operativa`,
+`fecha_apertura`, `fecha_cierre` y `estado` (ABIERTO/CERRADO), y corregir el cierre del turno
+noche a medianoche. **Esos nombres de columna no existen en el esquema real** — se auditó el
+código en vez de crearlos, para no duplicar el modelo de datos ni arriesgar el histórico sin
+necesidad. Equivalencia real en `machine_rounds`:
+
+| Pedido | Campo real | Nota |
+|---|---|---|
+| `tipo` | `jornada_shift` ('day'/'night') | |
+| `fecha_operativa` | `round_date` | fecha en que ARRANCÓ el turno, nunca se reescribe |
+| `fecha_apertura` | `jornada_start_at` | timestamp de inicio; `null` = jornada cerrada |
+| `fecha_cierre` | (no se guarda un timestamp de cierre por separado) | el cierre se infiere de `jornada_start_at = null` + `day_hours`/`night_hours` ya sumadas |
+| `estado` ABIERTO/CERRADO | `jornada_start_at is not null` | no confundir con la columna `closed` (esa es un flag de **congelamiento de facturación** en Control de maquinaria, sin relación con si la jornada está abierta) |
+
+**Verificado, ya corregido desde el 03/08/2026:** el cron `supabase/auto_close_jornadas.sql`
+cierra el turno DÍA a las 19:00 del `round_date` y el turno NOCHE a las **07:00 del día
+siguiente**, con un candado que solo permite cerrar si la hora calculada es exactamente 7 o 19
+(Caracas) — nunca a medianoche. El `round_date` se mantiene fijo en la fecha de apertura durante
+todo el ciclo nocturno (mismo criterio en el cierre manual desde `SupervisorScreen.tsx`). Los
+esquemas **12x6** y **12x12** también ya estaban diferenciados donde corresponde: cualquier
+inspector humano real siempre trabaja con horas reales sin tope; el patrón 12x6/12x12 con tope
+solo aplica a la maquinaria SIN inspector asignado, cargada por el usuario virtual "MAQUINAS
+FALTANTES" (ver 4.8b). No se modificó código para este punto, solo se verificó contra el
+comportamiento real y se documentó aquí la equivalencia.
 
 ### Seguridad: fuga de sueldos/datos bancarios a sesión anónima (cerrada)
 
