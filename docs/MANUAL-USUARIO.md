@@ -558,11 +558,11 @@ de noche que cruzan la medianoche se emparejan bien.
 > al resto del sistema).
 
 > **👤 Rol ANALISTA:** puede escanear/marcar asistencia sin que un administrador tenga que darle
-> el permiso a mano — el sistema se lo habilita solo. En el teléfono, el analista entra a su vista
-> normal (la misma de Inspector) y ahí encuentra el bloque **"MARCAR ASISTENCIA DEL PERSONAL"**;
-> en PC lo ve en **Más → Control de asistencia**, igual que cualquier otro usuario con el permiso.
-> Al escanear un carnet, además de foto/nombre/cargo/cédula ahora también se ve el **estado del
-> empleado** (🟢 activo · 🔴 inactivo · 🟡 suspendido).
+> el permiso a mano — el sistema se lo habilita solo. Entra a la app normal (pestañas + **Más**),
+> **igual en teléfono que en PC** (ver 4.25 "Cada rol entra a SU vista"), y encuentra el bloque
+> **"MARCAR ASISTENCIA DEL PERSONAL"** en **Más → Control de asistencia**, igual que cualquier otro
+> usuario con el permiso. Al escanear un carnet, además de foto/nombre/cargo/cédula ahora también
+> se ve el **estado del empleado** (🟢 activo · 🔴 inactivo · 🟡 suspendido).
 
 ### 4.6d. Empleados — filtrar por cargo y reporte de lo seleccionado
 En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un reporte de lo que elijas:
@@ -1425,6 +1425,41 @@ inspector humano real siempre trabaja con horas reales sin tope; el patrón 12x6
 solo aplica a la maquinaria SIN inspector asignado, cargada por el usuario virtual "MAQUINAS
 FALTANTES" (ver 4.8b). No se modificó código para este punto, solo se verificó contra el
 comportamiento real y se documentó aquí la equivalencia.
+
+### Enrutamiento por rol al iniciar sesión — mapa completo (corregido 05/08/2026)
+
+**Reporte:** en el teléfono, casi todos los roles caían en la **Vista de Inspector**
+(`SupervisorTabs`) en vez de su pantalla correspondiente — solo 3 casos tenían ruta propia en
+teléfono (Chofer de combustible, Coordinador de patio, admin/Jesús Lozada con el botón SISTEMA).
+El resto (operador, cocina, roles dinámicos, etc.) veía Inspectores igual que un inspector real,
+aunque en **PC** esos mismos usuarios sí llegaban a su pantalla correcta. Causa: `RootNavigator`
+(`src/navigation/index.tsx`) tenía dos árboles de decisión separados — uno "si es teléfono" (casi
+un catch-all) y otro "si es PC" (con toda la lógica por rol) — y el de teléfono nunca reutilizaba
+la lógica del de PC.
+
+**Corregido:** se unificó en una sola cadena de condiciones, la misma para teléfono y PC. Mapa
+completo de a dónde entra cada quien al iniciar sesión (login normal, sin escanear QR):
+
+| Rol / tipo de panel | Pantalla | ¿Cambió con este fix? |
+|---|---|---|
+| Rol dinámico, panel **Chofer de combustible** | `FuelDriverStack` (surtir combustible) | No — ya era así en ambos |
+| `coordinador_patio` | `PatioStack` | No — ya era así en ambos |
+| **admin** / Jesús Lozada, en teléfono, sin tocar SISTEMA | Vista de Inspector + botón 🗂️ SISTEMA | No — ya era así |
+| **admin** / Jesús Lozada, en teléfono, tocó SISTEMA (o en PC) | App completa (`Tabs`) | No — ya era así |
+| `supervisor` (= **Inspector**) | `SupervisorTabs` (Revisar/Mapa/Catálogo) | No — ya era así en ambos |
+| Rol dinámico, panel **Coordinador QR** | `CoordinadorStack` (su panel de escaneo) | **Sí, en teléfono** — antes caía en Inspectores |
+| Rol dinámico, **solo módulos de combustible** (Tanques/Ingresos/Consumos/Traslados/Solicitudes) | **Directo a `CombustibleScreen`**, en teléfono | **Nuevo** — antes caía en Inspectores |
+| Rol dinámico, módulos mixtos (combustible + otros, o ningún módulo de combustible) | App normal filtrada (`Tabs` + Más) | **Sí, en teléfono** — antes caía en Inspectores |
+| `operador` | `OperatorScreen` | **Sí, en teléfono** — antes caía en Inspectores |
+| `cocina` | `CocinaScreen` | **Sí, en teléfono** — antes caía en Inspectores |
+| `analista` / `conductor` (sin rol dinámico asignado) | App normal (`Tabs` + Más) | **Sí, en teléfono** — antes caía en Inspectores |
+
+Ningún flujo de **QR** (escanear máquina/empleado/aliado/comida) se tocó — esos siguen exactamente
+igual, son rutas aparte que se resuelven antes de este mapa. Helper nuevo `esRolCombustible()` en
+`src/navigation/index.tsx`: un rol dinámico se considera "solo combustible" cuando **todos** sus
+módulos con permiso distinto de "Sin acceso" están dentro de {tanques, ingresos, consumos,
+traslados, autorizaciones} — si tiene aunque sea un módulo fuera de ese grupo (ej. inventario,
+equipos), ya no aplica la entrada directa y usa la app normal con pestañas.
 
 ### Seguridad: fuga de sueldos/datos bancarios a sesión anónima (cerrada)
 

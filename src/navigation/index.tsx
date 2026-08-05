@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
+import { AppRole } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -244,6 +245,31 @@ function FuelDriverStack() {
   return (
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
       <Stack.Screen name="FuelDriverHome" component={FuelDriverScreen} options={{ title: 'Surtir combustible', headerLeft: () => <HeaderLogoutButton /> }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
+/** Módulos que forman el módulo "Combustible" (Tanques/Ingresos/Consumos/
+ *  Traslados/Solicitudes — ver MoreScreen). */
+const COMBUSTIBLE_MODULES = ['tanques', 'ingresos', 'consumos', 'traslados', 'autorizaciones'];
+/** ¿El rol dinámico de este usuario SOLO tiene acceso a módulos de combustible?
+ *  (ninguno de otro tipo). Se usa para llevarlo DIRECTO al módulo Combustible en
+ *  el teléfono, en vez de la app completa o la vista de inspector. */
+function esRolCombustible(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => COMBUSTIBLE_MODULES.includes(k));
+}
+
+/** Panel de un rol personalizado cuyo ÚNICO acceso es de combustible (teléfono):
+ *  entra DIRECTO al módulo Combustible (Tanques/Ingresos/Consumos/Traslados),
+ *  sin pasar por Inicio ni el menú "Más". */
+function CombustibleStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderLogoutButton /> }}>
+      <Stack.Screen name="CombustibleHome" component={CombustibleScreen} options={{ title: 'Combustible' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
@@ -592,44 +618,44 @@ export default function RootNavigator() {
         </View>
       ) : appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible' ? (
         // Rol "Chofer de combustible" (teléfono): panel para SURTIR combustible
-        // (escanear/elegir máquina, litros + monto, fotos). Se intercepta ANTES del
-        // catch-all de teléfono para que no caiga en la vista de Inspectores.
+        // (escanear/elegir máquina, litros + monto, fotos). Se intercepta ANTES de
+        // cualquier otro chequeo para que no caiga en la vista de Inspectores.
         <FuelDriverStack />
-      ) : phone && role === 'coordinador_patio' ? (
-        // TELÉFONO · coordinador de patio: su vista (registra entrada/salida y
-        // jornada de camiones por escaneo). No cae en Inspectores de máquinas.
+      ) : role === 'coordinador_patio' ? (
+        // Coordinador de patio: registra entrada/salida de camiones (QR) y averías.
+        // Mismo panel en teléfono y PC.
         <PatioStack />
       ) : phone && (role === 'admin' || isJesusLozada) && sistemaMode ? (
         // TELÉFONO · admin (o Jesús Lozada, excepción puntual) que tocó "SISTEMA":
         // ve la app completa.
         <Tabs />
-      ) : phone ? (
-        // TELÉFONO · cualquier otro rol: cae en el módulo de INSPECTORES (vista de
-        // inspección de máquinas: escanear QR, iniciar/finalizar jornada, avería…).
-        // El admin ve además el botón SISTEMA para saltar a la app completa. Jesús
-        // Lozada sigue entrando aquí igual que cualquier rol (no se toca su
-        // enrutamiento), pero también recibe el botón SISTEMA por excepción puntual.
-        <SupervisorTabs onSistema={(role === 'admin' || isJesusLozada) ? goSistema : undefined} />
+      ) : phone && (role === 'admin' || isJesusLozada) ? (
+        // TELÉFONO · admin (o Jesús Lozada): cae en el módulo de INSPECTORES pero
+        // con el botón SISTEMA para saltar a la app completa cuando lo necesite.
+        <SupervisorTabs onSistema={goSistema} />
+      ) : role === 'supervisor' ? (
+        // El supervisor (etiqueta "inspector") entra a SU vista — Revisar/Mapa/
+        // Catálogo — igual en teléfono que en PC. La jornada, averías y combustible
+        // se inician escaneando el QR de cada máquina.
+        <SupervisorTabs />
       ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
         // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
         <CoordinadorStack />
+      ) : phone && appRole && role !== 'admin' && esRolCombustible(appRole) ? (
+        // TELÉFONO · rol personalizado cuyo ÚNICO acceso es de combustible (tanques/
+        // ingresos/consumos/traslados): entra DIRECTO al módulo Combustible, sin
+        // pasar por Inicio ni el menú "Más".
+        <CombustibleStack />
       ) : appRole && role !== 'admin' ? (
         // Rol personalizado (FIJO) por módulos: navega por la app normal (pestañas + Más),
-        // todo filtrado por sus permisos. Ya no usa el panel dinámico aparte.
+        // todo filtrado por sus permisos. Igual en teléfono y PC.
         <Tabs />
       ) : role === 'operador' ? (
         // El operador tiene su propia vista (independiente de la administración).
         <OperatorScreen />
-      ) : role === 'supervisor' ? (
-        // El supervisor entra al sistema pero SOLO ve Mapa y Catálogo. La jornada,
-        // averías y combustible se inician escaneando el QR de cada máquina.
-        <SupervisorTabs />
       ) : role === 'cocina' ? (
         // Cocina reparte comida: escanea carnets y registra las comidas entregadas.
         <CocinaScreen />
-      ) : role === 'coordinador_patio' ? (
-        // Coordinador de patio: registra entrada/salida de camiones (QR) y averías.
-        <PatioStack />
       ) : (
         <Tabs />
       )}
