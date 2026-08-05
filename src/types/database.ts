@@ -557,6 +557,14 @@ export interface InventoryLevel extends InventoryItem {
 
 export type InventoryMovementKind = 'entrada' | 'salida' | 'consumo' | 'ajuste';
 
+/** Snapshot de un empleado al momento de una salida (nombre/cédula/cargo pueden cambiar luego). */
+export interface InventoryMovementEmployee {
+  id: string;
+  name: string;
+  cedula?: string | null;
+  cargo?: string | null;
+}
+
 export interface InventoryMovement {
   id: string;
   item_id: string;
@@ -568,6 +576,8 @@ export interface InventoryMovement {
   company_id: string | null;
   machinery_id: string | null; // equipo destino de la salida (para el gasto por equipo en Mantenimiento)
   note: string | null;
+  employee_ids: string[];                        // empleados que reciben la salida (multi)
+  employees_detail: InventoryMovementEmployee[];  // snapshot nombre/cédula/cargo al momento de la salida
   created_by: string | null;
   created_at: string;
 }

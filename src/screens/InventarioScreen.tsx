@@ -10,7 +10,7 @@ import { useToast } from '../components/ToastProvider';
 import { useTable } from '../hooks/useTable';
 import { levelMeets } from '../lib/permissions';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
-import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer } from '../types/database';
+import { InventoryItem, InventoryLevel, InventoryMovement, Company, Machinery, Employee, InventoryRequirement, RequirementLine, InventoryTransfer, UniformDelivery } from '../types/database';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { pickAndUploadRequirementFile } from '../lib/photo';
 import { notaEntregaHtml, NotaItem } from '../lib/notaEntrega';
@@ -1210,6 +1210,11 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         empresa: (companyNameById(salidaCompanyId) || empresaLibre.trim()) || null,
         maquina: machineryId ? machineName(machineryId) : null,
         empleados: [...empSel.map((e) => e.name), ...(personaLibre.trim() ? [personaLibre.trim()] : [])],
+        // Snapshot con cédula/cargo de cada empleado REGISTRADO seleccionado (no aplica a personaLibre).
+        empleadosDetalle: empSel.length ? empSel.map((e) => {
+          const emp = employees.find((x: any) => x.id === e.id);
+          return { name: e.name, cedula: (emp as any)?.cedula ?? null, cargo: (emp as any)?.cargo ?? null };
+        }) : undefined,
         items,
       }), `Nota de salida - ${todayDMY()}`);
     } catch (e: any) {
@@ -1235,12 +1240,23 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
         company_id: salidaCompanyId ?? c.company_id, created_by: session?.user?.id ?? null,
         // Equipo destino: para el reporte de gasto por equipo (Mantenimiento).
         machinery_id: machineryId || null,
+        // Empleados que reciben (para el historial de dotación por trabajador).
+        employee_ids: empSel.map((e) => e.id),
+        employees_detail: empSel.map((e) => {
+          const emp = employees.find((x: any) => x.id === e.id);
+          return { id: e.id, name: e.name, cedula: (emp as any)?.cedula ?? null, cargo: (emp as any)?.cargo ?? null };
+        }),
       }));
       let { error } = await supabase.from('inventory_movements').insert(rows);
       // Si aún no se corrió la migración de machinery_id en movimientos, reintenta sin esa columna.
       if (error && /machinery_id|column/i.test(error.message)) {
         const rowsBasic = rows.map(({ machinery_id, ...r }) => r);
         ({ error } = await supabase.from('inventory_movements').insert(rowsBasic));
+        // Si tampoco existe employee_ids/employees_detail (migración pendiente), reintenta sin esas columnas.
+        if (error && /employee_ids|employees_detail|column/i.test(error.message)) {
+          const rowsSinEmpleados = rowsBasic.map(({ employee_ids, employees_detail, ...r }) => r);
+          ({ error } = await supabase.from('inventory_movements').insert(rowsSinEmpleados));
+        }
       }
       if (error) { setBusy(false); return toast.error(error.message); }
     }
@@ -2267,6 +2283,12 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
 
   const machOptions = useMemo(() => machines.map((m) => ({ id: m.id, text: machineLabel(m) })), [machines]);
   const empOptions = useMemo(() => employees.map((e) => ({ id: (e as any).id as string, text: empName(e) })), [employees]);
+  // Snapshot con cédula/cargo del empleado REGISTRADO de cada lado (no aplica a toPersonaLibre).
+  const empDetalleById = (id: string): { name: string; cedula: string | null; cargo: string | null } | null => {
+    const e = employees.find((x) => (x as any).id === id);
+    if (!e) return null;
+    return { name: empName(e), cedula: (e as any)?.cedula ?? null, cargo: (e as any)?.cargo ?? null };
+  };
 
   const generar = async () => {
     if (cart.length === 0) return toast.error('Agrega al menos un material al traslado.');
@@ -2289,6 +2311,8 @@ function TrasladoTab({ canWrite }: { canWrite: boolean }) {
         fromEmpleado: fromEmpId ? empNameById(fromEmpId) : null,
         toMaquina: toMachId ? machName(toMachId) : null,
         toEmpleado: toEmpId ? empNameById(toEmpId) : (toPersonaLibre.trim() || null),
+        fromEmpleadoDetalle: fromEmpId ? empDetalleById(fromEmpId) : undefined,
+        toEmpleadoDetalle: toEmpId ? empDetalleById(toEmpId) : undefined,
         motivo: motivo.trim() || null,
         items,
       }), `Nota de traslado - ${todayDMY()}`);
@@ -2819,6 +2843,269 @@ function GastosTab() {
   );
 }
 
+// ── Dotación: historial de entregas por empleado (equipos, herramientas, calzado,
+//    franelas, uniforme y demás artículos), combinando salidas de inventario con
+//    empleado(s) asignados y las entregas de uniforme (camisas/pantalones/zapatos). ──
+type DotacionRow = {
+  key: string;
+  date: string;               // fecha/hora ISO del movimiento o la entrega
+  employeeId: string;
+  employeeName: string;
+  employeeCedula: string | null;
+  employeeCargo: string | null;
+  tipo: string;                // clave de categoría del producto, o 'uniforme'
+  tipoLabel: string;
+  tipoIcon: string;
+  detalle: string;
+  origen: 'inventario' | 'uniforme';
+};
+
+function DotacionTab() {
+  const { colors } = useTheme();
+  const toast = useToast();
+  const { data: movs, loading: loadingMovs, refetch: refetchMovs } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
+  const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const { data: uniformes, loading: loadingUni, refetch: refetchUni } = useTable<UniformDelivery>('uniform_deliveries', { orderBy: 'delivered_at', ascending: false, realtimeFrom: 'uniform_deliveries' });
+  const loading = loadingMovs || loadingUni;
+
+  const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
+  const employeeById = useMemo(() => { const m = new Map<string, Employee>(); employees.forEach((e) => m.set((e as any).id, e)); return m; }, [employees]);
+  const itemById = useMemo(() => { const m = new Map<string, InventoryItem>(); items.forEach((it) => m.set(it.id, it)); return m; }, [items]);
+
+  // Combina AMBAS fuentes en un solo historial normalizado. Una salida grupal (varios
+  // employee_ids en un mismo movimiento) genera UNA fila POR CADA empleado, así el
+  // filtro "por empleado" funciona bien (no una fila con varios nombres pegados).
+  const rows: DotacionRow[] = useMemo(() => {
+    const out: DotacionRow[] = [];
+    movs.forEach((m) => {
+      if (m.kind !== 'salida') return;
+      const ids = m.employee_ids ?? [];
+      if (!ids.length) return;
+      const it = itemById.get(m.item_id);
+      const info = catInfo(it?.category ?? null);
+      const detalle = `${it?.name ?? 'Producto'} · ${qtyFmt(m.qty)} ${it?.unit ?? ''}`.trim();
+      ids.forEach((empId) => {
+        // Preferimos el snapshot guardado en el movimiento (nombre/cédula/cargo AL
+        // MOMENTO de la salida); si viene vacío (movimientos anteriores a esta
+        // migración), caemos a los datos ACTUALES del empleado.
+        const snap = (m.employees_detail ?? []).find((e) => e.id === empId);
+        const emp = employeeById.get(empId);
+        out.push({
+          key: `inv-${m.id}-${empId}`,
+          date: m.created_at,
+          employeeId: empId,
+          employeeName: snap?.name || (emp ? empName(emp) : 'Empleado'),
+          employeeCedula: (snap?.cedula ?? (emp as any)?.cedula) ?? null,
+          employeeCargo: (snap?.cargo ?? (emp as any)?.cargo) ?? null,
+          tipo: info.key,
+          tipoLabel: info.label,
+          tipoIcon: info.icon,
+          detalle,
+          origen: 'inventario',
+        });
+      });
+    });
+    uniformes.forEach((u) => {
+      const camisas = Number(u.camisas) || 0, pantalones = Number(u.pantalones) || 0, zapatos = Number(u.zapatos) || 0;
+      if (camisas <= 0 && pantalones <= 0 && zapatos <= 0) return;
+      const emp = employeeById.get(u.employee_id);
+      const partes: string[] = [];
+      if (camisas > 0) partes.push(`${qtyFmt(camisas)} camisa(s)`);
+      if (pantalones > 0) partes.push(`${qtyFmt(pantalones)} pantalón(es)`);
+      if (zapatos > 0) partes.push(`${qtyFmt(zapatos)} par(es) de zapatos`);
+      out.push({
+        key: `uni-${u.id}`,
+        date: u.delivered_at,
+        employeeId: u.employee_id,
+        employeeName: emp ? empName(emp) : 'Empleado',
+        employeeCedula: (emp as any)?.cedula ?? null,
+        employeeCargo: (emp as any)?.cargo ?? null,
+        tipo: 'uniforme',
+        tipoLabel: 'Uniforme',
+        tipoIcon: '🦺',
+        detalle: partes.join(' · ') || '—',
+        origen: 'uniforme',
+      });
+    });
+    return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [movs, items, employeeById, itemById, uniformes]);
+
+  // Opciones de tipo/categoría presentes en los datos combinados (+ "Uniforme", ya fijo).
+  const tipoOptions = useMemo(() => {
+    const seen = new Map<string, { key: string; label: string; icon: string }>();
+    rows.forEach((r) => { if (!seen.has(r.tipo)) seen.set(r.tipo, { key: r.tipo, label: r.tipoLabel, icon: r.tipoIcon }); });
+    return Array.from(seen.values());
+  }, [rows]);
+
+  // ── Filtros ────────────────────────────────────────────────────────────────
+  const [empFilterId, setEmpFilterId] = useState('');
+  const [empOpen, setEmpOpen] = useState(false);
+  const [empQuery, setEmpQuery] = useState('');
+  const [fFrom, setFFrom] = useState('');
+  const [fTo, setFTo] = useState('');
+  const [tipoFilter, setTipoFilter] = useState('');
+  const [origenFilter, setOrigenFilter] = useState<'' | 'inventario' | 'uniforme'>('');
+
+  const empFilterName = empFilterId ? (employeeById.get(empFilterId) ? empName(employeeById.get(empFilterId)!) : '') : '';
+
+  const shown = useMemo(() => rows.filter((r) => {
+    if (empFilterId && r.employeeId !== empFilterId) return false;
+    const d = String(r.date).slice(0, 10); // AAAA-MM-DD
+    if (fFrom && d < fFrom) return false;
+    if (fTo && d > fTo) return false;
+    if (tipoFilter && r.tipo !== tipoFilter) return false;
+    if (origenFilter && r.origen !== origenFilter) return false;
+    return true;
+  }), [rows, empFilterId, fFrom, fTo, tipoFilter, origenFilter]);
+  const hayFiltro = !!(empFilterId || fFrom || fTo || tipoFilter || origenFilter);
+
+  const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const hoyDmy = () => { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; };
+
+  // ── Reporte PDF de las entregas mostradas (respeta los filtros activos) ─────
+  const reporteDotacion = async () => {
+    if (shown.length === 0) return toast.error('No hay entregas para el reporte.');
+    const sorted = [...shown].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const rowsHtml = sorted.map((r, i) => `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(fmtDate(r.date))}</td>
+        <td>${esc(r.employeeName)}</td>
+        <td>${esc(r.employeeCedula || '—')}</td>
+        <td>${esc(r.employeeCargo || '—')}</td>
+        <td>${esc(r.tipoIcon)} ${esc(r.tipoLabel)}</td>
+        <td>${esc(r.detalle)}</td>
+      </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Reporte de dotación',
+      subtitle: `${shown.length} entrega(s) · ${esc(hoyDmy())}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} tr:nth-child(even) td{background:#f4f7fb}`,
+      body: `
+        <table>
+          <thead><tr><th style="width:30px" class="c">#</th><th style="width:120px">Fecha</th><th>Empleado</th><th>Cédula</th><th>Cargo</th><th>Tipo</th><th>Detalle</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>`,
+    });
+    await exportPdf(html, `Reporte de dotación - ${hoyDmy()}`);
+  };
+
+  if (loading) return <Screen><SkeletonList /></Screen>;
+
+  return (
+    <Screen onRefresh={() => { refetchMovs(); refetchUni(); }} refreshing={loading}>
+      <ConfigBanner />
+      <SectionTitle>Dotación (historial de entregas)</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
+        Historial de equipos, herramientas, calzado, franelas y demás artículos entregados a cada trabajador (salidas de inventario con empleado asignado + entregas de uniforme).
+      </Text>
+
+      {/* Empleado: selector ÚNICO (para filtrar), filtrable por nombre. */}
+      <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Empleado: <Text style={{ color: empFilterId ? colors.primary : colors.muted }}>{empFilterId ? (empFilterName || 'Empleado') : 'Todos'}</Text></Text>
+        <Text style={{ color: colors.primary, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {empOpen ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+          <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Filtrar por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+          <TouchableOpacity onPress={() => { setEmpFilterId(''); setEmpOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: 15 }}>{!empFilterId ? '🔘' : '⚪'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>Todos</Text>
+          </TouchableOpacity>
+          <View style={{ maxHeight: 220 }}>
+            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              {employees.filter((e) => { const s = norm(empQuery); return !s || norm(empName(e)).includes(s); }).map((e) => {
+                const on = empFilterId === (e as any).id;
+                return (
+                  <TouchableOpacity key={(e as any).id} onPress={() => { setEmpFilterId((e as any).id); setEmpOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{empName(e)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Fecha: rango Desde/Hasta */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+          <DateField value={fFrom} onChange={(v) => setFFrom(v || '')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+          <DateField value={fTo} onChange={(v) => setFTo(v || '')} />
+        </View>
+        {hayFiltro ? (
+          <TouchableOpacity onPress={() => { setEmpFilterId(''); setEmpQuery(''); setFFrom(''); setFTo(''); setTipoFilter(''); setOrigenFilter(''); }} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {/* Tipo / categoría del producto (o "Uniforme") */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {[{ key: '', label: 'Todos', icon: '' }, ...tipoOptions].map((t) => {
+          const on = tipoFilter === t.key;
+          return (
+            <TouchableOpacity key={t.key || 'all'} onPress={() => setTipoFilter(t.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{t.icon ? `${t.icon} ` : ''}{t.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* "Estatus" de la entrega: estas son salidas YA CONFIRMADAS (el stock/uniforme ya
+          se descontó/registró al generarse), no existe un estado pendiente/aprobado como en
+          los requerimientos de compra — por eso el filtro de estatus se mapea al ORIGEN. */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {[{ k: '' as const, l: 'Todos' }, { k: 'inventario' as const, l: '📦 Inventario' }, { k: 'uniforme' as const, l: '🦺 Dotación/Uniforme' }].map((f) => {
+          const on = origenFilter === f.k;
+          return (
+            <TouchableOpacity key={f.k || 'all'} onPress={() => setOrigenFilter(f.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.l}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {shown.length ? (
+        <TouchableOpacity onPress={reporteDotacion} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 Reporte de dotación ({shown.length})</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {shown.length === 0 ? (
+        <EmptyState title="Sin entregas" subtitle="Las entregas de equipos, herramientas, calzado, franelas y uniformes aparecerán aquí." />
+      ) : shown.map((r) => (
+        <ExpandableCard
+          key={r.key}
+          summary={
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.employeeName}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDate(r.date)}</Text>
+                <Text style={{ color: colors.text, fontSize: 13 }} numberOfLines={2}>{r.tipoIcon} {r.tipoLabel} · {r.detalle}</Text>
+              </View>
+              <Pill label={r.origen === 'uniforme' ? '🦺 Uniforme' : '📦 Inventario'} color={r.origen === 'uniforme' ? '#EA580C' : '#2563EB'} />
+            </View>
+          }
+          detail={
+            <>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Cédula: {r.employeeCedula || '—'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Cargo: {r.employeeCargo || '—'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Origen: {r.origen === 'uniforme' ? 'Dotación / uniforme' : 'Inventario'}</Text>
+            </>
+          }
+        />
+      ))}
+    </Screen>
+  );
+}
+
 // ── Contenedor con sub-pestañas ──────────────────────────────────────────────
 export default function InventarioScreen() {
   const { colors } = useTheme();
@@ -2831,6 +3118,7 @@ export default function InventarioScreen() {
     { key: 'gastos', label: 'Gastos', icon: '💸' },
     { key: 'requerimiento', label: 'Requerimiento', icon: '📝' },
     { key: 'movimientos', label: 'Movimientos', icon: '🔄' },
+    { key: 'dotacion', label: 'Dotación', icon: '👷' },
   ];
   const [active, setActive] = useState('existencias');
 
@@ -2850,7 +3138,7 @@ export default function InventarioScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : <MovimientosTab />}
+        {active === 'existencias' ? <ExistenciasTab canWrite={canWrite} /> : active === 'nota' ? <NotaTab canWrite={canWrite} /> : active === 'traslado' ? <TrasladoTab canWrite={canWrite} /> : active === 'gastos' ? <GastosTab /> : active === 'requerimiento' ? <RequerimientoTab canWrite={canWrite} /> : active === 'movimientos' ? <MovimientosTab /> : <DotacionTab />}
       </View>
     </View>
   );

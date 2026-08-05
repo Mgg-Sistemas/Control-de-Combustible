@@ -544,6 +544,12 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > precargan al crear una nómina/período y **no aparecen** en **Pago a personal → Por persona** (ni
 > siquiera en "Todos"). Úsalo para gente que no debe pagarse por este sistema.
 
+> **Historial de dotación en la ficha (05/08/2026):** al abrir la **ficha de un trabajador** (botón
+> **"🪪 Ficha"** desde esta lista, o escaneando su **carnet/QR**), si tiene entregas registradas
+> aparece la sección **"📦 Historial de dotación y entregas"**: equipos, herramientas, calzado,
+> franelas y demás artículos que se le han entregado, con fecha y detalle — lo mismo que muestra la
+> pestaña **"👷 Dotación"** de Inventario (ver 4.8d) pero ya filtrado a esa persona.
+
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
@@ -902,7 +908,7 @@ Control de **materiales y herramientas**. El inventario es **GENERAL** (no se se
 ni por máquina al crearlo). Cada material tiene su **existencia** (cuánto hay) y su **costo
 promedio (PMP)**, que el sistema calcula solo con las entradas. El **SKU** es automático e
 incremental (INV-0001, INV-0002…). Pestañas: **Existencias, Salida, Nota de
-traslado, Gastos, Requerimiento y Movimientos**.
+traslado, Gastos, Requerimiento, Movimientos y Dotación**.
 
 > **Movimientos (traza):** además de filtrar por **tipo** (Entradas / Salidas / Consumo / Ajustes),
 > tienes **🔎 búsqueda libre** (por producto o motivo) y filtro por **rango de fechas** (Desde / Hasta).
@@ -947,6 +953,14 @@ producto"**. Pide confirmación y borra el producto **y todo su historial** de m
 4. Toca **"🧾 Generar nota de salida (PDF)"**: se abre la **vista previa** con logo, fecha, productos y la
    línea de firma autorizado.
 5. Toca **🖨️ Imprimir** para guardar/imprimir. **Recién ahí se descuenta del inventario.**
+
+> **Cédula y cargo del empleado en el PDF (05/08/2026):** si elegiste empleados **de la nómina**
+> (no texto libre), el PDF de "Nota de salida" muestra una tabla **Recibe** con **nombre, cédula y
+> cargo** de cada uno — no solo el nombre. Una persona que reciba **sin estar registrada** (campo de
+> texto libre) sigue apareciendo solo por su nombre, porque no es un empleado del sistema y no tiene
+> cédula/cargo que mostrar. Esta salida además queda **vinculada al empleado** por dentro (no solo en
+> el PDF), lo que alimenta la nueva pestaña **"👷 Dotación"** (ver más abajo) y el historial en su
+> ficha.
 
 > **IMPORTANTE:** la salida se descuenta del inventario **SOLO cuando confirmas**
 > (Imprimir/Guardar). Si le das **Cancelar** en la vista previa, **no se descuenta nada** y **no
@@ -1021,6 +1035,32 @@ escritura en Inventario.
 - **📄 Reporte:** el botón **"📄 Reporte"** (arriba, visible en ambas vistas) genera un **PDF con
   todos los traslados** —de cualquier estatus— con fecha, origen → destino, lugar, estado, materiales
   y si ya se **retornaron** o siguen **en destino**.
+
+> **Cédula y cargo del responsable (05/08/2026):** si el responsable de **Origen** y/o **Destino**
+> es un empleado registrado, el PDF de "Nota de traslado" muestra su **C.I. y cargo** debajo del
+> nombre, en ambas cajas (Origen/Destino) cuando aplique.
+
+**👷 Dotación (historial de entregas por empleado, 05/08/2026):** pestaña de solo consulta que junta
+en un solo listado **todo lo que se le ha entregado a cada trabajador**: herramientas, equipos y
+artículos que salieron por **"📤 Salida"** con empleado(s) asignado(s), más la **dotación básica**
+(franelas, pantalones, calzado) registrada en **Distribución de uniformes** (ver 4.6c). Una entrega
+grupal (varios empleados a la vez) aparece como **una fila por cada empleado**, para que el filtro
+por persona sea exacto. Filtros disponibles:
+- **👷 Empleado:** buscador desplegable, selección única (o "Todos").
+- **Fecha:** rango Desde/Hasta.
+- **Tipo/categoría:** chips con las categorías de producto que realmente aparecen en los datos, más
+  **"🦺 Uniforme"**.
+- **Origen:** **📦 Inventario** o **🦺 Dotación/Uniforme** — estas entregas ya quedan confirmadas al
+  generarse (no existe un estado "pendiente"/"aprobado" como en Requerimiento), así que el filtro de
+  estatus se resolvió como el origen del dato.
+
+Toca cualquier tarjeta para ver la **cédula, cargo y origen** completos, y **"🧾 Reporte de
+dotación"** para bajar un PDF (Fecha · Empleado · Cédula · Cargo · Tipo · Detalle) con los filtros
+activos aplicados.
+
+> Este historial depende de que la salida se haya generado **con empleado(s) seleccionados**; las
+> salidas antiguas (antes del 05/08/2026) o las que solo tienen máquina/empresa como destino no
+> tendrán empleado asociado y no aparecerán aquí.
 
 ### 4.9. Autorizaciones
 Cuando algo necesita **permiso**, se pide aquí. La persona autorizada lo **aprueba** o lo
