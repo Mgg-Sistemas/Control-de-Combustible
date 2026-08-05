@@ -10,6 +10,7 @@ import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
+import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
 
@@ -35,6 +36,8 @@ function caracasToday(): string {
 const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
 // Token de pdfBusy para el reporte "por asignar / por iniciar" (no choca con '' ni con un nombre de inspector).
 const POR_ASIGNAR_KEY = '__por_asignar__';
+// Token de pdfBusy para el reporte de eficiencia (todos los inspectores).
+const EFICIENCIA_KEY = '__eficiencia__';
 // Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
 // el dashboard en el turno correcto (antes abría siempre en DÍA).
 function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
@@ -136,6 +139,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         };
       });
       await generatePorAsignarReport({ date: selDay, shift, machines });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
+  // REPORTE (PDF) de eficiencia de TODOS los inspectores del día — cuántas de sus
+  // máquinas asignadas chequearon (iniciada, parada o averiada) vs. cuáles dejaron
+  // sin tocar. Mismo cálculo que `generateSummaryReport` (ver inspectorSummaryReport.ts).
+  const makeEficienciaReport = async () => {
+    setPdfBusy(EFICIENCIA_KEY);
+    try {
+      await generateSummaryReport({ date: selDay });
     } finally {
       setPdfBusy(null);
     }
@@ -533,7 +548,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       });
       // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
       const s = (a: string[]) => a.sort((x, y) => cmpText(e.code.get(x) || '', e.code.get(y) || ''));
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size };
+      // Eficiencia = % de asignadas que el inspector SÍ chequeó (iniciada, parada o
+      // averiada) contra las que dejó completamente sin tocar (pendientes). Misma
+      // fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
+      const eficiencia = e.ids.size > 0 ? Math.round(((e.ids.size - pend.length) / e.ids.size) * 100) : null;
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size, eficiencia };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets]);
 
@@ -546,6 +565,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   const shiftIcon = shift === 'day' ? '☀️' : '🌙';
   const shiftLbl = shift === 'day' ? 'DÍA' : 'NOCHE';
+
+  // Color de la eficiencia: verde 100%, ámbar 50-99%, rojo <50% (mismo criterio que el PDF).
+  const efiColor = (e: number | null): string => (e === null ? colors.muted : e >= 100 ? colors.success : e >= 50 ? colors.warning : colors.danger);
 
   const KpiCard = ({ label, value, tone, onPress }: { label: string; value: number; tone: 'brand' | 'muted' | 'warn' | 'crit'; onPress?: () => void }) => {
     const map = {
@@ -774,6 +796,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             {inspQ ? <TouchableOpacity onPress={() => setInspQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
 
+          {/* Reporte (PDF) de eficiencia de TODOS los inspectores del turno/día. */}
+          <TouchableOpacity onPress={makeEficienciaReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginBottom: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EFICIENCIA_KEY ? 'Generando…' : '📄 Reporte de eficiencia (todos los inspectores)'}</Text>
+          </TouchableOpacity>
+
           {inspShown.length === 0 ? (
             <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
           ) : (
@@ -787,7 +814,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
                       <View style={{ height: h, width: '100%', backgroundColor: on ? colors.accent : colors.tankFill }} />
                     </View>
-                    <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 4, height: 24 }}>{ins.name}</Text>
+                    <Text style={{ color: efiColor(ins.eficiencia), fontWeight: '800', fontSize: 9.5, marginTop: 2 }}>{ins.eficiencia !== null ? `⚡${ins.eficiencia}%` : '—'}</Text>
+                    <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 2, height: 24 }}>{ins.name}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -803,6 +831,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Pendientes" value={sel.pend.length} tone="muted" onPress={() => openList(`⏳ Pendientes · ${sel.name}`, sel.pend)} />
                 <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
                 <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
+                <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>

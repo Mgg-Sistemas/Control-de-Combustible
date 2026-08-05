@@ -111,6 +111,14 @@ Otras cosas que puedes hacer en cada máquina:
   - **📲 Al escanear el QR de la máquina:** sale una pantalla con el **logo** y **dos botones** — **👷 Inspector / Coordinador** y **👤 Otro usuario**. **Ambos llevan al login**: todos ingresan con **usuario y contraseña**. Después de iniciar sesión, cada quien cae en su vista según su rol (supervisión/check-in para inspector/coordinador; vista de operador para el resto). *Nota:* ahora **todos** los que usan el QR de la máquina necesitan **usuario** (ya no se entra de forma anónima solo con el carnet).
 - 🪖 **Supervisor** — asigna quién la custodia (Empresa o Militar). Al escribir el nombre sale la lista de los ya usados para elegirlo rápido; cambiar de supervisor deja el anterior en el historial.
 
+> **🏗️ Edificio, referencia y sector visibles en la tarjeta (05/08/2026):** cada máquina del
+> Catálogo ya mostraba su **sector**; ahora también muestra su **edificio** (calculado
+> automáticamente a partir de la referencia, con el mismo catálogo oficial de sitios que usa el
+> check-in del inspector — ej. "Hotel Litoral Palace") y la **referencia** tal como está escrita
+> ("Ref: ..."). Si la referencia no coincide con ningún edificio conocido, sale "Sin edificio
+> identificado" (la referencia cruda igual se ve). Se edita desde **✏️ Editar** → campo
+> "Referencia / Ubicación (edificio)" y "Sector".
+
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
 **📄 Reporte de CONTEO de equipos (desde el Catálogo):** es **solo conteo + detalle, sin horas
@@ -749,6 +757,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
 > **🟢 Volver a OPERATIVA** (cierra la avería y quita el "MÁQUINA PARADA" de Control).
+>
+> **⚡ Eficiencia por inspector (05/08/2026):** en **👷 POR INSPECTOR** (debajo del panel anterior),
+> cada barra de inspector trae su **% de eficiencia** del turno: de las máquinas que tiene
+> asignadas, qué porcentaje SÍ chequeó (la inició, la marcó parada, o reportó una avería — cualquier
+> acción cuenta como que fue a verificarla); solo las que dejó **sin tocar** (pendientes) bajan el
+> %. **🟢 100%** = chequeó todas sus asignadas. **🟡 50-99%** y **🔴 menos de 50%** avisan que le
+> quedaron máquinas sin revisar. Al tocar un inspector, su tarjeta de detalle trae una quinta
+> casilla "Eficiencia" junto a Iniciadas/Pendientes/Paradas/Averiadas. El botón **"📄 Reporte de
+> eficiencia (todos los inspectores)"** (arriba de las barras) genera el PDF completo con una tabla
+> inicial ordenada de **menor a mayor eficiencia** — los que necesitan seguimiento aparecen
+> primero — más el detalle de cada inspector.
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
@@ -871,12 +890,14 @@ paradas y pendientes por iniciar); las de usuarios admin no se muestran. Trae:
   **🟡 ámbar** = PARADA · **🔵 azul** = POR INICIAR (antes "por iniciar" salía en amarillo/ámbar y
   se confundía visualmente con PARADA; ahora es **azul** para que las tres se distingan de un
   vistazo). Tocar una máquina abre su **detalle** de la jornada.
-- Botón **"📄 Reporte resumen por inspector"** (junto a Expandir/Colapsar todo): genera un **PDF**
-  (misma vista previa/impresión que los demás reportes) con una **sección por cada inspector**:
-  cuántas máquinas tiene **asignadas**, cuántas **iniciaron jornada** (en curso o finalizada),
-  cuántas están **averiadas/paradas** y cuántas **le faltaron por iniciar**. Para las que faltaron
-  por iniciar, trae una **tabla de detalle** con: **Edificio, Modelo/Tipo de máquina, Serial/Placa,
-  Sector, Referencia y Empresa asignada**. El estado de cada máquina se calcula **por turno**
+- **📄 Reporte resumen por inspector, con eficiencia (05/08/2026):** este botón vive hoy dentro de
+  **RESUMEN DE INSPECCIONES → 👷 POR INSPECTOR** (ver más abajo), no en esta sección — genera un
+  **PDF** con una **tabla de eficiencia** de todos los inspectores al inicio (ver nota de
+  eficiencia más abajo) y luego una **sección por cada inspector**: cuántas máquinas tiene
+  **asignadas**, cuántas **iniciaron jornada** (en curso o finalizada), cuántas están
+  **averiadas/paradas** y cuántas **le faltaron por iniciar**. Para las que faltaron por iniciar,
+  trae una **tabla de detalle** con: **Edificio, Modelo/Tipo de máquina, Serial/Placa, Sector,
+  Referencia y Empresa asignada**. El estado de cada máquina se calcula **por turno**
   (día/noche) del inspector, con el mismo criterio que usa esta lista en pantalla.
 
 Cada inspector trae un **resumen de cercanía** para saber qué tan confiables fueron sus rondas:

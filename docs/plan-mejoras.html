@@ -167,11 +167,25 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la pantalla de Uniformes ahora tiene 2 pestañas — "🧥 Dotación básica" (la pantalla de siempre, sin cambios funcionales, solo con el gating de permisos de arriba) y la nueva "🧰 Otras entregas / herramientas": historial de <b>solo lectura</b>, sin formulario propio, que se arma solo combinando las <b>Salidas de Almacén</b> con empleado asignado (<code>inventory_movements</code>) y los <b>Traslados de Inventario</b> dirigidos a un empleado (<code>inventory_transfers.to_employee_id</code> — esto no se consultaba en ningún lado antes de hoy). Filtrable por empleado y rango de fecha, con reporte PDF (Fecha · Empleado · Cédula · Cargo · Detalle · Origen). No duplica la pestaña "👷 Dotación" de Inventario (esa junta salidas + uniformes; esta junta salidas + traslados, y vive dentro del módulo de Uniformes).</p>
   </div>
 
-  <h2><span class="n">04</span> Documentación</h2>
+  <h2><span class="n">04</span> Eficiencia de inspectores y datos de ubicación en el Catálogo</h2>
+  <p class="sec-note">Pedido directo del jefe/jefa: identificar de un vistazo qué inspector cumplió el 100% de su chequeo diario ("le damos 1 oportunidad y si no puede realizar el chequeo con eficiencia probamos con otra persona"), y que el Catálogo muestre edificio/referencia/sector de cada máquina.</p>
+
+  <div class="card feat">
+    <h3>Eficiencia por inspector (vista en vivo + reporte PDF) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">"Eficiencia" se definió como: de las máquinas que un inspector tiene ASIGNADAS ese turno, qué % terminó CHEQUEANDO de alguna forma (inició jornada, la marcó parada, o reportó avería — cualquiera de esas 3 cuenta como que sí fue a verificarla). 100% = ninguna quedó sin tocar. Se descubrió además que ya existía un generador de este reporte (<code>src/lib/inspectorSummaryReport.ts</code>) construido en una sesión anterior, pero **nunca se conectó a ningún botón** — el manual lo documentaba como si funcionara, pero estaba huérfano en el código.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> en el dashboard "RESUMEN DE INSPECCIONES" (<code>InspectionsSummary.tsx</code>, sección "👷 POR INSPECTOR"), cada barra de inspector ahora muestra su <b>% de eficiencia</b> (verde 100% · ámbar 50-99% · rojo &lt;50%), con una 5ª tarjeta de eficiencia en el detalle al tocar un inspector. Se conectó por primera vez el botón <b>"📄 Reporte de eficiencia (todos los inspectores)"</b>, que genera el PDF con una tabla-resumen al inicio ordenada de MENOR a MAYOR eficiencia (los que necesitan atención, primero) más el detalle de cada uno. Misma fórmula en la vista en vivo y en el PDF.</p>
+  </div>
+
+  <div class="card">
+    <h3>Catálogo: edificio, referencia y sector visibles en cada máquina <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la tarjeta de cada máquina en el Catálogo (<code>EquiposScreen.tsx</code>) ya mostraba el sector, pero no el edificio ni la referencia cruda. Ahora agrega una línea con el <b>edificio</b> (derivado automáticamente de la referencia con el mismo catálogo oficial que usa el check-in del inspector, <code>edificioCanonico()</code>) y la <b>referencia</b> tal como está escrita, en las 2 vistas de tarjeta del Catálogo. No existe una columna "edificio" separada en la base de datos — es un valor calculado a partir de <code>machinery.referencia</code>, así que no hizo falta ningún cambio de esquema.</p>
+  </div>
+
+  <h2><span class="n">05</span> Documentación</h2>
 
   <div class="card">
     <h3>Manual de usuario actualizado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
-    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se documentó en <code>docs/MANUAL-USUARIO.md</code> cómo consultar la pestaña "Dotación" de Inventario, el historial en la ficha del empleado, y que los reportes de salida/traslado ahora traen cédula y cargo. Ampliado con la vista de inspectores segmentada, la aclaración de continuidad de turnos y el nuevo módulo de Uniformes (permiso + "Otras entregas/herramientas").</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se documentó en <code>docs/MANUAL-USUARIO.md</code> cómo consultar la pestaña "Dotación" de Inventario, el historial en la ficha del empleado, y que los reportes de salida/traslado ahora traen cédula y cargo. Ampliado con la vista de inspectores segmentada, la aclaración de continuidad de turnos, el nuevo módulo de Uniformes (permiso + "Otras entregas/herramientas"), la eficiencia por inspector y los datos de ubicación en el Catálogo.</p>
   </div>
 
   </section>
