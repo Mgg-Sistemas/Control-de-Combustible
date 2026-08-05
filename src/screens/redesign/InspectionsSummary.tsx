@@ -198,38 +198,52 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return () => { active = false; };
   }, [session?.user?.id]);
 
-  // Panel "Activar/desactivar máquinas por supervisor" (solo bulkAllowed).
+  // Panel "Gestionar Iniciada/Pendiente por supervisor" (solo bulkAllowed). Cambia
+  // el mismo estado que las tarjetas ✅ INICIADAS / ⏳ PENDIENTES de arriba (no el
+  // catálogo "Operativa/Inactiva" de Equipos, que es otra cosa) — marca o quita el
+  // arranque de la jornada del día elegido en `machine_rounds`.
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkSel, setBulkSel] = useState<Set<string>>(new Set());
+  const [bulkSel, setBulkSel] = useState<Set<string>>(new Set()); // claves "machineryId::shift"
   const [bulkBusy, setBulkBusy] = useState(false);
   // Filtros PROPIOS del panel (no comparten el switch ☀️DÍA/🌙NOCHE de arriba, que
-  // controla todo el dashboard): turno y estado operativo. Así se puede revisar
-  // día y noche sin perder de vista cuál es cuál — cada fila muestra su turno — y
-  // sin arriesgarse a desactivar por error una máquina del turno que no se está
-  // mirando en ese momento.
+  // controla todo el dashboard): turno y estado. Así se puede revisar día y noche
+  // sin perder de vista cuál es cuál — cada fila muestra su turno — y sin
+  // arriesgarse a marcar por error una máquina del turno que no se está mirando.
   const [bulkShiftFilter, setBulkShiftFilter] = useState<'all' | 'day' | 'night'>('all');
-  const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const machOperational = useMemo(() => {
-    const m = new Map<string, boolean>();
-    machList.forEach((mm) => m.set(mm.id, (mm as any).operational !== false));
-    return m;
-  }, [machList]);
+  const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'started' | 'pending'>('all');
+  // Solo se puede gestionar el día de HOY (no días pasados): "Iniciar" fabricaría
+  // una jornada retroactiva sin sentido, y "Pendiente" borraría horas de un corte
+  // que ya podría estar cerrado/pagado.
+  const bulkIsToday = selDay === caracasToday();
+  // ¿Iniciada la máquina HOY, en ese turno puntual? Reusa la misma lógica que las
+  // tarjetas de arriba (`startedForShift`), pero para AMBOS turnos a la vez (acá no
+  // filtramos por el switch día/noche general).
+  const startedTodayByShift = useMemo(() => {
+    const day = new Set<string>(); const night = new Set<string>();
+    rounds.forEach((r) => {
+      if (r.round_date !== selDay) return;
+      if (startedForShift(r, 'day')) day.add(r.machinery_id);
+      if (startedForShift(r, 'night')) night.add(r.machinery_id);
+    });
+    return { day, night };
+  }, [rounds, selDay]);
   // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
-  // su turno y estado operativo actual. `operational` es un flag GLOBAL de la
-  // máquina (no por turno): si aparece asignada en ambos turnos, sale una fila en
-  // cada uno con el mismo id — marcarla en cualquiera de las dos afecta a las dos.
+  // su turno y si esa máquina está iniciada HOY en ese turno puntual. Si aparece
+  // asignada en ambos turnos, sale una fila en cada uno (cada una con su propia
+  // casilla — no se mezclan al marcar).
   const bulkGroupsAll = useMemo(() => {
-    const byName = new Map<string, { name: string; items: { id: string; code: string; operational: boolean; shift: 'day' | 'night' }[] }>();
+    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night' }[] }>();
     assignments.forEach((a) => {
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
-      e.items.push({ id: a.machinery_id, code: a.code || '—', operational: machOperational.get(a.machinery_id) ?? true, shift: a.shift });
+      const started = (a.shift === 'day' ? startedTodayByShift.day : startedTodayByShift.night).has(a.machinery_id);
+      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift });
       byName.set(nm, e);
     });
     return [...byName.values()]
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, machOperational]);
+  }, [assignments, startedTodayByShift]);
   // Grupos ya filtrados por turno/estado (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
     return bulkGroupsAll
@@ -238,30 +252,49 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         items: g.items.filter(
           (i) =>
             (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
-            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'active' ? i.operational : !i.operational))
+            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started))
         ),
       }))
       .filter((g) => g.items.length > 0);
   }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter]);
-  const bulkAllIds = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.id)), [bulkGroups]);
-  const toggleBulkOne = (id: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleBulkGroup = (ids: string[]) => setBulkSel((prev) => {
-    const allIn = ids.every((id) => prev.has(id));
+  const bulkAllKeys = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.key)), [bulkGroups]);
+  const toggleBulkOne = (key: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleBulkGroup = (keys: string[]) => setBulkSel((prev) => {
+    const allIn = keys.every((k) => prev.has(k));
     const n = new Set(prev);
-    ids.forEach((id) => (allIn ? n.delete(id) : n.add(id)));
+    keys.forEach((k) => (allIn ? n.delete(k) : n.add(k)));
     return n;
   });
-  const toggleBulkAll = () => setBulkSel((prev) => (bulkAllIds.every((id) => prev.has(id)) ? new Set() : new Set(bulkAllIds)));
-  // Aplica el cambio de verdad: marca `machinery.operational` para las seleccionadas
-  // y refresca (misma acción que el botón ⛔ Inactiva / ✅ Operativa de Equipos, pero
-  // en bloque). No toca horas ni jornada — solo el estado operativo del catálogo.
-  const applyBulk = async (makeOperational: boolean) => {
-    if (bulkSel.size === 0 || bulkBusy) return;
+  const toggleBulkAll = () => setBulkSel((prev) => (bulkAllKeys.every((k) => prev.has(k)) ? new Set() : new Set(bulkAllKeys)));
+  // Aplica el cambio de verdad sobre `machine_rounds` del día elegido (hoy) y
+  // refresca. "Iniciar" arranca la jornada AHORA (igual que si un inspector real
+  // tocara "Iniciar jornada", sin pedir horómetro por ser una herramienta de
+  // corrección administrativa) — el cierre normal a las 7am/7pm la termina sola.
+  // "Pendiente" borra las horas de ESE turno puntual y, si la jornada abierta
+  // pertenece a ese mismo turno, también la cierra sin acreditar horas — sin tocar
+  // el turno contrario si está en curso.
+  const applyBulk = async (action: 'start' | 'pending') => {
+    if (bulkSel.size === 0 || bulkBusy || !bulkIsToday) return;
     setBulkBusy(true);
     try {
-      const ids = [...bulkSel];
-      const { error } = await supabase.from('machinery').update({ operational: makeOperational }).in('id', ids);
-      if (!error) { setBulkSel(new Set()); await load(); }
+      const items = [...bulkSel].map((k) => { const [id, sh] = k.split('::'); return { id, shift: sh as 'day' | 'night' }; });
+      if (action === 'start') {
+        const nowIso = new Date().toISOString();
+        const rows = items.map((it) => ({ machinery_id: it.id, round_date: selDay, round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
+        await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
+      } else {
+        for (const it of items) {
+          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === selDay);
+          const patch: Record<string, any> = it.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 };
+          if (existing?.jornada_start_at && roundShift(existing) === it.shift) patch.jornada_start_at = null;
+          await supabase.from('machine_rounds').upsert(
+            { machinery_id: it.id, round_date: selDay, round_no: 1, ...patch },
+            { onConflict: 'machinery_id,round_date,round_no' }
+          );
+        }
+      }
+      setBulkSel(new Set());
+      await load();
     } finally {
       setBulkBusy(false);
     }
@@ -542,19 +575,24 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Reporte de máquinas por asignar / por iniciar'}</Text>
           </TouchableOpacity>
 
-          {/* Panel "Activar/desactivar máquinas por supervisor" — SOLO visible para las
-              2 cuentas en BULK_TOGGLE_USERNAMES/CEDULAS (ver arriba). Cambia el estado
-              operativo real de la máquina (igual que ⛔ Inactiva / ✅ Operativa en
-              Equipos), en bloque, agrupado por inspector del turno elegido. */}
+          {/* Panel "Gestionar Iniciada/Pendiente por supervisor" — SOLO visible para las
+              2 cuentas en BULK_TOGGLE_USERNAMES/CEDULAS (ver arriba) o quien se sume
+              desde Ajustes. Marca o quita el arranque de jornada del día de HOY en
+              `machine_rounds`, en bloque, agrupado por inspector. */}
           {bulkAllowed ? (
             <View style={{ marginTop: spacing.md }}>
               <TouchableOpacity onPress={() => setBulkOpen((o) => !o)} activeOpacity={0.85} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>🔧 Activar / desactivar máquinas por supervisor {bulkOpen ? '▲' : '▼'}</Text>
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>🔧 Gestionar Iniciada / Pendiente por supervisor {bulkOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {bulkOpen ? (
                 <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                  {!bulkIsToday ? (
+                    <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginBottom: spacing.sm }}>
+                      Solo se puede gestionar el día de HOY ({shortDate(caracasToday())}) — volvé al día actual con ▶ arriba para usar este panel.
+                    </Text>
+                  ) : null}
                   {/* Filtro de TURNO — propio del panel, para no mezclar día y noche por
-                      error al seleccionar/desactivar en bloque. */}
+                      error al seleccionar/marcar en bloque. */}
                   <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.xs }}>
                     {([['all', 'Todos'], ['day', '☀️ Día'], ['night', '🌙 Noche']] as const).map(([v, lbl]) => {
                       const on = bulkShiftFilter === v;
@@ -565,9 +603,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       );
                     })}
                   </View>
-                  {/* Filtro de ESTADO operativo actual. */}
+                  {/* Filtro de ESTADO (iniciada / pendiente por iniciar). */}
                   <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm }}>
-                    {([['all', 'Todas'], ['active', '● Operativas'], ['inactive', '● Inactivas']] as const).map(([v, lbl]) => {
+                    {([['all', 'Todas'], ['started', '✅ Iniciadas'], ['pending', '⏳ Pendientes']] as const).map(([v, lbl]) => {
                       const on = bulkStatusFilter === v;
                       return (
                         <TouchableOpacity key={v} onPress={() => setBulkStatusFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
@@ -579,10 +617,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
                     <TouchableOpacity onPress={toggleBulkAll} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : colors.border, backgroundColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                      <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? colors.brand : colors.border, backgroundColor: bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {bulkAllKeys.length > 0 && bulkAllKeys.every((k) => bulkSel.has(k)) ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                       </View>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas las visibles ({bulkAllIds.length})</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas las visibles ({bulkAllKeys.length})</Text>
                     </TouchableOpacity>
                     {bulkSel.size > 0 ? (
                       <TouchableOpacity onPress={() => setBulkSel(new Set())}>
@@ -596,26 +634,26 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   ) : (
                     <ScrollView style={{ maxHeight: 360 }}>
                       {bulkGroups.map((g) => {
-                        const ids = g.items.map((i) => i.id);
-                        const allIn = ids.length > 0 && ids.every((id) => bulkSel.has(id));
+                        const keys = g.items.map((i) => i.key);
+                        const allIn = keys.length > 0 && keys.every((k) => bulkSel.has(k));
                         return (
                           <View key={g.name} style={{ marginBottom: spacing.sm }}>
-                            <TouchableOpacity onPress={() => toggleBulkGroup(ids)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
+                            <TouchableOpacity onPress={() => toggleBulkGroup(keys)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 6 }}>
                               <View style={{ width: 16, height: 16, borderRadius: 4, borderWidth: 2, borderColor: allIn ? colors.brand : colors.border, backgroundColor: allIn ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                                 {allIn ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 10 }}>✓</Text> : null}
                               </View>
                               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>👷 {g.name} ({g.items.length})</Text>
                             </TouchableOpacity>
                             {g.items.map((it) => {
-                              const on = bulkSel.has(it.id);
+                              const on = bulkSel.has(it.key);
                               return (
-                                <TouchableOpacity key={`${it.id}-${it.shift}`} onPress={() => toggleBulkOne(it.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: spacing.md }}>
+                                <TouchableOpacity key={it.key} onPress={() => toggleBulkOne(it.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: spacing.md }}>
                                   <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                                     {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>✓</Text> : null}
                                   </View>
                                   <Text style={{ fontSize: 12 }}>{it.shift === 'day' ? '☀️' : '🌙'}</Text>
                                   <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{it.code}</Text>
-                                  <Text style={{ color: it.operational ? colors.brandText : colors.dangerSoftText, fontWeight: '700', fontSize: 11 }}>{it.operational ? '● Operativa' : '● Inactiva'}</Text>
+                                  <Text style={{ color: it.started ? colors.brandText : colors.muted, fontWeight: '700', fontSize: 11 }}>{it.started ? '✅ Iniciada' : '⏳ Pendiente'}</Text>
                                 </TouchableOpacity>
                               );
                             })}
@@ -626,11 +664,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   )}
 
                   <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                    <TouchableOpacity onPress={() => applyBulk(true)} disabled={bulkSel.size === 0 || bulkBusy} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy ? 0.5 : 1 }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `✅ Activar seleccionadas (${bulkSel.size})`}</Text>
+                    <TouchableOpacity onPress={() => applyBulk('start')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟢 Marcar Iniciada (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk(false)} disabled={bulkSel.size === 0 || bulkBusy} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy ? 0.5 : 1 }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⛔ Desactivar seleccionadas (${bulkSel.size})`}</Text>
+                    <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Marcar Pendiente (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
