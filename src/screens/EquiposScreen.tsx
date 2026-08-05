@@ -19,6 +19,7 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
+import { listInspectorAssignments } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico } from '../lib/edificios';
@@ -202,6 +203,25 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   // Inspector "asignado" = quien hizo el último check-in en cada máquina.
   useEffect(() => { latestInspectorByMachine().then(setInspectors).catch(() => {}); }, [machinery.data]);
+
+  // Inspector ASIGNADO (CHECK MÁQUINA) por TURNO, día y noche por separado — para el
+  // reporte de conteo de equipos (a diferencia de `inspectors`, que es solo el último
+  // check-in sin distinguir turno). Se recarga junto con el catálogo.
+  const [inspByShift, setInspByShift] = useState<Record<string, { day: string | null; night: string | null }>>({});
+  useEffect(() => {
+    let alive = true;
+    listInspectorAssignments().then(({ rows }) => {
+      if (!alive) return;
+      const m: Record<string, { day: string | null; night: string | null }> = {};
+      rows.forEach((r) => {
+        const e = m[r.machinery_id] ?? { day: null, night: null };
+        if (r.shift === 'night') e.night = r.inspector_name; else e.day = r.inspector_name;
+        m[r.machinery_id] = e;
+      });
+      setInspByShift(m);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [machinery.data]);
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
     setGuards((p) => {
@@ -316,10 +336,15 @@ export default function EquiposScreen({ navigation, route }: any) {
       n.has(t) ? n.delete(t) : n.add(t);
       return n;
     });
-  // TIPO del reporte: el CÓDIGO del equipo. La clave normaliza (mayúsculas, sin acentos,
-  // espacios colapsados) para que variantes escritas distinto cuenten como un mismo tipo.
+  // "Equipo" que sale en el detalle del reporte: el CÓDIGO de la máquina (ej. "CAMION
+  // VOLTEO TORONTO"). No se usa para filtrar (ver clasificación más abajo).
   const repTipoKey = (m: Machinery) => norm(m.code || '').replace(/\s+/g, ' ').trim();
   const repTipoLabel = (m: Machinery) => (String(m.code || '').replace(/\s+/g, ' ').trim().toUpperCase() || 'SIN TIPO');
+  // FILTRO del reporte por CLASIFICACIÓN (m.clasificacion: Excavadora, Volteo, Retro,
+  // remoción/excavación…), no por código — así se puede pedir "solo equipos de
+  // remoción y/o excavación" sin tener que marcar cada código uno por uno.
+  const repClasifKey = (m: Machinery) => norm((m as any).clasificacion || '').trim();
+  const repClasifLabel = (m: Machinery) => (String((m as any).clasificacion || '').trim().toUpperCase() || 'SIN CLASIFICACIÓN');
   const scopedMachines = (scope: string) =>
     scope === '__all__'
       ? machinery.data
@@ -690,9 +715,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
   // Datos del reporte: total GENERAL, conteo POR EMPRESA y DETALLE por empresa (cada
-  // equipo = tipo + serial + estado). Aplica el filtro de tipos tildados (vacío = todos).
+  // equipo con sus datos reales). Aplica el filtro de CLASIFICACIÓN tildada (vacío = todas).
   const buildReportData = (scope: string, sel: Set<string>) => {
-    const src = sel.size === 0 ? scopedMachines(scope) : scopedMachines(scope).filter((m) => sel.has(repTipoKey(m)));
+    const src = sel.size === 0 ? scopedMachines(scope) : scopedMachines(scope).filter((m) => sel.has(repClasifKey(m)));
     const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
@@ -706,13 +731,13 @@ export default function EquiposScreen({ navigation, route }: any) {
     return { total: src.length, empresas };
   };
   const reportData = useMemo(() => buildReportData(reportCompany, reportTypes), [reportCompany, reportTypes, machinery.data, companyName]);
-  // Opciones del checklist: tipos (código, unificados) del alcance con su cantidad.
+  // Opciones del checklist: CLASIFICACIONES del alcance con su cantidad (ej. Excavadora,
+  // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
     const m = new Map<string, { key: string; tipo: string; count: number }>();
     scopedMachines(reportCompany).forEach((it) => {
-      const k = repTipoKey(it);
-      if (!k) return;
-      const e = m.get(k) ?? { key: k, tipo: repTipoLabel(it), count: 0 };
+      const k = repClasifKey(it);
+      const e = m.get(k) ?? { key: k, tipo: repClasifLabel(it), count: 0 };
       e.count += 1;
       m.set(k, e);
     });
@@ -726,6 +751,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
 
   // PDF: Total general → Por empresa (resumen) → Detalle por empresa (Equipo · Serial · Estado).
+  // Edificio (derivado del catálogo oficial) o, si no matchea ninguno, la referencia
+  // cruda tal como está escrita — "uno u otro", nunca los dos ni vacío si hay dato.
+  const edificioOrRef = (m: Machinery): string => {
+    const ref = (m as any).referencia as string | null;
+    return edificioCanonico(ref) || (ref && ref.trim()) || '—';
+  };
+
   const buildReportHtml = (scope: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const { total, empresas } = buildReportData(scope, reportTypes);
@@ -736,25 +768,37 @@ export default function EquiposScreen({ navigation, route }: any) {
     const detalle = empresas
       .map((c) => {
         const rows = c.items
-          .map((m, i) => `<tr>
+          .map((m, i) => {
+            const insp = inspByShift[m.id];
+            return `<tr>
               <td style="text-align:center">${i + 1}</td>
               <td>${esc(repTipoLabel(m))}</td>
-              <td>${esc(m.serial || m.plate || '—')}</td>
+              <td>${esc(repClasifLabel(m))}</td>
+              <td>${esc(m.serial || '—')}</td>
+              <td>${esc(m.plate || '—')}</td>
+              <td>${esc((m as any).sector || '—')}</td>
+              <td>${esc(edificioOrRef(m))}</td>
+              <td>${esc(insp?.day || '—')}</td>
+              <td>${esc(insp?.night || '—')}</td>
               <td style="color:${estColor(m)}">${esc(estadoTxt(m))}</td>
-            </tr>`)
+            </tr>`;
+          })
           .join('');
         return `<h3 class="emp">🏢 ${esc(c.name.toUpperCase())} — ${c.items.length}</h3>
-          <table><thead><tr><th style="width:34px">#</th><th>Equipo</th><th>Serial</th><th>Estado</th></tr></thead>
+          <table><thead><tr>
+            <th style="width:26px">#</th><th>Equipo</th><th>Clasificación</th><th>Serial</th><th>Placa</th>
+            <th>Sector</th><th>Edificio / Referencia</th><th>Inspector ☀️ Día</th><th>Inspector 🌙 Noche</th><th>Estado</th>
+          </tr></thead>
           <tbody>${rows}</tbody></table>`;
       })
       .join('');
     return pdfDocument({
       title: titleForScope(scope),
-      subtitle: `Total general de equipos: ${total}${reportTypes.size > 0 ? ' · filtro de tipos aplicado' : ''}`,
+      subtitle: `Total general de equipos: ${total}${reportTypes.size > 0 ? ' · filtro de clasificación aplicado' : ''}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
-        table{width:100%;border-collapse:collapse;margin-top:2px;font-size:11px}
-        th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
+        table{width:100%;border-collapse:collapse;margin-top:2px;font-size:9.5px}
+        th,td{border:1px solid #ccc;padding:4px 5px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         h2{font-size:15px;color:#1E3A5F;margin:18px 0 6px;text-transform:uppercase;border-bottom:2px solid #E5E7EB;padding-bottom:3px}
         .emp{font-size:12.5px;font-weight:800;text-transform:uppercase;color:#1E3A5F;margin:12px 0 2px}
@@ -1523,7 +1567,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
               >
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
-                  🔎 Filtrar por tipo de equipo{reportTypes.size > 0 ? ` (${reportTypes.size})` : ' (todos)'}
+                  🔎 Filtrar por clasificación{reportTypes.size > 0 ? ` (${reportTypes.size})` : ' (todas)'}
                 </Text>
                 <Text style={{ color: colors.primary, fontWeight: '800' }}>{reportFilterOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
@@ -1532,7 +1576,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                   <TextInput
                     value={reportTypeQ}
                     onChangeText={setReportTypeQ}
-                    placeholder="🔎 Buscar tipo (ej. volteo toronto)…"
+                    placeholder="🔎 Buscar clasificación (ej. excavación, remoción, volteo)…"
                     placeholderTextColor={colors.muted}
                     style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, marginBottom: spacing.xs }}
                   />
@@ -1603,19 +1647,31 @@ export default function EquiposScreen({ navigation, route }: any) {
                   </View>
                 ))}
 
-                {/* 3) Detalle por empresa: Equipo · Serial · Estado */}
+                {/* 3) Detalle por empresa: datos reales de cada equipo (clasificación, serial/placa,
+                     sector, edificio/referencia, inspector día/noche, estado). */}
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.md, marginBottom: 2 }}>Detalle por empresa</Text>
                 {reportData.empresas.map((c) => (
                   <View key={`det-${c.name}`} style={{ marginBottom: spacing.sm }}>
                     <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>🏢 {c.name} — {c.items.length}</Text>
-                    {c.items.map((m, i) => (
-                      <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 4, paddingLeft: spacing.sm }}>
-                        <Text style={{ color: colors.muted, fontSize: 11, width: 22 }}>{i + 1}.</Text>
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>{repTipoLabel(m)}</Text>
-                        <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }} numberOfLines={1}>{m.serial || m.plate || '—'}</Text>
-                        <Text style={{ color: estadoColor(m), fontSize: 11, fontWeight: '700' }}>{estadoTxt(m)}</Text>
-                      </View>
-                    ))}
+                    {c.items.map((m, i) => {
+                      const insp = inspByShift[m.id];
+                      return (
+                        <View key={m.id} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 5, paddingLeft: spacing.sm }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                            <Text style={{ color: colors.muted, fontSize: 11, width: 22 }}>{i + 1}.</Text>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>{repTipoLabel(m)}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{m.serial || m.plate || '—'}</Text>
+                            <Text style={{ color: estadoColor(m), fontSize: 11, fontWeight: '700' }}>{estadoTxt(m)}</Text>
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2, paddingLeft: 22 + spacing.sm }} numberOfLines={2}>
+                            🏷️ {repClasifLabel(m)} · 📍 {(m as any).sector || 'Sin sector'} · 🏗️ {edificioOrRef(m)}
+                          </Text>
+                          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1, paddingLeft: 22 + spacing.sm }} numberOfLines={1}>
+                            ☀️ {insp?.day || 'Sin inspector día'} · 🌙 {insp?.night || 'Sin inspector noche'}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
                 ))}
               </>

@@ -121,16 +121,22 @@ Otras cosas que puedes hacer en cada máquina:
 
 **Editar o borrar supervisores:** en el botón 🪖 toca **"⚙️ Editar / borrar supervisores"**. Ahí puedes **✎ renombrar** un supervisor (se corrige en **todos** sus registros) o **🗑 borrarlo** por completo (las máquinas que custodiaba quedan sin supervisor).
 
-**📄 Reporte de CONTEO de equipos (desde el Catálogo):** es **solo conteo + detalle, sin horas
-ni precios**. Muestra, en este orden:
+**📄 Reporte de CONTEO de equipos (desde el Catálogo), con todos los datos reales
+(05/08/2026):** sigue siendo **sin horas ni precios** (para eso está Control de maquinaria), pero
+ahora trae el detalle completo de cada equipo, no solo el conteo. Muestra, en este orden:
 1. **Total general** de equipos.
 2. **Por empresa** — cuántos equipos tiene cada empresa.
-3. **Detalle por empresa** — bajo cada empresa, cada equipo sale como **Equipo (tipo) · Serial ·
-   Estado** (p. ej. *CAMIÓN VOLTEO TORONTO · A25BE0M · Operativa*).
+3. **Detalle por empresa** — bajo cada empresa, cada equipo sale con: **Equipo (código),
+   Clasificación, Serial, Placa, Sector, Edificio o Referencia** (el edificio si la referencia
+   coincide con uno del catálogo oficial; si no, la referencia tal como está escrita — nunca los
+   dos a la vez), **Inspector ☀️ Día** e **Inspector 🌙 Noche** (los asignados por **✅ CHECK
+   MÁQUINA**, uno por turno — puede haber uno distinto en cada turno), y **Estado**.
 - **Alcance:** elige **General (todas)** o una **empresa**.
-- **Filtro por tipo — lista desplegable con casillas:** toca **"🔎 Filtrar por tipo de equipo"**
-  para abrir la lista, **escribe** (ej. *"volteo toronto"*) y **tilda ☑** uno o varios tipos
-  para ver solo esos. Botón **⬇️ Descargar PDF (conteo)**.
+- **Filtro por CLASIFICACIÓN — lista desplegable con casillas:** toca **"🔎 Filtrar por
+  clasificación"** para abrir la lista, **escribe** (ej. *"excavación"*, *"remoción"*, *"volteo"*)
+  y **tilda ☑** una o varias clasificaciones para ver solo esas (ej. todos los equipos de
+  remoción y excavación de una sola vez). Los equipos sin clasificación cargada aparecen bajo
+  **"Sin clasificación"**, no se esconden. Botón **⬇️ Descargar PDF (conteo)**.
 
 ### 4.5. Control de maquinaria (las horas que trabaja cada máquina)
 Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** cada máquina.
