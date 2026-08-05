@@ -51,22 +51,20 @@ export default function MoreScreen({ navigation }: any) {
       <ConfigBanner />
 
       {/* Menú: una fila por módulo (ícono + nombre + descripción + chevron), en
-          orden alfabético. Combustible va destacado (acento ámbar). */}
+          orden alfabético. */}
       <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 1.5, marginBottom: spacing.sm }}>MENÚ</Text>
       <View style={{ gap: 4 }}>
         {menu.map((m) => {
-          const feat = m.route === 'Combustible';
           return (
             <TouchableOpacity
               key={m.route}
               onPress={() => navigation.navigate(m.route)}
               activeOpacity={0.7}
-              style={{ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: feat ? colors.surface : 'transparent', borderWidth: 1, borderColor: feat ? colors.accent : colors.border, overflow: 'hidden' }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md, borderRadius: radius.md, backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.border }}
             >
-              {feat ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 4, backgroundColor: colors.accent, borderTopRightRadius: 4, borderBottomRightRadius: 4 }} /> : null}
               <Text style={{ fontSize: 24, width: 30, textAlign: 'center' }}>{m.icon}</Text>
               <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: feat ? '900' : '700', color: colors.text }}>{m.label}</Text>
+                <Text numberOfLines={1} style={{ fontSize: 15.5, fontWeight: '700', color: colors.text }}>{m.label}</Text>
                 <Text numberOfLines={1} style={{ fontSize: 11.5, color: colors.muted, marginTop: 1 }}>{m.desc}</Text>
               </View>
               <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>

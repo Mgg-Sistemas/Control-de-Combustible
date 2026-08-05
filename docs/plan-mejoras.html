@@ -71,6 +71,11 @@
     width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-weight:800;
     font-size:13px;display:flex;align-items:center;justify-content:center}
   footer{margin-top:40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  .day-group{margin-top:40px}
+  .day-group + .day-group{margin-top:64px;padding-top:36px;border-top:1px dashed var(--line)}
+  .day-heading{font-size:clamp(20px,3.4vw,26px);font-weight:800;letter-spacing:-.01em;
+    color:var(--ink);display:flex;align-items:center;gap:10px;
+    margin:0 0 8px;padding-bottom:14px;border-bottom:2px solid var(--ink)}
 </style>
 
 <div class="wrap">
@@ -85,6 +90,9 @@
       <span class="chip eff">◷ esfuerzo estimado</span>
     </div>
   </header>
+
+  <section class="day-group" id="day-2026-08-04">
+    <h2 class="day-heading">📅 04/08/2026</h2>
 
   <h2><span class="n">00</span> Rediseño: marcar máquina parada</h2>
   <p class="sec-note">Lo que acabas de pedir. Hoy “parada” es un solo motivo libre en <code>maintenance_requests</code> (SupervisorScreen ~700). Propuesta: dividir en dos caminos.</p>
@@ -343,6 +351,22 @@
     <h3>Panel para gestionar Iniciada/Pendiente por supervisor (Inspecciones) + control en Ajustes <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
     <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en <code>InspectionsSummary.tsx</code>, debajo del botón "Reporte de máquinas por asignar / por iniciar", hay un panel que lista las máquinas agrupadas por inspector con checkbox individual/por grupo/todas, y 2 botones para pasarlas en bloque entre <b>✅ Iniciada</b> y <b>⏳ Pendiente por iniciar</b> (el mismo estado de las tarjetas KPI de arriba) — <b>NO</b> es el catálogo "Operativa/Inactiva" de Equipos (versión anterior de este panel; se corrigió porque no era lo que hacía falta). "Iniciar" arranca <code>jornada_start_at</code> ahora mismo (igual que si un inspector tocara "Iniciar jornada", sin pedir horómetro); "Pendiente" borra las horas de ese turno y cierra la jornada abierta si es de ese mismo turno. Solo funciona para el día de HOY (no días pasados, para no tocar cortes ya cerrados). Tiene sus PROPIOS filtros de turno (Todos/☀️Día/🌙Noche) y estado (Todas/Iniciadas/Pendientes), independientes del switch del resto del dashboard, y cada fila muestra su turno con su propia casilla (una máquina con inspector de día Y de noche sale 2 veces, cada una independiente). Al marcar "Pendiente" una máquina que ya tenía horas trabajadas hoy, esas horas NO se pierden: quedan registradas en <code>machine_work_segments</code> (source <code>ajuste_manual</code>, igual que cualquier otro cierre) y en la bitácora de Auditoría (<code>JORNADA_INICIO</code>/<code>JORNADA_FIN</code>, con el detalle de qué se hizo y desde el panel), como cualquier otra acción de jornada de la app. Pedido a mano por el cliente para 2 cuentas puntuales (Angélica y Anthony). El acceso ya no está solo fijo en el código: <code>supabase/feature_toggles.sql</code> (tabla genérica <code>key/enabled/extra_user_ids</code>, RLS solo-admin-escribe) permite, desde <b>Ajustes → Herramientas avanzadas</b> (solo rol admin), prender/apagar el panel entero y sumar/quitar personas con acceso extra sin tocar código.</p>
   </div>
+  <div class="card">
+    <h3>Sin tasa BCV/Bs en NINGÚN reporte, solo montos en US$ <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> el cliente amplió el pedido de Nómina (hecho antes) a TODO el sistema: "en ningún reporte uses la tasa BCV, eso es solo referencial a nivel de sistema, que solo salga el monto en dólares". Barrido completo de reportes/PDFs/Excel exportables: <code>src/lib/requerimiento.ts</code> (PDF de Requerimiento de compra — quitado "· Bs ..." del total, la línea "Tasa referencial" y el precio unitario ahora siempre en US$), <code>src/lib/staffXlsx.ts</code> (los 3 Excel de Nómina — listado del período, historial "Por persona", personas seleccionadas — tenían una fila de tasa BCV editable + 6 columnas en Bs con fórmulas en vivo que no se habían tocado en la pasada anterior; se quitaron por completo, dejando solo columnas US$), <code>src/screens/ControlPagosScreen.tsx</code> (el PDF "Estado de cuenta por empresa" mostraba "· Bs monto" en pagos con método "bs"; quitado). La tasa BCV sigue funcionando igual que siempre en las pantallas normales de trabajo (cargar un precio en bolívares, convertir a US$ internamente) — el cambio es solo en los documentos finales impresos/exportados.</p>
+  </div>
+  <div class="card">
+    <h3>Menú "Más": Combustible ya no se ve resaltado/presionado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> <code>MoreScreen.tsx</code> tenía a Combustible con un estilo "destacado" fijo (fondo, borde y barra lateral color ámbar) que el cliente percibía como si el botón estuviera siempre presionado. Se quitó ese trato especial — ahora se ve igual que el resto de los módulos del menú.</p>
+  </div>
+  <div class="card">
+    <h3>Inventario: permiso FULL también puede marcar "Recibido" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> en Inventario → Requerimiento, el botón "📥 Recibir en inventario" (que ya dejaba el estado en <b>Recibido</b> automáticamente al usarlo — eso ya funcionaba) estaba visible SOLO para <code>role==='admin'</code>. El cliente pidió que "los que tienen todos los permisos de inventario" también puedan cambiar ese estado — las políticas RLS de <code>inventory_requirements</code>/<code>inventory_movements</code> ya lo permitían (<code>can_write_module('inventario')</code>, sin restringir a admin), así que solo hacía falta habilitar el botón en la pantalla para el permiso <b>full</b> del módulo Inventario, además de admin.</p>
+  </div>
+  <div class="card">
+    <h3>Plan de mejoras reorganizado por día <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (04/08/2026):</b> este documento pasó de estar organizado solo por tema (secciones 00-06) a tener también una agrupación por DÍA (<code>&lt;section class="day-group" id="day-YYYY-MM-DD"&gt;</code>), con el 04/08/2026 como el primer día completo. Las secciones por tema se conservan igual DENTRO de cada día. Preparado para que futuros días de trabajo se agreguen como nuevos bloques, el más reciente arriba.</p>
+  </div>
 
   <footer>
     Generado tras auditar backend (schema/RLS/cron/realtime), UI/UX (theme/componentes/pantallas) y funcionalidad (jornadas/reportes/notificaciones).
@@ -350,4 +374,5 @@
     <br><b>✓ Ejecutados en producción (04/08/2026):</b> <code>supabase/fix_realtime_publication_v2.sql</code>, <code>supabase/schema_drift.sql</code>, <code>supabase/maquinas_faltantes.sql</code> (los 2 cron jobs de MAQUINAS FALTANTES ya están activos), y — confirmados por el cliente en esta ronda — los 4 scripts de la jornada 12x12 de bolqueta/toronto, en orden: <code>supabase/backup_antes_12x12_camiones.sql</code> → <code>supabase/cap_truck_hours.sql</code> → <code>supabase/auto_close_jornadas.sql</code> → <code>supabase/maquinas_faltantes.sql</code> (variante 12x12).
     <br><b>SQL pendientes de ejecutar en producción</b> (Supabase SQL Editor, EN ESTE ORDEN — todos con UUID corregido al usuario real "inspector maquinas faltantes"): <code>supabase/maquinas_faltantes.sql</code> → <code>supabase/cap_truck_hours.sql</code> → <code>supabase/auto_close_jornadas.sql</code> → <code>supabase/auto_start_dia_maquinas_faltantes.sql</code> → <code>supabase/backfill_maquinas_faltantes_agosto.sql</code> → <code>supabase/migrar_a_inspector_faltantes_real.sql</code> (mueve lo que haya quedado mal asignado si ya corriste alguna versión vieja hoy) → <code>supabase/asignar_faltantes_a_inspector_faltantes.sql</code> (de la compañera: asigna al cajón real las máquinas que sigan sin ningún inspector, día y noche). Todos con respaldo previo incluido. También pendiente: <code>supabase/feature_toggles.sql</code> (tabla del switch "Panel de activar/desactivar máquinas por supervisor" en Ajustes — hasta correrlo el panel funciona igual que antes, solo con la whitelist fija de 2 cuentas). Además: <code>supabase/fix_rls_anon_nomina_v2.sql</code>, y <code>supabase/fix_stock_race_condition.sql</code> (probar con despachos concurrentes antes de confiar en producción). <code>supabase/staff_pay_config.sql</code> y <code>supabase/fix_user_role_enum_drift.sql</code> son <b>opcionales/baja prioridad</b> — ambos se sospecha que ya están aplicados en producción de forma manual/histórica (el hallazgo de seguridad real de <code>staff_pay_config</code> ya se cerró por otra vía, ver sección 03; <code>fix_user_role_enum_drift</code> solo agrega <code>'coordinador_patio'</code> al enum <code>user_role</code> si no existe, de forma idempotente — no falla si ya está). Ejecutarlos igual si no se está seguro de que ya corrieron. Si <code>staff_pay_config.sql</code> da <code>syntax error at or near "-"</code> al pegarlo, es que el copiado convirtió el <code>--</code> del comentario en un solo guion (típico al pasar por un editor de texto enriquecido); cópialo directo del archivo/Raw de GitHub.
   </footer>
+  </section>
 </div>

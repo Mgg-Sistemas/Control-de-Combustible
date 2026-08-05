@@ -964,12 +964,16 @@ y los **ajustes NO** cuentan como gasto: el gasto es el material que efectivamen
 
 **📝 Requerimiento (pedir compras al jefe):** en la pestaña **"📝 Requerimiento"** armas una lista
 de productos que hacen falta —**del inventario** (los traes) o **NUEVOS** (los escribes)— con
-cantidad y **precio estimado** (en **$ o Bs**). Al **📤 Enviar al jefe** queda guardado como
-**Pendiente**. El **jefe (administrador)** lo **✅ Aprueba** o lo **❌ Rechaza**. Si se compra, el
-administrador toca **"📥 Recibir en inventario"**, confirma la **cantidad y el precio real** de cada
-producto, y el sistema **crea la entrada** en el almacén (los productos nuevos **se crean solos**);
-el requerimiento queda como **Recibido**. Con **🧾 PDF** puedes imprimir el requerimiento para
-pasárselo al jefe. Así todo queda trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
+cantidad y **precio estimado** (en **$ o Bs** — el sistema convierte a dólares con la tasa del día
+solo para el cálculo interno). Al **📤 Enviar al jefe** queda guardado como **Pendiente**. El **jefe
+(administrador)** lo **✅ Aprueba** o lo **❌ Rechaza**. Si se compra, quien tenga permiso de
+**Recibir** (el administrador o alguien con **todos los permisos de Inventario**, desde 04/08/2026)
+toca **"📥 Recibir en inventario"**, confirma la **cantidad y el precio real** de cada producto, y el
+sistema **crea la entrada** en el almacén (los productos nuevos **se crean solos**); el requerimiento
+queda **automáticamente** como **Recibido**. Con **🧾 PDF** puedes imprimir el requerimiento para
+pasárselo al jefe — el documento muestra **solo el monto en dólares** (sin Bs ni tasa BCV; esa tasa
+es solo referencial dentro del sistema, no sale en ningún reporte impreso). Así todo queda
+trazado: quién lo pidió, quién lo aprobó y cuándo se recibió.
 Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y productos — no si ya fue
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
 escritura en Inventario.

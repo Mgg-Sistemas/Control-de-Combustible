@@ -1425,10 +1425,14 @@ const dmyOf = (iso: string) => { const d = new Date(iso); const p = (n: number) 
 
 function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
-  const { session, role } = useAuth();
+  const { session, role, moduleLevel } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
   const isAdmin = role === 'admin';
+  // Full control de Inventario (no solo admin) también puede marcar "Recibido" —
+  // pedido directo del cliente (04/08/2026): que el permiso "todos los permisos de
+  // inventario" alcance para cambiar ese estado, sin depender del rol.
+  const canReceive = isAdmin || levelMeets(moduleLevel('inventario'), 'full');
   const uid = session?.user?.id ?? null;
   const { rate } = useBcvRate();
   const { data: reqs, loading, refetch } = useTable<InventoryRequirement>('inventory_requirements', { orderBy: 'created_at', ascending: false });
@@ -1915,7 +1919,7 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                       </TouchableOpacity>
                     </>
                   ) : null}
-                  {isAdmin && r.status === 'aprobado' ? (
+                  {canReceive && r.status === 'aprobado' ? (
                     <TouchableOpacity onPress={() => abrirRecibir(r)} style={{ backgroundColor: '#16A34A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Recibir en inventario</Text>
                     </TouchableOpacity>
