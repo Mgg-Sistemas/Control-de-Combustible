@@ -706,7 +706,10 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > tocara "Iniciar jornada", sin pedir horómetro); "Pendiente" borra las horas de ese turno y cierra
 > la jornada si estaba abierta en ese mismo turno. Tiene sus propios filtros de turno y estado
 > (independientes del switch general del dashboard) y **solo funciona para el día de HOY** (no
-> deja tocar días pasados, para no arriesgar cortes ya cerrados). Un **administrador** puede
+> deja tocar días pasados, para no arriesgar cortes ya cerrados). Si la máquina ya tenía horas
+> trabajadas hoy, "Pendiente" NO las borra sin dejar rastro: quedan guardadas en el historial
+> (`machine_work_segments`, igual que cualquier otro cierre de jornada) y en la bitácora de
+> **Auditoría**, con quién lo hizo y cuántas horas había. Un **administrador** puede
 > prender/apagar este panel por completo y sumar o quitar personas con acceso desde **Ajustes →
 > Herramientas avanzadas** (requiere haber corrido `supabase/feature_toggles.sql` en Supabase;
 > mientras tanto sigue funcionando igual, solo para las 2 cuentas fijas).
