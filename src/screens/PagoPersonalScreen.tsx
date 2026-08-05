@@ -595,7 +595,7 @@ export default function PagoPersonalScreen() {
       g.items.push(p);
       m.set(k, g);
     });
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [periods, companies]);
 
   const totalPagado = useMemo(() => (sel ? round2(items.reduce((s, it) => s + paidOf(it.id), 0)) : 0), [items, pays, sel]);
@@ -665,8 +665,8 @@ export default function PagoPersonalScreen() {
             <Text style={{ color: colors.primary, fontWeight: '800' }}>🏷️ Tabulador</Text>
           </TouchableOpacity>
           {vista === 'periodo' ? (
-            <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+            <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCType('semana'); const r = rangeFor('semana', cRef); setCFrom(r.from); setCTo(r.to); setCMode('dia'); setCValid(true); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nuevo</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -712,7 +712,7 @@ export default function PagoPersonalScreen() {
           ) : (
             byCompany.map((g) => (
               <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
                 {g.items.map((p) => {
                   const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
                   return (
@@ -725,8 +725,8 @@ export default function PagoPersonalScreen() {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                           <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
                           <View style={{ alignItems: 'flex-end' }}>
-                            <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
-                            {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(p.total_amount)}</Text> : null}
+                            <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
+                            {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{bsTxt(p.total_amount)}</Text> : null}
                           </View>
                         </View>
                       </Card>
@@ -793,8 +793,8 @@ export default function PagoPersonalScreen() {
                 <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setCreateOpen(false)}>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: creating ? 0.7 : 1 }} onPress={crearPeriodo} disabled={creating}>
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{creating ? 'Creando…' : 'Crear y precargar personal'}</Text>
+                <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: creating ? 0.7 : 1 }} onPress={crearPeriodo} disabled={creating}>
+                  <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{creating ? 'Creando…' : 'Crear y precargar personal'}</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ height: spacing.lg }} />
@@ -809,23 +809,24 @@ export default function PagoPersonalScreen() {
           {sel ? (
             <ScrollView>
               <TouchableOpacity onPress={() => setSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{sel.name}</SectionTitle>
               <Card>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[sel.period_type]} · {fmtDMY(sel.date_from)} → {fmtDMY(sel.date_to)} · {MODE_LABEL[sel.mode]}{sel.only_validated ? ' · solo validadas' : ''}</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
+                <View style={{ marginTop: spacing.xs, alignItems: 'flex-start' }}>
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
-                    {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 12, fontWeight: '700' }}>{bsTxt(sel.total_amount)}</Text> : null}
-                  </View>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-                  <Text style={{ color: '#087443', fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}{bcvRate ? ` · ${bsTxt(totalPagado)}` : ''}</Text>
-                  {totalSaldo > 0 ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}{bcvRate ? ` · ${bsTxt(totalSaldo)}` : ''}</Text> : null}
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.xs }}>
+                  <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
+                  {bcvRate ? <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 12, fontWeight: '700' }}>{bsTxt(sel.total_amount)}</Text> : null}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
+                    <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}{bcvRate ? ` · ${bsTxt(totalPagado)}` : ''}</Text>
+                    {totalSaldo > 0 ? <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}{bcvRate ? ` · ${bsTxt(totalSaldo)}` : ''}</Text> : null}
+                  </View>
                 </View>
                 {bcvRate ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Tasa BCV del día: {fmtBs(bcvRate)}/US$</Text> : null}
               </Card>
@@ -839,13 +840,13 @@ export default function PagoPersonalScreen() {
                     <TouchableOpacity onPress={agregarFaltantes} disabled={busy} style={{ flexGrow: 1, flexBasis: 130, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>＋ Personal faltante</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#2563EB' }}>
-                      <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
+                    <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
                     </TouchableOpacity>
                   </>
                 ) : null}
                 {sel.status === 'aprobada' ? (
-                  <TouchableOpacity onPress={() => setStatus('pagada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
+                  <TouchableOpacity onPress={() => setStatus('pagada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}>
                     <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>💵 Marcar pagada</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -854,23 +855,23 @@ export default function PagoPersonalScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>↩ Reabrir</Text>
                   </TouchableOpacity>
                 ) : null}
-                <TouchableOpacity onPress={exportarExcel} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
+                <TouchableOpacity onPress={exportarExcel} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📥 Excel{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#111827' }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
+                <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Reporte{itemSelIds.size ? ` (${itemSelIds.size})` : ''}</Text>
                 </TouchableOpacity>
               </View>
 
               {/* Aviso "incluir a TODOS": empleados activos que aún no están en este período. */}
               {sel.status === 'borrador' && faltantesCount > 0 ? (
-                <TouchableOpacity onPress={agregarFaltantes} disabled={busy} activeOpacity={0.8} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <TouchableOpacity onPress={agregarFaltantes} disabled={busy} activeOpacity={0.8} style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                   <Text style={{ fontSize: 20 }}>➕</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>Hay {faltantesCount} empleado(s) activo(s) que faltan en este período</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>Toca para incluirlos a TODOS (entran con 0 jornadas; ajústalas o edítalos).</Text>
+                    <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>Hay {faltantesCount} empleado(s) activo(s) que faltan en este período</Text>
+                    <Text style={{ color: colors.warningSoftText, opacity: 0.85, fontSize: 12 }}>Toca para incluirlos a TODOS (entran con 0 jornadas; ajústalas o edítalos).</Text>
                   </View>
-                  <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 13 }}>{busy ? '…' : 'Agregar'}</Text>
+                  <Text style={{ color: colors.warningSoftText, fontWeight: '900', fontSize: 13 }}>{busy ? '…' : 'Agregar'}</Text>
                 </TouchableOpacity>
               ) : null}
 
@@ -903,13 +904,13 @@ export default function PagoPersonalScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
                       💼 Filtrar por cargo{cargoSel.size > 0 ? ` (${cargoSel.size})` : ' (todos)'}
                     </Text>
-                    <Text style={{ color: colors.primary, fontWeight: '800' }}>{cargoOpen ? '▲' : '▼'}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>{cargoOpen ? '▲' : '▼'}</Text>
                   </TouchableOpacity>
                   {cargoOpen ? (
                     <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
                       {cargoSel.size > 0 ? (
                         <TouchableOpacity onPress={() => setCargoSel(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
-                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({cargoSel.size})</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>✕ Limpiar ({cargoSel.size})</Text>
                         </TouchableOpacity>
                       ) : null}
                       {cargosDisponibles.map((d) => {
@@ -952,7 +953,7 @@ export default function PagoPersonalScreen() {
                     </TouchableOpacity>
                     {itemSelIds.size > 0 ? (
                       <TouchableOpacity onPress={() => setItemSelIds(new Set())}>
-                        <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección ({itemSelIds.size})</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección ({itemSelIds.size})</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -990,9 +991,9 @@ export default function PagoPersonalScreen() {
                           ) : null}
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{usd(it.total)}</Text>
-                          {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, fontWeight: '700' }}>{bsTxt(it.total)}</Text> : null}
-                          {pagado > 0 ? <Text style={{ color: saldo > 0 ? colors.danger : '#087443', fontSize: 11, fontWeight: '700' }}>{saldo > 0 ? `saldo ${usd(saldo)}` : '✓ pagado'}</Text> : null}
+                          <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.total)}</Text>
+                          {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{bsTxt(it.total)}</Text> : null}
+                          {pagado > 0 ? <Text style={{ color: saldo > 0 ? colors.danger : colors.success, fontSize: 11, fontWeight: '700' }}>{saldo > 0 ? `saldo ${usd(saldo)}` : '✓ pagado'}</Text> : null}
                         </View>
                       </View>
                       {abonos.length ? (
@@ -1001,7 +1002,7 @@ export default function PagoPersonalScreen() {
                             <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                               <Text style={{ color: colors.muted, fontSize: 11 }}>🟢 {fmtDMY(p.fecha)} · {p.metodo}</Text>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                                <Text style={{ color: '#087443', fontSize: 12, fontWeight: '700' }}>{usd(p.monto)}</Text>
+                                <Text style={{ color: colors.success, fontSize: 12, fontWeight: '700' }}>{usd(p.monto)}</Text>
                                 {sel.status !== 'pagada' ? <TouchableOpacity onPress={() => deleteAbono(p)}><Text style={{ color: colors.danger, fontSize: 12 }}>✕</Text></TouchableOpacity> : null}
                               </View>
                             </View>
@@ -1013,7 +1014,7 @@ export default function PagoPersonalScreen() {
                           <Text style={{ color: readOnly ? colors.text : colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>{readOnly ? '👁 Ver' : '✎ Editar'}</Text>
                         </TouchableOpacity>
                         {saldo > 0 && sel.status !== 'borrador' ? (
-                          <TouchableOpacity onPress={() => openPay(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
+                          <TouchableOpacity onPress={() => openPay(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }}>
                             <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>💵 Abonar</Text>
                           </TouchableOpacity>
                         ) : null}
@@ -1106,7 +1107,7 @@ export default function PagoPersonalScreen() {
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Total a pagar</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>{usd(totalOf(previewItem, sel.mode))}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(totalOf(previewItem, sel.mode))}</Text>
                   </View>
                 </View>
 
@@ -1115,8 +1116,8 @@ export default function PagoPersonalScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{readOnly ? 'Cerrar' : 'Cancelar'}</Text>
                   </TouchableOpacity>
                   {!readOnly ? (
-                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={guardarItem}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Guardar</Text>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }} onPress={guardarItem}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>Guardar</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -1140,7 +1141,7 @@ export default function PagoPersonalScreen() {
               <>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Abonar a {payFor.person_name}</Text>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Total {usd(payFor.total)} · saldo {usd(saldoOf(payFor))}</Text>
-                {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginBottom: spacing.sm }}>≈ {bsTxt(payFor.total)} · saldo {bsTxt(saldoOf(payFor))} (tasa BCV {fmtBs(bcvRate)}/US$)</Text> : <View style={{ marginBottom: spacing.sm }} />}
+                {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, marginBottom: spacing.sm }}>≈ {bsTxt(payFor.total)} · saldo {bsTxt(saldoOf(payFor))} (tasa BCV {fmtBs(bcvRate)}/US$)</Text> : <View style={{ marginBottom: spacing.sm }} />}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Monto del abono ({pMontoCur === 'USD' ? '$' : 'Bs'})</Text>
                   <TouchableOpacity onPress={() => setPMontoCur(pMontoCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
@@ -1148,7 +1149,7 @@ export default function PagoPersonalScreen() {
                   </TouchableOpacity>
                 </View>
                 <TextInput value={pMonto} onChangeText={(t) => setPMonto(onlyDecimal(t))} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
-                {bcvRate ? <Text style={{ color: '#0F766E', fontSize: 11, marginTop: 2 }}>≈ {pMontoCur === 'USD' ? bsTxt(parseNum(pMonto)) : usd(usdFromBs(parseNum(pMonto), bcvRate))}</Text> : null}
+                {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2 }}>≈ {pMontoCur === 'USD' ? bsTxt(parseNum(pMonto)) : usd(usdFromBs(parseNum(pMonto), bcvRate))}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Método</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                   {METODOS.map((m) => (
@@ -1161,7 +1162,7 @@ export default function PagoPersonalScreen() {
                   <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPayFor(null)}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }} onPress={confirmPay}>
+                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={confirmPay}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>Registrar abono</Text>
                   </TouchableOpacity>
                 </View>

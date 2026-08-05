@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { spacing, radius } from '../theme';
@@ -101,7 +101,7 @@ export default function OperadoresScreen() {
     let list = [...byCedula.values()];
     if (term) list = list.filter((g) => norm(g.name).includes(term) || norm(g.cedula).includes(term));
     list.forEach((g) => g.rows.sort((a, b) => a.work_date.localeCompare(b.work_date)));
-    return list.sort((a, b) => a.name.localeCompare(b.name));
+    return list.sort((a, b) => cmpText(a.name, b.name));
   }, [rows, q]);
 
   const shiftWeek = (delta: number) => setWs(addDays(ws, delta * 7));
@@ -156,24 +156,24 @@ export default function OperadoresScreen() {
       <ConfigBanner />
       <SectionTitle>Operadores</SectionTitle>
 
-      {/* Selector de semana */}
+      {/* Selector de semana — banda de marca (navy). */}
       <Card>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <TouchableOpacity onPress={() => shiftWeek(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>◀</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
+          <TouchableOpacity onPress={() => shiftWeek(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: radius.sm }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16 }}>◀</Text>
           </TouchableOpacity>
           <View style={{ alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>Semana</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>del {fmtDMY(ws)} al {fmtDMY(weekEnd)}</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 14, letterSpacing: 0.5 }}>SEMANA</Text>
+            <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 13 }}>del {fmtDMY(ws)} al {fmtDMY(weekEnd)}</Text>
           </View>
-          <TouchableOpacity onPress={() => shiftWeek(1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>▶</Text>
+          <TouchableOpacity onPress={() => shiftWeek(1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: radius.sm }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16 }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12 }}>{totalOps} operador(es) · {totalMach} máquina(s)</Text>
-          <TouchableOpacity onPress={() => setWs(weekStart(caracasISO(new Date())))}>
-            <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Semana actual</Text>
+          <TouchableOpacity onPress={() => setWs(weekStart(caracasISO(new Date())))} style={{ backgroundColor: colors.accentSoftBg, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.accentSoftText, fontSize: 12, fontWeight: '800' }}>Semana actual</Text>
           </TouchableOpacity>
         </View>
       </Card>
@@ -184,8 +184,8 @@ export default function OperadoresScreen() {
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
 
-      <TouchableOpacity onPress={downloadPdf} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, marginBottom: spacing.sm }}>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar reporte (PDF)</Text>
+      <TouchableOpacity onPress={downloadPdf} style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>⬇️ Descargar reporte (PDF)</Text>
       </TouchableOpacity>
 
       {loading ? (
@@ -205,19 +205,24 @@ export default function OperadoresScreen() {
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>👷 {g.name}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>C.I {g.cedula}</Text>
                 </View>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>{maquinas} máquina(s) · {g.rows.length} jornada(s)</Text>
-                  <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>Total semana: {Math.round(horas * 100) / 100} h {open ? '▴' : '▾'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.accentSoftBg, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+                    <Text style={{ color: colors.accentSoftText, fontSize: 13, fontWeight: '800' }}>Total semana: {Math.round(horas * 100) / 100} h</Text>
+                    <Text style={{ color: colors.accentSoftText, fontSize: 12, fontWeight: '800' }}>{open ? '▴' : '▾'}</Text>
+                  </View>
                 </View>
               </TouchableOpacity>
 
               {open ? g.rows.map((r) => (
-                <View key={r.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 6, marginTop: 4 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }}>{dayName(r.work_date)} {fmtDMY(r.work_date)}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>{r.shift ? (SHIFT_LBL[r.shift] || r.shift) : ''}</Text>
+                <View key={r.id} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8, marginTop: 4 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', flex: 1 }}>{dayName(r.work_date)} {fmtDMY(r.work_date)}</Text>
+                    {r.shift ? (
+                      <Text style={{ color: colors.accentSoftText, backgroundColor: colors.accentSoftBg, fontSize: 11, fontWeight: '700', paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, overflow: 'hidden' }}>{SHIFT_LBL[r.shift] || r.shift}</Text>
+                    ) : null}
                   </View>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>🚜 {r.code} <Text style={{ color: colors.muted }}>· {r.company_name || 'Sin empresa'}</Text></Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600', marginTop: 2 }}>🚜 {r.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {r.company_name || 'Sin empresa'}</Text></Text>
                   {r.plate || r.serial ? (
                     <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {r.plate ? `Placa: ${r.plate}` : ''}{r.plate && r.serial ? ' · ' : ''}{r.serial ? `Serial: ${r.serial}` : ''}</Text>
                   ) : null}
