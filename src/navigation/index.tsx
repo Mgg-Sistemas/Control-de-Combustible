@@ -285,6 +285,15 @@ function Tabs() {
     <Tab.Navigator
       screenOptions={{
         ...screenHeader,
+        // lazy: false — por defecto React Navigation NO monta el contenido de una
+        // pestaña hasta que se activa. Eso rompía la restauración PROFUNDA al
+        // recargar (ej. Más → Inspecciones): el stack anidado de "Más" no existía
+        // todavía cuando se aplicaba el estado guardado, así que solo se
+        // restauraba la pestaña, no la pantalla de adentro (caía siempre en el
+        // menú). Con lazy=false, TODAS las pestañas (y sus stacks anidados)
+        // existen desde el primer render, así initialState/resetRoot sí
+        // encuentran la pantalla guardada para restaurarla.
+        lazy: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
