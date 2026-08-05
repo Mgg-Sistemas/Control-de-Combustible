@@ -9,6 +9,7 @@ export type NotaData = {
   empresa?: string | null;
   maquina?: string | null;      // equipo al que se entrega
   empleados?: string[];         // empleados que reciben
+  empleadosDetalle?: { name: string; cedula?: string | null; cargo?: string | null }[]; // empleados registrados que reciben (con cédula y cargo)
   items: NotaItem[];
 };
 
@@ -30,6 +31,27 @@ export function notaEntregaHtml(d: NotaData): string {
       <td class="c b">${qtyFmt(it.qty)}</td>
       <td class="c">${esc(it.unit || '')}</td>
     </tr>`).join('');
+
+  const empleadosDetalle = d.empleadosDetalle || [];
+  let recibeHtml = '';
+  if (empleadosDetalle.length) {
+    const recibeRows = empleadosDetalle.map(e => `
+      <tr>
+        <td>${esc(e.name)}</td>
+        <td class="c">${esc(e.cedula || '—')}</td>
+        <td>${esc(e.cargo || '—')}</td>
+      </tr>`).join('');
+    const detalleNombres = new Set(empleadosDetalle.map(e => e.name));
+    const otros = (d.empleados || []).filter(n => !detalleNombres.has(n));
+    recibeHtml = `
+    <table style="margin-bottom:12px">
+      <thead><tr><th>Recibe</th><th style="width:110px" class="c">Cédula</th><th style="width:140px">Cargo</th></tr></thead>
+      <tbody>${recibeRows}</tbody>
+    </table>
+    ${otros.length ? `<div class="meta"><div><b>Otros que reciben:</b> ${esc(otros.join(' · '))}</div></div>` : ''}`;
+  } else if (d.empleados && d.empleados.length) {
+    recibeHtml = `<div class="meta"><div><b>Recibe:</b> ${esc(d.empleados.join(' · '))}</div></div>`;
+  }
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
@@ -69,7 +91,7 @@ export function notaEntregaHtml(d: NotaData): string {
       <div>${d.empresa ? `<b>Empresa:</b> ${esc(d.empresa)}` : ''}</div>
     </div>
     ${d.maquina ? `<div class="meta"><div><b>Máquina / equipo:</b> ${esc(d.maquina)}</div></div>` : ''}
-    ${d.empleados && d.empleados.length ? `<div class="meta"><div><b>Recibe:</b> ${esc(d.empleados.join(' · '))}</div></div>` : ''}
+    ${recibeHtml}
     ${d.destino ? `<div class="meta"><div><b>Destino / motivo:</b> ${esc(d.destino)}</div></div>` : ''}
 
     <table>

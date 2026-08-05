@@ -47,6 +47,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
   // Horas trabajadas como operador (de operator_assignments, por cédula), agrupadas por máquina.
   const [maquinas, setMaquinas] = useState<{ code: string; hours: number; jornadas: number }[]>([]);
   const [totalHoras, setTotalHoras] = useState(0);
+  // Historial de dotación/entregas (uniform_deliveries + inventory_movements de salida), más reciente primero.
+  const [historial, setHistorial] = useState<{ id: string; date: string; tipo: string; detalle: string }[]>([]);
 
   // isRefresh=true (pull-to-refresh) no vuelve a registrar el escaneo en la
   // bitácora: ese registro es solo para la apertura inicial por QR.
@@ -89,6 +91,63 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
       });
       setMaquinas([...acc.values()].sort((a, b) => b.hours - a.hours));
       setTotalHoras(Math.round(total * 100) / 100);
+    }
+
+    // Historial de dotación y entregas: combina uniform_deliveries (franelas/pantalones/calzado)
+    // con inventory_movements de salida (herramientas/equipos/otros artículos) de este empleado.
+    if (e?.id) {
+      const items: { id: string; date: string; tipo: string; detalle: string }[] = [];
+
+      const { data: dotacion } = await supabase
+        .from('uniform_deliveries')
+        .select('id, camisas, pantalones, zapatos, delivered_at, work_date, note, created_at')
+        .eq('employee_id', e.id);
+      (dotacion ?? []).forEach((row: any) => {
+        const detalle = [
+          row.camisas ? `${row.camisas} franela(s)` : null,
+          row.pantalones ? `${row.pantalones} pantalón(es)` : null,
+          row.zapatos ? `${row.zapatos} par(es) de calzado` : null,
+        ].filter(Boolean).join(' · ') || (row.note ?? '—');
+        items.push({
+          id: `u-${row.id}`,
+          date: row.delivered_at || row.work_date || row.created_at,
+          tipo: '🦺 Dotación básica',
+          detalle,
+        });
+      });
+
+      // employee_ids es una columna uuid[] agregada por una migración reciente; si aún no
+      // corrió en producción, la consulta falla por columna inexistente y simplemente se ignora.
+      try {
+        const { data: movs, error: movErr } = await supabase
+          .from('inventory_movements')
+          .select('id, item_id, qty, created_at')
+          .eq('kind', 'salida')
+          .contains('employee_ids', [e.id]);
+        if (!movErr && movs && movs.length) {
+          const itemIds = [...new Set(movs.map((m: any) => m.item_id).filter(Boolean))];
+          let itemById = new Map<string, { name: string; unit?: string; category?: string }>();
+          if (itemIds.length) {
+            const { data: invItems } = await supabase
+              .from('inventory_items')
+              .select('id, name, unit, category')
+              .in('id', itemIds);
+            (invItems ?? []).forEach((it: any) => itemById.set(it.id, it));
+          }
+          movs.forEach((m: any) => {
+            const it = itemById.get(m.item_id);
+            items.push({
+              id: `m-${m.id}`,
+              date: m.created_at,
+              tipo: '📦 ' + (it?.category || 'Herramienta/Equipo'),
+              detalle: `${it?.name ?? 'Artículo'} · ${m.qty} ${it?.unit ?? ''}`.trim(),
+            });
+          });
+        }
+      } catch {}
+
+      items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setHistorial(items.slice(0, 100));
     }
     setLoading(false);
   };
@@ -180,6 +239,20 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
             <View key={m.code} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
               <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>🚜 {m.code}</Text>
               <Text style={{ color: FICHA.muted, fontSize: 13 }}>{m.jornadas} jornada(s) · <Text style={{ color: FICHA.text, fontWeight: '800' }}>{m.hours} h</Text></Text>
+            </View>
+          ))}
+        </Section>
+      ) : null}
+
+      {historial.length > 0 ? (
+        <Section title="📦 Historial de dotación y entregas">
+          {historial.map((h) => (
+            <View key={h.id} style={{ paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: FICHA.border }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: FICHA.text, fontSize: 13, fontWeight: '700' }}>{h.tipo}</Text>
+                <Text style={{ color: FICHA.muted, fontSize: 12 }}>{h.date ? new Date(h.date).toLocaleDateString('es-VE') : '—'}</Text>
+              </View>
+              <Text style={{ color: FICHA.muted, fontSize: 13 }}>{h.detalle}</Text>
             </View>
           ))}
         </Section>
