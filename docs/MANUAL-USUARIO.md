@@ -696,6 +696,17 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > mal asignado — es seguro, no duplica ni pisa nada. El usuario inventado no se borra, solo queda
 > sin usar.
 >
+> **🔧 Panel "Activar/desactivar máquinas por supervisor" (04/08/2026):** en el Resumen de
+> Inspecciones, debajo del botón de "Reporte de máquinas por asignar / por iniciar", hay un panel
+> (solo para 2 cuentas puntuales, más quien se agregue desde Ajustes) que lista las máquinas del
+> turno agrupadas por inspector, con checkbox individual/por grupo/todas, y dos botones para
+> marcar en bloque **✅ Operativa** / **⛔ Inactiva** (misma acción que el botón de Equipos, pero
+> aplicada a varias a la vez). Un **administrador** puede prender/apagar este panel por completo
+> y sumar o quitar personas con acceso desde **Ajustes → Herramientas avanzadas** (requiere haber
+> corrido `supabase/feature_toggles.sql` en Supabase; mientras tanto sigue funcionando igual que
+> antes, solo para las 2 cuentas fijas). Ojo: esto cambia el estado operativo de la máquina en el
+> catálogo — no cierra la jornada del día ni borra horas ya cargadas.
+>
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale

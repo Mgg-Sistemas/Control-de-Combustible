@@ -173,16 +173,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // ¿Esta cuenta puede ver el panel de activar/desactivar por supervisor? Se resuelve
   // aparte (no viene en useAuth) para no tocar el contexto global por una excepción
   // de 2 personas. Cierra por defecto (false) hasta confirmar.
+  // Además de la whitelist fija del código, se consulta `feature_toggles`
+  // (key='maquinas_bulk_toggle', ver supabase/feature_toggles.sql) para que el
+  // panel se pueda apagar por completo o sumar usuarios extra desde Ajustes, sin
+  // tocar código. Si la fila no existe todavía (SQL no corrido), se trata como
+  // enabled=true para no romper el comportamiento actual.
   const [bulkAllowed, setBulkAllowed] = useState(false);
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) { setBulkAllowed(false); return; }
     let active = true;
-    supabase.from('profiles').select('cedula, username').eq('id', uid).single().then(({ data }) => {
+    Promise.all([
+      supabase.from('profiles').select('cedula, username').eq('id', uid).single(),
+      supabase.from('feature_toggles').select('enabled, extra_user_ids').eq('key', 'maquinas_bulk_toggle').maybeSingle(),
+    ]).then(([{ data }, { data: ft }]) => {
       if (!active) return;
       const un = String((data as any)?.username ?? '').trim().toLowerCase();
       const ci = String((data as any)?.cedula ?? '').trim();
-      setBulkAllowed(BULK_TOGGLE_USERNAMES.includes(un) || BULK_TOGGLE_CEDULAS.includes(ci));
+      const whitelisted = BULK_TOGGLE_USERNAMES.includes(un) || BULK_TOGGLE_CEDULAS.includes(ci);
+      const enabled = (ft as any)?.enabled !== false; // sin fila (ft=null) o enabled=true => encendido
+      const extraIds: string[] = (ft as any)?.extra_user_ids ?? [];
+      setBulkAllowed(enabled && (whitelisted || extraIds.includes(uid)));
     });
     return () => { active = false; };
   }, [session?.user?.id]);
