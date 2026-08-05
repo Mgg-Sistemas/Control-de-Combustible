@@ -275,19 +275,24 @@ export default function AsistenciaCamionesScreen() {
   if (loading) return <Screen><ConfigBanner /><SkeletonList /></Screen>;
 
   const input = { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
-  const actionBtn = (label: string, color: string, fr: PickFor) => (
+  type ActPal = { bg: string; text: string; border: string };
+  const actionBtn = (label: string, pal: ActPal, fr: PickFor) => (
     <View style={{ flex: 1 }}>
-      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, textAlign: 'center', marginBottom: 4 }}>{label}</Text>
+      <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 12, textAlign: 'center', marginBottom: 6 }}>{label}</Text>
       <View style={{ flexDirection: 'row', gap: 6 }}>
-        <TouchableOpacity onPress={() => { setPickFor(fr); setPickQuery(''); }} style={{ flex: 1, backgroundColor: color, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📋 Manual</Text>
+        <TouchableOpacity onPress={() => { setPickFor(fr); setPickQuery(''); }} style={{ flex: 1, backgroundColor: pal.bg, borderWidth: 1, borderColor: pal.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: pal.text, fontWeight: '800', fontSize: 12 }}>📋 Manual</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setScanFor(fr)} style={{ flex: 1, backgroundColor: color, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: 0.85 }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📷 Escáner</Text>
+        <TouchableOpacity onPress={() => setScanFor(fr)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: pal.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: pal.text, fontWeight: '800', fontSize: 12 }}>📷 Escáner</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
+  const palJornada: ActPal = { bg: colors.accentSoftBg, text: colors.accentSoftText, border: colors.accent };
+  const palAveria: ActPal = { bg: colors.warningSoftBg, text: colors.warningSoftText, border: colors.warningSoftBorder };
+  const palGasoil: ActPal = { bg: colors.successSoftBg, text: colors.successSoftText, border: colors.successSoftBorder };
+  const noticeOk = !!notice && (notice.startsWith('✅') || notice.startsWith('🟢') || notice.startsWith('🏁'));
 
   return (
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
@@ -297,33 +302,36 @@ export default function AsistenciaCamionesScreen() {
       {/* Fecha */}
       <Card>
         <DateField value={date} onChange={setDate} maxISO={caracasToday()} />
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.success, fontSize: 22, fontWeight: '900' }}>{presentes}</Text>
-            <Text style={{ color: colors.muted, fontSize: 11 }}>Presentes</Text>
-          </View>
-          <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.danger, fontSize: 22, fontWeight: '900' }}>{trucks.length - presentes}</Text>
-            <Text style={{ color: colors.muted, fontSize: 11 }}>Ausentes</Text>
-          </View>
-          <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900' }}>{trucks.length}</Text>
-            <Text style={{ color: colors.muted, fontSize: 11 }}>Camiones</Text>
-          </View>
+        <View style={{ flexDirection: 'row', backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm }}>
+          {[
+            { n: presentes, label: 'Presentes', dot: colors.success },
+            { n: trucks.length - presentes, label: 'Ausentes', dot: colors.danger },
+            { n: trucks.length, label: 'Camiones', dot: colors.accent },
+          ].map((s, i) => (
+            <View key={s.label} style={{ flex: 1, alignItems: 'center', borderLeftWidth: i === 0 ? 0 : 1, borderLeftColor: 'rgba(255,255,255,0.15)' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: s.dot }} />
+                <Text style={{ color: colors.brandContrast, fontSize: 24, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{s.n}</Text>
+              </View>
+              <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11, fontWeight: '700', marginTop: 2 }}>{s.label}</Text>
+            </View>
+          ))}
         </View>
       </Card>
 
       {notice ? (
-        <Card><Text style={{ color: notice.startsWith('✅') || notice.startsWith('🟢') || notice.startsWith('🏁') ? colors.success : colors.danger, fontWeight: '700', fontSize: 12 }}>{notice}</Text></Card>
+        <Card style={{ backgroundColor: noticeOk ? colors.successSoftBg : colors.dangerSoftBg, borderColor: noticeOk ? colors.successSoftBorder : colors.dangerSoftBorder, borderWidth: 1 }}>
+          <Text style={{ color: noticeOk ? colors.successSoftText : colors.dangerSoftText, fontWeight: '800', fontSize: 12 }}>{notice}</Text>
+        </Card>
       ) : null}
 
       {/* Acciones: manual o por escáner (solo para el día de hoy). */}
       {isToday ? (
         <Card>
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            {actionBtn('🕒 Jornada', '#0F766E', 'jornada')}
-            {actionBtn('🛠️ Avería', '#B45309', 'averia')}
-            {actionBtn('⛽ Gasoil', '#15803D', 'gasoil')}
+            {actionBtn('🕒 Jornada', palJornada, 'jornada')}
+            {actionBtn('🛠️ Avería', palAveria, 'averia')}
+            {actionBtn('⛽ Gasoil', palGasoil, 'gasoil')}
           </View>
         </Card>
       ) : null}
@@ -332,7 +340,7 @@ export default function AsistenciaCamionesScreen() {
       <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
         <Text style={{ fontSize: 14 }}>🔎</Text>
         <TextInput value={q} onChangeText={setQ} placeholder="Buscar camión: código, placa, serial, empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
-        {q ? <TouchableOpacity onPress={() => setQ('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+        {q ? <TouchableOpacity onPress={() => setQ('')}><Text style={{ color: colors.brandText, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
       </View>
 
       {/* Lista de camiones */}
@@ -356,15 +364,15 @@ export default function AsistenciaCamionesScreen() {
             </View>
             {isToday ? (
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
-                <TouchableOpacity onPress={() => marcar(t, 'presente')} style={{ flex: 1, borderWidth: 1.5, borderColor: e.present ? colors.success : colors.border, backgroundColor: e.present ? colors.success + '18' : colors.surface, borderRadius: radius.md, paddingVertical: 7, alignItems: 'center' }}>
-                  <Text style={{ color: e.present ? colors.success : colors.text, fontWeight: '800', fontSize: 12 }}>✅ Presente</Text>
+                <TouchableOpacity onPress={() => marcar(t, 'presente')} style={{ flex: 1, borderWidth: 1.5, borderColor: e.present ? colors.successSoftBorder : colors.border, backgroundColor: e.present ? colors.successSoftBg : colors.surface, borderRadius: radius.md, paddingVertical: 7, alignItems: 'center' }}>
+                  <Text style={{ color: e.present ? colors.successSoftText : colors.text, fontWeight: '800', fontSize: 12 }}>✅ Presente</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => marcar(t, 'ausente')} style={{ flex: 1, borderWidth: 1.5, borderColor: !e.present ? colors.danger : colors.border, backgroundColor: !e.present ? colors.danger + '18' : colors.surface, borderRadius: radius.md, paddingVertical: 7, alignItems: 'center' }}>
-                  <Text style={{ color: !e.present ? colors.danger : colors.text, fontWeight: '800', fontSize: 12 }}>❌ Ausente</Text>
+                <TouchableOpacity onPress={() => marcar(t, 'ausente')} style={{ flex: 1, borderWidth: 1.5, borderColor: !e.present ? colors.dangerSoftBorder : colors.border, backgroundColor: !e.present ? colors.dangerSoftBg : colors.surface, borderRadius: radius.md, paddingVertical: 7, alignItems: 'center' }}>
+                  <Text style={{ color: !e.present ? colors.dangerSoftText : colors.text, fontWeight: '800', fontSize: 12 }}>❌ Ausente</Text>
                 </TouchableOpacity>
                 {!e.auto ? (
                   <TouchableOpacity onPress={() => limpiarMarca(t)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 7, paddingHorizontal: spacing.sm, alignItems: 'center' }}>
-                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>↺ Auto</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>↺ Auto</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -373,7 +381,7 @@ export default function AsistenciaCamionesScreen() {
         );
       })}
 
-      {busy ? <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}><ActivityIndicator color={colors.primary} /></View> : null}
+      {busy ? <View style={{ paddingVertical: spacing.md, alignItems: 'center' }}><ActivityIndicator color={colors.accent} /></View> : null}
       <View style={{ height: spacing.xl }} />
 
       {/* Escáner */}
@@ -421,8 +429,8 @@ export default function AsistenciaCamionesScreen() {
                       <TouchableOpacity onPress={() => { setJorTruck(null); setJorRound(null); }} disabled={jorBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={finalizarJornada} disabled={jorBusy} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jorBusy ? 0.6 : 1 }}>
-                        <Text style={{ color: '#fff', fontWeight: '800' }}>{jorBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
+                      <TouchableOpacity onPress={finalizarJornada} disabled={jorBusy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jorBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{jorBusy ? 'Guardando…' : 'Sí, finalizar'}</Text>
                       </TouchableOpacity>
                     </View>
                   </>
@@ -434,8 +442,8 @@ export default function AsistenciaCamionesScreen() {
                       <TouchableOpacity onPress={() => setJorTruck(null)} disabled={jorBusy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={iniciarJornada} disabled={jorBusy} style={{ flex: 1, backgroundColor: '#0F766E', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jorBusy ? 0.6 : 1 }}>
-                        <Text style={{ color: '#fff', fontWeight: '800' }}>{jorBusy ? 'Guardando…' : '🟢 Iniciar'}</Text>
+                      <TouchableOpacity onPress={iniciarJornada} disabled={jorBusy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jorBusy ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{jorBusy ? 'Guardando…' : '🟢 Iniciar'}</Text>
                       </TouchableOpacity>
                     </View>
                   </>
@@ -457,9 +465,9 @@ export default function AsistenciaCamionesScreen() {
                 {AV_MATERIALS.map((mt) => {
                   const on = avMaterial === mt.key;
                   return (
-                    <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.accent : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.accent : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text>{mt.icon}</Text>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
+                      <Text style={{ color: on ? colors.accentContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -468,11 +476,11 @@ export default function AsistenciaCamionesScreen() {
               <TextInput value={avQty} onChangeText={setAvQty} keyboardType="numeric" placeholder="Ej: 2" placeholderTextColor={colors.muted} style={input} />
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
               <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline style={[input, { minHeight: 60 }]} />
-              <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto adjunta' : '📷 Foto de referencia (opcional)'}</Text>
+              <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.successSoftBorder : colors.border, backgroundColor: avPhoto ? colors.successSoftBg : colors.surface, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: avPhoto ? colors.successSoftText : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto adjunta' : '📷 Foto de referencia (opcional)'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
-                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
+              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setAvTruck(null)} style={{ padding: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: colors.muted, fontWeight: '700' }}>Cancelar</Text>

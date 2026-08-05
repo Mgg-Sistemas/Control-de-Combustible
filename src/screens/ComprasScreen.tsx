@@ -13,7 +13,7 @@ import { Supplier, PurchaseRequest, PurchaseOrder, PurchaseLine, Company, Invent
 import { generalCompanies } from '../lib/companies';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
@@ -34,18 +34,30 @@ function bucketFor(iso: string, period: 'dia' | 'semana' | 'mes') {
   const m = mondayOf(d); return { key: `${m.getFullYear()}-${pad2(m.getMonth() + 1)}-${pad2(m.getDate())}`, label: `Semana del ${pad2(m.getDate())}/${pad2(m.getMonth() + 1)}` };
 }
 
-const REQ_STATUS: Record<string, { label: string; color: string }> = {
-  solicitada: { label: '📝 Solicitada', color: '#F59E0B' },
-  aprobada: { label: '✅ Aprobada', color: '#2563EB' },
-  rechazada: { label: '⛔ Rechazada', color: '#DC2626' },
-  ordenada: { label: '🧾 Ordenada', color: '#16A34A' },
+// Tono semántico del estado → se resuelve a las variantes Soft del tema (buen
+// contraste en claro y oscuro). El badge NO cambia su lógica, solo su color.
+type Tone = 'info' | 'warning' | 'danger' | 'success';
+const REQ_STATUS: Record<string, { label: string; tone: Tone }> = {
+  solicitada: { label: '📝 Solicitada', tone: 'warning' },
+  aprobada: { label: '✅ Aprobada', tone: 'info' },
+  rechazada: { label: '⛔ Rechazada', tone: 'danger' },
+  ordenada: { label: '🧾 Ordenada', tone: 'success' },
 };
-const ORD_STATUS: Record<string, { label: string; color: string }> = {
-  borrador: { label: '📝 Borrador', color: '#F59E0B' },
-  aprobada: { label: '✅ Aprobada', color: '#2563EB' },
-  recibida: { label: '📦 Recibida', color: '#16A34A' },
-  anulada: { label: '⛔ Anulada', color: '#DC2626' },
+const ORD_STATUS: Record<string, { label: string; tone: Tone }> = {
+  borrador: { label: '📝 Borrador', tone: 'warning' },
+  aprobada: { label: '✅ Aprobada', tone: 'info' },
+  recibida: { label: '📦 Recibida', tone: 'success' },
+  anulada: { label: '⛔ Anulada', tone: 'danger' },
 };
+/** Resuelve un tono de estado a su terna Soft (fondo · borde · texto) del tema. */
+function toneSoft(colors: any, tone: Tone) {
+  switch (tone) {
+    case 'success': return { bg: colors.successSoftBg, border: colors.successSoftBorder, text: colors.successSoftText };
+    case 'warning': return { bg: colors.warningSoftBg, border: colors.warningSoftBorder, text: colors.warningSoftText };
+    case 'danger': return { bg: colors.dangerSoftBg, border: colors.dangerSoftBorder, text: colors.dangerSoftText };
+    default: return { bg: colors.infoSoftBg, border: colors.infoSoftBorder, text: colors.infoSoftText };
+  }
+}
 
 // ── Categorías de compra (para clasificar y reportar el gasto) ───────────────
 const CATEGORIES: { key: string; label: string; icon: string }[] = [
@@ -67,14 +79,14 @@ function groupByCompany<T extends { company_id: string | null }>(items: T[], nam
     g.items.push(it);
     m.set(k, g);
   });
-  return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...m.values()].sort((a, b) => cmpText(a.name, b.name));
 }
 
-/** Etiqueta de estado con su color. */
-function Pill({ label, color }: { label: string; color: string }) {
+/** Etiqueta de estado (badge Soft): fondo tenue + borde + texto legible. */
+function Pill({ label, bg, border, text }: { label: string; bg: string; border: string; text: string }) {
   return (
-    <View style={{ borderWidth: 1, borderColor: color, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
-      <Text style={{ color, fontSize: 12, fontWeight: '700' }}>{label}</Text>
+    <View style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
+      <Text style={{ color: text, fontSize: 12, fontWeight: '800' }}>{label}</Text>
     </View>
   );
 }
@@ -95,7 +107,7 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }:
         return (
         <View key={i} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, gap: 6, backgroundColor: colors.surfaceAlt }}>
           <TextInput value={l.description} editable={!readOnly} onFocus={() => setFocus(i)} onChangeText={(t) => upd(i, { description: t.toUpperCase(), item_id: null })} placeholder="Descripción (ej. FILTRO DE ACEITE)" placeholderTextColor={colors.muted} autoCapitalize="characters" style={inputStyle} />
-          {l.item_id ? <Text style={{ color: '#16A34A', fontSize: 11, fontWeight: '700' }}>✓ Producto del inventario</Text> : null}
+          {l.item_id ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>✓ Producto del inventario</Text> : null}
           {sugs.length > 0 ? (
             <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
               {sugs.map((s) => (
@@ -114,20 +126,20 @@ function LineEditor({ items, setItems, priceLabel, readOnly, catalog, noPrice }:
             ) : null}
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12 }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text> : <View />}
+            {!noPrice ? <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>Subtotal: {usd((Number(l.qty) || 0) * (Number(l.price) || 0))}</Text> : <View />}
             {!readOnly ? (
-              <TouchableOpacity onPress={() => setItems(items.filter((_, j) => j !== i))}><Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setItems(items.filter((_, j) => j !== i))}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Quitar</Text></TouchableOpacity>
             ) : null}
           </View>
         </View>
         );
       })}
       {!readOnly ? (
-        <TouchableOpacity onPress={() => setItems([...items, { description: '', qty: 1, unit: '', price: 0 }])} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>+ Agregar renglón</Text>
+        <TouchableOpacity onPress={() => setItems([...items, { description: '', qty: 1, unit: '', price: 0 }])} style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>+ Agregar renglón</Text>
         </TouchableOpacity>
       ) : null}
-      {!noPrice ? <Text style={{ color: colors.text, fontWeight: '800', textAlign: 'right', marginTop: 2 }}>Total: {usd(linesTotal(items))}</Text> : null}
+      {!noPrice ? <Text style={{ color: colors.brandText, fontWeight: '800', textAlign: 'right', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(linesTotal(items))}</Text> : null}
     </View>
   );
 }
@@ -138,8 +150,8 @@ function CompanyPicker({ companies, value, onChange, colors }: { companies: Comp
       {companies.map((c) => {
         const on = value === c.id;
         return (
-          <TouchableOpacity key={c.id} onPress={() => onChange(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.name}</Text>
+          <TouchableOpacity key={c.id} onPress={() => onChange(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.name}</Text>
           </TouchableOpacity>
         );
       })}
@@ -153,9 +165,9 @@ function CategoryPicker({ value, onChange, colors }: { value: string; onChange: 
       {CATEGORIES.map((c) => {
         const on = value === c.key;
         return (
-          <TouchableOpacity key={c.key} onPress={() => onChange(c.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
+          <TouchableOpacity key={c.key} onPress={() => onChange(c.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
             <Text style={{ fontSize: 13 }}>{c.icon}</Text>
-            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.label}</Text>
+            <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -249,8 +261,8 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Solicitudes de pedido</SectionTitle>
         {canWrite ? (
-          <TouchableOpacity onPress={() => setOpen(true)} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nueva</Text>
+          <TouchableOpacity onPress={() => setOpen(true)} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -267,8 +279,8 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
             summary={
               <View>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.text, flex: 1 }} numberOfLines={1}>{companyName(r.company_id)}</Text>
-                  <Pill label={st.label} color={st.color} />
+                  <Text style={{ fontWeight: '800', fontSize: 15, color: colors.brandText, flex: 1 }} numberOfLines={1}>{companyName(r.company_id)}</Text>
+                  <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(r.category).icon} {catInfo(r.category).label} · {(r.items || []).length} renglón(es)</Text>
               </View>
@@ -283,11 +295,11 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
                   <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                     {r.status === 'solicitada' ? (
                       <>
-                        <TouchableOpacity onPress={() => setStatus(r, 'aprobada')} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>✅ Aprobar</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: '#DC2626', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setStatus(r, 'aprobada')} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>✅ Aprobar</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => setStatus(r, 'rechazada')} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.danger, fontWeight: '800', fontSize: 13 }}>⛔ Rechazar</Text></TouchableOpacity>
                       </>
                     ) : r.status === 'aprobada' ? (
-                      <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
+                      <TouchableOpacity onPress={() => generarOrden(r)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>🧾 Generar orden</Text></TouchableOpacity>
                     ) : null}
                   </View>
                 ) : null}
@@ -323,8 +335,8 @@ function SolicitudesTab({ canWrite }: { canWrite: boolean }) {
               <LineEditor items={items} setItems={setItems} priceLabel="" catalog={catalog} noPrice />
             </Card>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
-              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{busy ? 'Guardando…' : 'Guardar solicitud'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setOpen(false)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={crear} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : 'Guardar solicitud'}</Text></TouchableOpacity>
             </View>
           </ScrollView>
         </Screen>
@@ -421,8 +433,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
                 summary={
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text, flex: 1 }} numberOfLines={1}>{usd(o.total)} · {supplierName(o.supplier_id)}</Text>
-                      <Pill label={st.label} color={st.color} />
+                      <Text style={{ fontWeight: '800', fontSize: 14, color: colors.brandText, flex: 1, fontVariant: ['tabular-nums'] as any }} numberOfLines={1}>{usd(o.total)} · {supplierName(o.supplier_id)}</Text>
+                      <Pill label={st.label} {...toneSoft(colors, st.tone)} />
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{catInfo(o.category).icon} {catInfo(o.category).label}</Text>
                   </View>
@@ -430,15 +442,15 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
                 detail={
                   <>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>Proveedor: {supplierName(o.supplier_id)}</Text>
-                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 2 }}>Total: {usd(o.total)}</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>Total: {usd(o.total)}</Text>
                     {canWrite ? (
                       <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm, flexWrap: 'wrap' }}>
                         {o.status === 'borrador' ? (
-                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>✎ Completar / Aprobar</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13 }}>✎ Completar / Aprobar</Text></TouchableOpacity>
                         ) : o.status === 'aprobada' ? (
-                          <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => recibir(o)} style={{ flexGrow: 1, backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 13 }}>📦 Marcar recibida</Text></TouchableOpacity>
                         ) : (
-                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>👁 Ver</Text></TouchableOpacity>
+                          <TouchableOpacity onPress={() => openEdit(o)} style={{ flexGrow: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>👁 Ver</Text></TouchableOpacity>
                         )}
                       </View>
                     ) : null}
@@ -460,8 +472,8 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
                 {suppliers.map((s) => {
                   const on = supplier === s.id;
                   return (
-                    <TouchableOpacity key={s.id} disabled={readOnly} onPress={() => setSupplier(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
+                    <TouchableOpacity key={s.id} disabled={readOnly} onPress={() => setSupplier(s.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{s.name}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -474,11 +486,11 @@ function OrdenesTab({ canWrite }: { canWrite: boolean }) {
             </Card>
             {!readOnly ? (
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-                <TouchableOpacity onPress={guardar} disabled={busy} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Guardar borrador</Text></TouchableOpacity>
-                <TouchableOpacity onPress={aprobar} disabled={busy} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: '#fff', fontWeight: '700' }}>✅ Aprobar</Text></TouchableOpacity>
+                <TouchableOpacity onPress={guardar} disabled={busy} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Guardar borrador</Text></TouchableOpacity>
+                <TouchableOpacity onPress={aprobar} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.6 : 1 }}><Text style={{ color: colors.accentContrast, fontWeight: '800' }}>✅ Aprobar</Text></TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity onPress={() => setSel(null)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setSel(null)} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}><Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text></TouchableOpacity>
             )}
           </ScrollView>
         </Screen>
@@ -537,7 +549,7 @@ function ResumenTab() {
   const Quick = ({ label, value, color }: { label: string; value: number; color: string }) => (
     <View style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>{label}</Text>
-      <Text style={{ color, fontSize: 16, fontWeight: '800', marginTop: 2 }}>{usd(value)}</Text>
+      <Text style={{ color, fontSize: 16, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{usd(value)}</Text>
     </View>
   );
 
@@ -550,9 +562,9 @@ function ResumenTab() {
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Incluye órdenes aprobadas y recibidas (gasto comprometido).</Text>
 
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        <Quick label="HOY" value={spend.hoy} color="#2563EB" />
-        <Quick label="ESTA SEMANA" value={spend.semana} color="#7C3AED" />
-        <Quick label="ESTE MES" value={spend.mes} color="#16A34A" />
+        <Quick label="HOY" value={spend.hoy} color={colors.brandText} />
+        <Quick label="ESTA SEMANA" value={spend.semana} color={colors.accentSoftText} />
+        <Quick label="ESTE MES" value={spend.mes} color={colors.successSoftText} />
       </View>
 
       {/* Filtros */}
@@ -562,8 +574,8 @@ function ResumenTab() {
           {([['dia', 'Diario'], ['semana', 'Semanal'], ['mes', 'Mensual']] as const).map(([k, lbl]) => {
             const on = period === k;
             return (
-              <TouchableOpacity key={k} onPress={() => setPeriod(k)} style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingVertical: spacing.xs }}>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
+              <TouchableOpacity key={k} onPress={() => setPeriod(k)} style={{ flex: 1, alignItems: 'center', borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingVertical: spacing.xs }}>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{lbl}</Text>
               </TouchableOpacity>
             );
           })}
@@ -573,9 +585,9 @@ function ResumenTab() {
           {[{ key: '', label: 'Todas', icon: '🗂️' }, ...CATEGORIES].map((c) => {
             const on = catFilter === c.key;
             return (
-              <TouchableOpacity key={c.key || 'all'} onPress={() => setCatFilter(c.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+              <TouchableOpacity key={c.key || 'all'} onPress={() => setCatFilter(c.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, flexDirection: 'row', gap: 4, alignItems: 'center' }}>
                 <Text style={{ fontSize: 12 }}>{c.icon}</Text>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{c.label}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{c.label}</Text>
               </TouchableOpacity>
             );
           })}
@@ -585,22 +597,22 @@ function ResumenTab() {
           {[{ id: '', name: 'Todas' }, ...generalCompanies(companies)].map((c) => {
             const on = companyFilter === c.id;
             return (
-              <TouchableOpacity key={c.id || 'all'} onPress={() => setCompanyFilter(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{c.name}</Text>
+              <TouchableOpacity key={c.id || 'all'} onPress={() => setCompanyFilter(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{c.name}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
       </Card>
 
-      {/* Total del filtro */}
-      <Card>
+      {/* Total del filtro — banda de marca */}
+      <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>TOTAL FILTRADO</Text>
-          <Text style={{ color: colors.text, fontSize: 22, fontWeight: '900' }}>{usd(spend.total)}</Text>
+          <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 13, fontWeight: '800', letterSpacing: 0.5 }}>TOTAL FILTRADO</Text>
+          <Text style={{ color: colors.brandContrast, fontSize: 24, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{usd(spend.total)}</Text>
         </View>
-        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{spend.count} orden(es) · promedio {usd(spend.count ? spend.total / spend.count : 0)}</Text>
-      </Card>
+        <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, marginTop: 2, fontVariant: ['tabular-nums'] as any }}>{spend.count} orden(es) · promedio {usd(spend.count ? spend.total / spend.count : 0)}</Text>
+      </View>
 
       {/* Serie por período */}
       <SectionTitle>Gasto por {period === 'dia' ? 'día' : period === 'semana' ? 'semana' : 'mes'}</SectionTitle>
@@ -612,10 +624,10 @@ function ResumenTab() {
             <View key={i} style={{ marginBottom: i === spend.seriesArr.length - 1 ? 0 : spacing.sm }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{s.label}</Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{usd(s.total)}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(s.total)}</Text>
               </View>
               <View style={{ height: 8, borderRadius: 4, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
-                <View style={{ width: `${(s.total / maxSeries) * 100}%`, height: 8, backgroundColor: colors.primary }} />
+                <View style={{ width: `${(s.total / maxSeries) * 100}%`, height: 8, backgroundColor: colors.brand }} />
               </View>
             </View>
           ))}
@@ -631,10 +643,10 @@ function ResumenTab() {
               <View key={c.id} style={{ marginBottom: i === spend.companyArr.length - 1 ? 0 : spacing.sm }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{i + 1}. {c.name}</Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{usd(c.total)}</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(c.total)}</Text>
                 </View>
                 <View style={{ height: 8, borderRadius: 4, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
-                  <View style={{ width: `${(c.total / maxCompany) * 100}%`, height: 8, backgroundColor: '#16A34A' }} />
+                  <View style={{ width: `${(c.total / maxCompany) * 100}%`, height: 8, backgroundColor: colors.success }} />
                 </View>
               </View>
             ))}
@@ -650,7 +662,7 @@ function ResumenTab() {
             {spend.catArr.map((c, i) => (
               <View key={c.key} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border }}>
                 <Text style={{ color: colors.text, fontSize: 13 }}>{c.icon} {c.label}</Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{usd(c.total)}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] as any }}>{usd(c.total)}</Text>
               </View>
             ))}
           </Card>
@@ -680,9 +692,9 @@ export default function ComprasScreen() {
           {TABS.map((t) => {
             const on = t.key === active;
             return (
-              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
                 <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}

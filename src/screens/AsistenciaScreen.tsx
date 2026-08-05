@@ -9,7 +9,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { caracasParts } from '../lib/jornada';
 import { markAttendance, pairMarks, fmtDuration, fmtHora, nextKind, shiftOfTs, SHIFT_LABEL } from '../lib/attendance';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -119,7 +119,7 @@ export default function AsistenciaScreen() {
     dm.forEach((m) => { const g = byEmp.get(m.employee_id) ?? { emp: m.emp ?? null, marks: [] }; g.marks.push(m); byEmp.set(m.employee_id, g); });
     return Array.from(byEmp.values())
       .map((g) => { const p = pairMarks(g.marks); return { emp: g.emp, total: p.totalMinutes, pairs: p.pairs }; })
-      .sort((a, b) => norm(fullName(a.emp)).localeCompare(norm(fullName(b.emp))));
+      .sort((a, b) => cmpText(fullName(a.emp), fullName(b.emp)));
   }, [selectedDay, selectedShift, marksByDay]);
 
   const loadToday = async (employeeId: string) => {
@@ -245,7 +245,7 @@ export default function AsistenciaScreen() {
       });
       if (byEmp.size === 0) { setRBusy(false); toast.error('No hay marcas de asistencia en ese rango.'); return; }
 
-      const groups = Array.from(byEmp.values()).sort((a, b) => norm(fullName(a.emp)).localeCompare(norm(fullName(b.emp))));
+      const groups = Array.from(byEmp.values()).sort((a, b) => cmpText(fullName(a.emp), fullName(b.emp)));
       let grandMin = 0, grandDia = 0, grandNoche = 0;
       const bodies = groups.map((g) => {
         const { pairs } = pairMarks(g.marks);
@@ -288,16 +288,34 @@ export default function AsistenciaScreen() {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Control de asistencia</SectionTitle>
-        <TouchableOpacity onPress={() => { setRFrom(todayISO); setRTo(todayISO); setRepOpen(true); }} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📊 Reporte</Text>
+        <TouchableOpacity onPress={() => { setRFrom(todayISO); setRTo(todayISO); setRepOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📊 Reporte</Text>
         </TouchableOpacity>
       </View>
-      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Escanea el carnet (hora automática) o busca al trabajador por nombre/cédula. Si no dio tiempo de escanear, ábrelo y usa "⏱️ Marcar con hora manual" para registrar la ENTRADA/SALIDA con la hora real. Se permiten varias marcas al día.</Text>
+
+      {/* Banda de resumen de HOY (presentes) sobre navy de marca. */}
+      {(() => {
+        const todayMarks = marksByDay.get(todayISO) ?? [];
+        const presentes = distinctEmp(todayMarks);
+        return (
+          <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm }}>
+            <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>🪪 ASISTENCIA DE HOY</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 30, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>
+              {presentes} <Text style={{ fontSize: 16, opacity: 0.85 }}>persona(s)</Text>
+            </Text>
+            <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 11.5, marginTop: 2 }}>
+              {dowLabel(todayISO)} {fmtDMY(todayISO)} · {todayMarks.length} marca(s)
+            </Text>
+          </View>
+        );
+      })()}
+
+      <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: spacing.sm }}>Escanea el carnet (hora automática) o busca al trabajador por nombre/cédula. Si no dio tiempo de escanear, ábrelo y usa "⏱️ Marcar con hora manual" para registrar la ENTRADA/SALIDA con la hora real. Se permiten varias marcas al día.</Text>
 
       {/* Escanear carnet */}
-      <TouchableOpacity onPress={() => setScanning(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+      <TouchableOpacity onPress={() => setScanning(true)} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
         <Text style={{ fontSize: 20 }}>📷</Text>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>Escanear carnet</Text>
+        <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 15 }}>Escanear carnet</Text>
       </TouchableOpacity>
 
       {/* Búsqueda manual */}
@@ -355,7 +373,7 @@ export default function AsistenciaScreen() {
 
           {/* Marca con HORA MANUAL (cuando no dio tiempo de escanear y se registra después). */}
           <TouchableOpacity onPress={() => { setManualOpen((v) => !v); setMDate(todayISO); setMTime(''); setMKind(willMark); }} style={{ marginTop: spacing.xs, paddingVertical: spacing.xs, alignItems: 'center' }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{manualOpen ? '▲ Cerrar hora manual' : '⏱️ Marcar con hora manual'}</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{manualOpen ? '▲ Cerrar hora manual' : '⏱️ Marcar con hora manual'}</Text>
           </TouchableOpacity>
           {manualOpen ? (
             <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: 2 }}>
@@ -380,8 +398,8 @@ export default function AsistenciaScreen() {
                   );
                 })}
               </View>
-              <TouchableOpacity onPress={marcarManual} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>{busy ? 'Guardando…' : '💾 Registrar marca manual'}</Text>
+              <TouchableOpacity onPress={marcarManual} disabled={busy} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 14 }}>{busy ? 'Guardando…' : '💾 Registrar marca manual'}</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -391,11 +409,11 @@ export default function AsistenciaScreen() {
       {/* Calendario del mes: día → turno → detalle */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md }}>
         <TouchableOpacity onPress={() => { setMonth(shiftMonth(month, -1)); setSelectedDay(null); setSelectedShift(null); }} style={{ padding: spacing.sm }}>
-          <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>◀</Text>
+          <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>◀</Text>
         </TouchableOpacity>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16 }}>{monthLabel(month)}</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16 }}>{monthLabel(month)}</Text>
         <TouchableOpacity onPress={() => { setMonth(shiftMonth(month, 1)); setSelectedDay(null); setSelectedShift(null); }} style={{ padding: spacing.sm }}>
-          <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>▶</Text>
+          <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>▶</Text>
         </TouchableOpacity>
       </View>
 
@@ -422,13 +440,13 @@ export default function AsistenciaScreen() {
                   onPress={() => { setSelectedDay(isSel ? null : iso); setSelectedShift(null); }}
                   activeOpacity={0.7}
                   style={{ flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', margin: 1, borderRadius: radius.sm,
-                    backgroundColor: isSel ? colors.primary : has ? colors.surfaceAlt : 'transparent',
-                    borderWidth: isToday ? 2 : 0, borderColor: colors.primary }}
+                    backgroundColor: isSel ? colors.brand : has ? colors.surfaceAlt : 'transparent',
+                    borderWidth: isToday ? 2 : 0, borderColor: colors.accent }}
                 >
-                  <Text style={{ color: isSel ? colors.primaryContrast : colors.text, fontWeight: isToday || has ? '800' : '500', fontSize: 13 }}>{num}</Text>
+                  <Text style={{ color: isSel ? colors.brandContrast : colors.text, fontWeight: isToday || has ? '800' : '500', fontSize: 13 }}>{num}</Text>
                   {has ? (
-                    <View style={{ minWidth: 16, paddingHorizontal: 3, borderRadius: 8, marginTop: 1, backgroundColor: isSel ? colors.primaryContrast : colors.primary }}>
-                      <Text style={{ color: isSel ? colors.primary : colors.primaryContrast, fontSize: 9, fontWeight: '800', textAlign: 'center' }}>{distinctEmp(dayMarks)}</Text>
+                    <View style={{ minWidth: 16, paddingHorizontal: 3, borderRadius: 8, marginTop: 1, backgroundColor: isSel ? colors.brandContrast : colors.brand }}>
+                      <Text style={{ color: isSel ? colors.brand : colors.brandContrast, fontSize: 9, fontWeight: '800', textAlign: 'center' }}>{distinctEmp(dayMarks)}</Text>
                     </View>
                   ) : null}
                 </TouchableOpacity>
@@ -449,21 +467,21 @@ export default function AsistenciaScreen() {
             <TouchableOpacity
               onPress={() => setSelectedShift(active ? null : sh)}
               activeOpacity={0.7}
-              style={{ flex: 1, backgroundColor: active ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.primary : colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
+              style={{ flex: 1, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
             >
               <Text style={{ fontSize: 20 }}>{sh === 'dia' ? '☀️' : '🌙'}</Text>
-              <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 14, marginTop: 2 }}>{sh === 'dia' ? 'Día' : 'Noche'}</Text>
-              <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 12 }}>{distinctEmp(marks)} persona(s)</Text>
-              <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 11 }}>{marks.length} marca(s)</Text>
+              <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 14, marginTop: 2 }}>{sh === 'dia' ? 'Día' : 'Noche'}</Text>
+              <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{distinctEmp(marks)} persona(s)</Text>
+              <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 11, fontVariant: ['tabular-nums'] as any }}>{marks.length} marca(s)</Text>
             </TouchableOpacity>
           );
         };
         return (
           <Card>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{dowLabel(selectedDay)} {fmtDMY(selectedDay)}</Text>
-              <TouchableOpacity onPress={() => generarReporte(selectedDay, selectedDay)} disabled={rBusy} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📊 Reporte del día</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>{dowLabel(selectedDay)} {fmtDMY(selectedDay)}</Text>
+              <TouchableOpacity onPress={() => generarReporte(selectedDay, selectedDay)} disabled={rBusy} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: rBusy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📊 Reporte del día</Text>
               </TouchableOpacity>
             </View>
             {dm.length === 0 ? (
@@ -516,7 +534,7 @@ export default function AsistenciaScreen() {
       <Modal visible={repOpen} transparent animationType="slide" onRequestClose={() => setRepOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.sm }}>📊 Reporte de asistencia</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, marginBottom: spacing.sm }}>📊 Reporte de asistencia</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Por persona y día: entradas/salidas y horas presentes (suma de pares). Una entrada sin salida sale como “abierta”.</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm }}>
               <View style={{ flex: 1 }}><Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Desde</Text><DateField value={rFrom} onChange={setRFrom} /></View>
@@ -526,8 +544,8 @@ export default function AsistenciaScreen() {
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setRepOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: rBusy ? 0.7 : 1 }} onPress={() => generarReporte()} disabled={rBusy}>
-                {rBusy ? <ActivityIndicator color={colors.primaryContrast} /> : <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Generar PDF</Text>}
+              <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: rBusy ? 0.7 : 1 }} onPress={() => generarReporte()} disabled={rBusy}>
+                {rBusy ? <ActivityIndicator color={colors.accentContrast} /> : <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>Generar PDF</Text>}
               </TouchableOpacity>
             </View>
           </View>
