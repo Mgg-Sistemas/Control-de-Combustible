@@ -1,6 +1,7 @@
 // PDF de un REQUERIMIENTO DE COMPRA para pasárselo al jefe (aprobar/rechazar).
 // Lista los productos (del inventario o nuevos) con cantidad y precio estimado,
-// y el total en US$ y en Bs al cambio del día.
+// y el total en US$ (el documento no muestra Bs ni la tasa BCV; la tasa solo se
+// usa internamente para convertir a US$ los ítems cargados en bolívares).
 import { pdfDocument } from './pdf';
 import { FIRMA_DATA_URI, FIRMA2_DATA_URI } from './firmaData';
 
@@ -13,7 +14,7 @@ export type ReqPdfData = {
   company?: string | null;    // empresa para la que se pide (opcional)
   requestedBy?: string | null;
   statusLabel: string;
-  rate: number | null;        // Bs por US$ (para el total en Bs)
+  rate: number | null;        // Bs por US$ (solo para convertir a US$ ítems cargados en Bs; no se muestra)
   items: ReqPdfItem[];
   approved?: boolean;         // true si el requerimiento está APROBADO (muestra la firma)
   decidedBy?: string | null;  // nombre de quien aprobó (define la firma y el cargo)
@@ -55,9 +56,11 @@ const REQ_CSS = `table{width:100%;border-collapse:collapse;margin-top:10px;font-
       .reqsum{margin-bottom:16px;page-break-inside:avoid}
       .reqsum + .reqsum{border-top:1px dashed #c9d2dc;padding-top:14px;margin-top:2px}`;
 
-/** Filas de la tabla + total en US$/Bs de UN requerimiento (compartido entre
- *  el PDF con firma y el resumen sin firma). */
-function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; totalBs: number | null } {
+/** Filas de la tabla + total en US$ de UN requerimiento (compartido entre
+ *  el PDF con firma y el resumen sin firma). El precio unitario se muestra
+ *  siempre en US$ (si el ítem se cargó en Bs, se convierte con la tasa del
+ *  día solo para este cálculo; el documento no muestra Bs ni la tasa). */
+function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number } {
   let totalUsd = 0;
   const rows = d.items.map((it, i) => {
     const uUsd = toUsd(Number(it.est_price) || 0, it.currency, d.rate);
@@ -67,18 +70,17 @@ function reqTableHtml(d: ReqPdfData): { rows: string; totalUsd: number; totalBs:
       <td class="c">${i + 1}</td>
       <td>${esc(it.name)}${it.isNew ? ' <span class="new">NUEVO</span>' : ''}</td>
       <td class="c">${money(it.qty)} ${esc(it.unit || '')}</td>
-      <td class="r">${it.currency === 'USD' ? '$' : 'Bs '}${money(it.est_price)}</td>
+      <td class="r">$${money(uUsd)}</td>
       <td class="r b">$${money(lineUsd)}</td>
     </tr>`;
   }).join('');
-  const totalBs = d.rate && d.rate > 0 ? totalUsd * d.rate : null;
-  return { rows, totalUsd, totalBs };
+  return { rows, totalUsd };
 }
 
 /** El cuerpo (tabla + total + firma) de UN requerimiento, sin envolver en `pdfDocument`
  *  — así lo puede usar tanto el PDF individual como el de varios requerimientos juntos. */
 function reqBodyHtml(d: ReqPdfData, heading?: string): string {
-  const { rows, totalUsd, totalBs } = reqTableHtml(d);
+  const { rows, totalUsd } = reqTableHtml(d);
 
   // Bloque de firma: si está APROBADO por un firmante conocido, va su firma escaneada
   // y su cargo. Si no, queda la línea "Aprobado por (jefe)" para firmar a mano.
@@ -98,9 +100,8 @@ function reqBodyHtml(d: ReqPdfData, heading?: string): string {
               <th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>
             <tbody>${rows || '<tr><td colspan="5" class="c">Sin ítems</td></tr>'}</tbody>
           </table>
-          <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}${totalBs != null ? ` · Bs ${money(totalBs)}` : ''}</div>
+          <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
           ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
-          ${d.rate ? `<div class="note" style="color:#555">Tasa referencial: Bs ${money(d.rate)} / US$</div>` : ''}
         </div>
         <div class="push"></div>
         <div class="firma">
@@ -142,7 +143,7 @@ export function requerimientosBulkHtml(list: ReqPdfData[]): string {
 /** Bloque de UN requerimiento para el RESUMEN: tabla + total, SIN firma y sin
  *  forzar salto de página — se apila debajo del anterior en el mismo documento. */
 function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
-  const { rows, totalUsd, totalBs } = reqTableHtml(d);
+  const { rows, totalUsd } = reqTableHtml(d);
   return `
       <div class="reqsum">
         <div class="reqhead">${heading}</div>
@@ -152,7 +153,7 @@ function reqSummaryBlockHtml(d: ReqPdfData, heading: string): string {
             <th class="r">Precio est. (unit.)</th><th class="r">Subtotal (US$)</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="5" class="c">Sin ítems</td></tr>'}</tbody>
         </table>
-        <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}${totalBs != null ? ` · Bs ${money(totalBs)}` : ''}</div>
+        <div class="tot">TOTAL ESTIMADO: $${money(totalUsd)}</div>
         ${d.note ? `<div class="note"><b>Nota:</b> ${esc(d.note)}</div>` : ''}
       </div>`;
 }

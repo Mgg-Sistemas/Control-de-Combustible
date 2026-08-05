@@ -1064,7 +1064,7 @@ export default function ControlPagosScreen({ navigation }: any) {
           ? pays
               .map((p, i) => `<tr><td>${i + 1}</td><td>${fmtFechaHora(p.paid_at)}</td>` +
                 `<td style="text-align:right;font-weight:700">$${money(Number(p.amount) || 0)}</td>` +
-                `<td>${metodoLabel((p as any).metodo)}${(p as any).metodo === 'bs' && (p as any).monto_bs ? ` · Bs ${money(Number((p as any).monto_bs))}` : ''}</td>` +
+                `<td>${metodoLabel((p as any).metodo)}</td>` +
                 `<td>${fmtDMY(p.period_start)} → ${fmtDMY(p.period_end)}${(p.detail as any)?.credit ? ' · 💚 saldo a favor' : ''}</td></tr>`)
               .join('')
           : '<tr><td colspan="5" style="text-align:center;color:#666">Sin pagos registrados</td></tr>';
