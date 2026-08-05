@@ -212,6 +212,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // arriesgarse a marcar por error una máquina del turno que no se está mirando.
   const [bulkShiftFilter, setBulkShiftFilter] = useState<'all' | 'day' | 'night'>('all');
   const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'started' | 'pending'>('all');
+  // Excluir paradas/averiadas: sin esto, una máquina "parada" o "averiada" cuenta
+  // como "Pendiente" (no está iniciada) y se mezcla con las que de verdad faltan
+  // por asignar/iniciar. Pedido del cliente para poder filtrarlas aparte.
+  const [bulkHideStopped, setBulkHideStopped] = useState(false);
+  // Averiadas del día (no depende del turno — igual que `daySets`). Paradas SÍ
+  // depende del turno de cada ítem, así se calcula por separado para día y noche.
+  const bulkAverSet = useMemo(() => {
+    const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
+    const s = new Set<string>();
+    maint.forEach((m) => { if (m.material !== 'MÁQUINA PARADA' && new Date(m.created_at).getTime() <= dayEndMs) s.add(m.machinery_id); });
+    return s;
+  }, [maint, selDay]);
   // Solo se puede gestionar el día de HOY (no días pasados): "Iniciar" fabricaría
   // una jornada retroactiva sin sentido, y "Pendiente" borraría horas de un corte
   // que ya podría estar cerrado/pagado.
@@ -233,19 +245,34 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // asignada en ambos turnos, sale una fila en cada uno (cada una con su propia
   // casilla — no se mezclan al marcar).
   const bulkGroupsAll = useMemo(() => {
-    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night' }[] }>();
+    const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
+    const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
+    // ¿Está PARADA esa máquina en ESE turno puntual? Misma lógica que `daySets`,
+    // pero evaluada por turno propio de cada asignación (no el switch general).
+    const isParada = (machineryId: string, sh: 'day' | 'night', started: boolean) => {
+      if (bulkAverSet.has(machineryId)) return false; // avería tiene su propia categoría
+      return maint.some((m) => {
+        if (m.machinery_id !== machineryId || m.material !== 'MÁQUINA PARADA') return false;
+        const t = new Date(m.created_at).getTime();
+        if (t > dayEndMs) return false;
+        const arrastrada = t < dayStartMs;
+        return arrastrada ? !started : paradaShiftOf(m.created_at) === sh;
+      });
+    };
+    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night'; stopped: boolean }[] }>();
     assignments.forEach((a) => {
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
       const started = (a.shift === 'day' ? startedTodayByShift.day : startedTodayByShift.night).has(a.machinery_id);
-      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift });
+      const stopped = !started && (bulkAverSet.has(a.machinery_id) || isParada(a.machinery_id, a.shift, started));
+      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift, stopped });
       byName.set(nm, e);
     });
     return [...byName.values()]
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, startedTodayByShift]);
-  // Grupos ya filtrados por turno/estado (lo que realmente se ve y se selecciona).
+  }, [assignments, startedTodayByShift, maint, bulkAverSet, selDay]);
+  // Grupos ya filtrados por turno/estado/paradas-averiadas (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
     return bulkGroupsAll
       .map((g) => ({
@@ -253,7 +280,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         items: g.items.filter(
           (i) =>
             (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
-            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started))
+            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started)) &&
+            (!bulkHideStopped || !i.stopped)
         ),
       }))
       .filter((g) => g.items.length > 0);
@@ -637,6 +665,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       );
                     })}
                   </View>
+                  {/* Excluir paradas/averiadas: sin esto cuentan como "Pendiente" y se
+                      mezclan con las que de verdad faltan por iniciar. */}
+                  <TouchableOpacity onPress={() => setBulkHideStopped((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                    <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: bulkHideStopped ? colors.brand : colors.border, backgroundColor: bulkHideStopped ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {bulkHideStopped ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>✓</Text> : null}
+                    </View>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Excluir paradas/averiadas de la lista</Text>
+                  </TouchableOpacity>
 
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
                     <TouchableOpacity onPress={toggleBulkAll} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -676,7 +712,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   </View>
                                   <Text style={{ fontSize: 12 }}>{it.shift === 'day' ? '☀️' : '🌙'}</Text>
                                   <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{it.code}</Text>
-                                  <Text style={{ color: it.started ? colors.brandText : colors.muted, fontWeight: '700', fontSize: 11 }}>{it.started ? '✅ Iniciada' : '⏳ Pendiente'}</Text>
+                                  <Text style={{ color: it.started ? colors.brandText : it.stopped ? colors.dangerSoftText : colors.muted, fontWeight: '700', fontSize: 11 }}>{it.started ? '✅ Iniciada' : it.stopped ? '🚫 Parada/Averiada' : '⏳ Pendiente'}</Text>
                                 </TouchableOpacity>
                               );
                             })}
