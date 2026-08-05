@@ -202,25 +202,47 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkSel, setBulkSel] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Filtros PROPIOS del panel (no comparten el switch ☀️DÍA/🌙NOCHE de arriba, que
+  // controla todo el dashboard): turno y estado operativo. Así se puede revisar
+  // día y noche sin perder de vista cuál es cuál — cada fila muestra su turno — y
+  // sin arriesgarse a desactivar por error una máquina del turno que no se está
+  // mirando en ese momento.
+  const [bulkShiftFilter, setBulkShiftFilter] = useState<'all' | 'day' | 'night'>('all');
+  const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const machOperational = useMemo(() => {
     const m = new Map<string, boolean>();
     machList.forEach((mm) => m.set(mm.id, (mm as any).operational !== false));
     return m;
   }, [machList]);
-  // Máquinas del turno elegido, agrupadas por su inspector/supervisor (mismas
-  // asignaciones que la gráfica "POR INSPECTOR"), con su estado operativo actual.
-  const bulkGroups = useMemo(() => {
-    const byName = new Map<string, { name: string; items: { id: string; code: string; operational: boolean }[] }>();
-    assignments.filter((a) => a.shift === shift).forEach((a) => {
+  // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
+  // su turno y estado operativo actual. `operational` es un flag GLOBAL de la
+  // máquina (no por turno): si aparece asignada en ambos turnos, sale una fila en
+  // cada uno con el mismo id — marcarla en cualquiera de las dos afecta a las dos.
+  const bulkGroupsAll = useMemo(() => {
+    const byName = new Map<string, { name: string; items: { id: string; code: string; operational: boolean; shift: 'day' | 'night' }[] }>();
+    assignments.forEach((a) => {
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
-      e.items.push({ id: a.machinery_id, code: a.code || '—', operational: machOperational.get(a.machinery_id) ?? true });
+      e.items.push({ id: a.machinery_id, code: a.code || '—', operational: machOperational.get(a.machinery_id) ?? true, shift: a.shift });
       byName.set(nm, e);
     });
     return [...byName.values()]
-      .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code)) }))
+      .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, shift, machOperational]);
+  }, [assignments, machOperational]);
+  // Grupos ya filtrados por turno/estado (lo que realmente se ve y se selecciona).
+  const bulkGroups = useMemo(() => {
+    return bulkGroupsAll
+      .map((g) => ({
+        ...g,
+        items: g.items.filter(
+          (i) =>
+            (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
+            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'active' ? i.operational : !i.operational))
+        ),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter]);
   const bulkAllIds = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.id)), [bulkGroups]);
   const toggleBulkOne = (id: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleBulkGroup = (ids: string[]) => setBulkSel((prev) => {
@@ -531,12 +553,36 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
               </TouchableOpacity>
               {bulkOpen ? (
                 <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                  {/* Filtro de TURNO — propio del panel, para no mezclar día y noche por
+                      error al seleccionar/desactivar en bloque. */}
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.xs }}>
+                    {([['all', 'Todos'], ['day', '☀️ Día'], ['night', '🌙 Noche']] as const).map(([v, lbl]) => {
+                      const on = bulkShiftFilter === v;
+                      return (
+                        <TouchableOpacity key={v} onPress={() => setBulkShiftFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{lbl}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {/* Filtro de ESTADO operativo actual. */}
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm }}>
+                    {([['all', 'Todas'], ['active', '● Operativas'], ['inactive', '● Inactivas']] as const).map(([v, lbl]) => {
+                      const on = bulkStatusFilter === v;
+                      return (
+                        <TouchableOpacity key={v} onPress={() => setBulkStatusFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{lbl}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
                     <TouchableOpacity onPress={toggleBulkAll} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : colors.border, backgroundColor: bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                         {bulkAllIds.length > 0 && bulkAllIds.every((id) => bulkSel.has(id)) ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                       </View>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas ({bulkAllIds.length})</Text>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>Seleccionar todas las visibles ({bulkAllIds.length})</Text>
                     </TouchableOpacity>
                     {bulkSel.size > 0 ? (
                       <TouchableOpacity onPress={() => setBulkSel(new Set())}>
@@ -546,7 +592,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   </View>
 
                   {bulkGroups.length === 0 ? (
-                    <Text style={{ color: colors.muted, fontSize: 12.5, textAlign: 'center', paddingVertical: spacing.md }}>Sin máquinas asignadas en este turno.</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12.5, textAlign: 'center', paddingVertical: spacing.md }}>Sin máquinas para estos filtros.</Text>
                   ) : (
                     <ScrollView style={{ maxHeight: 360 }}>
                       {bulkGroups.map((g) => {
@@ -563,10 +609,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                             {g.items.map((it) => {
                               const on = bulkSel.has(it.id);
                               return (
-                                <TouchableOpacity key={it.id} onPress={() => toggleBulkOne(it.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: spacing.md }}>
+                                <TouchableOpacity key={`${it.id}-${it.shift}`} onPress={() => toggleBulkOne(it.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingLeft: spacing.md }}>
                                   <View style={{ width: 18, height: 18, borderRadius: 4, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                                     {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 11 }}>✓</Text> : null}
                                   </View>
+                                  <Text style={{ fontSize: 12 }}>{it.shift === 'day' ? '☀️' : '🌙'}</Text>
                                   <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{it.code}</Text>
                                   <Text style={{ color: it.operational ? colors.brandText : colors.dangerSoftText, fontWeight: '700', fontSize: 11 }}>{it.operational ? '● Operativa' : '● Inactiva'}</Text>
                                 </TouchableOpacity>
