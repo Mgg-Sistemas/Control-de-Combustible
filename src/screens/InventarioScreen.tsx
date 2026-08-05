@@ -1667,6 +1667,28 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
     refetch();
   };
 
+  // Cambio de estado MANUAL (corrección administrativa): a diferencia de "Recibir
+  // en inventario" (que crea las entradas de stock), esto SOLO cambia la etiqueta
+  // del documento — pedido directo del cliente (04/08/2026) para poder corregir un
+  // estado sin tener que rehacer todo el flujo. Solo para quien tenga `canReceive`.
+  const [statusPickerId, setStatusPickerId] = useState<string | null>(null);
+  const cambiarEstadoManual = async (r: InventoryRequirement, status: 'pendiente' | 'aprobado' | 'rechazado' | 'recibido') => {
+    const ok = await confirm({
+      title: 'Cambiar estado manualmente',
+      message: `¿Cambiar ${r.code ?? ''} a "${REQ_STATUS[status].short}"? Esto SOLO cambia la etiqueta del documento — no crea ni revierte entradas de stock en el inventario.` +
+        (status === 'recibido' ? '\n\nSi todavía no se recibió físicamente, usa "📥 Recibir en inventario" en su lugar para que el stock quede registrado.' : ''),
+      confirmText: 'Cambiar', cancelText: 'Cancelar',
+    });
+    if (!ok) return;
+    const patch: Record<string, any> = { status };
+    if (status === 'recibido' && !r.received_at) patch.received_at = nowISO();
+    const { error } = await supabase.from('inventory_requirements').update(patch).eq('id', r.id);
+    if (error) return toast.error(error.message);
+    setStatusPickerId(null);
+    refetch();
+    toast.success('Estado actualizado.');
+  };
+
   // Abrir "Recibir": precarga los ítems con su precio estimado (para editarlo al real).
   const abrirRecibir = (r: InventoryRequirement) => {
     setRecvFor(r);
@@ -1941,6 +1963,24 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
                     </TouchableOpacity>
+                  ) : null}
+                  {/* Cambio de estado manual (corrección) — solo con permiso full de Inventario. */}
+                  {canReceive ? (
+                    statusPickerId === r.id ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
+                        {(['pendiente', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                          <TouchableOpacity key={s} onPress={() => cambiarEstadoManual(r, s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
+                          </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity onPress={() => setStatusPickerId(null)}><Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕</Text></TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity onPress={() => setStatusPickerId(r.id)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Cambiar estado</Text>
+                      </TouchableOpacity>
+                    )
                   ) : null}
                   {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
                 </View>

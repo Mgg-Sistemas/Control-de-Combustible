@@ -978,6 +978,12 @@ Cada requerimiento tiene además **"✏️ Editar"** (cambia título, nota y pro
 recibido) y **"🗑️ Eliminar"** (borra todo el requerimiento, con confirmación), para quien tenga
 escritura en Inventario.
 
+> **✏️ Cambiar estado a mano (04/08/2026):** quien tenga **todos los permisos de Inventario** (o
+> sea administrador) también ve el botón **"✏️ Cambiar estado"**, que permite corregir el estado
+> del requerimiento (Pendiente/Aprobado/Rechazado/Recibido) sin pasar por todo el flujo. Ojo: esto
+> **NO** registra entrada de stock — solo cambia la etiqueta del documento. Si el material se
+> recibió de verdad y hay que sumarlo al inventario, usa **"📥 Recibir en inventario"** en su lugar.
+
 > **Adjuntar un formato (imagen o PDF):** en cada requerimiento toca **"📎 Subir formato"** y elige
 > una **imagen** o un **PDF** (cotización, formato firmado, etc.). Queda guardado (**📎 Formato
 > adjunto**). Con **"👁️ Ver formato"** se abre la **vista previa** (imagen o PDF) con botón
