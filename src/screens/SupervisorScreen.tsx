@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -117,10 +117,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [visits, setVisits] = useState<Record<string, SupervisorVisit>>({});
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
-  // TAREA 1 (SupervisorScreen): filtro por segmento en "🪖 Mi ronda de hoy" — chips
-  // Todas / Pendientes por iniciar / Iniciadas / Paradas / Por avería. Solo filtra,
-  // no toca ninguna escritura.
+  // Filtro por segmento (chips) para la vista admin "Ver todas".
   const [segFilter, setSegFilter] = useState<'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'>('all');
+  // "Mis máquinas" (vista del inspector) agrupadas por ESTADO, cada grupo COLAPSABLE
+  // (cerrado por defecto) y con su propio buscador.
+  const [grpOpen, setGrpOpen] = useState<Record<string, boolean>>({});
+  const [grpQuery, setGrpQuery] = useState<Record<string, string>>({});
   const [scanOpen, setScanOpen] = useState(false);
   // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
@@ -454,8 +456,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm((m as any).plate || '').includes(q)
     || norm((m as any).encargado || '').includes(q)
     || norm((m as any).referencia || '').includes(q);
-  // mineList/searchList (con el filtro de segmento — chips de "🪖 Mi ronda de hoy")
-  // se definen más abajo, después de paradaIds/paradaHoyIds (los usa segmentoDe).
+  // mineList/searchList (con el filtro de segmento) y `grupos` se definen más abajo,
+  // después de paradaIds/paradaHoyIds (los usa segmentoDe).
   // Listado del CHECK: todas las máquinas (buscable) para asignármelas/quitármelas.
   // NO aplica visibleParaInspector: el CHECK debe poder ver/reasignar también las
   // inactivas (es la herramienta de administración, no la ronda operativa).
@@ -603,9 +605,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     paradaRawList.forEach((p) => { if ((verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
     return mot;
   }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
-  // TAREA 1: segmento de estatus para los chips de "🪖 Mi ronda de hoy". Prioridad:
-  // avería real pendiente > parada (operativa o por avería, ambas dejan una fila
-  // MÁQUINA PARADA) > jornada abierta hoy (o noche de ayer rescatada) > pendiente.
+  // Segmento de estatus de una máquina. Prioridad: avería real pendiente > parada
+  // (operativa o por avería, ambas dejan una fila MÁQUINA PARADA; incluye arrastrada
+  // del día anterior) > jornada abierta hoy > pendiente por iniciar. Base común de los
+  // chips (vista admin) y de los grupos colapsables (vista del inspector).
   const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
     if (averiaPendienteIds.has(id)) return 'averia';
     if (paradaHoyIds.has(id) || paradaIds.has(id)) return 'parada';
@@ -634,6 +637,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     base.forEach((m) => { counts[segmentoDe(m.id)]++; });
     return counts;
   }, [machines, mine, query, showAll, puedeCoordinar, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  // Grupos colapsables de la vista del INSPECTOR (mis máquinas), por estado, usando el
+  // MISMO segmentoDe: 🟢 iniciadas · ⏳ pendientes · 🟡 paradas (incl. arrastradas) · 🔴 averiadas.
+  const grupos = useMemo(() => {
+    const g: Record<'iniciadas' | 'pendientes' | 'paradas' | 'averiadas', Mach[]> = { iniciadas: [], pendientes: [], paradas: [], averiadas: [] };
+    mine.forEach((m) => {
+      const seg = segmentoDe(m.id);
+      g[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
+    });
+    return g;
+  }, [mine, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
   // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {
@@ -1307,6 +1320,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </View>
           {v ? (
             <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>✓ {caracasClock(v.visited_at)}</Text>
+          ) : segmentoDe(m.id) === 'averia' ? (
+            // Averiada: arrastra su estado (avería pendiente), no "pendiente por revisar".
+            <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>🔴 Averiada</Text>
+          ) : segmentoDe(m.id) === 'parada' ? (
+            // Parada (hoy o arrastrada del día anterior): se muestra parada, no "pendiente".
+            <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>🟡 Parada</Text>
           ) : (
             <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>⏳ Pendiente</Text>
           )}
@@ -1486,14 +1505,43 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             {puedeCoordinar ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
           </View>
           {mine.length > 0 ? (
-            <>
-              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
-              {renderSegChips()}
-              <View style={{ marginTop: spacing.xs }}>
-                {mineList.map(renderMachine)}
-                {mineList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Ninguna de tus máquinas coincide con la búsqueda o el filtro." /> : null}
-              </View>
-            </>
+            <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
+              {/* 4 grupos por ESTADO, COLAPSADOS por defecto, con contador y buscador propio. */}
+              {([
+                { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success },
+                { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText },
+                { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning },
+                { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger },
+              ] as const).map(({ key, label, icon, color }) => {
+                const all = grupos[key];
+                const open = !!grpOpen[key];
+                const q = norm((grpQuery[key] || '').trim());
+                const shown = q ? all.filter((m) => matchQuery(m, q)) : all;
+                return (
+                  <View key={key} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' }}>
+                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
+                      <Text style={{ fontSize: 16 }}>{icon}</Text>
+                      <Text style={{ flex: 1, color, fontWeight: '900', fontSize: 14 }}>{label}</Text>
+                      <View style={{ minWidth: 30, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
+                        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{all.length}</Text>
+                      </View>
+                      <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▾' : '▸'}</Text>
+                    </TouchableOpacity>
+                    {open ? (
+                      <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
+                        {all.length > 0 ? (
+                          <TextInput value={grpQuery[key] || ''} onChangeText={(t) => setGrpQuery((s) => ({ ...s, [key]: t }))} placeholder="🔎 Filtrar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+                        ) : null}
+                        <View style={{ marginTop: spacing.xs }}>
+                          {shown.map(renderMachine)}
+                          {all.length === 0 ? <EmptyState title="Sin máquinas" subtitle={`No tienes máquinas ${label.toLowerCase()}.`} /> : shown.length === 0 ? <EmptyState title="Sin resultados" subtitle="Ninguna coincide con el filtro." /> : null}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
           ) : (
             <EmptyState title="Aún no tienes máquinas asignadas" subtitle="Toca ✅ CHECK MÁQUINA para asignarte las que inspeccionas." />
           )}
