@@ -118,11 +118,60 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el comprobante de "Nota de salida" (<code>src/lib/notaEntrega.ts</code>) muestra ahora una tabla "Recibe" con Nombre · Cédula · Cargo para cada empleado registrado (las personas NO registradas, texto libre, se siguen mostrando solo por nombre, tal como antes — no son empleados así que no hay cédula/cargo que mostrar). "Nota de traslado" (<code>src/lib/notaTraslado.ts</code>) agrega la línea de C.I./Cargo debajo del responsable de Origen y de Destino cuando aplica. Con esto se cumple el pedido de que TODOS los reportes de salida identifiquen al empleado con nombre completo, cédula y cargo.</p>
   </div>
 
-  <h2><span class="n">01</span> Documentación</h2>
+  <h2><span class="n">01</span> Vista de inspectores (teléfono y PC): segmentación, jornada y parada/avería</h2>
+  <p class="sec-note">Pedido directo del cliente sobre <code>SupervisorScreen.tsx</code> (la pantalla de check-in del inspector; es responsive, se usa igual en teléfono y PC).</p>
+
+  <div class="card feat">
+    <h3>Segmentación visual por estatus (chips: Pendientes / Iniciadas / Paradas / Por avería) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">La lista de "Mi ronda de hoy" era plana, solo con buscador de texto — no había forma de ver de un vistazo cuántas máquinas faltan por iniciar, cuántas están trabajando, cuántas paradas y cuántas con avería real reportada.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregaron chips de filtro con contador — <b>Todas · ⏳ Pendientes por iniciar · 🟢 Iniciadas · 🟡 Paradas · 🔧 Por avería</b> — combinables con el buscador de texto existente. Para distinguir "Parada" (operativa) de "Por avería" (falla mecánica real, hoy ambas dejaban la misma marca "MÁQUINA PARADA") se agregó una consulta de <b>solo lectura</b> adicional a <code>maintenance_requests</code> (material distinto de "MÁQUINA PARADA", pendiente, de hoy). No se tocó ninguna escritura ni el registro histórico.</p>
+  </div>
+
+  <div class="card">
+    <h3>Total de horas al cerrar jornada, reforzado con el acumulado del turno <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el cierre de jornada YA mostraba el total de la sesión (antes de confirmar y en el aviso final) — se verificó y se le agregó, sin quitar nada, el <b>acumulado del turno en el día</b> ("Acumulado del turno: X h" = horas ya registradas antes de esta sesión + la que se está cerrando), tanto en el modal de confirmación como en el aviso posterior. Aplica igual en teléfono y PC (mismo componente).</p>
+  </div>
+
+  <div class="card">
+    <h3>PARADA vs AVERÍA: separación visual más clara <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Ya eran 2 caminos técnicamente distintos (🟡 PARADA con sub-pestaña "por avería", y una sección aparte "🛠️ Avería de maquinaria" que reporta sin detener la máquina) pero visualmente se prestaban a confusión.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (solo UI, sin tocar la lógica de guardado):</b> se agregaron encabezados y textos aclaratorios — "⛔ Detener la máquina" sobre el botón PARADA (con nota bajo cada sub-pestaña explicando qué implica) y "📋 Reportar sin detener la máquina" sobre la sección de Avería de maquinaria, dejando explícito que esta última NO marca la máquina como parada.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Máquinas inactivas ocultas de la lista operativa <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> las máquinas con <code>active=false</code> o <code>operational=false</code> ya no aparecen en "Mi ronda de hoy" ni en "Todas" (vista operativa) — <b>excepto</b> si tienen una jornada abierta ahora mismo, para que el inspector siempre pueda cerrarla. Al reactivar la máquina (marcarla operativa de nuevo desde Equipos), reaparece sola en el próximo refresh — no hace falta ningún paso extra de "sincronización", ya lo cubre el realtime existente. El modal CHECK (asignar/quitar máquinas a un inspector, uso de admin/coordinador) sigue viendo el catálogo completo a propósito, para poder reactivar desde ahí.</p>
+  </div>
+
+  <h2><span class="n">02</span> Continuidad de turnos y fecha operativa — verificado, ya estaba corregido</h2>
+  <div class="card">
+    <h3>El turno noche YA no cierra a medianoche (verificado contra el código real) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Ya corregido — verificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ —</span></span></h3>
+    <p class="why">El cliente pidió modelar los turnos con campos <code>tipo</code>/<code>fecha_operativa</code>/<code>fecha_apertura</code>/<code>fecha_cierre</code>/<code>estado</code> y corregir el cierre a medianoche. Esos nombres de columna NO existen en el esquema — se auditó el código real para no reescribir el modelo de datos sin necesidad (riesgo de romper histórico) y confirmar si el comportamiento pedido ya está o no.</p>
+    <p class="fix" style="color:var(--done)"><b>Verificado, YA implementado (corregido desde el 03/08/2026):</b> el equivalente real de esos campos en <code>machine_rounds</code> es <code>jornada_shift</code> ('day'/'night' = <code>tipo</code>), <code>round_date</code> (= <code>fecha_operativa</code>, la fecha en que ARRANCÓ el turno), <code>jornada_start_at</code> (no nulo = <code>estado</code> ABIERTO; nulo = CERRADO), y <code>day_hours</code>/<code>night_hours</code> acumuladas. El cron <code>supabase/auto_close_jornadas.sql</code> cierra el turno DÍA a las 19:00 del <code>round_date</code> y el turno NOCHE a las <b>07:00 del día siguiente</b>, con un candado explícito que solo permite cerrar si la hora calculada es exactamente 7 o 19 (Caracas) — nunca a medianoche. El <code>round_date</code> nunca se reescribe: se queda fijo en la fecha de apertura durante todo el ciclo (ej. abre 05/08 19:00 → cierra 06/08 07:00, con <code>round_date='2026-08-05'</code> todo el tiempo), confirmado también en <code>finalizarJornada()</code> de <code>SupervisorScreen.tsx</code> (cierre manual, mismo criterio) y en el rescate de "jornada de noche de ayer" que ya usan <code>SupervisorScreen.tsx</code> e <code>InspectionsSummary.tsx</code> para no perder de vista una jornada nocturna después de medianoche. No se tocó el esquema ni se crearon columnas nuevas: hacerlo solo por nomenclatura habría sido un cambio de alto riesgo sin ninguna ganancia funcional real.</p>
+  </div>
+  <div class="card">
+    <h3>Esquemas 12x6 y 12x12 — ya diferenciados donde corresponde <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Ya implementado — verificado</span><span class="chip eff">◷ —</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>Verificado:</b> cualquier inspector/supervisor HUMANO real siempre trabaja con horas reales sin tope, sin importar el tipo de máquina (turno día 12h, turno noche real hasta las 7am). El patrón 12x6 (12h día + 6h noche) y 12x12 (12h día + 12h noche, para camiones bolqueta/toronto detectados por código) SOLO aplica a la maquinaria que queda SIN inspector asignado, cargada automáticamente por el usuario virtual "MAQUINAS FALTANTES" (<code>supabase/maquinas_faltantes.sql</code>, función <code>auto_full_shift_placeholder()</code>) con un tope duro vía trigger (<code>supabase/cap_truck_hours.sql</code>) que deja de aplicar en cuanto un inspector real toma esa máquina. Coincide con lo pedido; no se modificó nada.</p>
+  </div>
+
+  <h2><span class="n">03</span> Módulo de Distribución de Uniformes: permisos + "Otras entregas / herramientas"</h2>
+
+  <div class="card feat">
+    <h3>Nuevo módulo de permiso "Distribución de uniformes" (para dar acceso explícito, ej. a Diana) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Hoy no existía forma de otorgarle a alguien acceso SOLO a Uniformes: la pantalla no tenía ningún control de permisos por dentro (cualquiera que llegara ahí podía editar) y el único camino para llegar era navegando desde Nómina completa — mucho más amplio de lo necesario para una persona que solo debe manejar dotación.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó la clave <code>'uniformes'</code> a la matriz de módulos (<code>src/lib/permissions.ts</code>), restringida por defecto (como sus módulos hermanos de RRHH: nómina/empleados/asistencia) para que quede en "Sin acceso" hasta que un administrador la otorgue explícitamente desde <b>Usuarios → permisos por módulo</b> (o dentro de un rol dinámico) — ahí es donde se le da el acceso a <b>Diana</b> puntualmente. Se agregó además una entrada propia "🦺 Distribución de uniformes" en el menú "Más" (antes solo se llegaba desde dentro de Nómina), y la pantalla ahora bloquea el acceso con el mismo aviso "Sin acceso" que usan otros módulos si el nivel es "none". <b>Admin sigue teniendo acceso total siempre</b>, sin cambios.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Nueva pestaña "🧰 Otras entregas / herramientas", alimentada sola desde Almacén <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la pantalla de Uniformes ahora tiene 2 pestañas — "🧥 Dotación básica" (la pantalla de siempre, sin cambios funcionales, solo con el gating de permisos de arriba) y la nueva "🧰 Otras entregas / herramientas": historial de <b>solo lectura</b>, sin formulario propio, que se arma solo combinando las <b>Salidas de Almacén</b> con empleado asignado (<code>inventory_movements</code>) y los <b>Traslados de Inventario</b> dirigidos a un empleado (<code>inventory_transfers.to_employee_id</code> — esto no se consultaba en ningún lado antes de hoy). Filtrable por empleado y rango de fecha, con reporte PDF (Fecha · Empleado · Cédula · Cargo · Detalle · Origen). No duplica la pestaña "👷 Dotación" de Inventario (esa junta salidas + uniformes; esta junta salidas + traslados, y vive dentro del módulo de Uniformes).</p>
+  </div>
+
+  <h2><span class="n">04</span> Documentación</h2>
 
   <div class="card">
     <h3>Manual de usuario actualizado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip eff">◷ XS</span></span></h3>
-    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se documentó en <code>docs/MANUAL-USUARIO.md</code> cómo consultar la pestaña "Dotación" de Inventario, el historial en la ficha del empleado, y que los reportes de salida/traslado ahora traen cédula y cargo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se documentó en <code>docs/MANUAL-USUARIO.md</code> cómo consultar la pestaña "Dotación" de Inventario, el historial en la ficha del empleado, y que los reportes de salida/traslado ahora traen cédula y cargo. Ampliado con la vista de inspectores segmentada, la aclaración de continuidad de turnos y el nuevo módulo de Uniformes (permiso + "Otras entregas/herramientas").</p>
   </div>
 
   </section>

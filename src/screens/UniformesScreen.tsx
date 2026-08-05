@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
-import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { Screen, Card, SectionTitle, EmptyState, Loading, ExpandableCard } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
+import { DateField } from '../components/DateField';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { caracasParts } from '../lib/jornada';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { norm } from '../lib/text';
-import { Company, Employee, UniformDelivery } from '../types/database';
+import { Company, Employee, UniformDelivery, InventoryMovement, InventoryTransfer, InventoryItem } from '../types/database';
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
+import { levelMeets } from '../lib/permissions';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
@@ -16,6 +18,15 @@ import { useToast } from '../components/ToastProvider';
 const fullName = (e: Employee) => `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim() || 'Sin nombre';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const todayDMY = () => { const d = new Date(); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`; };
+const qtyFmt = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString();
+// Etiqueta pequeña con borde de color (mismo patrón visual que en Inventario/Movimientos).
+function Pill({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={{ borderWidth: 1, borderColor: color, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
+      <Text style={{ color, fontSize: 12, fontWeight: '700', textTransform: 'uppercase' }}>{label}</Text>
+    </View>
+  );
+}
 // Fecha y hora (Caracas) de un instante ISO, para las entregas de uniforme.
 const fmtFechaHora = (ts: string) => new Date(ts).toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
 type DelTotals = { camisas: number; pantalones: number; zapatos: number };
@@ -45,7 +56,9 @@ const tallyBy = (list: Employee[], get: (e: Employee) => string | null | undefin
   return { rows, total: rows.reduce((s, r) => s + r.count, 0) };
 };
 
-export default function UniformesScreen() {
+// ── Pestaña "Dotación básica": tallas por empleado + entregas de uniforme (contenido
+//    ORIGINAL de esta pantalla, sin cambios funcionales salvo el gating por canWrite). ──
+function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   const { colors } = useTheme();
   const toast = useToast();
   const { session } = useAuth();
@@ -100,7 +113,7 @@ export default function UniformesScreen() {
 
   // Registra una ENTREGA (cantidades) al empleado abierto, con fecha y hora automáticas.
   const registrarEntrega = async () => {
-    if (!sel) return;
+    if (!sel || !canWrite) return;
     const c = Math.max(0, Math.floor(Number(dCam) || 0));
     const p = Math.max(0, Math.floor(Number(dPan) || 0));
     const z = Math.max(0, Math.floor(Number(dZap) || 0));
@@ -117,7 +130,7 @@ export default function UniformesScreen() {
     await loadDeliveries();
   };
   const guardar = async () => {
-    if (!sel) return;
+    if (!sel || !canWrite) return;
     setSaving(true);
     const patch = { talla_camisa: camisa.trim() || null, talla_pantalon: pantalon.trim() || null, talla_zapatos: zapatos.trim() || null };
     const { error } = await supabase.from('employees').update(patch).eq('id', sel.id);
@@ -369,29 +382,33 @@ export default function UniformesScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{[companyName(sel.company_id), sel.cargo, sel.cedula ? `C.I ${sel.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12 }}>👕 Talla de camisa</Text>
-                <TextInput value={camisa} onChangeText={(t) => setCamisa(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. M, L, XL, 38…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={camisa} onChangeText={(t) => setCamisa(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. M, L, XL, 38…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👖 Talla de pantalón</Text>
-                <TextInput value={pantalon} onChangeText={(t) => setPantalon(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. 32, 34, M…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={pantalon} onChangeText={(t) => setPantalon(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. 32, 34, M…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👟 Talla de zapatos</Text>
-                <TextInput value={zapatos} onChangeText={(t) => setZapatos(t.toUpperCase())} autoCapitalize="characters" placeholder="Ej. 40, 42…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={zapatos} onChangeText={(t) => setZapatos(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. 40, 42…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
 
                 {/* ── Entregas: cuántas prendas se le han entregado (con fecha y hora) ── */}
                 <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📦 Registrar entrega</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Escribe cuántas prendas le entregas ahora. La fecha y la hora se guardan solas.</Text>
-                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                    {([['👕', dCam, setDCam], ['👖', dPan, setDPan], ['👟', dZap, setDZap]] as const).map(([icon, val, set], i) => (
-                      <View key={i} style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ fontSize: 16 }}>{icon}</Text>
-                        <TextInput value={val} onChangeText={(t) => set(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, width: '100%', textAlign: 'center', marginTop: 2 }} />
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📦 {canWrite ? 'Registrar entrega' : 'Entregas'}</Text>
+                  {canWrite ? (
+                    <>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Escribe cuántas prendas le entregas ahora. La fecha y la hora se guardan solas.</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                        {([['👕', dCam, setDCam], ['👖', dPan, setDPan], ['👟', dZap, setDZap]] as const).map(([icon, val, set], i) => (
+                          <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                            <Text style={{ fontSize: 16 }}>{icon}</Text>
+                            <TextInput value={val} onChangeText={(t) => set(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, width: '100%', textAlign: 'center', marginTop: 2 }} />
+                          </View>
+                        ))}
                       </View>
-                    ))}
-                  </View>
-                  <TouchableOpacity onPress={registrarEntrega} disabled={busyDel} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busyDel ? 0.7 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{busyDel ? 'Guardando…' : '📦 Registrar entrega'}</Text>
-                  </TouchableOpacity>
+                      <TouchableOpacity onPress={registrarEntrega} disabled={busyDel} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busyDel ? 0.7 : 1 }}>
+                        <Text style={{ color: '#fff', fontWeight: '800' }}>{busyDel ? 'Guardando…' : '📦 Registrar entrega'}</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
 
                   {(() => {
                     const dels = empDeliveries(sel.id); const tot = sumDeliveries(dels);
@@ -413,11 +430,13 @@ export default function UniformesScreen() {
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
                   <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setSel(null)}>
-                    <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{canWrite ? 'Cancelar' : 'Cerrar'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
-                  </TouchableOpacity>
+                  {canWrite ? (
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
+                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <View style={{ height: spacing.md }} />
               </ScrollView>
@@ -426,5 +445,261 @@ export default function UniformesScreen() {
         </View>
       </Modal>
     </Screen>
+  );
+}
+
+// ── Pestaña "Otras entregas / herramientas": SOLO LECTURA, se alimenta sola a partir de
+//    las Salidas de Almacén (inventory_movements, kind='salida' con empleados asignados)
+//    y los Traslados de Inventario dirigidos a un empleado (inventory_transfers con
+//    to_employee_id). No tiene formularios de registro: para eso está Inventario. ──
+type OtrasRow = {
+  key: string;
+  date: string;
+  employeeId: string;
+  employeeName: string;
+  employeeCedula: string | null;
+  employeeCargo: string | null;
+  detalle: string;
+  origen: 'salida' | 'traslado';
+};
+
+function OtrasEntregasTab() {
+  const { colors } = useTheme();
+  const toast = useToast();
+  const { data: movs, loading: loadingMovs, refetch: refetchMovs } = useTable<InventoryMovement>('inventory_movements', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_movements' });
+  const { data: transfers, loading: loadingTr, refetch: refetchTr } = useTable<InventoryTransfer>('inventory_transfers', { orderBy: 'created_at', ascending: false, realtimeFrom: 'inventory_transfers' });
+  const { data: items } = useTable<InventoryItem>('inventory_items', { orderBy: 'name' });
+  const { data: employees } = useTable<Employee>('employees', { orderBy: 'first_name' });
+  const loading = loadingMovs || loadingTr;
+
+  const employeeById = useMemo(() => { const m = new Map<string, Employee>(); employees.forEach((e) => m.set(e.id, e)); return m; }, [employees]);
+  const itemById = useMemo(() => { const m = new Map<string, InventoryItem>(); items.forEach((it) => m.set(it.id, it)); return m; }, [items]);
+
+  // Combina ambas fuentes en un solo historial normalizado. Una salida grupal (varios
+  // employee_ids en un mismo movimiento) genera UNA fila POR CADA empleado; un traslado
+  // con varios renglones (items jsonb) genera UNA fila POR CADA renglón.
+  const rows: OtrasRow[] = useMemo(() => {
+    const out: OtrasRow[] = [];
+    movs.forEach((m) => {
+      if (m.kind !== 'salida') return;
+      const ids = m.employee_ids ?? [];
+      if (!ids.length) return;
+      const it = itemById.get(m.item_id);
+      const detalle = `${it?.name ?? 'Producto'} · ${qtyFmt(m.qty)} ${it?.unit ?? ''}`.trim();
+      ids.forEach((empId) => {
+        // Preferimos el snapshot guardado en el movimiento (nombre/cédula/cargo AL
+        // MOMENTO de la salida); si viene vacío, caemos a los datos actuales del empleado.
+        const snap = (m.employees_detail ?? []).find((e) => e.id === empId);
+        const emp = employeeById.get(empId);
+        out.push({
+          key: `mov-${m.id}-${empId}`,
+          date: m.created_at,
+          employeeId: empId,
+          employeeName: snap?.name || (emp ? fullName(emp) : 'Empleado'),
+          employeeCedula: (snap?.cedula ?? emp?.cedula) ?? null,
+          employeeCargo: (snap?.cargo ?? emp?.cargo) ?? null,
+          detalle,
+          origen: 'salida',
+        });
+      });
+    });
+    transfers.forEach((t) => {
+      if (!t.to_employee_id) return;
+      const lines = t.items ?? [];
+      if (!lines.length) return;
+      const emp = employeeById.get(t.to_employee_id);
+      lines.forEach((line, i) => {
+        out.push({
+          key: `tr-${t.id}-${i}`,
+          date: t.created_at,
+          employeeId: t.to_employee_id as string,
+          employeeName: t.to_employee_name || (emp ? fullName(emp) : 'Empleado'),
+          employeeCedula: emp?.cedula ?? null,
+          employeeCargo: emp?.cargo ?? null,
+          detalle: `${line.name} · ${qtyFmt(line.qty)} ${line.unit ?? ''}`.trim(),
+          origen: 'traslado',
+        });
+      });
+    });
+    return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [movs, transfers, itemById, employeeById]);
+
+  // ── Filtros: por empleado y por rango de fecha ────────────────────────────────
+  const [empFilterId, setEmpFilterId] = useState('');
+  const [empOpen, setEmpOpen] = useState(false);
+  const [empQuery, setEmpQuery] = useState('');
+  const [fFrom, setFFrom] = useState('');
+  const [fTo, setFTo] = useState('');
+
+  const empFilterName = empFilterId ? (employeeById.get(empFilterId) ? fullName(employeeById.get(empFilterId)!) : '') : '';
+
+  const shown = useMemo(() => rows.filter((r) => {
+    if (empFilterId && r.employeeId !== empFilterId) return false;
+    const d = String(r.date).slice(0, 10); // AAAA-MM-DD
+    if (fFrom && d < fFrom) return false;
+    if (fTo && d > fTo) return false;
+    return true;
+  }), [rows, empFilterId, fFrom, fTo]);
+  const hayFiltro = !!(empFilterId || fFrom || fTo);
+
+  // ── Reporte PDF de lo mostrado (respeta los filtros activos) ─────────────────
+  const reporteOtras = async () => {
+    if (shown.length === 0) { toast.error('No hay entregas para el reporte.'); return; }
+    const sorted = [...shown].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const rowsHtml = sorted.map((r, i) => `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${esc(fmtFechaHora(r.date))}</td>
+        <td>${esc(r.employeeName)}</td>
+        <td>${esc(r.employeeCedula || '—')}</td>
+        <td>${esc(r.employeeCargo || '—')}</td>
+        <td>${esc(r.detalle)}</td>
+        <td>${esc(r.origen === 'traslado' ? 'Traslado' : 'Salida de almacén')}</td>
+      </tr>`).join('');
+    const html = pdfDocument({
+      title: 'Otras entregas / herramientas',
+      subtitle: `${shown.length} entrega(s) · ${todayDMY()}`,
+      extraCss: `table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5pt}
+        th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left} th{background:#16324F;color:#fff}
+        td.c{text-align:center} tr:nth-child(even) td{background:#f4f7fb}`,
+      body: `
+        <table>
+          <thead><tr><th style="width:30px" class="c">#</th><th style="width:150px">Fecha</th><th>Empleado</th><th>Cédula</th><th>Cargo</th><th>Detalle</th><th>Origen</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>`,
+    });
+    await exportPdf(html, `Otras entregas - ${todayDMY()}`);
+  };
+
+  if (loading) return <Screen><Loading /></Screen>;
+
+  return (
+    <Screen onRefresh={() => { refetchMovs(); refetchTr(); }} refreshing={loading}>
+      <ConfigBanner />
+      <SectionTitle>Otras entregas / herramientas</SectionTitle>
+      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+        Se alimenta sola, a partir de las Salidas de Almacén y los Traslados de Inventario dirigidos a un empleado (Inventario → Salida / Nota de traslado). Es de solo lectura: no tiene formulario de registro aquí.
+      </Text>
+
+      {/* Empleado: selector único (para filtrar), filtrable por nombre. */}
+      <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
+        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Empleado: <Text style={{ color: empFilterId ? colors.primary : colors.muted }}>{empFilterId ? (empFilterName || 'Empleado') : 'Todos'}</Text></Text>
+        <Text style={{ color: colors.primary, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
+      </TouchableOpacity>
+      {empOpen ? (
+        <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+          <TextInput value={empQuery} onChangeText={setEmpQuery} placeholder="Filtrar por nombre…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+          <TouchableOpacity onPress={() => { setEmpFilterId(''); setEmpOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: 15 }}>{!empFilterId ? '🔘' : '⚪'}</Text>
+            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>Todos</Text>
+          </TouchableOpacity>
+          <View style={{ maxHeight: 220 }}>
+            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              {employees.filter((e) => { const s = norm(empQuery); return !s || norm(fullName(e)).includes(s); }).map((e) => {
+                const on = empFilterId === e.id;
+                return (
+                  <TouchableOpacity key={e.id} onPress={() => { setEmpFilterId(e.id); setEmpOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ fontSize: 15 }}>{on ? '🔘' : '⚪'}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>{fullName(e)}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Fecha: rango Desde/Hasta */}
+      <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
+          <DateField value={fFrom} onChange={(v) => setFFrom(v || '')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Hasta</Text>
+          <DateField value={fTo} onChange={(v) => setFTo(v || '')} />
+        </View>
+        {hayFiltro ? (
+          <TouchableOpacity onPress={() => { setEmpFilterId(''); setEmpQuery(''); setFFrom(''); setFTo(''); }} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {shown.length ? (
+        <TouchableOpacity onPress={reporteOtras} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 Reporte ({shown.length})</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {shown.length === 0 ? (
+        <EmptyState title="Sin entregas" subtitle="Las salidas de almacén y los traslados de inventario dirigidos a un empleado aparecerán aquí automáticamente." />
+      ) : shown.map((r) => (
+        <ExpandableCard
+          key={r.key}
+          summary={
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.employeeName}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtFechaHora(r.date)}</Text>
+                <Text style={{ color: colors.text, fontSize: 13 }} numberOfLines={2}>{r.detalle}</Text>
+              </View>
+              <Pill label={r.origen === 'traslado' ? '🔁 Traslado' : '📤 Salida'} color={r.origen === 'traslado' ? '#EA580C' : '#2563EB'} />
+            </View>
+          }
+          detail={
+            <>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Cédula: {r.employeeCedula || '—'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Cargo: {r.employeeCargo || '—'}</Text>
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Origen: {r.origen === 'traslado' ? 'Traslado de inventario' : 'Salida de almacén'}</Text>
+            </>
+          }
+        />
+      ))}
+      <View style={{ height: spacing.lg }} />
+    </Screen>
+  );
+}
+
+// ── Contenedor con las 2 pestañas + gating de acceso al módulo 'uniformes' ────────
+export default function UniformesScreen() {
+  const { colors } = useTheme();
+  const { moduleLevel } = useAuth();
+  const [active, setActive] = useState<'dotacion' | 'otras'>('dotacion');
+
+  const level = moduleLevel('uniformes');
+  if (level === 'none') {
+    return (
+      <Screen>
+        <SectionTitle>Distribución de uniformes</SectionTitle>
+        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
+      </Screen>
+    );
+  }
+  const canWrite = levelMeets(level, 'escritura');
+
+  const TABS: { key: 'dotacion' | 'otras'; label: string; icon: string }[] = [
+    { key: 'dotacion', label: 'Dotación básica', icon: '🧥' },
+    { key: 'otras', label: 'Otras entregas / herramientas', icon: '🧰' },
+  ];
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, gap: spacing.sm }}>
+          {TABS.map((t) => {
+            const on = t.key === active;
+            return (
+              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+                <Text style={{ fontSize: 15 }}>{t.icon}</Text>
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+      <View style={{ flex: 1 }}>
+        {active === 'dotacion' ? <DotacionBasicaTab canWrite={canWrite} /> : <OtrasEntregasTab />}
+      </View>
+    </View>
   );
 }

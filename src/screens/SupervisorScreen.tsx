@@ -117,6 +117,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [visits, setVisits] = useState<Record<string, SupervisorVisit>>({});
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
+  // TAREA 1 (SupervisorScreen): filtro por segmento en "🪖 Mi ronda de hoy" — chips
+  // Todas / Pendientes por iniciar / Iniciadas / Paradas / Por avería. Solo filtra,
+  // no toca ninguna escritura.
+  const [segFilter, setSegFilter] = useState<'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'>('all');
   const [scanOpen, setScanOpen] = useState(false);
   // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
@@ -182,6 +186,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean }[]>([]);
+  // TAREA 1: máquinas con una AVERÍA REAL pendiente hoy (material distinto de
+  // 'MÁQUINA PARADA'), para distinguir "Parada" (marcarParadaNoTrabajo) de "Por
+  // avería" (marcarParadaAveria / registrarAveria) en los chips de segmento.
+  const [averiaPendienteIds, setAveriaPendienteIds] = useState<Set<string>>(new Set());
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -355,7 +363,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina para el círculo de color: rondas del día
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
-    const [{ data: rs }, { data: rsNoche }, { data: par }] = await Promise.all([
+    const [{ data: rs }, { data: rsNoche }, { data: par }, { data: avPend }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
       // Jornadas de NOCHE de AYER aún ABIERTAS (cruzan la medianoche): sin esto el
       // círculo 🟢 se apagaba al pasar las 12 (parecía cierre a medianoche en el tlf).
@@ -364,6 +372,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
       supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
+      // TAREA 1: averías REALES pendientes de HOY (material distinto de 'MÁQUINA
+      // PARADA') — solo LECTURA, para el chip "🔧 Por avería" (SupervisorScreen).
+      supabase.from('maintenance_requests').select('machinery_id').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').gte('created_at', `${today}T00:00:00-04:00`),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
@@ -381,6 +392,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // hasta marcarla operativa. La de HOY respeta el turno (no pisa al otro inspector).
     const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
     setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim(), arrastrada: new Date(p.created_at).getTime() < dayStartMs })));
+    setAveriaPendienteIds(new Set(((avPend ?? []) as any[]).map((p) => p.machinery_id as string)));
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
@@ -420,7 +432,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // (maintenance_requests) y visitas.
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
 
-  const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id)), [machines, mineIds]);
+  // TAREA 4 (aditivo, solo LECTURA/filtrado — no toca escrituras ni el catálogo):
+  // oculta del listado operativo del inspector las máquinas INACTIVAS (active=false)
+  // o averiadas (operational=false), EXCEPTO si tienen una jornada abierta AHORA
+  // MISMO (roundsById[id]?.open) — así el inspector siempre puede cerrar una jornada
+  // que quedó abierta, aunque la máquina se haya inactivado después. Cuando la
+  // máquina se reactive (operational/active vuelven a true), reaparece sola en el
+  // próximo refresh/realtime (useTable/useRealtimeRefresh ya recargan `machines`).
+  // No toca `machines` (fuente) ni el CHECK (checkList/necesitaInspector/
+  // pendientesList/resumenInspectores), que siguen viendo TODO el catálogo para
+  // poder asignar/reactivar máquinas inactivas.
+  const visibleParaInspector = (m: Mach) => {
+    const inactiva = m.active === false || m.operational === false;
+    return !inactiva || roundsById[m.id]?.open === true;
+  };
+  const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
   const matchQuery = (m: Mach, q: string) => !q
     || norm(m.code).includes(q)
     || norm(m.companyName || '').includes(q)
@@ -428,16 +454,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm((m as any).plate || '').includes(q)
     || norm((m as any).encargado || '').includes(q)
     || norm((m as any).referencia || '').includes(q);
-  // Buscador sobre MIS máquinas asignadas (mismo filtro: nombre/serial/placa/empresa/encargado/edificio).
-  const mineList = useMemo(() => {
-    const q = norm(query.trim());
-    return mine.filter((m) => matchQuery(m, q));
-  }, [mine, query]);
-  const searchList = useMemo(() => {
-    const q = norm(query.trim());
-    return machines.filter((m) => matchQuery(m, q));
-  }, [machines, query]);
+  // mineList/searchList (con el filtro de segmento — chips de "🪖 Mi ronda de hoy")
+  // se definen más abajo, después de paradaIds/paradaHoyIds (los usa segmentoDe).
   // Listado del CHECK: todas las máquinas (buscable) para asignármelas/quitármelas.
+  // NO aplica visibleParaInspector: el CHECK debe poder ver/reasignar también las
+  // inactivas (es la herramienta de administración, no la ronda operativa).
   const checkList = useMemo(() => {
     const q = norm(checkQuery.trim());
     return machines.filter((m) => matchQuery(m, q));
@@ -582,6 +603,37 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     paradaRawList.forEach((p) => { if ((verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
     return mot;
   }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
+  // TAREA 1: segmento de estatus para los chips de "🪖 Mi ronda de hoy". Prioridad:
+  // avería real pendiente > parada (operativa o por avería, ambas dejan una fila
+  // MÁQUINA PARADA) > jornada abierta hoy (o noche de ayer rescatada) > pendiente.
+  const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
+    if (averiaPendienteIds.has(id)) return 'averia';
+    if (paradaHoyIds.has(id) || paradaIds.has(id)) return 'parada';
+    if (roundsById[id]?.open) return 'iniciada';
+    return 'pendiente';
+  };
+  // Buscador sobre MIS máquinas asignadas (nombre/serial/placa/empresa/encargado/
+  // edificio) + chip de segmento activo. `mine` ya excluye inactivas (TAREA 4).
+  const mineList = useMemo(() => {
+    const q = norm(query.trim());
+    return mine.filter((m) => matchQuery(m, q) && (segFilter === 'all' || segmentoDe(m.id) === segFilter));
+  }, [mine, query, segFilter, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  // "Todas las máquinas" (admin/coordinador, vista operativa): mismo buscador +
+  // chip de segmento, EXCLUYE inactivas salvo jornada abierta (TAREA 4). No es el
+  // CHECK (checkList), que sigue mostrando el catálogo completo.
+  const searchList = useMemo(() => {
+    const q = norm(query.trim());
+    return machines.filter((m) => matchQuery(m, q) && visibleParaInspector(m) && (segFilter === 'all' || segmentoDe(m.id) === segFilter));
+  }, [machines, query, segFilter, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  // Contadores de los chips: sobre la base ya filtrada por texto/inactivas que se
+  // está mostrando (mis máquinas, o "todas" si el admin/coordinador las activó).
+  const segCountsBase = useMemo(() => {
+    const q = norm(query.trim());
+    const base = (puedeCoordinar && showAll ? machines.filter(visibleParaInspector) : mine).filter((m) => matchQuery(m, q));
+    const counts = { all: base.length, pendiente: 0, iniciada: 0, parada: 0, averia: 0 };
+    base.forEach((m) => { counts[segmentoDe(m.id)]++; });
+    return counts;
+  }, [machines, mine, query, showAll, puedeCoordinar, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
   // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {
@@ -984,7 +1036,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       source: 'manual_finish', recorded_by: uid || null,
     }).then(() => {}, () => {});
     reloadEstados();
-    setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}).`);
+    // TAREA 2: además del total de ESTA sesión, muestra el acumulado del turno en
+    // el día (horas ya registradas antes de abrir esta sesión + lo recién cerrado).
+    const totalAcumuladoTurno = Math.round((curRoundHours[jornadaShift] + horas) * 100) / 100;
+    setNotice(`🏁 Jornada finalizada · ${horas.toFixed(2)} h → Control de maquinaria (turno ${jornadaShift === 'night' ? 'noche' : 'día'}). Acumulado del turno: ${totalAcumuladoTurno.toFixed(2)} h.`);
   };
 
   // Sube una foto de referencia para la avería del camino "PARADA · por avería".
@@ -1284,6 +1339,32 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     );
   };
 
+  // TAREA 1: chips de filtro por segmento, arriba de la lista de máquinas (mismo
+  // estilo de chip-pill ya usado en este archivo, ej. filtro de pendMode/checkFilter).
+  const SEG_CHIPS: { key: 'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'; label: string }[] = [
+    { key: 'all', label: 'Todas' },
+    { key: 'pendiente', label: '⏳ Pendientes por iniciar' },
+    { key: 'iniciada', label: '🟢 Iniciadas' },
+    { key: 'parada', label: '🟡 Paradas' },
+    { key: 'averia', label: '🔧 Por avería' },
+  ];
+  const renderSegChips = () => (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs, marginBottom: spacing.xs }}>
+      {SEG_CHIPS.map((c) => {
+        const on = segFilter === c.key;
+        return (
+          <TouchableOpacity
+            key={c.key}
+            onPress={() => setSegFilter(c.key)}
+            style={{ paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}
+          >
+            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c.label} ({segCountsBase[c.key]})</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
   const revisadas = Object.keys(visits).length;
 
   return (
@@ -1392,9 +1473,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
           </View>
           <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+          {renderSegChips()}
           <View style={{ marginTop: spacing.xs }}>
             {searchList.slice(0, 100).map(renderMachine)}
-            {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre o empresa." /> : null}
+            {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre, empresa o cambia el filtro." /> : null}
           </View>
         </>
       ) : (
@@ -1406,9 +1488,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           {mine.length > 0 ? (
             <>
               <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+              {renderSegChips()}
               <View style={{ marginTop: spacing.xs }}>
                 {mineList.map(renderMachine)}
-                {mineList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Ninguna de tus máquinas coincide con la búsqueda." /> : null}
+                {mineList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Ninguna de tus máquinas coincide con la búsqueda o el filtro." /> : null}
               </View>
             </>
           ) : (
@@ -1955,6 +2038,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         Total trabajado: <Text style={{ fontWeight: '900' }}>{elapsedLabel(jornadaStart, nowTick)}</Text>
                         {'  '}({((Math.max(0, nowTick - new Date(jornadaStart).getTime())) / 3600000).toFixed(2)} h)
                       </Text>
+                      {/* TAREA 2: refuerza el total con el ACUMULADO del turno en el día
+                          (curRoundHours = horas ya registradas ANTES de esta sesión). */}
+                      <Text style={{ color: colors.infoSoftText, fontSize: 12, marginTop: 2, textAlign: 'center' }}>
+                        Acumulado del turno: <Text style={{ fontWeight: '900' }}>{(curRoundHours[jornadaShift] + (Math.max(0, nowTick - new Date(jornadaStart).getTime()) / 3600000)).toFixed(2)} h</Text>
+                      </Text>
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
@@ -2038,6 +2126,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
               {/* PARADA → 2 caminos: "por avería" (Mantenimiento + Inspecciones) o
                   "no trabajó" (motivo fijo + ubicación, solo Inspecciones). */}
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 4 }}>⛔ Detener la máquina</Text>
               <TouchableOpacity onPress={() => setParadaOpen((v) => !v)} disabled={ciSaving} style={{ backgroundColor: paradaOpen ? '#D9A200' : colors.surface, borderWidth: 2, borderColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.sm }}>
                 <Text style={{ color: paradaOpen ? '#fff' : '#8A6A00', fontWeight: '800' }}>🟡 PARADA (marcar máquina parada)</Text>
               </TouchableOpacity>
@@ -2053,6 +2142,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       );
                     })}
                   </View>
+                  {/* TAREA 3: aclara qué hace cada pestaña (ambas dejan la máquina PARADA,
+                      lo que cambia es si hay o no una falla mecánica de por medio). */}
+                  <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm, fontStyle: 'italic' }}>
+                    {paradaTab === 'averia'
+                      ? 'La máquina queda PARADA y se reporta la falla a Mantenimiento.'
+                      : 'La máquina queda PARADA sin que sea una falla mecánica (clima, sin combustible, sin operador, etc.).'}
+                  </Text>
 
                   {paradaTab === 'averia' ? (
                     <>
@@ -2159,11 +2255,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               </View>
 
               {/* ── Avería de maquinaria (misma función que el operador) → Mantenimiento ── */}
-              <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
+              <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginTop: spacing.md, marginBottom: 4 }}>📋 Reportar sin detener la máquina</Text>
+              <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderWidth: 1, borderColor: colors.border }}>
                 <TouchableOpacity onPress={() => setAvOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🛠️ Avería de maquinaria</Text>
                   <Text style={{ color: colors.primary, fontWeight: '800' }}>{avOpen ? '▲' : '▼'}</Text>
                 </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                  Reporta una falla a Mantenimiento SIN marcar la máquina como parada (la máquina sigue en su estado actual). Para detenerla, usa 🟡 PARADA más arriba.
+                </Text>
                 {avOpen ? (
                   <View style={{ marginTop: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Toca el material que se necesita cambiar. Va al módulo de Mantenimiento de Maquinaria.</Text>

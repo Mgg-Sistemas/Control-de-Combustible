@@ -37,6 +37,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'empleados', label: 'Empleados (RRHH)' },
   { key: 'aliados', label: 'Aliados' },
   { key: 'nomina', label: 'Nómina' },
+  { key: 'uniformes', label: 'Distribución de uniformes' },
   { key: 'asistencia', label: 'Control de asistencia' },
   { key: 'compras', label: 'Compras' },
   { key: 'inventario', label: 'Inventario / Almacén' },
@@ -51,7 +52,7 @@ export const MODULES: { key: string; label: string }[] = [
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
  *  Control de Pagos y Usuarios quedan restringidos; el resto abierto (compat.). */
 export function defaultLevel(moduleKey: string): PermLevel {
-  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores') return 'none';
+  if (moduleKey === 'control_pagos' || moduleKey === 'margen_ganancia' || moduleKey === 'usuarios' || moduleKey === 'empleados' || moduleKey === 'aliados' || moduleKey === 'nomina' || moduleKey === 'uniformes' || moduleKey === 'compras' || moduleKey === 'inventario' || moduleKey === 'supervision' || moduleKey === 'comida' || moduleKey === 'asistencia' || moduleKey === 'asistencia_camiones' || moduleKey === 'inspecciones_maq' || moduleKey === 'coordinador_inspectores') return 'none';
   return 'escritura';
 }
 
