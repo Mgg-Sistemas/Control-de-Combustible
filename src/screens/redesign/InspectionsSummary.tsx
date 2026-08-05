@@ -5,6 +5,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
 import { useAuth } from '../../context/AuthContext';
+import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
 import { listInspectorAssignments } from '../../lib/machineInspectors';
 import { generateInspectorReport } from '../../lib/inspectorReport';
@@ -272,25 +273,47 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // corrección administrativa) — el cierre normal a las 7am/7pm la termina sola.
   // "Pendiente" borra las horas de ESE turno puntual y, si la jornada abierta
   // pertenece a ese mismo turno, también la cierra sin acreditar horas — sin tocar
-  // el turno contrario si está en curso.
+  // el turno contrario si está en curso. Antes de borrar horas ya trabajadas, las
+  // deja registradas en `machine_work_segments` (source='ajuste_manual', igual que
+  // cualquier otro cierre) y en la bitácora de Auditoría — nada desaparece sin
+  // dejar rastro de quién lo hizo y cuánto había.
   const applyBulk = async (action: 'start' | 'pending') => {
     if (bulkSel.size === 0 || bulkBusy || !bulkIsToday) return;
     setBulkBusy(true);
     try {
       const items = [...bulkSel].map((k) => { const [id, sh] = k.split('::'); return { id, shift: sh as 'day' | 'night' }; });
+      const uid = session?.user?.id ?? null;
+      const codeOf = (id: string) => assignments.find((a) => a.machinery_id === id)?.code || '—';
       if (action === 'start') {
         const nowIso = new Date().toISOString();
         const rows = items.map((it) => ({ machinery_id: it.id, round_date: selDay, round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
         await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
+        await Promise.all(items.map((it) =>
+          logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
+        ));
       } else {
         for (const it of items) {
           const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === selDay);
+          const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
           const patch: Record<string, any> = it.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 };
           if (existing?.jornada_start_at && roundShift(existing) === it.shift) patch.jornada_start_at = null;
           await supabase.from('machine_rounds').upsert(
             { machinery_id: it.id, round_date: selDay, round_no: 1, ...patch },
             { onConflict: 'machinery_id,round_date,round_no' }
           );
+          // Si ya tenía horas trabajadas, quedan a salvo en machine_work_segments
+          // (no se pierden solo porque se pongan en 0 en machine_rounds).
+          if (prevHours > 0) {
+            const endedAt = new Date();
+            const startedAt = new Date(endedAt.getTime() - prevHours * 3600_000);
+            await supabase.from('machine_work_segments').insert({
+              machinery_id: it.id, round_date: selDay, shift: it.shift,
+              started_at: startedAt.toISOString(), ended_at: endedAt.toISOString(), hours: prevHours,
+              source: 'ajuste_manual', recorded_by: uid,
+              notes: 'Marcado como Pendiente desde el panel de Inspecciones (admin) — horas previas conservadas aquí.',
+            });
+          }
+          logAudit('JORNADA_FIN', 'machinery', it.id, `${codeOf(it.id)} · marcado Pendiente (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}${prevHours > 0 ? ` · ${prevHours.toFixed(2)}h conservadas` : ''}`);
         }
       }
       setBulkSel(new Set());
