@@ -4,7 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
 import { spacing, radius } from '../theme';
@@ -64,7 +64,7 @@ export default function MargenGananciaScreen() {
       cost: m.initial_cost != null ? Number(m.initial_cost) : null,
       value: m.useful_value != null ? Number(m.useful_value) : null,
     }));
-    list.sort((a, b) => a.company.localeCompare(b.company) || a.code.localeCompare(b.code));
+    list.sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     setMachines(list);
     setLoading(false);
   };
@@ -98,7 +98,7 @@ export default function MargenGananciaScreen() {
         const pct = totalCost > 0 ? ((totalValue - totalCost) / totalCost) * 100 : null;
         return { company, machines: ms, count: ms.length, totalCost, totalValue, pct, conDatos: withData.length };
       })
-      .sort((a, b) => (a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : a.company.localeCompare(b.company)));
+      .sort((a, b) => (a.company === 'Sin empresa' ? 1 : b.company === 'Sin empresa' ? -1 : cmpText(a.company, b.company)));
   }, [machines, query]);
 
   // Totales generales (todas las empresas).
@@ -171,21 +171,19 @@ export default function MargenGananciaScreen() {
       <ConfigBanner />
       <SectionTitle>Margen de ganancia</SectionTitle>
 
-      {/* Resumen general + botón de reporte */}
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Margen general (todas las empresas)</Text>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20, marginTop: 2 }}>{pctStr(grand.pct)}</Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-              {grand.count} máquina(s) · Costo ${money(grand.totalCost)} · Valor ${money(grand.totalValue)}
-            </Text>
-          </View>
-          <TouchableOpacity onPress={generateReport} style={{ padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📄 Reporte</Text>
-          </TouchableOpacity>
+      {/* Resumen general destacado (banda de marca) + botón de reporte */}
+      <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>MARGEN GENERAL (TODAS LAS EMPRESAS)</Text>
+          <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 30, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{pctStr(grand.pct)}</Text>
+          <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 11.5, marginTop: 2 }}>
+            {grand.count} máquina(s) · Costo ${money(grand.totalCost)} · Valor ${money(grand.totalValue)}
+          </Text>
         </View>
-      </Card>
+        <TouchableOpacity onPress={generateReport} activeOpacity={0.85} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.accent }}>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>📄 Reporte</Text>
+        </TouchableOpacity>
+      </View>
 
       <TextInput
         value={query}
@@ -208,11 +206,11 @@ export default function MargenGananciaScreen() {
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.company}</Text>
-                    <Text style={{ color: g.pct == null ? colors.muted : g.pct >= 0 ? colors.success : colors.warning, fontWeight: '800', fontSize: 15 }}>{pctStr(g.pct)}</Text>
+                    <Text style={{ color: g.pct == null ? colors.muted : g.pct >= 0 ? colors.success : colors.danger, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{pctStr(g.pct)}</Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                    <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {g.count} máquina(s) · Costo ${money(g.totalCost)} · Valor ${money(g.totalValue)}</Text>
-                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>🚜 {g.count} máquina(s) · Costo ${money(g.totalCost)} · Valor ${money(g.totalValue)}</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                   </View>
                 </Card>
               </TouchableOpacity>
@@ -229,7 +227,7 @@ export default function MargenGananciaScreen() {
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
                         {m.code}{m.serial ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.serial}</Text> : null}
                       </Text>
-                      <Text style={{ color: p == null ? colors.muted : p >= 0 ? colors.success : colors.warning, fontWeight: '800', fontSize: 15 }}>{pctStr(p)}</Text>
+                      <Text style={{ color: p == null ? colors.muted : p >= 0 ? colors.success : colors.danger, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{pctStr(p)}</Text>
                     </View>
                     {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }}>{m.tipo}</Text> : null}
                     <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>

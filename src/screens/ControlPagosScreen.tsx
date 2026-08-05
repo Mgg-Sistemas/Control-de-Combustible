@@ -1138,17 +1138,17 @@ export default function ControlPagosScreen({ navigation }: any) {
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setRepOpen(true)}
-          style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}
+          style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}
         >
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📄 Reporte</Text>
+          <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📄 Reporte</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity
         onPress={openTipoReport}
-        style={{ padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.sm }}
+        style={{ padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginTop: spacing.sm }}
       >
-        <Text style={{ color: colors.primary, fontWeight: '700' }}>📊 Reporte por empresa y tipo (llegada → 05/07 + semanas)</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>📊 Reporte por empresa y tipo (llegada → 05/07 + semanas)</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -1195,8 +1195,8 @@ export default function ControlPagosScreen({ navigation }: any) {
               <TouchableOpacity activeOpacity={0.7} onPress={() => setExpandedCompany((p) => ({ ...p, [company]: !p[company] }))}>
                 <Card style={{ backgroundColor: colors.surfaceAlt, marginTop: spacing.sm }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
-                    <Text style={{ color: debt > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 15 }}>${money(debt)}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }}>🏢 {company}</Text>
+                    <Text style={{ color: debt > 0 ? colors.brandText : colors.success, fontWeight: '900', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>${money(debt)}</Text>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     Facturado ${money(totalFact)} · Abonado ${money(paidCompany)}{paidCompany > totalFact ? `  ·  💚 saldo a favor $${money(round2(paidCompany - totalFact))}` : ''}
@@ -1213,7 +1213,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   ) : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machineSet.size} máquina(s) con jornada · {weeks.length} semana(s)</Text>
-                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                   </View>
                 </Card>
               </TouchableOpacity>
@@ -1221,9 +1221,9 @@ export default function ControlPagosScreen({ navigation }: any) {
               {/* Botón NÓMINA (descuenta de la cuenta general de la empresa) */}
               <TouchableOpacity
                 onPress={() => openNomina(company)}
-                style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                style={{ alignSelf: 'flex-start', marginTop: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
               >
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 NÓMINA</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 NÓMINA</Text>
               </TouchableOpacity>
               {open && nomina && nomina.items.length > 0 ? (
                 <Card>
@@ -1303,7 +1303,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>
                         Semana {g.weekStart} → {g.weekEnd}
                       </Text>
-                      <Text style={{ color: g.fullyPaid ? colors.success : colors.primary, fontWeight: '800' }}>
+                      <Text style={{ color: g.fullyPaid ? colors.success : colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>
                         ${money(g.total)}
                       </Text>
                     </View>
@@ -1317,9 +1317,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                         <Text style={{ color: colors.muted, fontSize: 11 }}>Precios:</Text>
                         <TouchableOpacity
                           onPress={() => togglePriceMode(g)}
-                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: g.priceMode === 'cierre' ? colors.primary : colors.border, backgroundColor: g.priceMode === 'cierre' ? colors.primary : colors.surfaceAlt }}
+                          style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, borderColor: g.priceMode === 'cierre' ? colors.brand : colors.border, backgroundColor: g.priceMode === 'cierre' ? colors.brand : colors.surfaceAlt }}
                         >
-                          <Text style={{ color: g.priceMode === 'cierre' ? colors.primaryContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
+                          <Text style={{ color: g.priceMode === 'cierre' ? colors.brandContrast : colors.text, fontSize: 11, fontWeight: '700' }}>
                             {g.priceMode === 'cierre' ? '📌 Del cierre' : '🔄 Actuales'} · cambiar
                           </Text>
                         </TouchableOpacity>
@@ -1376,8 +1376,8 @@ export default function ControlPagosScreen({ navigation }: any) {
               <TouchableOpacity onPress={() => setNominaFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={saveNomina} disabled={savingNomina} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{savingNomina ? 'Guardando…' : 'Registrar nómina'}</Text>
+              <TouchableOpacity onPress={saveNomina} disabled={savingNomina} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{savingNomina ? 'Guardando…' : 'Registrar nómina'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1390,12 +1390,12 @@ export default function ControlPagosScreen({ navigation }: any) {
           {selected ? (
             <>
               <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '900' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{selected.company}</SectionTitle>
               {notice ? (
-                <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+                <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
                   <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
                 </TouchableOpacity>
@@ -1405,9 +1405,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Semana cerrada · precios:</Text>
                   <TouchableOpacity
                     onPress={() => togglePriceMode(selected)}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, backgroundColor: selected.priceMode === 'cierre' ? colors.primary : colors.surfaceAlt }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: selected.priceMode === 'cierre' ? colors.brand : colors.surfaceAlt }}
                   >
-                    <Text style={{ color: selected.priceMode === 'cierre' ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '800' }}>
+                    <Text style={{ color: selected.priceMode === 'cierre' ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '800' }}>
                       {selected.priceMode === 'cierre' ? '📌 Del cierre (viejo)' : '🔄 Actuales (nuevo)'} · tocar para cambiar
                     </Text>
                   </TouchableOpacity>
@@ -1475,26 +1475,26 @@ export default function ControlPagosScreen({ navigation }: any) {
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Horas trabajadas</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{selected.hoursWorked.toLocaleString()}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{selected.hoursWorked.toLocaleString()}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Máquinas</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>{machinesOf(selected).length}</Text>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{machinesOf(selected).length}</Text>
                   </View>
-                  <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>Total</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 20 }}>${money(selected.total)}</Text>
+                  <View style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.sm }}>
+                    <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 11, fontWeight: '800' }}>Total</Text>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>${money(selected.total)}</Text>
                   </View>
                 </View>
                 {/* Abonado y saldo pendiente */}
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Abonado</Text>
-                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>${money(selected.paidAmount)}</Text>
+                    <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>${money(selected.paidAmount)}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Saldo pendiente</Text>
-                    <Text style={{ color: selected.saldo > 0 ? colors.primary : colors.success, fontWeight: '800', fontSize: 20 }}>${money(selected.saldo)}</Text>
+                    <Text style={{ color: selected.saldo > 0 ? colors.brandText : colors.success, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>${money(selected.saldo)}</Text>
                   </View>
                 </View>
               </Card>
@@ -1539,7 +1539,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   {payFor.company} · Semana {payFor.weekStart} → {payFor.weekEnd}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
-                  Total ${money(payFor.total)} · abonado ${money(payFor.paidAmount)} · <Text style={{ color: colors.primary, fontWeight: '800' }}>saldo ${money(payFor.saldo)}</Text>
+                  Total ${money(payFor.total)} · abonado ${money(payFor.paidAmount)} · <Text style={{ color: colors.brandText, fontWeight: '900' }}>saldo ${money(payFor.saldo)}</Text>
                 </Text>
               </>
             ) : null}
@@ -1552,9 +1552,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <TouchableOpacity
                     key={c.value}
                     onPress={() => setPayMetodo(c.value)}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface }}
                   >
-                    <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
+                    <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1574,7 +1574,7 @@ export default function ControlPagosScreen({ navigation }: any) {
                   keyboardType="numeric" inputMode="decimal" placeholder="Ej. 40,00" placeholderTextColor={colors.muted}
                   style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, fontSize: 16, marginTop: 4 }}
                 />
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800', marginTop: 6 }}>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', marginTop: 6 }}>
                   ≈ ${money(((Number(payMontoBs.replace(',', '.')) || 0) && (Number(payTasa.replace(',', '.')) || 0)) ? round2((Number(payMontoBs.replace(',', '.')) || 0) / (Number(payTasa.replace(',', '.')) || 1)) : 0)} en dólares
                 </Text>
               </>
@@ -1615,12 +1615,12 @@ export default function ControlPagosScreen({ navigation }: any) {
       <Modal visible={histOpen} animationType="slide" onRequestClose={() => setHistOpen(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setHistOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '900' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Histórico de pagos</SectionTitle>
           {notice ? (
-            <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+            <TouchableOpacity onPress={() => setNotice(null)} style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
               <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
             </TouchableOpacity>
@@ -1641,11 +1641,11 @@ export default function ControlPagosScreen({ navigation }: any) {
                   <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: spacing.xs, maxHeight: 220, overflow: 'hidden' }}>
                     <ScrollView>
                       <TouchableOpacity onPress={() => { setHistCompany(''); setHistCompanyOpen(false); setRevertArmed(false); }} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ color: !histCompany ? colors.primary : colors.text, fontWeight: !histCompany ? '800' : '500' }}>Todas las empresas</Text>
+                        <Text style={{ color: !histCompany ? colors.brandText : colors.text, fontWeight: !histCompany ? '800' : '500' }}>Todas las empresas</Text>
                       </TouchableOpacity>
                       {empresasHist.map((c) => (
                         <TouchableOpacity key={c} onPress={() => { setHistCompany(c); setHistCompanyOpen(false); setRevertArmed(false); }} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                          <Text style={{ color: histCompany === c ? colors.primary : colors.text, fontWeight: histCompany === c ? '800' : '500' }}>{c}</Text>
+                          <Text style={{ color: histCompany === c ? colors.brandText : colors.text, fontWeight: histCompany === c ? '800' : '500' }}>{c}</Text>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
@@ -1689,8 +1689,8 @@ export default function ControlPagosScreen({ navigation }: any) {
               </TouchableOpacity>
             ))
           )}
-          <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => setHistOpen(false)}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Cerrar</Text>
+          <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={() => setHistOpen(false)}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>Cerrar</Text>
           </TouchableOpacity>
         </Screen>
       </Modal>
@@ -1701,8 +1701,8 @@ export default function ControlPagosScreen({ navigation }: any) {
           {histSel ? (
             <>
               <TouchableOpacity onPress={() => setHistSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '900' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{histSel.company_name}</SectionTitle>
               <Card>
@@ -1737,8 +1737,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                 </Card>
               ) : null}
 
-              <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => setHistSel(null)}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Volver</Text>
+              <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={() => setHistSel(null)}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>Volver</Text>
               </TouchableOpacity>
             </>
           ) : null}
@@ -1755,7 +1755,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas (marca una o varias)</Text>
               {repCompanies.length > 0 ? (
                 <TouchableOpacity onPress={() => setRepCompanies([])}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>Limpiar</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -1765,8 +1765,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                 onPress={() => setRepCompanies([])}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
               >
-                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.primary : colors.border, backgroundColor: repCompanies.length === 0 ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                  {repCompanies.length === 0 ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: repCompanies.length === 0 ? colors.brand : colors.border, backgroundColor: repCompanies.length === 0 ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                  {repCompanies.length === 0 ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                 </View>
                 <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>Todas (general)</Text>
               </TouchableOpacity>
@@ -1778,8 +1778,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                     onPress={() => setRepCompanies((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))}
                     style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs }}
                   >
-                    <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                      {checked ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                    <View style={{ width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {checked ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                     </View>
                     <Text style={{ color: colors.text, fontSize: 14, flex: 1 }}>{c}</Text>
                   </TouchableOpacity>
@@ -1799,15 +1799,15 @@ export default function ControlPagosScreen({ navigation }: any) {
             </View>
 
             {/* Estado de cuenta enfocado en la cuenta: semanas facturadas + pagos con fecha + saldo. */}
-            <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginTop: spacing.lg }} onPress={generateEstadoCuenta}>
-              <Text style={{ color: colors.primary, fontWeight: '800' }}>🧾 Estado de cuenta (semanas + pagos + saldo)</Text>
+            <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginTop: spacing.lg }} onPress={generateEstadoCuenta}>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>🧾 Estado de cuenta (semanas + pagos + saldo)</Text>
             </TouchableOpacity>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setRepOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={generateReport}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>⬇️ Reporte detallado</Text>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }} onPress={generateReport}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>⬇️ Reporte detallado</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1818,7 +1818,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       <Modal visible={tarOpen} animationType="slide" onRequestClose={() => setTarOpen(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setTarOpen(false)} style={{ paddingVertical: spacing.xs, marginBottom: spacing.xs }}>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>← Volver</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>← Volver</Text>
           </TouchableOpacity>
           <SectionTitle>💲 Tabulador de precios</SectionTitle>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
@@ -1835,8 +1835,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                 const nOv = opt.id !== 'general' ? Object.keys(companyTar[opt.id] ?? {}).length : 0;
                 return (
                   <TouchableOpacity key={opt.id} onPress={() => switchScope(opt.id)}
-                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+                    style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
                       {opt.name}{nOv > 0 ? ` (${nOv})` : ''}
                     </Text>
                   </TouchableOpacity>
@@ -1888,10 +1888,10 @@ export default function ControlPagosScreen({ navigation }: any) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   disabled={syncing || syncPreview.totalChanges === 0}
-                  style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: syncPreview.totalChanges === 0 ? colors.muted : colors.primary, opacity: syncing ? 0.6 : 1 }}
+                  style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: syncPreview.totalChanges === 0 ? colors.muted : colors.accent, opacity: syncing ? 0.6 : 1 }}
                   onPress={applySync}
                 >
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{syncing ? 'Aplicando…' : '✅ Aplicar sincronización'}</Text>
+                  <Text style={{ color: syncPreview.totalChanges === 0 ? colors.brandContrast : colors.accentContrast, fontWeight: '800' }}>{syncing ? 'Aplicando…' : '✅ Aplicar sincronización'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1934,12 +1934,12 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setTarOpen(false)}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity disabled={tarSaving} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, opacity: tarSaving ? 0.6 : 1 }} onPress={saveTariffs}>
-                      <Text style={{ color: colors.primary, fontWeight: '800' }}>{tarSaving ? 'Guardando…' : '💾 Guardar precios'}</Text>
+                    <TouchableOpacity disabled={tarSaving} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, opacity: tarSaving ? 0.6 : 1 }} onPress={saveTariffs}>
+                      <Text style={{ color: colors.brandText, fontWeight: '800' }}>{tarSaving ? 'Guardando…' : '💾 Guardar precios'}</Text>
                     </TouchableOpacity>
                   </View>
-                  <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={buildSyncPreview}>
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>🔄 Sincronizar precios actuales…</Text>
+                  <TouchableOpacity style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={buildSyncPreview}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>🔄 Sincronizar precios actuales…</Text>
                   </TouchableOpacity>
                 </View>
               ) : (

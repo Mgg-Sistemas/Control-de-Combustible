@@ -372,8 +372,8 @@ export default function MantenimientoMaquinariaScreen() {
       const comp = byCompany.get(r.company) ?? new Map<string, Req[]>();
       const arr = comp.get(r.code) ?? []; arr.push(r); comp.set(r.code, arr); byCompany.set(r.company, comp);
     });
-    return Array.from(byCompany.entries()).map(([company, mm]) => ({ company, machines: Array.from(mm.entries()).map(([code, items]) => ({ code, items, machinery_id: items[0].machinery_id, tipo: items[0]?.tipo ?? null })).sort((a, b) => a.code.localeCompare(b.code)) }))
-      .sort((a, b) => a.company.localeCompare(b.company));
+    return Array.from(byCompany.entries()).map(([company, mm]) => ({ company, machines: Array.from(mm.entries()).map(([code, items]) => ({ code, items, machinery_id: items[0].machinery_id, tipo: items[0]?.tipo ?? null })).sort((a, b) => cmpText(a.code, b.code)) }))
+      .sort((a, b) => cmpText(a.company, b.company));
   }, [reqs, nq]);
 
   const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesQ(r.code, r.company)), [repairs, nq]);
@@ -400,8 +400,8 @@ export default function MantenimientoMaquinariaScreen() {
         {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
-            <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+            <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -427,7 +427,7 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company}</Text>
                 <Text style={{ color: alerta.color, fontWeight: '800', fontSize: 12, marginTop: 2 }}>Próxima a mantenimiento · {alerta.label} · {alerta.horas} h acumuladas</Text>
                 <TouchableOpacity onPress={() => confirmarMantenimientoHorometro(m)} disabled={confirmingHoro === m.id} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center', opacity: confirmingHoro === m.id ? 0.6 : 1 }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{confirmingHoro === m.id ? 'Guardando…' : '✓ Confirmar mantenimiento y reiniciar horómetro'}</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{confirmingHoro === m.id ? 'Guardando…' : '✓ Confirmar mantenimiento y reiniciar horómetro'}</Text>
                 </TouchableOpacity>
               </View>
             )) : null}
@@ -436,11 +436,11 @@ export default function MantenimientoMaquinariaScreen() {
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>📷 Escanear · reportar avería</Text>
+        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📷 Escanear · reportar avería</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: '#fff', fontWeight: '800' }}>🔧 Enviar a reparación</Text>
+        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>🔧 Enviar a reparación</Text>
         </TouchableOpacity>
       </View>
 
@@ -497,10 +497,10 @@ export default function MantenimientoMaquinariaScreen() {
                           <Text style={{ color: colors.text, fontWeight: '700' }}>{matLabel(r.material)}{r.quantity != null ? ` · ${r.quantity.toLocaleString()}` : ''}{r.photo_url ? '  📷' : ''}</Text>
                           {r.notes ? <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{r.notes}</Text> : null}
                           <Text style={{ color: colors.muted, fontSize: 12 }}>👮 Reportó: <Text style={{ color: colors.text, fontWeight: '600' }}>{r.requestedByName || '—'}</Text></Text>
-                          <Text style={{ color: colors.primary, fontSize: 11 }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{fmtDT(r.created_at)} · ver detalle ›</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => marcarRealizado(r)} disabled={busy === r.id} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
+                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{busy === r.id ? '…' : '✓ Realizado'}</Text>
                         </TouchableOpacity>
                       </View>
                     ))}
@@ -508,12 +508,12 @@ export default function MantenimientoMaquinariaScreen() {
                       <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.warning }}>
                         <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔧 En reparación desde {fmtDMY(rep.out_at)}{rep.estimated_days != null ? ` · estimado ${rep.estimated_days} día(s)` : ''}</Text>
                         <TouchableOpacity onPress={() => openReturn(rep)} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center' }}>
-                          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✓ Registrar retorno operativo</Text>
+                          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✓ Registrar retorno operativo</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
-                      <TouchableOpacity onPress={() => openRepair(mac)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                        <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔧 Enviar a reparación</Text>
+                      <TouchableOpacity onPress={() => openRepair(mac)} style={{ marginTop: spacing.sm, backgroundColor: colors.accentSoftBg, borderWidth: 1, borderColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                        <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 12 }}>🔧 Enviar a reparación</Text>
                       </TouchableOpacity>
                     )}
                   </Card>
@@ -538,7 +538,7 @@ export default function MantenimientoMaquinariaScreen() {
               {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {r.estimated_note}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔩 {r.work_done}</Text> : null}
               <TouchableOpacity onPress={() => openReturn(r)} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontWeight: '800' }}>✓ Registrar retorno operativo</Text>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>✓ Registrar retorno operativo</Text>
               </TouchableOpacity>
             </Card>
           ))
@@ -582,7 +582,7 @@ export default function MantenimientoMaquinariaScreen() {
           const CASO_BADGE: Record<string, { label: string; color: string }> = {
             con: { label: '🔧🔍 Avería + inspección', color: colors.warning },
             sin_insp: { label: '🔧 Avería sin inspección', color: colors.danger },
-            sin_averia: { label: '🔍 Inspección sin avería', color: '#2563EB' },
+            sin_averia: { label: '🔍 Inspección sin avería', color: colors.brandText },
           };
           // Conteo por caso (sobre el universo filtrado por clasificación).
           const clasValues = Array.from(new Set(universe.map((s) => s.clasificacion || 'Sin clasificación'))).sort(cmpText);
@@ -617,23 +617,23 @@ export default function MantenimientoMaquinariaScreen() {
           return (
             <View>
               {/* Totales */}
-              <Card style={{ backgroundColor: '#1E3A5F' }}>
-                <Text style={{ color: '#fff', fontWeight: '900', fontSize: 15 }}>📊 Reporte de averías + inspección</Text>
+              <Card style={{ backgroundColor: colors.brand }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 15 }}>📊 Reporte de averías + inspección</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs }}>
-                  <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Total averías</Text><Text style={{ color: '#fff', fontWeight: '900', fontSize: 18 }}>{grandAverias}</Text></View>
-                  <View><Text style={{ color: '#CFE0F5', fontSize: 11 }}>Gasto total</Text><Text style={{ color: '#7CF5B0', fontWeight: '900', fontSize: 18 }}>{usd(grandGasto)}</Text></View>
+                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Total averías</Text><Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{grandAverias}</Text></View>
+                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Gasto total</Text><Text style={{ color: colors.accent, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(grandGasto)}</Text></View>
                 </View>
-                <Text style={{ color: '#9FB6D4', fontSize: 10, marginTop: 4 }}>El gasto = materiales que salieron del almacén para cada equipo × su costo.</Text>
+                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>El gasto = materiales que salieron del almacén para cada equipo × su costo.</Text>
               </Card>
 
               {/* Filtro por CASO (los 3 estados) con su conteo */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: spacing.sm }}>
                 <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                  {([['all', `Todos (${byClas.length})`, colors.primary], ['con', `🔧🔍 Avería + insp. (${casoCount.con})`, '#B45309'], ['sin_insp', `🔧 Avería sin insp. (${casoCount.sin_insp})`, colors.danger], ['sin_averia', `🔍 Insp. sin avería (${casoCount.sin_averia})`, '#2563EB']] as const).map(([k, label, col]) => {
+                  {([['all', `Todos (${byClas.length})`, colors.brand], ['con', `🔧🔍 Avería + insp. (${casoCount.con})`, colors.warning], ['sin_insp', `🔧 Avería sin insp. (${casoCount.sin_insp})`, colors.danger], ['sin_averia', `🔍 Insp. sin avería (${casoCount.sin_averia})`, colors.infoSoftBorder]] as const).map(([k, label, col]) => {
                     const on = repCaseFilter === k;
                     return (
                       <TouchableOpacity key={k} onPress={() => setRepCaseFilter(k)} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? col : colors.border, backgroundColor: on ? col : colors.surfaceAlt }}>
-                        <Text style={{ color: on ? '#fff' : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -645,8 +645,8 @@ export default function MantenimientoMaquinariaScreen() {
                 {([['equipo', '🚜 Equipo'], ['empresa', '🏢 Empresa'], ['tipo', '🏷️ Tipo']] as const).map(([k, label]) => {
                   const on = repGroupBy === k;
                   return (
-                    <TouchableOpacity key={k} onPress={() => setRepGroupBy(k)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                    <TouchableOpacity key={k} onPress={() => setRepGroupBy(k)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -659,8 +659,8 @@ export default function MantenimientoMaquinariaScreen() {
                     {['__all__', ...clasValues].map((c) => {
                       const on = repClasFilter === c;
                       return (
-                        <TouchableOpacity key={c} onPress={() => setRepClasFilter(c)} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
-                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c === '__all__' ? 'Todos' : c}</Text>
+                        <TouchableOpacity key={c} onPress={() => setRepClasFilter(c)} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                          <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{c === '__all__' ? 'Todos' : c}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -683,7 +683,7 @@ export default function MantenimientoMaquinariaScreen() {
               {rows.map((r, i) => {
                 const pct = Math.max(0.06, r.total / maxTotal);
                 const badge = r.caso ? CASO_BADGE[r.caso] : null;
-                const barColor = r.caso === 'sin_averia' ? '#2563EB' : colors.warning;
+                const barColor = r.caso === 'sin_averia' ? colors.infoSoftBorder : colors.warning;
                 return (
                   <TouchableOpacity key={r.key} activeOpacity={r.onPress ? 0.7 : 1} onPress={r.onPress} style={{ marginBottom: spacing.sm }}>
                     <Card>
@@ -694,8 +694,8 @@ export default function MantenimientoMaquinariaScreen() {
                           {badge ? <Text style={{ color: badge.color, fontSize: 11, fontWeight: '800', marginTop: 2 }}>{badge.label}</Text> : null}
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{r.total}</Text>
-                          <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12 }}>{usd(r.gasto)}</Text>
+                          <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{r.total}</Text>
+                          <Text style={{ color: colors.success, fontWeight: '700', fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{usd(r.gasto)}</Text>
                         </View>
                       </View>
                       <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: 4, marginTop: spacing.xs, overflow: 'hidden' }}>
@@ -748,8 +748,8 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
                   {(['correctivo', 'preventivo'] as const).map((t) => (
-                    <TouchableOpacity key={t} onPress={() => setRTipo(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: rTipo === t ? colors.primary : colors.border, backgroundColor: rTipo === t ? colors.primary : colors.surface }}>
-                      <Text style={{ color: rTipo === t ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{t === 'correctivo' ? '🔧 Correctivo' : '🩺 Preventivo'}</Text>
+                    <TouchableOpacity key={t} onPress={() => setRTipo(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: rTipo === t ? colors.brand : colors.border, backgroundColor: rTipo === t ? colors.brand : colors.surface }}>
+                      <Text style={{ color: rTipo === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{t === 'correctivo' ? '🔧 Correctivo' : '🩺 Preventivo'}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -770,8 +770,8 @@ export default function MantenimientoMaquinariaScreen() {
                   <TouchableOpacity onPress={() => setRepFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#B45309', opacity: busy === 'rep' ? 0.7 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
+                  <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: busy === 'rep' ? 0.7 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -849,7 +849,7 @@ export default function MantenimientoMaquinariaScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={registrarRetorno} disabled={busy === 'ret'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy === 'ret' ? 0.7 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '800' }}>{busy === 'ret' ? 'Guardando…' : '✓ Marcar operativa'}</Text>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy === 'ret' ? 'Guardando…' : '✓ Marcar operativa'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -879,9 +879,9 @@ export default function MantenimientoMaquinariaScreen() {
                   {AV_MATERIALS.map((mt) => {
                     const on = avMaterial === mt.key;
                     return (
-                      <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                      <TouchableOpacity key={mt.key} onPress={() => setAvMaterial(mt.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: on ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                         <Text>{mt.icon}</Text>
-                        <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{mt.label}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -911,8 +911,8 @@ export default function MantenimientoMaquinariaScreen() {
                   <TouchableOpacity onPress={() => setAvMachine(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#B45309', opacity: (avBusy || !avMaterial) ? 0.5 : 1 }}>
-                    <Text style={{ color: '#fff', fontWeight: '900' }}>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
+                  <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (avBusy || !avMaterial) ? 0.5 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.md }} />
@@ -948,11 +948,11 @@ export default function MantenimientoMaquinariaScreen() {
                   <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
                     <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Total averías</Text>
-                      <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 20 }}>{s.total}</Text>
+                      <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{s.total}</Text>
                     </View>
                     <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Gasto generado</Text>
-                      <Text style={{ color: colors.success, fontWeight: '900', fontSize: 20 }}>{usd(gasto)}</Text>
+                      <Text style={{ color: colors.success, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }}>{usd(gasto)}</Text>
                     </View>
                   </View>
 

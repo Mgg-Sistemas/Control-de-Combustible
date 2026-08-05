@@ -276,8 +276,8 @@ export default function NominaScreen({ navigation }: any) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Nómina</SectionTitle>
-        <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCFrom(todayISO()); setCTo(todayISO()); setCreateOpen(true); }} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nueva</Text>
+        <TouchableOpacity onPress={() => { setCCompany(''); setCName(''); setCFrom(todayISO()); setCTo(todayISO()); setCreateOpen(true); }} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>+ Nueva</Text>
         </TouchableOpacity>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Crea una nómina por empresa y período. Se precargan los empleados activos con su salario.</Text>
@@ -292,7 +292,7 @@ export default function NominaScreen({ navigation }: any) {
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Empleados</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Fichas del personal (foto, cédula, cargo) y carnet con QR</Text>
         </View>
-        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
       {/* Control de asistencia por carnet (entrada/salida) — solo quien tenga el módulo. */}
@@ -306,7 +306,7 @@ export default function NominaScreen({ navigation }: any) {
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Control de asistencia</Text>
             <Text style={{ color: colors.muted, fontSize: 11 }}>Marcar entrada/salida escaneando el carnet (hora y fecha) + reporte</Text>
           </View>
-          <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+          <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -320,7 +320,7 @@ export default function NominaScreen({ navigation }: any) {
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Control de pago a personal</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Pago por precio hora, día o semana (por trabajador), con bonos, deducciones y abonos</Text>
         </View>
-        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
       {/* Distribución de uniformes (tallas por empleado + listado imprimible con firma). */}
@@ -333,7 +333,7 @@ export default function NominaScreen({ navigation }: any) {
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Distribución de uniformes</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Tallas (camisa, pantalón, zapatos) por empleado y listado imprimible con firma</Text>
         </View>
-        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
       {/* Organigrama por cargos (vista previa + descarga PDF/PNG, sincronizado con la nómina). */}
@@ -346,7 +346,7 @@ export default function NominaScreen({ navigation }: any) {
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Organigrama y manual de cargos</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Estructura corporativa por cargos + funciones y subordinados (PDF/imagen)</Text>
         </View>
-        <Text style={{ color: colors.primary, fontWeight: '800' }}>›</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
 
       {loading && periods.length === 0 ? (
@@ -356,7 +356,7 @@ export default function NominaScreen({ navigation }: any) {
       ) : (
         byCompany.map((g) => (
           <View key={g.key} style={{ marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name}</Text>
             {g.items.map((p) => {
               const st = PAGO_STATUS_META[p.status] ?? PAGO_STATUS_META.borrador;
               return (
@@ -368,7 +368,7 @@ export default function NominaScreen({ navigation }: any) {
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(p.period_start)} → {fmtDMY(p.period_end)}</Text>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15 }}>{usd(p.total_amount)}</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
                     </View>
                   </Card>
                 </TouchableOpacity>
@@ -382,14 +382,14 @@ export default function NominaScreen({ navigation }: any) {
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nueva nómina</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, marginBottom: spacing.md }}>Nueva nómina</Text>
             <Text style={{ color: colors.muted, fontSize: 12 }}>Empresa</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: spacing.xs }}>
               {generalCompanies(companies).map((c) => {
                 const on = cCompany === c.id;
                 return (
-                  <TouchableOpacity key={c.id} onPress={() => setCCompany(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{c.name}</Text>
+                  <TouchableOpacity key={c.id} onPress={() => setCCompany(c.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{c.name}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -404,8 +404,8 @@ export default function NominaScreen({ navigation }: any) {
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setCreateOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: creating ? 0.7 : 1 }} onPress={crearPeriodo} disabled={creating}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{creating ? 'Creando…' : 'Crear y precargar empleados'}</Text>
+              <TouchableOpacity style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: creating ? 0.7 : 1 }} onPress={crearPeriodo} disabled={creating}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{creating ? 'Creando…' : 'Crear y precargar empleados'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -416,24 +416,24 @@ export default function NominaScreen({ navigation }: any) {
       <Modal visible={orgOpen} transparent animationType="slide" onRequestClose={() => setOrgOpen(false)}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' }}>
           <ScrollView style={{ maxHeight: '88%' }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🗂️ Organigrama</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18 }}>🗂️ Organigrama</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Estructura corporativa de la empresa por cargos (fija y completa): Dirección arriba y dos áreas — azul (Administración, servicios y soporte) y naranja (Operaciones y mantenimiento de maquinaria).</Text>
 
-            <TouchableOpacity onPress={verOrganigrama} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
-              <EyeIcon size={20} color={colors.primaryContrast} open />
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Vista previa {Platform.OS === 'web' ? '(y guardar PDF)' : '(PDF)'}</Text>
+            <TouchableOpacity onPress={verOrganigrama} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+              <EyeIcon size={20} color={colors.accentContrast} open />
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>Vista previa {Platform.OS === 'web' ? '(y guardar PDF)' : '(PDF)'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={descargarOrgPng} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
-              <Text style={{ color: colors.primary, fontWeight: '800' }}>🖼️ Descargar imagen (PNG)</Text>
+            <TouchableOpacity onPress={descargarOrgPng} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>🖼️ Descargar imagen (PNG)</Text>
             </TouchableOpacity>
 
             {/* Manual de cargos: funciones + de quién depende + a quién manda. */}
             <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.md }} />
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📋 Manual de cargos</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>📋 Manual de cargos</Text>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm }}>Funciones de cada cargo, de quién depende y qué personal tiene a su cargo.</Text>
-            <TouchableOpacity onPress={verFichasGeneral} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
-              <EyeIcon size={20} color={colors.primaryContrast} open />
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>PDF general — todos los cargos</Text>
+            <TouchableOpacity onPress={verFichasGeneral} style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+              <EyeIcon size={20} color={colors.accentContrast} open />
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>PDF general — todos los cargos</Text>
             </TouchableOpacity>
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>…o busca un cargo y toca para ver su ficha:</Text>
             <TextInput value={fichaQ} onChangeText={setFichaQ} placeholder="🔎 Buscar cargo…" placeholderTextColor={colors.muted} style={input} />
@@ -461,16 +461,19 @@ export default function NominaScreen({ navigation }: any) {
           {sel ? (
             <>
               <TouchableOpacity onPress={() => setSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>{sel.name}</SectionTitle>
               <Card>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(sel.period_start)} → {fmtDMY(sel.period_end)}</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700' }}>🏢 {companyName(sel.company_id)}</Text>
                   <Badge label={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).label} tone={(PAGO_STATUS_META[sel.status] ?? PAGO_STATUS_META.borrador).tone} />
-                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{usd(sel.total_amount)}</Text>
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>{fmtDMY(sel.period_start)} → {fmtDMY(sel.period_end)}</Text>
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.xs, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>TOTAL A PAGAR</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(sel.total_amount)}</Text>
                 </View>
               </Card>
 
@@ -482,13 +485,13 @@ export default function NominaScreen({ navigation }: any) {
                   </TouchableOpacity>
                 ) : null}
                 {sel.status === 'borrador' ? (
-                  <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#2563EB' }}>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
+                  <TouchableOpacity onPress={() => setStatus('aprobada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>✅ Aprobar</Text>
                   </TouchableOpacity>
                 ) : null}
                 {sel.status === 'aprobada' ? (
-                  <TouchableOpacity onPress={() => setStatus('pagada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#16A34A' }}>
-                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>💵 Marcar pagada</Text>
+                  <TouchableOpacity onPress={() => setStatus('pagada')} disabled={busy} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder }}>
+                    <Text style={{ color: colors.successSoftText, fontWeight: '800', fontSize: 12 }}>💵 Marcar pagada</Text>
                   </TouchableOpacity>
                 ) : null}
                 {sel.status !== 'borrador' ? (
@@ -496,8 +499,8 @@ export default function NominaScreen({ navigation }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>↩ Reabrir</Text>
                   </TouchableOpacity>
                 ) : null}
-                <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#111827' }}>
-                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
+                <TouchableOpacity onPress={reportePdf} style={{ flexGrow: 1, flexBasis: 100, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Reporte</Text>
                 </TouchableOpacity>
               </View>
 
@@ -517,11 +520,11 @@ export default function NominaScreen({ navigation }: any) {
                           Base {usd(it.base_amount)}{sumLines(it.additions) ? ` · +${usd(sumLines(it.additions))}` : ''}{sumLines(it.deductions) ? ` · −${usd(sumLines(it.deductions))}` : ''}
                         </Text>
                       </View>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16 }}>{usd(it.net_amount)}</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.net_amount)}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
-                      <TouchableOpacity onPress={() => openItem(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: readOnly ? colors.surfaceAlt : colors.primary, borderWidth: readOnly ? 1 : 0, borderColor: colors.border }}>
-                        <Text style={{ color: readOnly ? colors.text : colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>{readOnly ? '👁 Ver' : '✎ Editar'}</Text>
+                      <TouchableOpacity onPress={() => openItem(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: readOnly ? colors.surfaceAlt : colors.accent, borderWidth: readOnly ? 1 : 0, borderColor: colors.border }}>
+                        <Text style={{ color: readOnly ? colors.text : colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{readOnly ? '👁 Ver' : '✎ Editar'}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={() => reciboPdf(it)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                         <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🧾 Recibo</Text>
@@ -561,9 +564,9 @@ export default function NominaScreen({ navigation }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
                 <TextInput value={eNote} onChangeText={setENote} editable={!readOnly} placeholder="Observación…" placeholderTextColor={colors.muted} style={input} />
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontWeight: '800' }}>Neto a pagar</Text>
-                  <Text style={{ color: colors.success, fontWeight: '800', fontSize: 20 }}>{usd(netOf(parseNum(eBase), eAdd, eDed))}</Text>
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginTop: spacing.md, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 12, letterSpacing: 0.5 }}>NETO A PAGAR</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{usd(netOf(parseNum(eBase), eAdd, eDed))}</Text>
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
@@ -571,8 +574,8 @@ export default function NominaScreen({ navigation }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{readOnly ? 'Cerrar' : 'Cancelar'}</Text>
                   </TouchableOpacity>
                   {!readOnly ? (
-                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={guardarItem}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Guardar</Text>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent }} onPress={guardarItem}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>Guardar</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>

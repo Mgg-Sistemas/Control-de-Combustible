@@ -46,12 +46,11 @@ function to12h(hhmm: string): string {
 
 type Machine = { id: string; code: string; plate: string | null; serial: string | null; tipo: string | null; clasificacion: string | null; company: string };
 
-const NIVELES: { v: 'ok' | 'warn' | 'bad'; label: string; color: string }[] = [
-  { v: 'ok', label: '🟢 Bien', color: '#15803D' },
-  { v: 'warn', label: '🟠 Regular', color: '#EA6A1F' },
-  { v: 'bad', label: '🔴 Falla', color: '#DC2626' },
+const NIVELES: { v: 'ok' | 'warn' | 'bad'; label: string }[] = [
+  { v: 'ok', label: '🟢 Bien' },
+  { v: 'warn', label: '🟠 Regular' },
+  { v: 'bad', label: '🔴 Falla' },
 ];
-const nivelColor = (n: string) => NIVELES.find((x) => x.v === n)?.color ?? '#15803D';
 
 type EditItem = { descripcion: string; cantidad: string; unidad: string; serial: string; estado: string; nivel: 'ok' | 'warn' | 'bad' };
 const blankItem = (): EditItem => ({ descripcion: '', cantidad: '1', unidad: 'Unid.', serial: '', estado: 'Operativo', nivel: 'ok' });
@@ -68,6 +67,16 @@ export default function InspeccionesScreen() {
   const confirm = useConfirm();
   const toast = useToast();
   const canWrite = levelMeets(moduleLevel('inspecciones_maq'), 'escritura');
+
+  // Color sólido del estado (texto) según el nivel — adapta a claro/oscuro.
+  const nivelColor = (n: string) => (n === 'bad' ? colors.danger : n === 'warn' ? colors.warning : colors.success);
+  // Variante "soft" para el nivel seleccionado (chip legible en ambos temas).
+  const nivelSoft = (n: string) =>
+    n === 'bad'
+      ? { bg: colors.dangerSoftBg, text: colors.dangerSoftText, border: colors.dangerSoftBorder }
+      : n === 'warn'
+      ? { bg: colors.warningSoftBg, text: colors.warningSoftText, border: colors.warningSoftBorder }
+      : { bg: colors.successSoftBg, text: colors.successSoftText, border: colors.successSoftBorder };
 
   const [machines, setMachines] = useState<Machine[] | null>(null);
   const [q, setQ] = useState('');
@@ -307,11 +316,11 @@ export default function InspeccionesScreen() {
       {/* Carga masiva por Excel (solo web y con permiso de escritura) */}
       {canWrite && Platform.OS === 'web' ? (
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <TouchableOpacity onPress={descargarPlantilla} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>⬇️ Plantilla Excel</Text>
+          <TouchableOpacity onPress={descargarPlantilla} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>⬇️ Plantilla Excel</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={cargarPlantilla} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>⬆️ Carga masiva</Text>
+          <TouchableOpacity onPress={cargarPlantilla} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>⬆️ Carga masiva</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -331,7 +340,7 @@ export default function InspeccionesScreen() {
                   <Text style={{ color: colors.muted, fontSize: 11 }}>
                     {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`].filter(Boolean).join(' · ') || 'Sin placa/serial'}
                   </Text>
-                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>🏢 {m.company}</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🏢 {m.company}</Text>
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
               </View>
@@ -347,25 +356,28 @@ export default function InspeccionesScreen() {
             {selected ? (
               <>
                 <View style={{ padding: spacing.lg, paddingBottom: spacing.sm }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <View style={{ flex: 1, paddingRight: spacing.sm }}>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>{selected.code}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 12 }}>{machineType(selected)}</Text>
+                  {/* Banda de resumen del equipo (navy de marca) */}
+                  <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 18 }}>{selected.code}</Text>
+                        <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 12 }}>{machineType(selected)}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelected(null)}>
+                        <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 20 }}>✕</Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity onPress={() => setSelected(null)}>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={{ marginTop: spacing.xs, gap: 2 }}>
-                    {selected.plate ? <Text style={{ color: colors.text, fontSize: 12 }}>🔖 Placa: <Text style={{ fontWeight: '700' }}>{selected.plate}</Text></Text> : null}
-                    {selected.serial ? <Text style={{ color: colors.text, fontSize: 12 }}>🔖 Serial: <Text style={{ fontWeight: '700' }}>{selected.serial}</Text></Text> : null}
-                    <Text style={{ color: colors.text, fontSize: 12 }}>🏢 Empresa: <Text style={{ fontWeight: '700' }}>{selected.company}</Text></Text>
-                    {selected.clasificacion ? <Text style={{ color: colors.text, fontSize: 12 }}>🗂️ {selected.clasificacion}</Text> : null}
+                    <View style={{ marginTop: spacing.xs, gap: 2 }}>
+                      {selected.plate ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🔖 Placa: <Text style={{ fontWeight: '800' }}>{selected.plate}</Text></Text> : null}
+                      {selected.serial ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🔖 Serial: <Text style={{ fontWeight: '800' }}>{selected.serial}</Text></Text> : null}
+                      <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🏢 Empresa: <Text style={{ fontWeight: '800' }}>{selected.company}</Text></Text>
+                      {selected.clasificacion ? <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 12 }}>🗂️ {selected.clasificacion}</Text> : null}
+                    </View>
                   </View>
 
                   {canWrite ? (
-                    <TouchableOpacity onPress={openForm} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>📋 REPORTE DE INSPECCIÓN (nueva)</Text>
+                    <TouchableOpacity onPress={openForm} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>📋 REPORTE DE INSPECCIÓN (nueva)</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -381,17 +393,17 @@ export default function InspeccionesScreen() {
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🗓️ {histFmt(r.inspected_at)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{(r.items ?? []).length} ítem(s){r.inspector_name ? ` · Inspector: ${r.inspector_name}` : ''}</Text>
                       <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 6, flexWrap: 'wrap' }}>
-                        <TouchableOpacity onPress={() => reimprimir(selected, r)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
+                        <TouchableOpacity onPress={() => reimprimir(selected, r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
                         </TouchableOpacity>
                         {canWrite ? (
-                          <TouchableOpacity onPress={() => openEdit(r)} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                          <TouchableOpacity onPress={() => openEdit(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Editar</Text>
                           </TouchableOpacity>
                         ) : null}
                         {canWrite ? (
-                          <TouchableOpacity onPress={() => eliminar(r)} style={{ borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                            <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
+                          <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.danger, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                            <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
                           </TouchableOpacity>
                         ) : null}
                       </View>
@@ -409,8 +421,8 @@ export default function InspeccionesScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>{editId ? 'Editar inspección' : 'Nueva inspección'} · {selected?.code}</Text>
-              <TouchableOpacity onPress={() => { setFormOpen(false); setEditId(null); }}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>{editId ? 'Editar inspección' : 'Nueva inspección'} · {selected?.code}</Text>
+              <TouchableOpacity onPress={() => { setFormOpen(false); setEditId(null); }}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: spacing.sm }}>
@@ -443,9 +455,9 @@ export default function InspeccionesScreen() {
 
               {/* Ítems del inventario */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>1. Inventario de equipos / herramientas</Text>
-                <TouchableOpacity onPress={addItem} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}>
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>+ Ítem</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14 }}>1. Inventario de equipos / herramientas</Text>
+                <TouchableOpacity onPress={addItem} style={{ backgroundColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 4 }}>
+                  <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>+ Ítem</Text>
                 </TouchableOpacity>
               </View>
 
@@ -470,9 +482,10 @@ export default function InspeccionesScreen() {
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     {NIVELES.map((n) => {
                       const on = it.nivel === n.v;
+                      const sf = nivelSoft(n.v);
                       return (
-                        <TouchableOpacity key={n.v} onPress={() => setItem(i, { nivel: n.v })} style={{ flex: 1, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? n.color : colors.border, backgroundColor: on ? n.color : colors.surface, alignItems: 'center' }}>
-                          <Text style={{ color: on ? '#fff' : colors.text, fontSize: 11, fontWeight: '800' }}>{n.label}</Text>
+                        <TouchableOpacity key={n.v} onPress={() => setItem(i, { nivel: n.v })} style={{ flex: 1, paddingVertical: 6, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? sf.border : colors.border, backgroundColor: on ? sf.bg : colors.surface, alignItems: 'center' }}>
+                          <Text style={{ color: on ? sf.text : colors.muted, fontSize: 11, fontWeight: '800' }}>{n.label}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -481,7 +494,7 @@ export default function InspeccionesScreen() {
               ))}
 
               {/* Observaciones */}
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.sm }}>2. Observaciones generales</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 14, marginTop: spacing.sm }}>2. Observaciones generales</Text>
               <TextInput value={condicion} onChangeText={setCondicion} placeholder="Condición general del equipo…" placeholderTextColor={colors.muted} multiline
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 54, textAlignVertical: 'top' }} />
               {notas.map((n, i) => (
@@ -493,10 +506,10 @@ export default function InspeccionesScreen() {
                   <TouchableOpacity onPress={() => removeNota(i)} style={{ paddingTop: spacing.xs }}><Text style={{ color: colors.danger, fontWeight: '800' }}>✕</Text></TouchableOpacity>
                 </View>
               ))}
-              <TouchableOpacity onPress={addNota}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>+ Agregar observación</Text></TouchableOpacity>
+              <TouchableOpacity onPress={addNota}><Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>+ Agregar observación</Text></TouchableOpacity>
 
-              <TouchableOpacity onPress={guardarYPdf} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios y generar PDF' : '💾 Guardar y generar REPORTE DE INSPECCIÓN')}</Text>
+              <TouchableOpacity onPress={guardarYPdf} disabled={busy} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: busy ? 0.7 : 1 }}>
+                <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy ? 'Guardando…' : (editId ? '💾 Guardar cambios y generar PDF' : '💾 Guardar y generar REPORTE DE INSPECCIÓN')}</Text>
               </TouchableOpacity>
               <View style={{ height: spacing.lg }} />
             </ScrollView>
@@ -509,8 +522,8 @@ export default function InspeccionesScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>Carga masiva · vista previa</Text>
-              <TouchableOpacity onPress={() => setBulkParse(null)}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>Carga masiva · vista previa</Text>
+              <TouchableOpacity onPress={() => setBulkParse(null)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 20 }}>✕</Text></TouchableOpacity>
             </View>
 
             {bulkParse ? (
@@ -518,28 +531,28 @@ export default function InspeccionesScreen() {
                 <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     {bulkParse.groups.length} máquina(s) · {bulkParse.totalItems} ítem(s) ·{' '}
-                    <Text style={{ color: '#15803D', fontWeight: '800' }}>{bulkParse.okCount} lista(s)</Text>
-                    {bulkParse.errorCount ? <Text style={{ color: '#DC2626', fontWeight: '800' }}>{`  ·  ${bulkParse.errorCount} con error`}</Text> : null}
+                    <Text style={{ color: colors.success, fontWeight: '800' }}>{bulkParse.okCount} lista(s)</Text>
+                    {bulkParse.errorCount ? <Text style={{ color: colors.danger, fontWeight: '800' }}>{`  ·  ${bulkParse.errorCount} con error`}</Text> : null}
                   </Text>
                 </View>
 
                 <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.sm }}>
                   {bulkParse.groups.map((g, i) => (
-                    <View key={i} style={{ borderWidth: 1, borderColor: g.ok ? '#15803D' : '#DC2626', borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surface }}>
+                    <View key={i} style={{ borderWidth: 1, borderColor: g.ok ? colors.successSoftBorder : colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, backgroundColor: g.ok ? colors.successSoftBg : colors.dangerSoftBg }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, flex: 1 }}>
                           {g.machine ? g.machine.code : g.input}
                         </Text>
-                        <Text style={{ color: g.ok ? '#15803D' : '#DC2626', fontWeight: '800', fontSize: 12 }}>{g.ok ? '✓ lista' : '✕ error'}</Text>
+                        <Text style={{ color: g.ok ? colors.successSoftText : colors.dangerSoftText, fontWeight: '800', fontSize: 12 }}>{g.ok ? '✓ lista' : '✕ error'}</Text>
                       </View>
                       {g.machine ? (
-                        <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>🏷️ {g.tipo}{g.machine.serial ? ` · Serial: ${g.machine.serial}` : ''}</Text>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🏷️ {g.tipo}{g.machine.serial ? ` · Serial: ${g.machine.serial}` : ''}</Text>
                       ) : null}
                       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                         📦 {groupSummary(g)}{g.fecha ? ` · 🗓️ ${dmy(g.fecha)}` : ''}{g.inspector ? ` · Inspector: ${g.inspector}` : ''}
                       </Text>
                       {g.errors.map((e, k) => (
-                        <Text key={k} style={{ color: '#DC2626', fontSize: 11, marginTop: 2 }}>⚠️ {e}</Text>
+                        <Text key={k} style={{ color: colors.dangerSoftText, fontSize: 11, marginTop: 2 }}>⚠️ {e}</Text>
                       ))}
                     </View>
                   ))}
@@ -549,9 +562,9 @@ export default function InspeccionesScreen() {
                   <TouchableOpacity
                     onPress={confirmarCargaMasiva}
                     disabled={bulkBusy || bulkParse.okCount === 0}
-                    style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: bulkBusy || bulkParse.okCount === 0 ? 0.5 : 1 }}
+                    style={{ backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: bulkBusy || bulkParse.okCount === 0 ? 0.5 : 1 }}
                   >
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>
                       {bulkBusy ? 'Cargando…' : `💾 Cargar ${bulkParse.okCount} inspección(es)`}
                     </Text>
                   </TouchableOpacity>
