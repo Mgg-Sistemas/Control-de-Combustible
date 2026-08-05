@@ -1885,15 +1885,35 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
           <ExpandableCard
             key={r.id}
             summary={
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.xs }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '800', fontSize: 14, color: colors.text }} numberOfLines={1}>{r.code ?? 'REQ'} · {r.title || `${r.items.length} ítem(s)`}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>{dmyOf(r.created_at)}{companyName(r.company_id) ? ` · 🏢 ${companyName(r.company_id)}` : ''}{r.requested_by_name ? ` · ${r.requested_by_name}` : ''}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
+                    {canReceive ? (
+                      <TouchableOpacity onPress={(e) => { e.stopPropagation?.(); setStatusPickerId((id) => (id === r.id ? null : r.id)); }}>
+                        <Pill label={`${st.label} ${statusPickerId === r.id ? '▴' : '▾'}`} color={st.color} />
+                      </TouchableOpacity>
+                    ) : (
+                      <Pill label={st.label} color={st.color} />
+                    )}
+                    {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color="#DC2626" /> : null}
+                  </View>
                 </View>
-                <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 170 }}>
-                  <Pill label={st.label} color={st.color} />
-                  {faltaPrecio ? <Pill label="❗ Pendiente por cargar precio" color="#DC2626" /> : null}
-                </View>
+                {/* Cambiar estado A MANO, tocando el badge de arriba — no crea ni revierte
+                    stock, solo corrige la etiqueta. Aparte del pill "sin precio". */}
+                {canReceive && statusPickerId === r.id ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: spacing.xs, justifyContent: 'flex-end' }}>
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
+                    {(['pendiente', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
+                      <TouchableOpacity key={s} onPress={(e) => { e.stopPropagation?.(); cambiarEstadoManual(r, s); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             }
             detail={
@@ -1963,24 +1983,6 @@ function RequerimientoTab({ canWrite }: { canWrite: boolean }) {
                     <TouchableOpacity onPress={() => eliminar(r)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: '#DC2626', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                       <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 12 }}>🗑️ Eliminar</Text>
                     </TouchableOpacity>
-                  ) : null}
-                  {/* Cambio de estado manual (corrección) — solo con permiso full de Inventario. */}
-                  {canReceive ? (
-                    statusPickerId === r.id ? (
-                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                        <Text style={{ color: colors.muted, fontSize: 11 }}>Cambiar a:</Text>
-                        {(['pendiente', 'aprobado', 'rechazado', 'recibido'] as const).filter((s) => s !== r.status).map((s) => (
-                          <TouchableOpacity key={s} onPress={() => cambiarEstadoManual(r, s)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }}>{REQ_STATUS[s].short}</Text>
-                          </TouchableOpacity>
-                        ))}
-                        <TouchableOpacity onPress={() => setStatusPickerId(null)}><Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕</Text></TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity onPress={() => setStatusPickerId(r.id)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✏️ Cambiar estado</Text>
-                      </TouchableOpacity>
-                    )
                   ) : null}
                   {!isAdmin && r.status === 'pendiente' ? <Text style={{ color: colors.muted, fontSize: 11, alignSelf: 'center' }}>Esperando aprobación del jefe…</Text> : null}
                 </View>
