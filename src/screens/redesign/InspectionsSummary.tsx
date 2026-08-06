@@ -592,8 +592,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [assignments, shift, daySets]);
 
   const inspShown = useMemo(() => {
+    // El cajón MAQUINAS FALTANTES no es un inspector: ya tiene su propia
+    // tarjeta desplegable ("Máquinas por asignar") más abajo, así que no
+    // necesita (ni debe) aparecer como una barra más en este gráfico.
+    const base = perInspector.filter((i) => !i.isFaltantes);
     const nq = norm(inspQ.trim());
-    return nq ? perInspector.filter((i) => norm(i.name).includes(nq)) : perInspector;
+    return nq ? base.filter((i) => norm(i.name).includes(nq)) : base;
   }, [perInspector, inspQ]);
   const maxInsp = Math.max(1, ...inspShown.map((i) => i.ini.length));
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
