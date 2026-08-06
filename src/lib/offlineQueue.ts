@@ -1,0 +1,199 @@
+// Cola de acciones offline para la vista del INSPECTOR (SupervisorScreen). Si el
+// teléfono se queda sin señal en campo, en vez de fallar la acción se guarda
+// localmente (AsyncStorage) y se sube sola en cuanto vuelva la conexión.
+//
+// Alcance a propósito LIMITADO a acciones seguras de diferir (inserts propios o
+// updates por filtro, sin dependencias de lectura previa que puedan quedar
+// desactualizadas): check-in (visita), avería libre, parada (avería/no trabajó,
+// con el "bancado" de horas resuelto en el momento del flush, no antes) y volver
+// a operativa. INICIAR/FINALIZAR JORNADA NO se difieren: calculan retrasos,
+// alertas a admin y validan el horómetro contra el estado del servidor — hacerlo
+// mal offline podría dejar horas o alertas incorrectas, así que esas dos exigen
+// conexión (se lo avisamos al inspector en el momento).
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
+import { saveVisit, SaveVisitInput } from './supervisorVisits';
+import { getMachineRound, upsertMachineRound } from './machineRounds';
+import { logAudit } from './audit';
+
+const STORAGE_KEY = 'offline_queue_v1';
+
+type MaintenanceInsert = {
+  machinery_id: string;
+  material: string;
+  quantity?: number | null;
+  notes: string | null;
+  status: string;
+  requested_by: string | null;
+  photo_url?: string | null;
+};
+
+export type QueuedAveria = {
+  kind: 'averia';
+  payload: MaintenanceInsert;
+};
+
+export type QueuedParada = {
+  kind: 'parada';
+  payload: {
+    visita: SaveVisitInput; // status: 'parada'
+    maintenance: MaintenanceInsert[]; // 1 (no trabajó) o 2 filas (avería real + MÁQUINA PARADA)
+    hourBanking: null | { machineryId: string; roundDate: string; shiftKey: 'day_hours' | 'night_hours'; horas: number };
+    auditDetail: string;
+    machineryId: string;
+    machineCode: string;
+  };
+};
+
+export type QueuedVolverOperativa = {
+  kind: 'volver_operativa';
+  payload: {
+    visita: SaveVisitInput; // status: 'trabajando'
+    machineryId: string;
+    machineCode: string;
+    resolvedBy: string | null;
+  };
+};
+
+export type QueuedAction = { id: string; createdAt: string; label: string } & (
+  | QueuedAveria
+  | QueuedParada
+  | QueuedVolverOperativa
+);
+
+type Listener = (items: QueuedAction[]) => void;
+const listeners = new Set<Listener>();
+let cache: QueuedAction[] | null = null;
+
+async function readAll(): Promise<QueuedAction[]> {
+  if (cache) return cache;
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    cache = raw ? (JSON.parse(raw) as QueuedAction[]) : [];
+  } catch {
+    cache = [];
+  }
+  return cache;
+}
+
+async function writeAll(items: QueuedAction[]): Promise<void> {
+  cache = items;
+  try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch { /* best-effort */ }
+  listeners.forEach((l) => l(items));
+}
+
+/** Suscribe a cambios en la cola (para el contador/insignia en la UI). Devuelve función para des-suscribir. */
+export function subscribeQueue(cb: Listener): () => void {
+  listeners.add(cb);
+  readAll().then((items) => cb(items));
+  return () => listeners.delete(cb);
+}
+
+export async function queueCount(): Promise<number> {
+  return (await readAll()).length;
+}
+
+export async function queueItems(): Promise<QueuedAction[]> {
+  return [...(await readAll())];
+}
+
+async function enqueue<T extends QueuedAveria | QueuedParada | QueuedVolverOperativa>(action: T & { label: string }): Promise<void> {
+  const items = await readAll();
+  const withNew: QueuedAction[] = [...items, { ...action, id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, createdAt: new Date().toISOString() }];
+  await writeAll(withNew);
+}
+
+export const enqueueAveria = (payload: MaintenanceInsert, label: string) => enqueue({ kind: 'averia', payload, label });
+export const enqueueParada = (payload: QueuedParada['payload'], label: string) => enqueue({ kind: 'parada', payload, label });
+export const enqueueVolverOperativa = (payload: QueuedVolverOperativa['payload'], label: string) => enqueue({ kind: 'volver_operativa', payload, label });
+
+/** ¿Hay red? En web usa navigator.onLine (fiable para "sin señal" en campo). En
+ *  nativo (sin NetInfo instalado) asumimos que sí hay y confiamos en el catch
+ *  reactivo de cada acción para detectar la caída real de la petición. */
+export function isOnline(): boolean {
+  if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') return navigator.onLine;
+  return true;
+}
+
+/** Se suscribe a los eventos online/offline del navegador (no-op en nativo). */
+export function onConnectivityChange(cb: (online: boolean) => void): () => void {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return () => {};
+  const onUp = () => cb(true);
+  const onDown = () => cb(false);
+  window.addEventListener('online', onUp);
+  window.addEventListener('offline', onDown);
+  return () => { window.removeEventListener('online', onUp); window.removeEventListener('offline', onDown); };
+}
+
+/** Mensajes típicos de fallo de RED (no de validación) al llamar a Supabase. */
+export function isNetworkErrorMsg(msg?: string | null): boolean {
+  if (!msg) return false;
+  const m = msg.toLowerCase();
+  return m.includes('failed to fetch') || m.includes('network request failed') || m.includes('fetch failed') || m.includes('load failed');
+}
+
+async function replayOne(item: QueuedAction): Promise<void> {
+  if (item.kind === 'averia') {
+    const { error } = await supabase.from('maintenance_requests').insert(item.payload);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  if (item.kind === 'parada') {
+    const { visita, maintenance, hourBanking, auditDetail, machineryId } = item.payload;
+    const v = await saveVisit(visita);
+    if (v.error) throw new Error(v.error);
+    if (hourBanking) {
+      const prev = await getMachineRound(hourBanking.machineryId, hourBanking.roundDate);
+      const base = Number((prev as any)?.[hourBanking.shiftKey] ?? 0);
+      const total = Math.round((base + hourBanking.horas) * 100) / 100;
+      const res = await upsertMachineRound(hourBanking.machineryId, hourBanking.roundDate, { [hourBanking.shiftKey]: total, jornada_start_at: null } as any, visita.supervisorId);
+      if (res.error) throw new Error(res.error);
+    }
+    for (const m of maintenance) {
+      const { error } = await supabase.from('maintenance_requests').insert(m);
+      if (error) throw new Error(error.message);
+    }
+    logAudit('PARADA', 'machinery', machineryId, auditDetail);
+    return;
+  }
+  if (item.kind === 'volver_operativa') {
+    const { visita, machineryId, resolvedBy } = item.payload;
+    await saveVisit(visita); // best-effort: no bloquea el cierre de las averías si falla
+    const { error: e1 } = await supabase.from('maintenance_requests')
+      .update({ status: 'realizado', resolved_by: resolvedBy, resolved_at: new Date().toISOString() })
+      .eq('machinery_id', machineryId).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
+    const { error: e2 } = await supabase.from('maintenance_requests')
+      .update({ status: 'realizado', resolved_by: resolvedBy, resolved_at: new Date().toISOString() })
+      .eq('machinery_id', machineryId).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
+    if (e1 && e2) throw new Error(e1.message);
+    logAudit('JORNADA_INICIO', 'machinery', machineryId, `vuelve a OPERATIVA (sincronizado)`);
+    return;
+  }
+}
+
+let flushing = false;
+/** Sube la cola en orden (FIFO), una por una. Si una falla (sigue sin señal),
+ *  se detiene ahí y deja el resto en la cola para el próximo intento. */
+export async function flushQueue(): Promise<{ synced: number; remaining: number }> {
+  if (flushing) return { synced: 0, remaining: (await readAll()).length };
+  flushing = true;
+  try {
+    const items = await readAll();
+    let synced = 0;
+    let rest = items;
+    for (let i = 0; i < items.length; i++) {
+      try {
+        await replayOne(items[i]);
+        synced++;
+        rest = items.slice(i + 1);
+      } catch {
+        rest = items.slice(i);
+        break;
+      }
+    }
+    if (synced > 0) await writeAll(rest);
+    return { synced, remaining: rest.length };
+  } finally {
+    flushing = false;
+  }
+}
