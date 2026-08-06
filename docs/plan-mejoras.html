@@ -208,8 +208,31 @@
   </div>
 
   <div class="card">
-    <h3>Fases siguientes (planificadas, no construidas todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XL</span></span></h3>
-    <p class="fix">Fase 4 — vista Kiosco de planta (tablet, botones grandes: iniciar/pausar/registrar cantidad/reportar falla/finalizar, escaneo QR de operario). Fase 5 — puntos de control de calidad como candado real (ya se puede aprobar/rechazar, falta que bloquee de verdad el avance del centro de trabajo siguiente), mantenimiento del taller y OEE. Fase 6 — trazabilidad por lote/serie.</p>
+    <h3>Fase 6 (planificada, no construida todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-media">Media</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="fix">Trazabilidad por lote/serie: desde la recepción del proveedor hasta la salida en el producto terminado.</p>
+  </div>
+
+  <h2><span class="n">09</span> Módulo de Fabricación (MRP) — Fase 4: Kiosco de planta</h2>
+  <p class="sec-note">Pantalla táctil, pensada para tablets de piso de planta, para que un operario trabaje una orden de trabajo sin navegar la vista de gestión de oficina.</p>
+
+  <div class="card feat">
+    <h3>Kiosco: identificación por carnet, iniciar/pausar/registrar/reportar falla/finalizar <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">La vista de oficina (<code>WorkOrdersScreen.tsx</code>) es correcta pero no es apta para un operario en el taller: mucho texto, botones pequeños, y exige tener una cuenta con login individual.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>PlantaKioskScreen.tsx</code> — botones grandes de un solo toque (mínimo 56px), flujo de 3 pasos: elegir centro de trabajo → elegir orden de trabajo → pantalla de acción. Antes de <b>"▶️ INICIAR"</b> pide identificar al operario escaneando su carnet (mismo escáner QR que ya usa la vista rápida de máquina) o escribiendo su cédula — no requiere una cuenta individual, queda guardado como texto (<code>operator_name</code>/<code>operator_cedula</code>) y enlazado a su perfil si tiene uno. <b>"🔢 REGISTRAR CANTIDAD"</b>, <b>"⚠️ REPORTAR FALLA/PARADA"</b> (con motivos preestablecidos) y <b>"✅ FINALIZAR"</b> reutilizan las mismas acciones/columnas que la vista de oficina — es la MISMA data, dos interfaces distintas. Si el paso es un punto de control de calidad pendiente, el kiosco NO deja finalizar (ni con trucos): muestra el aviso y exige que se apruebe desde oficina. Nuevo permiso de módulo <code>'fabricacion_planta'</code> (restringido por defecto), independiente del resto de Fabricación — un operario de planta no necesariamente debe ver costos/aprobaciones.</p>
+  </div>
+
+  <h2><span class="n">10</span> Módulo de Fabricación (MRP) — Fase 5: Candado real de calidad, mantenimiento del taller y OEE</h2>
+  <p class="sec-note">Blinda a nivel de base de datos lo que hasta ahora solo impedía la interfaz, y agrega mantenimiento preventivo + reportes de efectividad para los centros de trabajo.</p>
+
+  <div class="card feat">
+    <h3>Candado de calidad en la base de datos + horas acumuladas y alerta de mantenimiento del taller <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Hasta ahora, que una orden de trabajo con control de calidad pendiente no se pudiera "Completar" solo lo impedían las pantallas — nada bloqueaba un cambio directo a la tabla. Tampoco existía forma de saber cuándo un centro de trabajo necesita mantenimiento preventivo, como sí existe para la maquinaria (horómetro).</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_calidad_oee.sql</code>):</b> un trigger en <code>work_orders</code> rechaza cualquier intento de dejarla "completada" mientras sea un checkpoint de calidad con resultado pendiente — la única forma de pasar es aprobar/rechazar primero, exactamente el flujo que ya hacían las pantallas. <code>work_centers</code> ahora acumula horas reales (derivadas de la bitácora de eventos, sin sensor físico) y, al cruzar el umbral, genera una notificación para admin — mismo mecanismo que la alerta de horómetro de maquinaria. Mantenimiento del taller reutiliza <code>maintenance_requests</code> (sin tabla nueva): se relajó <code>machinery_id</code> a opcional y se agregó <code>work_center_id</code>, con un respaldo hecho antes de correr el cambio.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Reportes de Fabricación: OEE y costeo por orden (con PDF) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>ManufacturingReportsScreen.tsx</code> lee la vista <code>wo_oee</code> (insumos crudos por orden de trabajo — tiempo en proceso vs. pausada/falla, cantidad completada/planificada/scrap) y calcula del lado de la app <b>Disponibilidad × Rendimiento × Calidad = OEE</b>, con banda de color (🟢≥85% · 🟡60-84% · 🔴&lt;60%), filtrable por rango de fecha y centro de trabajo. Junto al OEE, un costeo por orden de fabricación (estimado vs. real, con la variación resaltada) con edición rápida del costo real para órdenes ya cerradas. Botón de exportar PDF con el mismo mecanismo que el resto de reportes de la app.</p>
   </div>
 
   </section>

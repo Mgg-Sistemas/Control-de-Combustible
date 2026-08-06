@@ -1832,9 +1832,20 @@ registrar avance de cantidad, reportar una falla (la pausa con el motivo) y — 
 punto de control de calidad — **aprobar o rechazar**, lo que bloquea "Completar" hasta resolverlo.
 Cada acción queda en una bitácora con quién y cuándo.
 
-> Pendiente (fases futuras): la vista Kiosco de planta (tablet, botones grandes, sin necesidad de
-> usar teclado) y que el control de calidad bloquee de verdad el paso siguiente, no solo se
-> muestre pendiente.
+### 4.26d. Kiosco de planta y Reportes de Fabricación (Fases 4 y 5)
+
+**🖥️ Kiosco de planta:** pensado para una tablet en el taller. Elige tu centro de trabajo, luego
+la orden de trabajo, y ahí botones grandes: **INICIAR** (pide escanear tu carnet o escribir tu
+cédula — no hace falta cuenta propia), **PAUSAR/REANUDAR**, **REGISTRAR CANTIDAD**, **REPORTAR
+FALLA/PARADA** (con motivos rápidos) y **FINALIZAR**. Si el paso es de control de calidad y sigue
+pendiente de aprobar, el kiosco no deja finalizar — hay que aprobarlo desde "Órdenes de trabajo"
+en oficina. Se llega desde **"Más → 🏭 Fabricación → Kiosco de planta"** (permiso propio
+`fabricacion_planta`, separado del resto de Fabricación).
+
+**📊 Reportes de Fabricación:** OEE (Disponibilidad × Rendimiento × Calidad) por rango de fecha y
+centro de trabajo, con banda de color, y costeo por orden (estimado vs. real, con la diferencia
+resaltada) — se puede completar el costo real de una orden ya cerrada si falta. Botón de exportar
+en PDF.
 
 ---
 

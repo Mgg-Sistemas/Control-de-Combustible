@@ -62,6 +62,8 @@ import BomScreen from '../screens/BomScreen';
 import RoutesScreen from '../screens/RoutesScreen';
 import ManufacturingOrdersScreen from '../screens/ManufacturingOrdersScreen';
 import WorkOrdersScreen from '../screens/WorkOrdersScreen';
+import PlantaKioskScreen from '../screens/PlantaKioskScreen';
+import ManufacturingReportsScreen from '../screens/ManufacturingReportsScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -198,6 +200,8 @@ function MoreStack() {
       <Stack.Screen name="Routes" component={RoutesScreen} options={{ title: 'Rutas de producción' }} />
       <Stack.Screen name="ManufacturingOrders" component={ManufacturingOrdersScreen} options={{ title: 'Órdenes de fabricación' }} />
       <Stack.Screen name="WorkOrders" component={WorkOrdersScreen} options={{ title: 'Órdenes de trabajo' }} />
+      <Stack.Screen name="PlantaKiosk" component={PlantaKioskScreen} options={{ title: 'Kiosco de planta' }} />
+      <Stack.Screen name="ManufacturingReports" component={ManufacturingReportsScreen} options={{ title: 'Reportes de Fabricación' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
@@ -421,6 +425,8 @@ const moreScreens = {
   Routes: 'fabricacion/rutas',
   ManufacturingOrders: 'fabricacion/ordenes',
   WorkOrders: 'fabricacion/ordenes-trabajo',
+  PlantaKiosk: 'fabricacion/kiosco',
+  ManufacturingReports: 'fabricacion/reportes',
   ScanQr: 'escanear',
   MachineQuick: 'maquina',
   Transfers: 'traslados',

@@ -18,6 +18,8 @@ const ITEMS: { label: string; desc: string; icon: string; route: string }[] = [
   { label: 'Rutas de producción', desc: 'Pasos por centro de trabajo, con puntos de control de calidad', icon: '🛤️', route: 'Routes' },
   { label: 'Órdenes de fabricación', desc: 'Planifica producción, revisa disponibilidad de insumos y cierra la orden', icon: '📦', route: 'ManufacturingOrders' },
   { label: 'Órdenes de trabajo', desc: 'Gestiona el avance por centro de trabajo: operario, tiempo, calidad', icon: '🧰', route: 'WorkOrders' },
+  { label: 'Kiosco de planta', desc: 'Pantalla táctil para el operario: iniciar, pausar, registrar, reportar falla', icon: '🖥️', route: 'PlantaKiosk' },
+  { label: 'Reportes de Fabricación', desc: 'OEE (disponibilidad · rendimiento · calidad) y costeo por orden', icon: '📊', route: 'ManufacturingReports' },
 ];
 
 export default function FabricacionHubScreen() {
@@ -32,7 +34,8 @@ export default function FabricacionHubScreen() {
         <SectionTitle>🏭 Fabricación</SectionTitle>
         <Text style={{ color: colors.muted, fontSize: 12.5, marginBottom: spacing.sm }}>
           Módulo de Fabricación (MRP). Fase 1 (mangueras hidráulicas), Fase 2 (centros de trabajo,
-          recetas y rutas) y Fase 3 (órdenes de fabricación y de trabajo) ya están en producción.
+          recetas y rutas), Fase 3 (órdenes de fabricación y de trabajo), Fase 4 (kiosco de planta)
+          y Fase 5 (reportes de OEE y costeo) ya están en producción.
         </Text>
         {level === 'none' ? (
           <Text style={{ color: colors.dangerSoftText, fontSize: 12.5, fontWeight: '700' }}>
