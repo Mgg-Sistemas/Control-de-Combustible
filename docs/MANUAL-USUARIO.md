@@ -777,6 +777,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > eficiencia (todos los inspectores)"** (arriba de las barras) genera el PDF completo con una tabla
 > inicial ordenada de **menor a mayor eficiencia** — los que necesitan seguimiento aparecen
 > primero — más el detalle de cada inspector.
+>
+> **🧩 Excepción — el cajón MAQUINAS FALTANTES (06/08/2026):** la barra del usuario de sistema
+> **MAQUINAS FALTANTES** no muestra un % de eficiencia (no es una persona chequeando nada — el "—"
+> es intencional). En su lugar, debajo de las barras aparece una tarjeta plegable
+> **"🧩 Máquinas por asignar (N)"**: al desplegarla se ve cada máquina que sigue sin inspector real,
+> con un botón **"Asignar ▾"** que despliega los inspectores disponibles — al tocar un nombre, la
+> máquina queda asignada a esa persona para ese turno al instante (sin salir de esta pantalla).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
