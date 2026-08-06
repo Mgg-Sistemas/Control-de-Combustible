@@ -436,7 +436,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
-      rmap[r.machinery_id] = { open: !!r.jornada_start_at, worked: (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0) };
+      // Una máquina puede tener VARIAS rondas hoy (día/noche, o correcciones). Acumula:
+      // abierta = si CUALQUIER ronda está abierta; horas = el MÁXIMO (no la última que
+      // llegó). Así una jornada finalizada con 12h no se pierde si otra ronda vino con 0.
+      const prev = rmap[r.machinery_id];
+      const worked = (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
+      rmap[r.machinery_id] = { open: (prev?.open || !!r.jornada_start_at), worked: Math.max(prev?.worked ?? 0, worked) };
     });
     // La noche de ayer aún abierta cuenta como 🟢 trabajando (a menos que hoy ya tenga algo).
     ((rsNoche ?? []) as any[]).forEach((r) => {
@@ -677,9 +682,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // 1) Lo marcado HOY (avería/parada de hoy) gana incluso sobre "trabajando".
     if (averiaHoyIds.has(id)) return 'averia';
     if (paradaHoyIds.has(id)) return 'parada';
-    // 2) Trabajando hoy (jornada abierta) gana sobre avería/parada ARRASTRADA (vieja):
-    //    si arrancó jornada, la máquina se reactivó → NO debe salir en averiadas/paradas.
-    if (roundsById[id]?.open) return 'iniciada';
+    // 2) Trabajó hoy gana sobre avería/parada ARRASTRADA (vieja): si arrancó jornada,
+    //    la máquina se reactivó → NO debe salir en averiadas/paradas. "Trabajó" =
+    //    jornada ABIERTA o jornada ya FINALIZADA con horas (día/noche > 0). Antes solo
+    //    contaba la abierta, así una jornada ya CERRADA (12h) salía como "por iniciar",
+    //    desincronizada con el admin que la cuenta como INICIADA. Ahora cuadran.
+    if (roundsById[id]?.open || (roundsById[id]?.worked ?? 0) > 0) return 'iniciada';
     // 3) Avería/parada arrastrada: solo si NO trabaja hoy (se arrastra hasta reactivar).
     if (averiaPendienteIds.has(id)) return 'averia';
     if (paradaIds.has(id)) return 'parada';
