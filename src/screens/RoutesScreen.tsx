@@ -161,8 +161,15 @@ export default function RoutesScreen() {
     workCenters.forEach((w) => { m[w.id] = { code: w.code, name: w.name }; });
     return m;
   }, [workCenters]);
+  // Los centros inactivos se mantienen en la lista (un paso ya existente puede
+  // seguir apuntando a uno) pero se marcan visualmente y se ordenan al final,
+  // para no asignar por error un centro que ya no está operativo.
   const workCenterOptions: Option[] = useMemo(
-    () => workCenters.slice().sort((a, b) => cmpText(a.code, b.code)).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })),
+    () =>
+      workCenters
+        .slice()
+        .sort((a, b) => (a.active === b.active ? cmpText(a.code, b.code) : a.active ? -1 : 1))
+        .map((w) => ({ label: `${w.code} · ${w.name}${w.active === false ? ' — ⛔ inactivo' : ''}`, value: w.id })),
     [workCenters]
   );
 
@@ -187,6 +194,9 @@ export default function RoutesScreen() {
   const [openRouteId, setOpenRouteId] = useState('');
   const openRoute = routes.find((r) => r.id === openRouteId) || null;
   const sortedSteps: RouteStep[] = openRoute ? [...openRoute.steps].sort((a, b) => a.step_no - b.step_no) : [];
+  // El CONTENIDO (pasos) solo se puede tocar mientras la ruta está en borrador;
+  // una vez activa u obsoleta queda de solo lectura (hay que versionar).
+  const canEditSteps = canWrite && openRoute?.status === 'borrador';
 
   const [creatingRoute, setCreatingRoute] = useState(false);
   const crearRuta = async () => {
@@ -273,6 +283,7 @@ export default function RoutesScreen() {
 
   const saveStep = async () => {
     if (!openRoute) return;
+    if (openRoute.status !== 'borrador') { setStepError('Esta ruta ya está activa u obsoleta — crea una nueva versión para cambiar los pasos.'); return; }
     if (!stepName.trim()) { setStepError('El nombre del paso es obligatorio.'); return; }
     if (!stepWorkCenterId) { setStepError('Selecciona un centro de trabajo.'); return; }
     setStepError(null);
@@ -301,7 +312,7 @@ export default function RoutesScreen() {
   };
 
   const moveStep = async (idx: number, dir: -1 | 1) => {
-    if (!openRoute) return;
+    if (!openRoute || openRoute.status !== 'borrador') return;
     const target = idx + dir;
     if (target < 0 || target >= sortedSteps.length) return;
     const a = sortedSteps[idx];
@@ -316,7 +327,7 @@ export default function RoutesScreen() {
   };
 
   const deleteStep = async (idx: number) => {
-    if (!openRoute) return;
+    if (!openRoute || openRoute.status !== 'borrador') return;
     const ok = await confirm({ message: `¿Eliminar el paso "${sortedSteps[idx]?.name ?? ''}"? Esta acción no se puede deshacer.`, danger: true });
     if (!ok) return;
     const newSteps = sortedSteps.filter((_, i) => i !== idx).map((s, i) => ({ ...s, step_no: i + 1 }));
@@ -456,9 +467,20 @@ export default function RoutesScreen() {
             ) : null}
           </Card>
 
+          {/* El contenido (pasos) solo se edita en borrador: activa/obsoleta ya
+              se usaron o dejaron de usarse en producción — para cambiar algo
+              hay que versionar (crear una ruta nueva), no sobrescribirla. */}
+          {canWrite && openRoute.status !== 'borrador' ? (
+            <Card>
+              <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '700' }}>
+                🔒 Esta ruta ya está {openRoute.status} — para cambiar los pasos, crea una nueva versión.
+              </Text>
+            </Card>
+          ) : null}
+
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>Pasos</Text>
-            {canWrite && !stepFormOpen ? (
+            {canEditSteps && !stepFormOpen ? (
               <TouchableOpacity onPress={openNewStep} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
                 <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Agregar paso</Text>
               </TouchableOpacity>
@@ -486,7 +508,7 @@ export default function RoutesScreen() {
                       {cp.icon} {cp.label}{s.checkpoint_spec ? ` — ${s.checkpoint_spec}` : ''}
                     </Text>
                   ) : null}
-                  {canWrite ? (
+                  {canEditSteps ? (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                       <IconBtn label="⬆️" onPress={() => moveStep(idx, -1)} disabled={idx === 0 || busyStep === idx} />
                       <IconBtn label="⬇️" onPress={() => moveStep(idx, 1)} disabled={idx === sortedSteps.length - 1 || busyStep === idx} />

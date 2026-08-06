@@ -6,7 +6,7 @@
 // de calidad cuando el paso lo requiere. Reutiliza el mismo permiso de módulo
 // que el resto de Fabricación ('mangueras' = "Fabricación"). La vista táctil
 // de piso de planta (kiosco/QR) es una pantalla aparte, de una fase futura.
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTable } from '../hooks/useTable';
@@ -233,7 +233,7 @@ export default function WorkOrdersScreen() {
   const openDetail = (w: WorkOrder) => { if (!canWrite) return; setOpenWoId(w.id); };
   const closeDetail = () => {
     setOpenWoId('');
-    setQtyInput(''); setFallaOpen(false); setFallaNote(''); setRejectOpen(false); setRejectReason('');
+    setQtyInput(''); setScrapInput(''); setFallaOpen(false); setFallaNote(''); setRejectOpen(false); setRejectReason('');
   };
 
   const insertLog = async (payload: { event?: string | null; qty_delta?: number | null; note?: string | null }) => {
@@ -294,8 +294,14 @@ export default function WorkOrdersScreen() {
     refetch(); refetchLogs();
   };
 
+  // Guard síncrono (además de `busyStatus`, que solo bloquea el botón cuando
+  // React ya volvió a renderizar): evita que un doble clic muy rápido en
+  // "Reanudar" —antes de que se refleje el primer `refetch()`— dispare dos
+  // inserciones de log 'reanudacion' y sume dos veces el intervalo pausado.
+  const reanudarBusyRef = useRef(false);
   const reanudar = async () => {
-    if (!openWo) return;
+    if (!openWo || reanudarBusyRef.current) return;
+    reanudarBusyRef.current = true;
     setBusyStatus('reanudar');
     // Minutos pausados: tiempo desde la última 'pausa' registrada hasta ahora,
     // sumado a lo ya acumulado (no se lleva un cronómetro exacto, es suficiente).
@@ -305,22 +311,37 @@ export default function WorkOrdersScreen() {
     const { error } = await supabase.from('work_orders').update({ status: 'en_proceso', paused_minutes: nuevoPausedMinutes }).eq('id', openWo.id);
     if (!error) await insertLog({ event: 'reanudacion' });
     setBusyStatus(null);
+    reanudarBusyRef.current = false;
     if (error) { toast.error(error.message); return; }
     toast.success('Orden reanudada.');
     refetch(); refetchLogs();
   };
 
+  const QC_PENDIENTE_MSG = 'Este paso requiere aprobación de calidad — apruébalo o recházalo antes de completar.';
   const completar = async () => {
     if (!openWo) return;
+    // Chequeo del lado del cliente: evita el viaje a la base para el caso
+    // esperado y muestra un mensaje humano en vez del error crudo del trigger.
     if (openWo.is_quality_checkpoint && openWo.qc_result === 'pendiente') {
-      toast.error('Aprueba o rechaza el control de calidad antes de completar.');
+      toast.error(QC_PENDIENTE_MSG);
       return;
     }
     setBusyStatus('completar');
     const { error } = await supabase.from('work_orders').update({ status: 'completada', ended_at: new Date().toISOString() }).eq('id', openWo.id);
     if (!error) await insertLog({ event: 'fin' });
     setBusyStatus(null);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      // Respaldo por si el chequeo de arriba quedó desactualizado: el candado
+      // real vive en el trigger `check_wo_quality_gate()` (ver
+      // supabase/fabricacion_calidad_oee.sql), cuyo mensaje reconocible se
+      // traduce aquí en vez de mostrar el texto técnico del error.
+      if (/requiere aprobaci[oó]n de calidad/i.test(error.message)) {
+        toast.error(QC_PENDIENTE_MSG);
+      } else {
+        toast.error(error.message);
+      }
+      return;
+    }
     toast.success('Orden completada.');
     refetch(); refetchLogs();
   };
@@ -358,6 +379,29 @@ export default function WorkOrdersScreen() {
     refetch(); refetchLogs();
   };
 
+  // ── Registrar scrap/merma ───────────────────────────────────────────────
+  // `qty_scrap` ya existe en el esquema (fabricacion_ordenes.sql) y lo usa
+  // ManufacturingReportsScreen para el % de calidad del OEE, pero hasta ahora
+  // nada en esta pantalla lo cargaba — el KPI de calidad siempre daba 100%.
+  const [scrapInput, setScrapInput] = useState('');
+  const [busyScrap, setBusyScrap] = useState(false);
+  const registrarScrap = async () => {
+    if (!openWo) return;
+    const delta = Number(String(scrapInput).replace(',', '.')) || 0;
+    if (delta <= 0) { toast.error('Ingresa una cantidad de scrap mayor a 0.'); return; }
+    setBusyScrap(true);
+    const nuevo = (openWo.qty_scrap || 0) + delta;
+    const { error } = await supabase.from('work_orders').update({ qty_scrap: nuevo }).eq('id', openWo.id);
+    // No se usa qty_delta aquí (esa columna representa cantidad PRODUCIDA):
+    // el monto queda en la nota para no confundirlo en la bitácora con avance real.
+    if (!error) await insertLog({ event: 'cantidad', note: `♻️ Scrap/merma registrado: +${delta}` });
+    setBusyScrap(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Scrap registrado.');
+    setScrapInput('');
+    refetch(); refetchLogs();
+  };
+
   // ── Reportar falla ──────────────────────────────────────────────────────
   const [fallaOpen, setFallaOpen] = useState(false);
   const [fallaNote, setFallaNote] = useState('');
@@ -367,7 +411,15 @@ export default function WorkOrdersScreen() {
     if (!fallaNote.trim()) { toast.error('Describe la falla.'); return; }
     setBusyFalla(true);
     const { error } = await supabase.from('work_orders').update({ status: 'pausada', stop_reason: fallaNote.trim() }).eq('id', openWo.id);
-    if (!error) await insertLog({ event: 'falla', note: fallaNote.trim() });
+    if (!error) {
+      // Se insertan DOS eventos: 'falla' (motivo, para auditoría) y 'pausa'
+      // (el mismo tipo de evento que `reanudar()` busca como cierre del tramo
+      // detenido y que la vista `wo_oee` usa para calcular pausada_seconds —
+      // sin esto, el tiempo detenido por avería nunca se restaba del tiempo
+      // "trabajado" y las horas de OEE quedaban infladas).
+      await insertLog({ event: 'falla', note: fallaNote.trim() });
+      await insertLog({ event: 'pausa', note: 'Pausa automática por falla reportada.' });
+    }
     setBusyFalla(false);
     if (error) { toast.error(error.message); return; }
     toast.success('Falla reportada. Orden pausada.');
@@ -501,6 +553,7 @@ export default function WorkOrdersScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
                   🏭 {openWo.work_center_id ? (wcMap[openWo.work_center_id] ? `${wcMap[openWo.work_center_id].code} · ${wcMap[openWo.work_center_id].name}` : '—') : 'Sin centro de trabajo'}
                   {'  ·  '}📦 {openWo.qty_completed ?? 0}/{openWo.qty_planned ?? 0}
+                  {openWo.qty_scrap ? `  ·  ♻️ Scrap: ${openWo.qty_scrap}` : ''}
                 </Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>
                   Inicio {fmtFechaHora(openWo.started_at)} · Fin {fmtFechaHora(openWo.ended_at)} · Pausado {openWo.paused_minutes ?? 0} min
@@ -592,6 +645,22 @@ export default function WorkOrdersScreen() {
                         />
                         <TouchableOpacity onPress={registrarCantidad} disabled={busyQty} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, opacity: busyQty ? 0.6 : 1 }}>
                           <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>Registrar</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.xs }}>♻️ Registrar scrap/merma (opcional)</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
+                        <TextInput
+                          value={scrapInput}
+                          onChangeText={(t) => setScrapInput(onlyDecimal(t))}
+                          placeholder="0"
+                          placeholderTextColor={colors.muted}
+                          keyboardType="numeric"
+                          inputMode="numeric"
+                          style={[input, { flex: 1 }]}
+                        />
+                        <TouchableOpacity onPress={registrarScrap} disabled={busyScrap} style={{ backgroundColor: '#B91C1C', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, opacity: busyScrap ? 0.6 : 1 }}>
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>Registrar</Text>
                         </TouchableOpacity>
                       </View>
                     </View>

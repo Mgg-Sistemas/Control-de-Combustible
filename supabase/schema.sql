@@ -4,6 +4,16 @@
 -- Ejecutar en: Supabase Studio > SQL Editor (o `supabase db push`).
 -- Incluye: enums, tablas de dominio, ledger de movimientos de stock,
 -- vista de niveles de tanque, triggers de stock y políticas RLS por rol.
+--
+-- NO incluye el módulo de Fabricación (MRP): sus tablas viven en archivos SQL
+-- aparte dentro de `supabase/`, que se ejecutan por separado (además de este
+-- schema.sql), en orden — ver cada archivo:
+--   - fabricacion_maestros.sql      (centros de trabajo, recetas/BoM, rutas)
+--   - hose_services.sql             (mangueras hidráulicas, Fase 1)
+--   - fabricacion_ordenes.sql       (órdenes de fabricación y de trabajo)
+--   - fabricacion_calidad_oee.sql   (control de calidad, OEE y costeo)
+-- Para reconstruir la base desde cero hay que correr TODOS estos archivos,
+-- no solo este schema.sql.
 -- ============================================================================
 
 -- ---------- Extensiones ----------

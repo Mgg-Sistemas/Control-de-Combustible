@@ -17,8 +17,9 @@ import { HoseService, HoseInstallStatus, HosePaymentStatus } from '../types/data
 import { generateHoseServiceReport } from '../lib/hoseServiceReport';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useToast } from '../components/ToastProvider';
 
-type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null };
+type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null; operational: boolean };
 type ProfileRow = { id: string; full_name: string | null };
 
 type Tone = 'info' | 'warning' | 'danger' | 'success';
@@ -69,6 +70,7 @@ const fmtFecha = (iso: string | null | undefined) => {
 
 export default function ManguerasScreen() {
   const { colors } = useTheme();
+  const toast = useToast();
   const { moduleLevel } = useAuth();
   const level = moduleLevel('mangueras');
 
@@ -85,13 +87,13 @@ export default function ManguerasScreen() {
   const canApprove = levelMeets(level, 'full');
 
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false, realtimeFrom: 'hose_services' });
-  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id', orderBy: 'code', realtimeFrom: 'machinery' });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id, operational', orderBy: 'code', realtimeFrom: 'machinery' });
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
   const { rate: bcvRate } = useBcvRate();
 
   const machineryMap = useMemo(() => {
-    const m: Record<string, { code: string; serial: string | null; plate: string | null }> = {};
-    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate }; });
+    const m: Record<string, { code: string; serial: string | null; plate: string | null; operational: boolean }> = {};
+    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate, operational: r.operational }; });
     return m;
   }, [machinery]);
   const profilesMap = useMemo(() => {
@@ -140,17 +142,30 @@ export default function ManguerasScreen() {
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (h: HoseService) => { setEditing(h); setFormOpen(true); };
 
+  // El campo `install_status` se arma aparte (ver abajo): si la manguera ya está
+  // pagada, NO se deja como `select` editable (evita "desinstalarla" por accidente
+  // desde el formulario normal); se muestra como texto fijo informativo.
+  const installStatusField: Field = editing?.payment_status === 'pagado'
+    ? {
+        key: 'install_status_locked', type: 'section',
+        label: `Estado de instalación: ${INSTALL_INFO[editing.install_status]?.label ?? editing.install_status} (bloqueado: ya está pagada, no se puede editar aquí)`,
+      }
+    : {
+        key: 'install_status', label: 'Estado de instalación', type: 'select',
+        options: [{ label: 'En proceso', value: 'en_proceso' }, { label: 'Instalada', value: 'instalada' }],
+      };
+
   const FIELDS: Field[] = [
     { key: 'code', label: 'Código de la fabricación', type: 'text', required: true },
-    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', dropdown: true, required: true },
+    // `activeCol: 'operational'` marca con "(Inactiva)" las máquinas dadas de baja
+    // en la lista, SIN ocultarlas (el historial de mangueras de una máquina inactiva
+    // debe seguir siendo consultable/asignable si hiciera falta).
+    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', activeCol: 'operational', dropdown: true, required: true },
     { key: 'description', label: 'Descripción del trabajo', type: 'text' },
     { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
     { key: 'cost_usd', label: 'Costo (US$)', type: 'number', required: true },
     { key: 'provider', label: 'Proveedor', type: 'suggest', table: 'hose_services', column: 'provider', dropdown: true },
-    {
-      key: 'install_status', label: 'Estado de instalación', type: 'select',
-      options: [{ label: 'En proceso', value: 'en_proceso' }, { label: 'Instalada', value: 'instalada' }],
-    },
+    installStatusField,
   ];
 
   // payment_status/approved_by/approved_at NUNCA se editan desde este formulario
@@ -177,6 +192,13 @@ export default function ManguerasScreen() {
     refetch();
   };
   const aprobarPago = async (h: HoseService) => {
+    // No se puede pagar una manguera que aún no está instalada (evita pagar un
+    // trabajo que nunca se llegó a hacer). El botón ya se oculta en ese caso, pero
+    // se valida también aquí por si el estado cambió justo antes de pulsar.
+    if (h.install_status !== 'instalada') {
+      toast.error('No se puede pagar una manguera que no está instalada.');
+      return;
+    }
     setBusy(h.id + '-approve');
     const { data } = await supabase.auth.getUser();
     await supabase.from('hose_services').update({
@@ -239,6 +261,9 @@ export default function ManguerasScreen() {
             <TouchableOpacity onPress={() => setMachineOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
                 {machineFilterId ? `Equipo: ${machineFilterLabel ?? '—'}` : 'Todos los equipos'}
+                {/* La máquina dada de baja se puede seguir consultando (no se oculta),
+                    pero se avisa con un badge para no confundirla con una activa. */}
+                {machineFilterId && machineFilterInfo && !machineFilterInfo.operational ? '  ⛔ Inactiva' : ''}
               </Text>
               <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machineOpen ? '▲' : '▼'}</Text>
             </TouchableOpacity>
@@ -255,7 +280,12 @@ export default function ManguerasScreen() {
                     <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text>
                   ) : machineOptions.map((m) => (
                     <TouchableOpacity key={m.id} onPress={() => { setMachineFilterId(m.id); setMachineOpen(false); setMachineQuery(''); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface }}>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}</Text>
+                        {/* Máquinas de baja/inactivas se siguen mostrando (el historial de
+                            mangueras debe poder consultarse), solo se marcan con un badge. */}
+                        {!m.operational ? <Pill label="⛔ Inactiva" tone="danger" colors={colors} /> : null}
+                      </View>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{[m.serial ? `Serial ${m.serial}` : '', m.plate ? `Placa ${m.plate}` : ''].filter(Boolean).join(' · ') || '—'}</Text>
                     </TouchableOpacity>
                   ))}
@@ -354,7 +384,10 @@ export default function ManguerasScreen() {
                         ) : null}
                       </>
                     ) : null}
-                    {canApprove && h.payment_status !== 'pagado' ? (
+                    {/* No se puede aprobar el pago de una manguera que aún no está
+                        instalada (el botón se oculta; aprobarPago() también valida
+                        esto por si acaso). */}
+                    {canApprove && h.payment_status !== 'pagado' && h.install_status === 'instalada' ? (
                       <Btn label="✅ Aprobar y marcar pagado" color="#059669" disabled={busy === h.id + '-approve'} onPress={() => aprobarPago(h)} />
                     ) : null}
                   </View>

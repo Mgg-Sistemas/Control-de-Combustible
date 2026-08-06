@@ -407,7 +407,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter]);
+  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter, bulkHideStopped]);
   const bulkAllKeys = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.key)), [bulkGroups]);
   const toggleBulkOne = (key: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const toggleBulkGroup = (keys: string[]) => setBulkSel((prev) => {

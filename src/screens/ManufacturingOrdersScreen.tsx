@@ -54,6 +54,23 @@ function nextReqCode(codes: (string | null | undefined)[], bump = 0): string {
   return 'REQ-' + String(max + 1 + bump).padStart(4, '0');
 }
 
+// FIX 6: "Solicitar faltantes" y "Cerrar orden" se habilitan en la UI con
+// moduleLevel('mangueras'), pero escriben en inventory_requirements/
+// inventory_movements, cuya RLS exige can_write_module('inventario') (ver
+// fabricacion_ordenes.sql / schema.sql). Si un usuario tiene Fabricación pero
+// no Inventario, la escritura falla por RLS (código Postgres 42501) y hoy se
+// mostraba el error crudo de Postgres. Se traduce ese caso puntual a un
+// mensaje claro; cualquier otro error se muestra tal cual llega.
+function friendlyInventoryError(error: { message: string; code?: string } | null | undefined): string {
+  if (!error) return 'Ocurrió un error inesperado.';
+  const code = (error as any).code;
+  const msg = error.message || '';
+  if (code === '42501' || /row-level security|permission denied|policy/i.test(msg)) {
+    return 'Tu permiso de Fabricación no incluye escritura en Inventario — pide también ese permiso a un administrador.';
+  }
+  return msg;
+}
+
 type Tone = 'info' | 'warning' | 'danger' | 'success';
 function toneSoft(colors: any, tone: Tone) {
   switch (tone) {
@@ -250,6 +267,20 @@ export default function ManufacturingOrdersScreen() {
   const availableCount = availability.filter((a) => a.dispo.ok).length;
   const hasShortage = availability.some((a) => !a.dispo.ok);
 
+  // FIX 8: % de avance agregado, calculado en vivo desde la suma de
+  // `qty_completed` de las WOs de la orden contra `qty_planned` — misma
+  // cuenta que hace `cerrarOrden` (FIX 1) para decidir `producedQty`, pero
+  // aquí es solo informativa: se apoya en `openMoWos` (ya suscrito a
+  // realtime de work_orders vía useTable) en vez de un select en vivo aparte.
+  const progress = useMemo(() => {
+    if (!openMo) return null;
+    const planned = Number(openMo.qty_planned) || 0;
+    if (planned <= 0) return null;
+    const completed = openMoWos.reduce((sum, w) => sum + (Number(w.qty_completed) || 0), 0);
+    const pct = Math.max(0, Math.min(100, Math.round((completed / planned) * 1000) / 10));
+    return { completed, planned, pct };
+  }, [openMo, openMoWos]);
+
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   // "Solicitar faltantes": inserta UN requerimiento en inventory_requirements
@@ -260,6 +291,25 @@ export default function ManufacturingOrdersScreen() {
     const faltantes = availability.filter((a) => !a.dispo.ok);
     if (faltantes.length === 0) return;
     setBusyAction('faltantes');
+    // FIX 9: evita duplicar el requerimiento si ya se generó uno desde esta
+    // misma MO y todavía no se recibió (no hay columna de referencia a la MO
+    // en inventory_requirements, así que se busca por el mismo título que se
+    // arma más abajo: `Faltantes de la orden ${code}`).
+    const reqTitle = `Faltantes de la orden ${openMo.code}`;
+    const { data: existentes } = await supabase
+      .from('inventory_requirements')
+      .select('id, status')
+      .eq('title', reqTitle)
+      .neq('status', 'recibido');
+    if (existentes && existentes.length > 0) {
+      const seguir = await confirm({
+        title: 'Requerimiento ya generado',
+        message: `Ya existe un requerimiento de faltantes para la orden ${openMo.code} que todavía no se ha recibido. ¿Generar otro de todas formas?`,
+        confirmText: 'Sí, generar otro',
+        cancelText: 'Cancelar',
+      });
+      if (!seguir) { setBusyAction(null); return; }
+    }
     const reqItems: RequirementLine[] = faltantes.map((a) => ({
       product_id: a.line.component_item_id,
       name: a.line.name,
@@ -289,7 +339,7 @@ export default function ManufacturingOrdersScreen() {
       code = nextReqCode(codeRows.map((r: any) => r.code), intento);
       const { error } = await supabase.from('inventory_requirements').insert({
         code,
-        title: `Faltantes de la orden ${openMo.code}`,
+        title: reqTitle,
         note: `Generado automáticamente desde la orden de fabricación ${openMo.code}.`,
         company_id: openMo.company_id ?? null,
         status: 'pendiente',
@@ -300,7 +350,7 @@ export default function ManufacturingOrdersScreen() {
       if (!error) { saved = true; break; }
       if (/duplicate key|already exists|unique|_code_key|23505/i.test(error.message)) continue;
       setBusyAction(null);
-      toast.error(error.message);
+      toast.error(friendlyInventoryError(error)); // FIX 6
       return;
     }
     setBusyAction(null);
@@ -339,6 +389,34 @@ export default function ManufacturingOrdersScreen() {
   // producto terminado en Inventario (inventory_movements), y cierra la MO.
   const cerrarOrden = async () => {
     if (!openMo) return;
+    if (busyAction) return; // FIX 3 (capa UI): candado de doble clic — el candado real vive en la BD (ver fabricacion_fix_ordenes.sql).
+    // Deshabilita el botón DE INMEDIATO (antes de cualquier `await`), incluso
+    // antes de mostrar el diálogo de confirmación: evita que un segundo clic
+    // humano dispare dos cierres casi simultáneos mientras el primero sigue
+    // en curso. Se resetea a null en cada `return` temprano de abajo.
+    setBusyAction('cerrar');
+
+    // FIX 1: `openMo.qty_produced` casi nunca refleja el avance real (las WOs
+    // se completan en WorkOrdersScreen y ese campo de la MO no se
+    // re-sincroniza solo), así que este cierre terminaba SIEMPRE cayendo en
+    // `qty_planned` (la cantidad PLANIFICADA, no la producida de verdad). Se
+    // relee EN VIVO (select directo, sin confiar en el estado ya cargado en
+    // pantalla ni en `openMo.qty_produced`) sumando `qty_completed` de TODAS
+    // las WOs de esta MO, y ESE total real es el que se usa como `producedQty`.
+    const { data: liveWos, error: woReadErr } = await supabase
+      .from('work_orders')
+      .select('qty_completed')
+      .eq('mo_id', openMo.id);
+    if (woReadErr) {
+      setBusyAction(null);
+      toast.error('No se pudo verificar el avance real de las órdenes de trabajo: ' + woReadErr.message);
+      return;
+    }
+    const producedQty = Math.round(
+      (liveWos ?? []).reduce((sum, w: any) => sum + (Number(w.qty_completed) || 0), 0) * 10000
+    ) / 10000;
+    const planned = Number(openMo.qty_planned) || 0;
+
     const ok = await confirm({
       title: 'Cerrar orden',
       message: '¿Cerrar esta orden? Esto registrará el consumo de insumos y la entrada del producto terminado en Inventario — no se puede deshacer.',
@@ -346,10 +424,50 @@ export default function ManufacturingOrdersScreen() {
       cancelText: 'Cancelar',
       danger: true,
     });
-    if (!ok) return;
-    setBusyAction('cerrar');
-    const producedQty = Number(openMo.qty_produced) > 0 ? Number(openMo.qty_produced) : Number(openMo.qty_planned);
-    const unitCost = Number(openMo.real_cost) > 0 && producedQty > 0 ? Math.round((Number(openMo.real_cost) / producedQty) * 10000) / 10000 : null;
+    if (!ok) { setBusyAction(null); return; }
+
+    // Si lo realmente producido es 0 o queda muy por debajo de lo
+    // planificado, no se bloquea (puede ser legítimo cerrar con lo que se
+    // logró) pero tampoco se cierra en silencio con el número equivocado:
+    // se pide una confirmación explícita con las dos cifras.
+    if (producedQty <= 0 || producedQty < planned - 0.0001) {
+      const okIncompleta = await confirm({
+        title: 'Producción incompleta',
+        message: `Solo se registraron ${qtyFmt(producedQty)} de ${qtyFmt(planned)} ${openMo.uom || ''} planificadas. ¿Cerrar la orden igual con esta cantidad?`,
+        confirmText: 'Sí, cerrar igual',
+        cancelText: 'Cancelar',
+        danger: true,
+      });
+      if (!okIncompleta) { setBusyAction(null); return; }
+    }
+
+    // FIX 2: el PMP del producto terminado nunca se recalculaba porque
+    // `unitCost` salía de `openMo.real_cost`, que en el momento del cierre
+    // todavía vale 0 (se carga DESPUÉS, desde Reportes de Fabricación) — con
+    // `unit_cost: null` el trigger de recálculo de PMP (`inv_recalc_avg` en
+    // schema.sql) nunca se dispara para esta entrada. Mientras no exista
+    // `real_cost`, se usa una ESTIMACIÓN: costo de los insumos realmente
+    // consumidos (`components_snapshot` × `avg_cost` actual de cada insumo en
+    // Inventario, el mismo dato que ya se usa para el semáforo de
+    // disponibilidad de esta pantalla) entre la cantidad producida.
+    // PENDIENTE (fuera de alcance aquí, requeriría tocar
+    // ManufacturingReportsScreen.tsx): cuando más tarde se cargue el costo
+    // REAL en Reportes, ese flujo debería reajustar este movimiento de
+    // inventario (o insertar un ajuste de PMP) para que el estimado de acá
+    // no quede pisando al costo real para siempre.
+    let unitCost: number | null = null;
+    if (Number(openMo.real_cost) > 0 && producedQty > 0) {
+      unitCost = Math.round((Number(openMo.real_cost) / producedQty) * 10000) / 10000;
+    } else if (producedQty > 0) {
+      const estimatedComponentsCost = (openMo.components_snapshot ?? []).reduce((sum, line) => {
+        const avgCost = Number(itemsById[line.component_item_id]?.avg_cost) || 0;
+        return sum + avgCost * (Number(line.qty_required) || 0);
+      }, 0);
+      if (estimatedComponentsCost > 0) {
+        unitCost = Math.round((estimatedComponentsCost / producedQty) * 10000) / 10000;
+      }
+    }
+
     const movRows = [
       ...(openMo.components_snapshot ?? []).map((line) => ({
         item_id: line.component_item_id,
@@ -373,13 +491,39 @@ export default function ManufacturingOrdersScreen() {
       },
     ];
     const { error: mErr } = await supabase.from('inventory_movements').insert(movRows);
-    if (mErr) { setBusyAction(null); toast.error('No se pudo registrar el movimiento de inventario: ' + mErr.message); return; }
+    if (mErr) { setBusyAction(null); toast.error('No se pudo registrar el movimiento de inventario: ' + friendlyInventoryError(mErr)); return; } // FIX 6
     const { error } = await supabase.from('manufacturing_orders').update({
       status: 'cerrada', closed_at: nowISO(), closed_by: uid, finished_at: openMo.finished_at ?? nowISO(), qty_produced: producedQty,
     }).eq('id', openMo.id);
     setBusyAction(null);
     if (error) { toast.error(error.message); return; }
     toast.success(`Orden ${openMo.code} cerrada.`);
+    refetchMos();
+  };
+
+  // FIX 7: no existía forma de cancelar una MO. Solo cambia el status de la
+  // MO — si ya generó WOs, estas quedan tal cual (no se cancelan en cascada;
+  // eso vive en WorkOrdersScreen.tsx, de otro agente), pero se avisa en la
+  // confirmación para que el usuario sepa que no debe seguir dándoles avance.
+  const cancelarOrden = async () => {
+    if (!openMo) return;
+    if (busyAction) return;
+    const tieneWos = openMoWos.length > 0;
+    const ok = await confirm({
+      title: 'Cancelar orden',
+      message: tieneWos
+        ? `¿Cancelar la orden ${openMo.code}? Ya tiene órdenes de trabajo generadas: seguirán existiendo, pero no se les debe dar más avance. Esta acción no se puede deshacer.`
+        : `¿Cancelar la orden ${openMo.code}? Esta acción no se puede deshacer.`,
+      confirmText: 'Sí, cancelar',
+      cancelText: 'Volver',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusyAction('cancelar');
+    const { error } = await supabase.from('manufacturing_orders').update({ status: 'cancelada' }).eq('id', openMo.id);
+    setBusyAction(null);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Orden ${openMo.code} cancelada.`);
     refetchMos();
   };
 
@@ -392,6 +536,8 @@ export default function ManufacturingOrdersScreen() {
     const st = STATUS_INFO[openMo.status] ?? STATUS_INFO.planificada;
     const canStart = canWrite && (openMo.status === 'planificada' || openMo.status === 'reservada') && !!openMo.route_id;
     const canClose = canWrite && (openMo.status === 'en_proceso' || openMo.status === 'completada');
+    // FIX 7: se puede cancelar en cualquier estado que no sea ya terminal.
+    const canCancel = canWrite && openMo.status !== 'cerrada' && openMo.status !== 'cancelada';
     return (
       <Screen>
         <TouchableOpacity onPress={() => setOpenMoId('')}>
@@ -410,6 +556,17 @@ export default function ManufacturingOrdersScreen() {
             Planificado: <Text style={{ fontWeight: '800' }}>{qtyFmt(openMo.qty_planned)} {openMo.uom || ''}</Text>
             {'  ·  '}Producido: <Text style={{ fontWeight: '800' }}>{qtyFmt(openMo.qty_produced)} {openMo.uom || ''}</Text>
           </Text>
+          {progress ? (
+            // FIX 8: % de avance agregado (vivo, desde las WOs de la orden).
+            <View style={{ marginTop: 4 }}>
+              <View style={{ height: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, overflow: 'hidden' }}>
+                <View style={{ height: '100%', width: `${progress.pct}%`, backgroundColor: progress.pct >= 100 ? colors.success : colors.brandText, borderRadius: radius.pill }} />
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                Avance de las órdenes de trabajo: {progress.pct}% ({qtyFmt(progress.completed)}/{qtyFmt(progress.planned)} {openMo.uom || ''})
+              </Text>
+            </View>
+          ) : null}
           {(openMo.planned_start || openMo.planned_end) ? (
             <Text style={{ color: colors.muted, fontSize: 12 }}>
               📅 {openMo.planned_start ? fmtFecha(openMo.planned_start) : '—'} → {openMo.planned_end ? fmtFecha(openMo.planned_end) : '—'}
@@ -463,6 +620,9 @@ export default function ManufacturingOrdersScreen() {
             ) : null}
             {openMo.status === 'en_proceso' || openMo.status === 'completada' ? (
               <Btn label="🔒 Cerrar orden" color="#B91C1C" disabled={!canClose || busyAction === 'cerrar'} onPress={cerrarOrden} />
+            ) : null}
+            {canCancel ? (
+              <Btn label="❌ Cancelar orden" color="#6B7280" disabled={busyAction === 'cancelar'} onPress={cancelarOrden} />
             ) : null}
           </View>
         ) : null}

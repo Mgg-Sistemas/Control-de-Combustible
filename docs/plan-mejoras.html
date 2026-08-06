@@ -336,6 +336,99 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva barra de filtros arriba del historial (Prioridad, Estado, Actividad/sección — esta última generada sola a partir de las secciones reales del documento) con contador de resultados, y un botón para ordenar lo pendiente/planificado de mayor a menor prioridad dentro de cada sección (sin mezclar secciones ni días distintos, para no perder el contexto de cada una).</p>
   </div>
 
+  <h2><span class="n">14</span> Módulo de Fabricación (MRP): auditoría completa con 5 agentes + corrección de los bugs críticos</h2>
+  <p class="sec-note">Pedido directo: "completa las actividades para el modulo de fabricacion, haz una revision completa de ese modulo... asigna multiples agentes para revisar todo del modulo, bugs y mejoras". Se auditaron en paralelo las 5 fases ya en producción (Mangueras, Maestros, Órdenes MO/WO, Kiosco de planta, y lo transversal de permisos/navegación/manual) y se corrigieron los hallazgos críticos/altos con 6 agentes más, cada uno en archivos distintos.</p>
+
+  <div class="card feat">
+    <h3>Mangueras: candado real de pago (no solo en la pantalla) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Se podía aprobar el pago de una manguera sin estar instalada, y el candado de "solo Full control aprueba" solo vivía en la pantalla — cualquier sesión autenticada podía marcarla pagada llamando directo a la base de datos, sin pasar por la app.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_mangueras.sql</code>):</b> el botón de aprobar pago ahora exige que esté instalada primero, y la base de datos rechaza marcar "pagado" a cualquiera que no tenga nivel Full en el módulo (política RLS nueva), sin afectar quién puede registrar la manguera o "enviar a autorización" (eso se mantiene en nivel escritura, como ya funcionaba). También: el estatus de instalación queda bloqueado una vez pagada, costo no puede ser negativo, código de manguera no se puede repetir, y las máquinas dadas de baja se marcan "⛔ Inactiva" en los selectores/filtros sin ocultarse del historial.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Maestros: ya se puede versionar una receta (antes quedaba trabada) + no se puede editar en caliente una versión activa <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">No existía botón para desactivar una receta activa (solo Rutas lo tenía) — si se necesitaba una v2, el sistema rechazaba activarla ("desactívala primero") sin ninguna forma de hacerlo desde la pantalla. Además, tanto en Recetas como en Rutas se podía sobrescribir en caliente los componentes/pasos de una versión YA activa en producción, sin quedar versionado el cambio.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nuevo botón "⚪ Marcar obsoleta" en Recetas (igual al que ya tenía Rutas). Ahora solo se puede editar el contenido de una receta/ruta mientras esté en "borrador" — activa u obsoleta quedan de solo lectura, con aviso de que hay que crear una nueva versión. Activar una receta ahora pide confirmación (antes no la pedía). De regalo: se corrigió un bug de la misma familia en <code>RecordForm.tsx</code> (el formulario genérico que usan varias pantallas) que dejaba huérfano un campo oculto al cambiar de tipo — beneficia también a Autorizaciones y Despachos, que comparten el mismo formulario.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Fabricación: el cierre ahora usa lo REALMENTE producido, con candado contra doble cierre y stock negativo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Al "Cerrar orden" el sistema siempre daba por producida la cantidad PLANIFICADA (nunca la real avanzada en las Órdenes de Trabajo), porque ese campo nunca se sincronizaba — podía cerrar con 30% de avance real y mover el 100% del inventario. Tampoco había candado contra cerrar dos veces la misma orden (doble movimiento de inventario), ni contra dejar el stock en negativo si faltaban insumos.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_ordenes.sql</code>):</b> el cierre ahora suma en vivo el avance real de las Órdenes de Trabajo y avisa explícitamente si es muy inferior a lo planificado antes de proceder. Dos triggers nuevos en la base de datos: uno rechaza cerrar una orden que ya estaba cerrada, otro impide cualquier movimiento de inventario que deje el stock en negativo (mismo patrón que ya protege a combustible). Además: nuevo botón "❌ Cancelar orden", barra de % de avance visible, mensaje claro (no error técnico) si falta permiso de escritura en Inventario, y aviso si "Solicitar faltantes" se toca dos veces sin haber recibido nada.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Trabajo: el tiempo detenido por avería ya no infla las horas trabajadas + ya se puede registrar scrap <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">"Reportar falla" pausaba la orden pero no quedaba registrada como pausa para el cálculo de horas — el tiempo parado por avería se contaba como si la máquina hubiera seguido trabajando, inflando las horas reales en los reportes de OEE. Tampoco existía forma de registrar material de scrap/merma, así que el % de calidad del OEE siempre daba 100%.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> reportar una falla ahora también queda registrada como pausa real (se descuenta del tiempo trabajado). Nuevo campo para registrar scrap/merma junto al de cantidad completada. El mensaje de "esto requiere aprobación de calidad" quedó más claro tanto si lo detecta la pantalla como si lo rechaza la base de datos.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Kiosco de planta: identificación por sesión, validación de cargo/empresa, y las fallas ya generan mantenimiento <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">El kiosco solo pedía identificarse (carnet/cédula) al tocar "Iniciar" — el resto de acciones (pausar, registrar, reportar falla, finalizar) podía hacerlas cualquiera sin volver a identificarse, así que la bitácora podía quedar firmada por quien inició aunque otra persona hiciera el resto. Tampoco validaba el cargo del empleado ni que su empresa coincidiera (a diferencia del escaneo QR de máquina, que sí lo hace). Reportar una falla no generaba ninguna solicitud en Mantenimiento — la tabla ya estaba preparada para eso pero ninguna pantalla la usaba.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_fix_kiosco.sql</code>):</b> ahora se identifica una vez por sesión de uso del kiosco y esa identidad queda registrada en cada acción de esa sesión, no solo en el inicio. Valida cargo operativo y empresa, igual que el escaneo QR de máquina. Reportar una falla ahora crea automáticamente una solicitud en Mantenimiento. La alerta de mantenimiento preventivo del centro de trabajo ahora también le llega al supervisor (antes solo a admin). Se agregó candado contra que dos tablets pisen el avance de la misma orden a la vez.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>El Kiosco de planta ya es alcanzable por su propio permiso (antes quedaba invisible en el menú) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">El permiso <code>fabricacion_planta</code> existe pensado para un usuario "solo kiosco" en el taller, pero el menú "Más" solo tenía una entrada "Fabricación" gobernada por el permiso <code>mangueras</code>, y el panel de entrada ocultaba TODAS las tarjetas (incluida la del kiosco) si no se tenía ese permiso. Alguien con SOLO el permiso del kiosco no tenía ninguna forma de llegar a él desde el menú.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva entrada propia "🖥️ Kiosco de planta" en el menú "Más", independiente de "Fabricación". Además, un rol dinámico cuyo único módulo activo sea el kiosco ahora entra DIRECTO a él al iniciar sesión (mismo patrón ya usado para Combustible/Asistencia/Inventario).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Manual: nueva guía descargable "Guía de Fabricación (MRP)" <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">De las 7 guías descargables del Manual/Ayuda, ninguna cubría Fabricación — era el único módulo grande del sistema sin hoja de referencia.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva guía completa de punta a punta (maestros → órdenes → kiosco → reportes), con el mismo formato visual que las otras 7, descargable desde Manual/Ayuda.</p>
+  </div>
+
+  <h2><span class="n">15</span> Módulo de Fabricación: hallazgos de la auditoría que quedan pendientes (priorizados)</h2>
+  <p class="sec-note">Lo que la auditoría de hoy encontró pero se decidió NO tocar en esta pasada — por alcance, por necesitar una decisión de negocio, o por depender de otra pantalla. Usa la barra de filtros de arriba (Actividad = una de las secciones de Fabricación) para verlos junto con lo ya hecho.</p>
+
+  <div class="card">
+    <h3>Checkpoints de calidad (foto/medición/spec) no llegan del maestro de Ruta a la Orden de Trabajo <span class="meta"><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">Un paso de Ruta puede marcarse "requiere foto" o "requiere medición X" con su spec, pero al generar las Órdenes de Trabajo esos datos no se copian — ni oficina ni el kiosco pueden mostrarle al operario QUÉ debe verificar exactamente en un checkpoint de calidad, solo que "hay uno". Requiere tocar 3 archivos a la vez (generación de WO, `WorkOrdersScreen.tsx`, `PlantaKioskScreen.tsx`) — quedó fuera de esta pasada por cruzar los grupos de arreglo en paralelo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Las horas acumuladas de un Centro de trabajo no se ven en ninguna pantalla <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix">La alerta de mantenimiento preventivo del centro de trabajo corre en la base de datos, pero no hay ninguna pantalla que muestre sus horas acumuladas ni un botón para "confirmar mantenimiento y reiniciar" (como sí existe para el horómetro de maquinaria). La notificación llega a la campana pero no tiene a dónde navegar. Agregar esto a <code>WorkCentersScreen.tsx</code>, con el mismo patrón que ya usa Mantenimiento de Maquinaria.</p>
+  </div>
+
+  <div class="card">
+    <h3>No se puede clonar/versionar una receta o ruta existente <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">Crear una v2 siempre arranca en blanco (sin componentes/pasos) — para un producto con una receta larga, hay que reescribirla entera. Un botón "Clonar de la versión anterior" ahorraría el re-tipeo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Costo por hora del Centro de trabajo no alimenta ningún costeo real <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="fix">Se captura costo de mano de obra y de máquina por hora al dar de alta un centro de trabajo, pero Reportes de Fabricación pide el costo real de cada orden a mano en vez de derivarlo de costo/hora × tiempo. El dato maestro existe pero no se usa.</p>
+  </div>
+
+  <div class="card">
+    <h3>Sin priorización ni documento imprimible para las Órdenes de Fabricación <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">No hay forma de marcar una orden como urgente frente a otras (siempre se listan por fecha de creación), y no existe un "viajero" imprimible con la lista de insumos para mandar a planta (los Requerimientos sí tienen su PDF, las Órdenes de Fabricación no).</p>
+  </div>
+
+  <div class="card">
+    <h3>Sin historial de cambios de estatus en Mangueras, ni forma de revertir el flujo de pago <span class="meta"><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix">No queda registrado quién/cuándo movió una manguera a "en autorización", y una vez ahí (o en "pagado") no hay forma de devolverla un paso atrás desde la app — solo editando la base directamente. Tampoco existe un estado "anulado" para un registro creado por error.</p>
+  </div>
+
+  <div class="card">
+    <h3>Reportes de Fabricación no muestra el equivalente en bolívares <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix">A diferencia de Mangueras (que sí muestra US$ + Bs con la tasa BCV del día), el costeo de Reportes de Fabricación solo muestra US$ — inconsistente con el resto de la app.</p>
+  </div>
+
+  <div class="card">
+    <h3>Permisos de Fabricación siguen gruesos (un solo nivel para 6+ pantallas) <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="fix">El mismo permiso <code>mangueras</code> gobierna desde cotizar/pagar mangueras hasta ver Reportes de OEE — hoy no se puede dar acceso solo a reportes sin exponer también costos y pagos. No es un bug (mismo patrón que el resto de la app), pero si en el futuro alguien de gerencia necesita ver solo OEE, requeriría separar el permiso en varias claves más finas.</p>
+  </div>
+
+  <div class="card">
+    <h3>Trazabilidad por lote/serie (Fase 6) — se recomienda seguir sin construir <span class="meta"><span class="chip p-baja">Baja</span><span class="chip eff">◷ XL</span></span></h3>
+    <p class="fix">Evaluado explícitamente en la auditoría de hoy: dado que este taller confecciona mangueras a la medida, unidad por unidad, para su propia flota (no manufactura masiva con clientes externos exigiendo cadena de custodia), construir trazabilidad de lote/serie ahora sería resolver un problema que el negocio no tiene. El código físico único de cada manguera + el filtro por máquina ya responden la pregunta real de negocio ("¿qué máquina generó más gasto?"). Queda en el backlog para si algún día aparece un caso concreto (ej. un lote de materia prima defectuoso).</p>
+  </div>
+
   </section>
 
   <section class="day-group" id="day-2026-08-05">
