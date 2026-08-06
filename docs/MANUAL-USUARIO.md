@@ -1737,16 +1737,19 @@ registró** y **quién aprobó el pago**.
 
 ## 4.27. Guías descargables por rol (PDF)
 
-Dentro de **Más → Manual / Ayuda**, arriba de los temas del manual, hay una sección
-**"📄 Guías descargables"**: un PDF corto (una "hoja de referencia") por cada rol, con los pasos
-exactos de la aplicación — pensado para **imprimir o enviar por WhatsApp** a alguien que trabaja
-desde el teléfono y necesita el paso a paso a mano.
+Dentro de **Más → Manual / Ayuda**, arriba de los temas del manual, hay una tarjeta
+**"📄 Guías descargables"** (plegada por defecto — toca el encabezado para desplegarla): un PDF
+corto (una "hoja de referencia") por cada rol, con los pasos exactos de la aplicación — pensado
+para **imprimir o enviar por WhatsApp** a alguien que trabaja desde el teléfono y necesita el paso
+a paso a mano.
 
 > Disponible para **todos los usuarios** (no depende de ningún permiso de módulo): cada quien
 > puede descargar la guía de su propio rol, o la de cualquier otro si necesita ayudar/entrenar a
 > alguien.
 
-Hay una guía para cada uno de estos roles, cada una con sus propios pasos y mockups de pantalla:
+Hay una guía para cada uno de estos roles (no incluye al Administrador: ya tiene acceso al manual
+completo y no le hace falta una hoja de referencia de campo), cada una con sus propios pasos y
+mockups de pantalla:
 
 - 🪖 **Inspector** — iniciar sesión, escanear la máquina y llevar la jornada (iniciar/finalizar/parada).
 - 👷 **Operador** — registrar tu jornada y el combustible, con usuario o identificándote por QR con tu carnet.
@@ -1755,7 +1758,6 @@ Hay una guía para cada uno de estos roles, cada una con sus propios pasos y moc
 - ⛽ **Chofer de Combustible** — elegir/escanear la máquina y registrar el surtido.
 - 📷 **Coordinador QR** — surtir gasoil, reportar avería y marcar una máquina lista, todo por QR.
 - 📊 **Analista** — marcar la asistencia del personal (tu acceso garantizado) y el resto de módulos según tus permisos.
-- 🗂️ **Administrador** — la particularidad de cómo se entra desde el teléfono (Vista de Inspector + botón "🗂️ SISTEMA").
 
 Toca **"📄 Descargar"** junto al rol que quieras: se genera el PDF al instante (no se guarda nada
 en el servidor) y se abre para imprimir/guardar (en PC) o compartir (en el teléfono), igual que

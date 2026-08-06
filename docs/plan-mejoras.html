@@ -127,6 +127,11 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se creó un kit visual reutilizable (<code>src/lib/guides/guideBuilder.ts</code>) con todas las piezas de la guía de muestra (portada, pasos numerados, mockups de pantalla de teléfono armables por piezas — campos, botones, tarjetas, listas —, recuadros de info/aviso, tablas) para que las 8 guías se vean visualmente iguales entre sí. Antes de escribir cada una se auditó el código real de la pantalla de ese rol (<code>OperatorScreen.tsx</code>, <code>MachineQuickScreen.tsx</code>, <code>CocinaScreen.tsx</code>, <code>PatioScreen.tsx</code>, <code>FuelDriverScreen.tsx</code>, <code>CoordinadorQrPanel.tsx</code>, <code>AuthContext.tsx</code> para el permiso fijo del analista, y el enrutamiento del administrador en <code>RootNavigator</code>) para que los botones, campos y reglas citados en cada PDF sean EXACTAMENTE los que existen hoy en la app, con sus mismos textos y emojis. Las 8 guías (<code>src/lib/guides/*Guide.ts</code>: Inspector, Operador, Cocina, Coordinador de Patio, Chofer de Combustible, Coordinador QR, Analista, Administrador) se exportan como PDF reutilizando el mismo mecanismo de descarga/impresión que el resto de reportes de la app (<code>exportPdf</code> de <code>src/lib/pdf.ts</code>). Nueva sección "📄 Guías descargables" en <code>ManualScreen.tsx</code> (Más → Manual / Ayuda), visible para todos, con un botón "📄 Descargar" por rol.</p>
   </div>
 
+  <div class="card">
+    <h3>Ajuste: tarjeta plegable + se quitó la guía de Administrador <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la tarjeta "📄 Guías descargables" ahora es <b>plegable</b> (arranca cerrada; se toca el encabezado para desplegar la lista de 7 botones), igual que el resto de tarjetas del manual. Se retiró la guía del Administrador de la lista (y su archivo <code>src/lib/guides/adminGuide.ts</code>, que quedó huérfano) a pedido del cliente — quedan 7 guías: Inspector, Operador, Cocina, Coordinador de Patio, Chofer de Combustible, Coordinador QR y Analista.</p>
+  </div>
+
   </section>
 
   <section class="day-group" id="day-2026-08-05">
