@@ -57,7 +57,7 @@ type MachRow = {
   id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
   encargado: string | null; location: string | null; referencia: string | null; sector: string | null;
   zona: string | null; tipo: string | null; clasificacion: string | null; machinery_type: string | null;
-  last_horometro: number | null; operational: boolean | null; company?: { name?: string } | null;
+  last_horometro: number | null; operational: boolean | null; active: boolean | null; company?: { name?: string } | null;
 };
 type MInfo = {
   id: string; code: string; plate: string | null; serial: string | null; identifier: string | null;
@@ -180,7 +180,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
-      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company:company_id(name)'),
     ]);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRes.data ?? []) as any);
@@ -483,6 +483,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return m;
   }, [assignments, rounds, maint]);
 
+  // Máquinas inactivas o no-operativas (averiada de catálogo) — MISMO criterio que
+  // `visibleParaInspector()` en SupervisorScreen.tsx (TAREA 4): el teléfono las
+  // OCULTA de "Mis máquinas asignadas" salvo que tengan jornada iniciada HOY,
+  // así el inspector no pierde tiempo con equipo que ya se sabe parado/retirado.
+  // Sin este mismo filtro aquí, el desglose "POR INSPECTOR" cuenta máquinas que
+  // el inspector nunca ve en su teléfono — inflando "averiadas" con tickets viejos
+  // de equipo inactivo que no tiene nada que ver con la ronda de hoy.
+  const machInactiveSet = useMemo(() => {
+    const s = new Set<string>();
+    machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
+    return s;
+  }, [machList]);
+
   // Ficha COMPLETA por máquina (placa, serial, ubicación, empresa, encargado…).
   const machineInfo = useMemo(() => {
     const map = new Map<string, MInfo>();
@@ -594,7 +607,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // MISMA prioridad que el teléfono (segmentoDe): avería > parada > iniciada >
       // pendiente. Una máquina averiada/parada NO se cuenta como iniciada aunque haya
       // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
-      e.ids.forEach((id) => {
+      // Excluye máquinas inactivas/no-operativas SIN jornada de hoy (machInactiveSet),
+      // igual que el teléfono — si no, no cuenta en el total ("N asignada(s)").
+      const visibleIds = [...e.ids].filter((id) => !machInactiveSet.has(id) || startedSet.has(id));
+      visibleIds.forEach((id) => {
         if (averSet.has(id)) ave.push(id);
         else if (paradaSet.has(id)) par.push(id);
         else if (startedSet.has(id)) ini.push(id);
@@ -609,10 +625,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Eficiencia = % de asignadas que el inspector SÍ chequeó (iniciada, parada o
       // averiada) contra las que dejó completamente sin tocar (pendientes). Misma
       // fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
-      const eficiencia = isFaltantes || e.ids.size === 0 ? null : Math.round(((e.ids.size - pend.length) / e.ids.size) * 100);
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size, eficiencia, isFaltantes };
+      const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets]);
+  }, [assignments, shift, daySets, machInactiveSet]);
 
   const inspShown = useMemo(() => {
     const nq = norm(inspQ.trim());
