@@ -174,9 +174,12 @@ export default function SupervisionScreen({ navigation }: any) {
   const loadAssigns = useCallback(async () => {
     const { rows, missing } = await listInspectorAssignments();
     setAssignsMissing(missing);
-    // El CHECK es una acción EXPLÍCITA del inspector: se muestran TODAS las
-    // asignaciones (a diferencia de las visitas, no se filtran las de admin).
-    setAssigns(rows);
+    // Solo máquinas ACTIVAS del catálogo (machinery.active/operational). Las
+    // inactivas/retiradas no deben inflar el listado "por inspector" (un inspector
+    // no trabaja equipo dado de baja) — mismo criterio que Inspecciones y el teléfono.
+    // Aplica a TODOS los inspectores (pantalla y PDFs).
+    const activos = rows.filter((a) => !(a.machineActive === false || a.machineOperational === false));
+    setAssigns(activos);
   }, []);
   useEffect(() => { loadAssigns(); }, [loadAssigns]);
   // Agrupadas por inspector (A→Z), cada una con sus máquinas.

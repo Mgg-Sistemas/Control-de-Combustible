@@ -53,6 +53,8 @@ export type AssignmentRow = {
   assigned_at: string; code: string; serial: string | null; plate: string | null; companyName: string;
   referencia: string | null; latitude: number | null; longitude: number | null; encargado: string | null;
   sector: string | null;
+  // Estado del CATÁLOGO: para poder mostrar solo máquinas activas donde se requiera.
+  machineActive: boolean | null; machineOperational: boolean | null;
 };
 
 /** Todas las asignaciones ACTIVAS (CHECK) con datos de la máquina (incluye
@@ -61,7 +63,7 @@ export type AssignmentRow = {
 export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[]; missing: boolean }> {
   const { data, error } = await supabase
     .from('machine_inspectors')
-    .select('id, machinery_id, inspector_id, inspector_name, shift, assigned_at, machine:machinery_id(code, serial, plate, sector, referencia, encargado, latitude, longitude, company:company_id(name))')
+    .select('id, machinery_id, inspector_id, inspector_name, shift, assigned_at, machine:machinery_id(code, serial, plate, sector, referencia, encargado, latitude, longitude, active, operational, company:company_id(name))')
     .eq('active', true)
     .order('assigned_at', { ascending: false });
   if (error) return { rows: [], missing: isMissingTable(error.message) };
@@ -91,6 +93,8 @@ export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[
     longitude: r.machine?.longitude ?? null,
     encargado: r.machine?.encargado ?? null,
     sector: r.machine?.sector ?? null,
+    machineActive: (r.machine?.active ?? null) as boolean | null,
+    machineOperational: (r.machine?.operational ?? null) as boolean | null,
   }));
   return { rows, missing: false };
 }
