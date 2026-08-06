@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, TouchableOpacity, View, Image, Platform, ActivityIndicator } from 'react-native';
-import { NavigationContainer, DefaultTheme, useNavigation, useNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation, LinkingOptions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
@@ -375,6 +375,76 @@ function Tabs() {
 /** Clave en localStorage para recordar la última pantalla/pestaña (web/PC). */
 const NAV_STATE_KEY = 'NAV_STATE_V1';
 
+/**
+ * LINKING (web): sincroniza la URL con la pantalla activa. Así la URL pasa de
+ * `soslaguaira.com` a `soslaguaira.com/inventario`, y al RECARGAR el navegador
+ * React Navigation restaura la pantalla DIRECTO desde la URL (incluida la
+ * pantalla honda dentro de "Más"). Reemplaza al truco de guardar el estado en
+ * localStorage + resetRoot, que en PC solo restauraba la pestaña y caía en el
+ * menú. El flujo de QR (?maquina=, ?empleado=, …) renderiza pantallas planas
+ * ANTES de montar cualquier navegador, así que este linking no lo afecta.
+ *
+ * El config es un SUPERCONJUNTO: incluye pantallas de varios árboles por rol
+ * (Tabs, SupervisorTabs, Patio, etc.). React Navigation solo aplica las que
+ * existan en el navegador montado; las demás se ignoran sin error.
+ */
+const linking: LinkingOptions<any> = {
+  prefixes: [],
+  config: {
+    screens: {
+      Dashboard: 'inicio',
+      ControlMaquinaria: 'control',
+      Map: 'mapa',
+      Equipos: 'catalogo',
+      Revisar: 'revisar',
+      RoleHome: 'panel',
+      PatioHome: 'patio',
+      FuelDriverHome: 'surtir',
+      CombustibleHome: 'combustible-directo',
+      More: {
+        screens: {
+          MoreMenu: 'mas',
+          Combustible: 'combustible',
+          Tanks: 'tanques',
+          Intakes: 'ingresos',
+          Dispatches: 'consumos',
+          Authorizations: 'solicitudes',
+          ControlPagos: 'control-pagos',
+          MargenGanancia: 'margen-ganancia',
+          MantenimientoMaquinaria: 'mantenimiento',
+          Operadores: 'operadores',
+          Supervision: 'inspecciones',
+          HistoricoJornadas: 'historico',
+          InspectorTlf: 'vista-inspector',
+          Camiones: 'camiones',
+          Comida: 'comida',
+          Empleados: 'empleados',
+          EmployeeCard: 'ficha-empleado',
+          Aliados: 'aliados',
+          AliadoCard: 'ficha-aliado',
+          Nomina: 'nomina',
+          PagoPersonal: 'pago-personal',
+          Uniformes: 'uniformes',
+          Asistencia: 'asistencia',
+          AsistenciaCamiones: 'asistencia-camiones',
+          Compras: 'compras',
+          Inventario: 'inventario',
+          InspeccionesMaq: 'inspecciones-maquinaria',
+          ScanQr: 'escanear',
+          MachineQuick: 'maquina',
+          Transfers: 'traslados',
+          Reports: 'reportes',
+          Users: 'usuarios',
+          Audit: 'auditoria',
+          Empresas: 'empresas',
+          Manual: 'manual',
+          Ajustes: 'ajustes',
+        },
+      },
+    },
+  },
+};
+
 /** Lee un parámetro de la URL (solo web) para abrir por QR: ?maquina=<id> o ?empleado=<id>. */
 function useQrParam(name: string): [string | null, () => void] {
   const read = (): string | null => {
@@ -468,40 +538,10 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
-  // PERSISTENCIA DE NAVEGACIÓN (web, PC y teléfono): al recargar la página en el
-  // NAVEGADOR, se mantiene la MISMA pantalla/pestaña donde estaba el usuario (no
-  // vuelve al inicio/REVISAR). Antes esto solo aplicaba en PC — en teléfono el
-  // refresh SIEMPRE volvía a la primera pestaña (confirmado con pruebas: el
-  // guard `|| phone` bloqueaba tanto guardar como restaurar). Se usa una CLAVE
-  // DISTINTA para teléfono porque su árbol de rutas (SupervisorTabs, PatioStack,
-  // etc., según el rol) es distinto al de PC (Tabs) — así nunca se intenta
-  // aplicar a un navegador el estado guardado de otro con rutas diferentes.
-  const navStateKey = phone ? `${NAV_STATE_KEY}_PHONE` : NAV_STATE_KEY;
-  const [navInitialState] = React.useState<any>(() => {
-    try {
-      if (Platform.OS !== 'web') return undefined;
-      const raw = (globalThis as any).localStorage?.getItem(navStateKey);
-      return raw ? JSON.parse(raw) : undefined;
-    } catch { return undefined; }
-  });
-  const onNavStateChange = React.useCallback((state: any) => {
-    if (Platform.OS !== 'web') return;
-    try {
-      if (state && Array.isArray(state.routes) && state.routes.length) {
-        (globalThis as any).localStorage?.setItem(navStateKey, JSON.stringify(state));
-      }
-    } catch {}
-  }, [navStateKey]);
-  // Ref del contenedor para RE-APLICAR el estado guardado cuando TODO está montado.
-  // Motivo: las pestañas son lazy; al aplicar `initialState` en el primer montaje,
-  // el stack anidado de "Más" aún no existe y su parte del estado se pierde (se
-  // restauraba la pestaña Más pero caía en el menú, no en la pantalla honda). En
-  // `onReady` ya está montado, así que `resetRoot` restaura el árbol COMPLETO.
-  const navigationRef = useNavigationContainerRef();
-  const onNavReady = React.useCallback(() => {
-    if (Platform.OS !== 'web' || !navInitialState) return;
-    try { navigationRef.resetRoot(navInitialState); } catch {}
-  }, [navigationRef, navInitialState]);
+  // PERSISTENCIA DE NAVEGACIÓN (web): ahora la maneja `linking` (arriba). La URL
+  // refleja la pantalla activa (soslaguaira.com/inventario) y al RECARGAR React
+  // Navigation restaura la vista DIRECTO desde la URL — incluida la pantalla honda
+  // dentro de "Más". Ya no se guarda el estado en localStorage ni se hace resetRoot.
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -537,15 +577,12 @@ export default function RootNavigator() {
   }
   return (
     <NavigationContainer
-      ref={navigationRef}
-      onReady={onNavReady}
       theme={navTheme}
+      // Sincroniza la URL con la pantalla (web) y restaura la vista al recargar.
+      linking={linking}
       // Título fijo de la pestaña del navegador (web). Sin esto, React Navigation
       // pone el nombre de la pantalla activa y en el arranque muestra "undefined".
       documentTitle={{ formatter: () => 'SOS LA GUAIRA' }}
-      // Al recargar en PC/web, vuelve a la misma pantalla donde estaba el usuario.
-      initialState={navInitialState}
-      onStateChange={onNavStateChange}
     >
       {qrComidaId && !loggedInReal ? (
         // QR de DISTRIBUCIÓN DE COMIDA: LOGIN DIRECTO (sin vista anónima).
