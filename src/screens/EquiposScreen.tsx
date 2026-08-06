@@ -89,6 +89,17 @@ function Thumb({ uri, size, radius: r }: { uri: string; size: number; radius: nu
   return <Image source={{ uri }} style={{ width: size, height: size, borderRadius: r }} />;
 }
 
+/** Foto AMPLIADA (visor). Se ajusta al ancho conservando proporción (sin recortar). */
+function BigPhoto({ uri }: { uri: string }) {
+  if (Platform.OS === 'web') {
+    return React.createElement('img', {
+      src: uri,
+      style: { width: '100%', maxHeight: '58vh', objectFit: 'contain', borderRadius: 10, display: 'block' },
+    });
+  }
+  return <Image source={{ uri }} style={{ width: '100%', height: 320, borderRadius: 10 }} resizeMode="contain" />;
+}
+
 const MACHINERY_FIELDS: Field[] = [
   { key: 'code', label: 'Código / Nombre', type: 'text', required: true },
   { key: 'tipo', label: 'Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
@@ -397,7 +408,12 @@ export default function EquiposScreen({ navigation, route }: any) {
     if (res.ok) machinery.refetch();
   };
   const locate = (m: Machinery) => run(m.id + '-loc', () => captureLocation(m.id));
-  const photo = (m: Machinery) => run(m.id + '-photo', () => pickAndUploadPhoto(m.id));
+  const photo = (m: Machinery) => run(m.id + '-photo', () => pickAndUploadPhoto(m.id, 'photo_url'));
+  const photoSerial = (m: Machinery) => run(m.id + '-photoser', () => pickAndUploadPhoto(m.id, 'photo_serial_url'));
+  // Visor de fotos (máquina + serial/placa). Guardamos SOLO el id y releemos de la
+  // lista para que, tras subir/cambiar una foto, el visor muestre la versión nueva.
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const viewer = viewerId ? (machinery.data.find((x) => x.id === viewerId) ?? null) : null;
   const toggleOp = (m: Machinery) =>
     run(m.id + '-op', async () => {
       const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
@@ -828,13 +844,21 @@ export default function EquiposScreen({ navigation, route }: any) {
           </View>
         ) : null}
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
-          {m.photo_url ? (
-            <Thumb uri={m.photo_url} size={64} radius={radius.md} />
-          ) : (
-            <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ fontSize: 28 }}>🚜</Text>
-            </View>
-          )}
+          {/* Miniatura → abre el visor con AMBAS fotos (máquina + serial/placa). */}
+          <TouchableOpacity onPress={() => setViewerId(m.id)} activeOpacity={0.7} style={{ width: 64, height: 64 }}>
+            {m.photo_url ? (
+              <Thumb uri={m.photo_url} size={64} radius={radius.md} />
+            ) : (
+              <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 28 }}>🚜</Text>
+              </View>
+            )}
+            {m.photo_serial_url ? (
+              <View style={{ position: 'absolute', right: -4, bottom: -4, backgroundColor: colors.brand, borderRadius: radius.pill, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface }}>
+                <Text style={{ fontSize: 11 }}>🔖</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
@@ -908,7 +932,8 @@ export default function EquiposScreen({ navigation, route }: any) {
         {m.latitude != null ? (
           <BigBtn label="🗺️ Ver en mapa" onPress={() => navigation?.navigate('Map', { focus: { id: m.id, code: m.code } })} color="#0D9488" />
         ) : null}
-        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
+        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
+        <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
@@ -942,6 +967,44 @@ export default function EquiposScreen({ navigation, route }: any) {
   return (
     <Screen>
       <ConfigBanner />
+
+      {/* Visor de fotos: MAQUINARIA + SERIAL/PLACA, ampliadas y con su etiqueta.
+          Desde aquí también se puede agregar/cambiar cada una. */}
+      {viewer ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setViewerId(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
+            <ScrollView contentContainerStyle={{ padding: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing.xl, gap: spacing.lg }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                  {viewer.code}{viewer.plate ? ` · Placa ${viewer.plate}` : ''}{viewer.serial ? ` · Serial ${viewer.serial}` : ''}
+                </Text>
+                <TouchableOpacity onPress={() => setViewerId(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.15)' }}>
+                  <Text style={{ color: '#fff', fontWeight: '800' }}>✕ Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+              {[
+                { url: viewer.photo_url, label: 'MAQUINARIA', onSet: () => photo(viewer), bkey: '-photo' },
+                { url: viewer.photo_serial_url, label: 'SERIAL / PLACA', onSet: () => photoSerial(viewer), bkey: '-photoser' },
+              ].map((p) => (
+                <View key={p.label} style={{ gap: spacing.xs }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>{p.label}</Text>
+                  {p.url ? (
+                    <BigPhoto uri={p.url} />
+                  ) : (
+                    <View style={{ height: 160, borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Sin foto todavía</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity onPress={p.onSet} disabled={busy === viewer.id + p.bkey} style={{ alignSelf: 'flex-start', backgroundColor: colors.accent, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, opacity: busy === viewer.id + p.bkey ? 0.6 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === viewer.id + p.bkey ? 'Subiendo…' : (p.url ? '🔄 Cambiar foto' : '📷 Agregar foto')}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </Modal>
+      ) : null}
+
       <SectionTitle>Catálogo maquinaria/vehículos</SectionTitle>
 
       {notice ? (
