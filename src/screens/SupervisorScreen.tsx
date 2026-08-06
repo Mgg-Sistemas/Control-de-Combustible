@@ -1526,6 +1526,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           {(m as any).serial ? ` · Serial: ${(m as any).serial}` : ''}
           {(m as any).plate ? ` · Placa: ${(m as any).plate}` : ''}
         </Text>
+        {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
+        {m.encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>👤 Encargado: {m.encargado}</Text> : null}
         {/* Estado de la jornada (con su color) */}
         {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivos[m.id] ? ` · ${paradaMotivos[m.id]}` : ''}</Text> : null}
         {/* Inspectores asignados (día / noche) */}
