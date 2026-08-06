@@ -19,10 +19,15 @@ const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&l
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
 const dash = (v: any) => { const s = String(v ?? '').trim(); return s || '—'; };
 const n2 = (n: number) => Math.round(n * 100) / 100;
+/** Hora (Caracas) "HH:MM am/pm" de un instante ISO, o '—'. */
+const horaCaracas = (iso: string | null): string => {
+  if (!iso) return '—';
+  try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return '—'; }
+};
 
 type Fila = {
   code: string; serialPlaca: string; inspector: string;
-  trabajadas: number; paradas: number; averia: string;
+  horaIni: string; horaFin: string; trabajadas: number; paradas: number; averia: string;
 };
 
 /**
@@ -55,6 +60,27 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   );
   const roundBy = new Map<string, any>();
   ((rounds ?? []) as any[]).forEach((r) => roundBy.set(r.machinery_id, r));
+
+  // 2b) Tramos trabajados del día (machine_work_segments): para HORA de inicio/fin y
+  //     para calcular las HORAS PARADAS automáticamente = span total − trabajado (ej.:
+  //     trabajó 7-11am y 3-7pm → span 12h, trabajado 8h → 4h paradas). Cero cambios al
+  //     pago (no toca day_hours ni hours_stopped).
+  const segs = await selectAllRows(
+    'machine_work_segments',
+    'machinery_id, started_at, ended_at, hours',
+    (q) => q.eq('round_date', date).in('machinery_id', ids),
+  );
+  const segBy = new Map<string, { sum: number; minStart: number; maxEnd: number }>();
+  ((segs ?? []) as any[]).forEach((s) => {
+    const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
+    const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
+    const h = Number(s.hours) || 0;
+    const prev = segBy.get(s.machinery_id) ?? { sum: 0, minStart: Infinity, maxEnd: -Infinity };
+    prev.sum += h;
+    if (!isNaN(st)) prev.minStart = Math.min(prev.minStart, st);
+    if (!isNaN(en)) prev.maxEnd = Math.max(prev.maxEnd, en);
+    segBy.set(s.machinery_id, prev);
+  });
 
   // 3) Inspector asignado (CHECK) por turno.
   const { rows: assigns } = await listInspectorAssignments();
@@ -91,8 +117,20 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const porEmpresa = new Map<string, Fila[]>();
   ids.forEach((id) => {
     const r = roundBy.get(id);
+    const seg = segBy.get(id);
     const trab = n2((Number(r?.day_hours) || 0) + (Number(r?.night_hours) || 0) + (Number(r?.overtime_hours) || 0));
-    const par = n2(Number(r?.hours_stopped) || 0);
+    // Horas paradas: si hay tramos, span total − horas trabajadas (tiempo ocioso
+    // entre tramos, p. ej. avería a media jornada). Si no hay tramos, cae al valor
+    // manual `hours_stopped` (Control de Maquinaria).
+    let par = 0;
+    if (seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
+      const spanH = (seg.maxEnd - seg.minStart) / 3600000;
+      par = Math.max(0, n2(spanH - seg.sum));
+    } else {
+      par = n2(Number(r?.hours_stopped) || 0);
+    }
+    const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
+    const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averia = averBy.get(id) || '';
     if (trab <= 0 && par <= 0 && !averia) return; // sin nada que reportar ese día
     const m = machById.get(id);
@@ -101,6 +139,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       code: m?.code || '—',
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
+      horaIni, horaFin,
       trabajadas: trab, paradas: par, averia,
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -114,6 +153,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       `<tr>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
+        <td>${esc(f.horaIni)}</td><td>${esc(f.horaFin)}</td>
         <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
         <td class="r">${f.paradas > 0 ? f.paradas : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
@@ -122,9 +162,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const tPar = n2(filas.reduce((s, f) => s + f.paradas, 0));
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
+      <th>Hora inicio</th><th>Hora fin</th>
       <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
