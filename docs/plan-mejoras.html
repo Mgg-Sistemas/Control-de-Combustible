@@ -76,6 +76,35 @@
   .day-heading{font-size:clamp(20px,3.4vw,26px);font-weight:800;letter-spacing:-.01em;
     color:var(--ink);display:flex;align-items:center;gap:10px;
     margin:0 0 8px;padding-bottom:14px;border-bottom:2px solid var(--ink)}
+
+  /* Barra de filtros */
+  .filterbar{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;margin:18px 0 10px;box-shadow:var(--shadow)}
+  .filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+  .filter-row:last-child{margin-bottom:0}
+  .filter-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.08em;margin-right:2px;white-space:nowrap}
+  .filter-chip{font:inherit;font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;
+    cursor:pointer;letter-spacing:.02em;white-space:nowrap;border:1px solid var(--line);
+    transition:opacity .15s,background .15s,color .15s,box-shadow .15s}
+  .filter-chip.chip-neutral{background:var(--bg);color:var(--ink)}
+  .filter-chip.chip{opacity:.5;border-color:transparent}
+  .filter-chip.chip.active{opacity:1;box-shadow:0 0 0 2px var(--ink) inset}
+  .filter-chip.chip-neutral.active{background:var(--accent);color:#fff;border-color:transparent}
+  .filter-select{font:inherit;font-size:12.5px;padding:6px 10px;border-radius:10px;
+    border:1px solid var(--line);background:var(--bg);color:var(--ink);max-width:100%}
+  .filter-row-actions{justify-content:space-between}
+  .filter-toggle{font:inherit;font-size:12px;font-weight:700;padding:7px 14px;border-radius:10px;
+    border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);cursor:pointer;
+    white-space:nowrap}
+  .filter-toggle[aria-pressed="true"]{background:var(--accent);color:#fff}
+  .filter-count{font-size:12px;color:var(--muted);font-weight:700;white-space:nowrap}
+  @media(max-width:560px){
+    .filterbar{padding:14px}
+    .filter-row-actions{flex-direction:column;align-items:stretch;gap:10px}
+    .filter-select{width:100%}
+    .filter-toggle{width:100%}
+  }
 </style>
 
 <div class="wrap">
@@ -90,6 +119,33 @@
       <span class="chip eff">◷ esfuerzo estimado</span>
     </div>
   </header>
+
+  <div class="filterbar" id="filterbar">
+    <div class="filter-row" id="filter-row-priority">
+      <span class="filter-label">Prioridad</span>
+      <button type="button" class="filter-chip chip-neutral active" data-filter="priority" data-value="todas">Todas</button>
+      <button type="button" class="filter-chip chip p-alta" data-filter="priority" data-value="alta">Alta</button>
+      <button type="button" class="filter-chip chip p-media" data-filter="priority" data-value="media">Media</button>
+      <button type="button" class="filter-chip chip p-baja" data-filter="priority" data-value="baja">Baja</button>
+    </div>
+    <div class="filter-row" id="filter-row-status">
+      <span class="filter-label">Estado</span>
+      <button type="button" class="filter-chip chip-neutral active" data-filter="status" data-value="todas">Todas</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="hecho">✓ Hecho</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="planificado">◔ Planificado</button>
+      <button type="button" class="filter-chip chip-neutral" data-filter="status" data-value="pendiente">Pendiente</button>
+    </div>
+    <div class="filter-row">
+      <label class="filter-label" for="filter-section">Actividad / sección</label>
+      <select class="filter-select" id="filter-section">
+        <option value="">Todas las actividades</option>
+      </select>
+    </div>
+    <div class="filter-row filter-row-actions">
+      <button type="button" class="filter-toggle" id="order-toggle" aria-pressed="false">↕ Ordenar pendientes por prioridad</button>
+      <span class="filter-count" id="filter-count">Mostrando… de …</span>
+    </div>
+  </div>
 
   <section class="day-group" id="day-2026-08-06">
     <h2 class="day-heading">📅 06/08/2026</h2>
@@ -239,6 +295,45 @@
   <div class="card feat">
     <h3>Reportes de Fabricación: OEE y costeo por orden (con PDF) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>ManufacturingReportsScreen.tsx</code> lee la vista <code>wo_oee</code> (insumos crudos por orden de trabajo — tiempo en proceso vs. pausada/falla, cantidad completada/planificada/scrap) y calcula del lado de la app <b>Disponibilidad × Rendimiento × Calidad = OEE</b>, con banda de color (🟢≥85% · 🟡60-84% · 🔴&lt;60%), filtrable por rango de fecha y centro de trabajo. Junto al OEE, un costeo por orden de fabricación (estimado vs. real, con la variación resaltada) con edición rápida del costo real para órdenes ya cerradas. Botón de exportar PDF con el mismo mecanismo que el resto de reportes de la app.</p>
+  </div>
+
+  <h2><span class="n">11</span> Resumen de Inspecciones: horas por máquina individual, con buscador y filtros</h2>
+  <p class="sec-note">Pedido directo: "al lado izquierdo dame las horas reales pero del día... quiero también que si yo las presiono, uno u otro, pueda ver la información completa por equipo de manera individual, equipo a equipo sus horas de uso y poder filtrar o poder buscar".</p>
+
+  <div class="card feat">
+    <h3>Tarjeta "Horas reales totales" (histórico completo) junto a "Horas reales" (del día) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En el panel de detalle por inspector de <code>InspectionsSummary.tsx</code> solo existía "Horas reales", que en realidad ya estaba acotada al día seleccionado — no había ninguna cifra de horas acumuladas de TODO el historial.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó "Horas reales totales" al lado, calculada con una consulta liviana y paginada (<code>selectAllRows</code>) sobre <code>machine_rounds</code> sin filtro de fecha, sumada por máquina y luego por las máquinas del inspector seleccionado.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Al tocar cualquiera de las dos tarjetas: desglose máquina por máquina, con buscador y filtros de estado <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">Las dos tarjetas de horas eran solo un total agregado — para saber cuánto trabajó CADA máquina había que ir a otra pantalla y cruzar los datos a mano.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> tocar "Horas reales" o "Horas reales totales" abre una hoja inferior con TODAS las máquinas del inspector seleccionado, cada una con su código/placa/serial, su estado (🟢 iniciada / 🟡 parada / 🔴 avería / ⏳ pendiente, mismo criterio que ya usa el resto de la pantalla) y sus horas de HOY y TOTALES lado a lado — ordenadas por defecto según cuál tarjeta se tocó (día o total). Incluye un buscador (código/placa/serial) y chips de filtro por estado (Todas/Iniciadas/Paradas/Averiadas/Pendientes), con el mismo estilo visual que el resto de la pantalla.</p>
+  </div>
+
+  <h2><span class="n">12</span> Enrutamiento por rol: acceso directo a Inventario + el administrador ya no arranca en la vista de Supervisor</h2>
+  <p class="sec-note">Pedido directo: "inicié desde el teléfono con el usuario combustible y no me llevó directo a la vista de combustible... revisa las rutas para las vistas tanto desde la PC como del teléfono" y "el administrador o administradores no necesitan iniciar con la vista de supervisor".</p>
+
+  <div class="card feat">
+    <h3>Nuevo panel dedicado para un rol cuyo único módulo activo es Inventario <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Ya existía este mismo mecanismo para roles 100% de Combustible o 100% de Asistencia (entran directo a su módulo, sin pasar por "Más") — pero un rol dinámico 100% de Inventario todavía caía en el menú "Más" en vez de ir directo a Inventario.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se agregó el mismo patrón (<code>esRolInventario</code> + panel dedicado) que ya usaban Combustible y Asistencia — un rol cuyos módulos activos son únicamente "Inventario" entra directo a esa pantalla al iniciar sesión, en teléfono y en PC.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>El administrador ya no arranca en la vista de Supervisor en el teléfono <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">En el teléfono, el administrador arrancaba siempre en la vista de Inspector ("Revisar") y tenía que tocar un botón "SISTEMA" para llegar a la app completa — una excepción puntual pensada originalmente para un usuario concreto que hace de inspector y de administrador a la vez, pero que terminó aplicándose también a cualquier administrador.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el administrador ahora arranca siempre en la app completa (Inicio) en el teléfono, sin pasar por "Revisar" ni por el botón SISTEMA. La excepción puntual de la persona que sí prefiere arrancar como inspector se mantuvo intacta, sin cambios en su comportamiento.</p>
+  </div>
+
+  <h2><span class="n">13</span> Este mismo documento: filtros por prioridad/actividad/estado + orden de pendientes por prioridad</h2>
+  <p class="sec-note">Pedido directo: "coloca las cosas por mejorar o pendientes en orden de prioridades y que pueda filtrar también por prioridad por actividad".</p>
+
+  <div class="card feat">
+    <h3>Barra de filtros (prioridad / actividad-sección / estado) + orden de pendientes por prioridad <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Este documento ya reunía todo el historial de mejoras, pero era un texto corrido sin forma de aislar solo lo de Alta prioridad, solo lo pendiente, o solo una sección/actividad puntual.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> nueva barra de filtros arriba del historial (Prioridad, Estado, Actividad/sección — esta última generada sola a partir de las secciones reales del documento) con contador de resultados, y un botón para ordenar lo pendiente/planificado de mayor a menor prioridad dentro de cada sección (sin mezclar secciones ni días distintos, para no perder el contexto de cada una).</p>
   </div>
 
   </section>
@@ -655,3 +750,225 @@
   </footer>
   </section>
 </div>
+
+<script>
+(function(){
+  'use strict';
+
+  var PRIORITY_RANK = { alta: 0, media: 1, baja: 2, ninguna: 3 };
+
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.card'));
+  var sections = []; // { key, label, dayId, h2, note, cards:[] }
+
+  // ---- 1) Anotar cada tarjeta con data-priority / data-status / data-original-index ----
+  cards.forEach(function(card, i){
+    card.setAttribute('data-original-index', String(i));
+
+    var priority = 'ninguna';
+    if (card.querySelector('.chip.p-alta')) priority = 'alta';
+    else if (card.querySelector('.chip.p-media')) priority = 'media';
+    else if (card.querySelector('.chip.p-baja')) priority = 'baja';
+    card.setAttribute('data-priority', priority);
+
+    var status = 'pendiente';
+    var metaChips = card.querySelectorAll('h3 .meta .chip');
+    for (var j = 0; j < metaChips.length; j++){
+      var chip = metaChips[j];
+      if (chip.classList.contains('p-alta') || chip.classList.contains('p-media') ||
+          chip.classList.contains('p-baja') || chip.classList.contains('eff')) continue;
+      var txt = (chip.textContent || '').trim();
+      if (txt.indexOf('✓') === 0){ status = 'hecho'; break; }
+      if (txt.indexOf('◔') === 0){ status = 'planificado'; break; }
+      // otros chips de estado (ej. "🟡 Parcial", "🟡 Corregido, sin verificar en vivo")
+      // quedan como "pendiente": son trabajo que todavía necesita atención.
+    }
+    card.setAttribute('data-status', status);
+  });
+
+  // ---- 2) Detectar secciones (h2 numerados) por día y asignar data-section a cada tarjeta ----
+  var dayGroups = Array.prototype.slice.call(document.querySelectorAll('.day-group'));
+  dayGroups.forEach(function(dayGroup){
+    var dayId = dayGroup.id || '';
+    var dayLabel = dayId;
+    var children = Array.prototype.slice.call(dayGroup.children);
+
+    for (var c = 0; c < children.length; c++){
+      if (children[c].tagName === 'H2' && children[c].classList.contains('day-heading')){
+        dayLabel = children[c].textContent.trim();
+        break;
+      }
+    }
+
+    var daySections = [];
+    var currentSection = null;
+    children.forEach(function(el){
+      if (el.tagName === 'H2' && !el.classList.contains('day-heading')){
+        var nSpan = el.querySelector('.n');
+        var num = nSpan ? nSpan.textContent.trim() : '';
+        var fullText = el.textContent.trim();
+        var title = num && fullText.indexOf(num) === 0 ? fullText.slice(num.length).trim() : fullText;
+        var key = dayId + '__' + (num || sections.length);
+        currentSection = { key: key, dayId: dayId, dayLabel: dayLabel, num: num, title: title, h2: el, note: null, cards: [], boundary: null };
+        daySections.push(currentSection);
+        sections.push(currentSection);
+      } else if (currentSection && el.classList && el.classList.contains('sec-note') && !currentSection.note){
+        currentSection.note = el;
+      } else if (el.classList && el.classList.contains('card')){
+        if (currentSection){
+          el.setAttribute('data-section', currentSection.key);
+          currentSection.cards.push(el);
+        } else {
+          el.setAttribute('data-section', '');
+        }
+      }
+    });
+
+    // "boundary" = elemento estable (nunca una .card) que sigue al bloque de tarjetas de
+    // cada sección — se usa como referencia fija para reordenar sin desplazar contenido
+    // de otra sección. Es el siguiente elemento que NO es tarjeta ni la nota propia de
+    // la sección (el próximo <h2>, un bloque <div class="done">, el <footer>, etc.).
+    daySections.forEach(function(sec){
+      var h2Index = children.indexOf(sec.h2);
+      var boundary = null;
+      for (var k = h2Index + 1; k < children.length; k++){
+        var cand = children[k];
+        if (cand === sec.note) continue;
+        if (cand.classList && cand.classList.contains('card')) continue;
+        boundary = cand;
+        break;
+      }
+      sec.boundary = boundary;
+    });
+  });
+
+  // ---- 3) Poblar el <select> de actividad/sección, agrupado por día ----
+  var sectionSelect = document.getElementById('filter-section');
+  var currentOptgroupDay = null;
+  var optgroup = null;
+  sections.forEach(function(sec){
+    if (sec.dayId !== currentOptgroupDay){
+      currentOptgroupDay = sec.dayId;
+      optgroup = document.createElement('optgroup');
+      optgroup.label = sec.dayLabel;
+      sectionSelect.appendChild(optgroup);
+    }
+    var opt = document.createElement('option');
+    opt.value = sec.key;
+    opt.textContent = (sec.num ? sec.num + ' — ' : '') + sec.title;
+    optgroup.appendChild(opt);
+  });
+
+  // ---- 4) Filtrado combinado (prioridad Y estado Y sección) ----
+  var state = { priority: 'todas', status: 'todas', section: '' };
+  var counterEl = document.getElementById('filter-count');
+
+  function applyFilters(){
+    var visibleCount = 0;
+    cards.forEach(function(card){
+      var matchPriority = state.priority === 'todas' || card.getAttribute('data-priority') === state.priority;
+      var matchStatus = state.status === 'todas' || card.getAttribute('data-status') === state.status;
+      var matchSection = !state.section || card.getAttribute('data-section') === state.section;
+      var visible = matchPriority && matchStatus && matchSection;
+      card.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
+    });
+
+    sections.forEach(function(sec){
+      var anyVisible = sec.cards.some(function(c){ return c.style.display !== 'none'; });
+      sec.h2.style.display = anyVisible ? '' : 'none';
+      if (sec.note) sec.note.style.display = anyVisible ? '' : 'none';
+    });
+
+    // Si un día completo queda sin secciones visibles, ocultar también su encabezado de día.
+    dayGroups.forEach(function(dayGroup){
+      var daySections = sections.filter(function(s){ return s.dayId === dayGroup.id; });
+      var dayHasVisible = daySections.some(function(s){ return s.h2.style.display !== 'none'; });
+      var heading = dayGroup.querySelector('h2.day-heading');
+      if (heading) heading.style.display = dayHasVisible ? '' : 'none';
+    });
+
+    counterEl.textContent = 'Mostrando ' + visibleCount + ' de ' + cards.length;
+  }
+
+  function setActiveChip(filterName, value){
+    var chips = document.querySelectorAll('.filter-chip[data-filter="' + filterName + '"]');
+    chips.forEach(function(chip){
+      if (chip.getAttribute('data-value') === value) chip.classList.add('active');
+      else chip.classList.remove('active');
+    });
+  }
+
+  document.getElementById('filterbar').addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('.filter-chip') : null;
+    if (!btn) return;
+    var filterName = btn.getAttribute('data-filter');
+    var value = btn.getAttribute('data-value');
+    if (filterName === 'priority' || filterName === 'status'){
+      state[filterName] = value;
+      setActiveChip(filterName, value);
+      applyFilters();
+    }
+  });
+
+  sectionSelect.addEventListener('change', function(){
+    state.section = sectionSelect.value;
+    applyFilters();
+  });
+
+  // ---- 5) Orden por prioridad de lo pendiente (reordena DOM, respeta impresión/scroll) ----
+  var orderActive = false;
+  var orderToggleBtn = document.getElementById('order-toggle');
+
+  function computeSortedOrder(sec){
+    var original = sec.cards;
+    var result = original.slice();
+    var pending = [];
+    original.forEach(function(card){
+      if (card.getAttribute('data-status') !== 'hecho') pending.push(card);
+    });
+    pending.sort(function(a, b){
+      var ra = PRIORITY_RANK[a.getAttribute('data-priority')];
+      var rb = PRIORITY_RANK[b.getAttribute('data-priority')];
+      if (ra !== rb) return ra - rb;
+      return (+a.getAttribute('data-original-index')) - (+b.getAttribute('data-original-index'));
+    });
+    var ptr = 0;
+    for (var i = 0; i < result.length; i++){
+      if (result[i].getAttribute('data-status') !== 'hecho'){
+        result[i] = pending[ptr++];
+      }
+    }
+    return result;
+  }
+
+  function layoutSection(sec, order){
+    // sec.boundary es un elemento fijo que nunca se mueve (no es .card), así que sirve
+    // de referencia estable para insertBefore aunque las propias tarjetas cambien de lugar
+    // entre llamadas (evita insertar una tarjeta "antes de sí misma" a mitad de secuencia).
+    var parent = sec.h2.parentNode;
+    var ref = sec.boundary;
+    order.forEach(function(card){
+      parent.insertBefore(card, ref);
+    });
+  }
+
+  function updateOrdering(){
+    sections.forEach(function(sec){
+      var order = orderActive ? computeSortedOrder(sec) : sec.cards;
+      layoutSection(sec, order);
+    });
+  }
+
+  orderToggleBtn.addEventListener('click', function(){
+    orderActive = !orderActive;
+    orderToggleBtn.setAttribute('aria-pressed', orderActive ? 'true' : 'false');
+    orderToggleBtn.textContent = orderActive
+      ? '↕ Orden original'
+      : '↕ Ordenar pendientes por prioridad';
+    updateOrdering();
+  });
+
+  // ---- 6) Estado inicial ----
+  applyFilters();
+})();
+</script>
