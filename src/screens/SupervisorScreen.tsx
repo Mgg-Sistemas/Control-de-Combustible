@@ -2118,7 +2118,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         );
                       };
                       return (
-                        <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: sel ? colors.primary : on ? colors.success : colors.border, backgroundColor: sel ? '#EEF3FF' : on ? '#F1FAF4' : colors.surface, marginBottom: spacing.xs }}>
+                        <View key={m.id} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: sel ? colors.primary : on ? colors.success : colors.border, backgroundColor: sel ? colors.surfaceAlt : on ? colors.successSoftBg : colors.surface, marginBottom: spacing.xs }}>
                           <TouchableOpacity onPress={() => toggleSel(m.id)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
                             <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: sel ? colors.primary : colors.border, backgroundColor: sel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
                               {sel ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
