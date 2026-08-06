@@ -4,6 +4,26 @@ import { Screen, Card, SectionTitle } from '../components/ui';
 import { norm } from '../lib/text';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { generateInspectorGuide } from '../lib/guides/inspectorGuide';
+import { generateOperadorGuide } from '../lib/guides/operadorGuide';
+import { generateCocinaGuide } from '../lib/guides/cocinaGuide';
+import { generatePatioGuide } from '../lib/guides/patioGuide';
+import { generateChoferCombustibleGuide } from '../lib/guides/choferCombustibleGuide';
+import { generateCoordinadorQrGuide } from '../lib/guides/coordinadorQrGuide';
+import { generateAnalistaGuide } from '../lib/guides/analistaGuide';
+import { generateAdminGuide } from '../lib/guides/adminGuide';
+
+// ── Guías rápidas descargables (PDF), una por rol — ver src/lib/guides/. ──────
+const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run: () => Promise<boolean> }[] = [
+  { key: 'inspector', label: 'Inspector', desc: 'Iniciar sesión, escanear la máquina y llevar la jornada', icon: '🪖', run: generateInspectorGuide },
+  { key: 'operador', label: 'Operador', desc: 'Registrar tu jornada y el combustible desde el teléfono', icon: '👷', run: generateOperadorGuide },
+  { key: 'cocina', label: 'Cocina', desc: 'Verificarte y entregar comidas por carnet', icon: '🍽️', run: generateCocinaGuide },
+  { key: 'patio', label: 'Coordinador de Patio', desc: 'Jornada de camiones, entrada/salida, gasoil y averías', icon: '🚚', run: generatePatioGuide },
+  { key: 'chofer', label: 'Chofer de Combustible', desc: 'Surtir combustible a las máquinas', icon: '⛽', run: generateChoferCombustibleGuide },
+  { key: 'coordqr', label: 'Coordinador QR', desc: 'Surtir gasoil, reportar avería y marcar máquina lista', icon: '📷', run: generateCoordinadorQrGuide },
+  { key: 'analista', label: 'Analista', desc: 'Marcar asistencia del personal', icon: '📊', run: generateAnalistaGuide },
+  { key: 'admin', label: 'Administrador', desc: 'Entrar desde el teléfono y el botón SISTEMA', icon: '🗂️', run: generateAdminGuide },
+];
 
 // ── Contenido del manual (lenguaje simple, paso a paso) ───────────────────────
 // Bloques que puede tener una sección: párrafo, pasos numerados, viñetas o nota.
@@ -608,6 +628,13 @@ export default function ManualScreen() {
   const { colors } = useTheme();
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: true });
   const [query, setQuery] = useState('');
+  const [guideBusy, setGuideBusy] = useState<string | null>(null);
+
+  const downloadGuide = async (g: (typeof ROLE_GUIDES)[number]) => {
+    if (guideBusy) return;
+    setGuideBusy(g.key);
+    try { await g.run(); } finally { setGuideBusy(null); }
+  };
 
   const q = norm(query.trim());
   // Filtra por texto de título o de cualquier bloque (para encontrar rápido un tema).
@@ -635,6 +662,36 @@ export default function ManualScreen() {
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
+
+      {/* Guías rápidas descargables (PDF): una por rol, con mockups de pantalla,
+          para imprimir/enviar a quien trabaja desde el teléfono. */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>📄 Guías descargables</Text>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
+          Un PDF corto por rol, con los pasos exactos de la aplicación. Ideal para imprimir o enviar por WhatsApp.
+        </Text>
+        <View style={{ gap: spacing.xs }}>
+          {ROLE_GUIDES.map((g) => {
+            const busy = guideBusy === g.key;
+            return (
+              <TouchableOpacity
+                key={g.key}
+                onPress={() => downloadGuide(g)}
+                disabled={busy}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: busy ? 0.6 : 1 }}
+              >
+                <Text style={{ fontSize: 20 }}>{g.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>{g.label}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>{g.desc}</Text>
+                </View>
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{busy ? 'Generando…' : '📄 Descargar'}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </Card>
 
       {shown.length === 0 ? (
         <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginTop: spacing.lg }}>
