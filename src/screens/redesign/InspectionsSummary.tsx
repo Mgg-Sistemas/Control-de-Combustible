@@ -467,50 +467,46 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         ));
         Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.`);
       } else {
-        // Para cada ítem: calcula su fecha de fila, sus horas previas (para
-        // respaldarlas en machine_work_segments) y si hay que soltar el
-        // jornada_start_at abierto (solo si pertenece a ESE turno puntual).
-        const plan = items.map((it) => {
-          const rd = roundDateFor(it.id, it.shift);
-          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === rd);
-          const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
-          const soltarInicio = !!(existing?.jornada_start_at && roundShift(existing) === it.shift);
-          return { ...it, rd, prevHours, soltarInicio };
-        });
-        const rows = plan.map((p) => ({
-          machinery_id: p.id,
-          round_date: p.rd,
-          round_no: 1,
-          ...(p.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 }),
-          ...(p.soltarInicio ? { jornada_start_at: null } : {}),
-        }));
-        const { error: upErr } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
-        if (upErr) {
-          Alert.alert('No se pudo marcar Pendiente', upErr.message);
+        // Pedido directo del cliente: este botón debe marcar PARADA exactamente
+        // igual que lo hace el inspector desde el teléfono (marcarParadaNoTrabajo
+        // en SupervisorScreen.tsx) — un registro en maintenance_requests con
+        // material='MÁQUINA PARADA', NO tocar las horas ya trabajadas en
+        // machine_rounds. Así, en bulk, se puede hacer lo mismo que un inspector
+        // haría máquina por máquina. No se re-crea si YA hay una parada pendiente
+        // para esa máquina (evita duplicados si se selecciona dos veces).
+        const ids = items.map((it) => it.id);
+        const { data: yaParadas, error: chkErr } = await supabase
+          .from('maintenance_requests')
+          .select('machinery_id')
+          .in('machinery_id', ids)
+          .eq('material', 'MÁQUINA PARADA')
+          .eq('status', 'pendiente');
+        if (chkErr) {
+          Alert.alert('No se pudo marcar Parada', chkErr.message);
           return;
         }
-        // Respaldo de horas previas (no se pierden solo por ponerlas en 0), en
-        // un solo insert múltiple en vez de uno por máquina.
-        const segRows = plan
-          .filter((p) => p.prevHours > 0)
-          .map((p) => {
-            const endedAt = new Date();
-            const startedAt = new Date(endedAt.getTime() - p.prevHours * 3600_000);
-            return {
-              machinery_id: p.id, round_date: p.rd, shift: p.shift,
-              started_at: startedAt.toISOString(), ended_at: endedAt.toISOString(), hours: p.prevHours,
-              source: 'ajuste_manual', recorded_by: uid,
-              notes: 'Marcado como Pendiente desde el panel de Inspecciones (admin) — horas previas conservadas aquí.',
-            };
-          });
-        if (segRows.length > 0) {
-          const { error: segErr } = await supabase.from('machine_work_segments').insert(segRows);
-          if (segErr) Alert.alert('Aviso', `Se marcaron Pendiente, pero no se pudo respaldar el historial de horas de todas: ${segErr.message}`);
+        const yaSet = new Set((yaParadas ?? []).map((r: any) => r.machinery_id));
+        const nuevos = items.filter((it) => !yaSet.has(it.id));
+        if (nuevos.length === 0) {
+          Alert.alert('Sin cambios', 'Las máquinas seleccionadas ya estaban marcadas como Parada.');
+        } else {
+          const rows = nuevos.map((it) => ({
+            machinery_id: it.id,
+            material: 'MÁQUINA PARADA',
+            notes: 'Marcada Parada en lote desde el panel de Inspecciones (admin).',
+            status: 'pendiente',
+            requested_by: uid,
+          }));
+          const { error: insErr } = await supabase.from('maintenance_requests').insert(rows);
+          if (insErr) {
+            Alert.alert('No se pudo marcar Parada', insErr.message);
+            return;
+          }
+          await Promise.all(nuevos.map((it) =>
+            logAudit('PARADA', 'machinery', it.id, `${codeOf(it.id)} · marcada Parada en lote (panel admin)`)
+          ));
+          Alert.alert('Listo', `${nuevos.length} máquina(s) marcadas como Parada.${yaSet.size > 0 ? ` (${yaSet.size} ya lo estaban.)` : ''}`);
         }
-        await Promise.all(plan.map((p) =>
-          logAudit('JORNADA_FIN', 'machinery', p.id, `${codeOf(p.id)} · marcado Pendiente (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'}${p.prevHours > 0 ? ` · ${p.prevHours.toFixed(2)}h conservadas` : ''}`)
-        ));
-        Alert.alert('Listo', `${items.length} máquina(s) marcadas como pendientes.`);
       }
       setBulkSel(new Set());
       await load();
@@ -1145,7 +1141,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟢 Marcar Iniciada (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Marcar Pendiente (${bulkSel.size})`}</Text>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🛑 Marcar Parada (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
