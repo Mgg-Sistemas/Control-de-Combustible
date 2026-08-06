@@ -548,6 +548,10 @@ export interface InventoryItem {
   tipo: string | null;    // tipo de producto (bombona, silla, mecate…) para filtrar
   carga: string | null;   // carga de la bombona: vacía | en uso | llena
   created_at: string;
+  // Módulo de Fabricación (MRP) — Fase 2: distingue materia prima / componente /
+  // producto terminado del stock "general" ya existente. Columna aditiva
+  // (supabase/fabricacion_maestros.sql), default 'general'.
+  item_kind?: string;
 }
 
 /** Vista de existencias: producto + stock derivado de los movimientos. */
@@ -988,4 +992,101 @@ export interface HoseService {
   created_at: string;
   approved_by: string | null;
   approved_at: string | null;
+}
+
+// Módulo de Fabricación (MRP) — Fase 2: Centros de trabajo (áreas/máquinas/
+// cuadrillas usados para planificar y costear la manufactura).
+export type WorkCenterType = 'maquina' | 'area' | 'cuadrilla';
+
+/** Un turno del centro de trabajo (jsonb `shifts`); se edita en una fase futura. */
+export interface WorkCenterShift {
+  label: string;
+  start: string; // HH:mm
+  end: string; // HH:mm
+}
+
+export interface WorkCenter {
+  id: string;
+  code: string;
+  name: string;
+  type: WorkCenterType;
+  machinery_id: string | null; // solo aplica si type === 'maquina'
+  capacity_units_per_hour: number | null;
+  hourly_cost_labor: number;
+  hourly_cost_machine: number;
+  setup_minutes: number;
+  cleanup_minutes: number;
+  shifts: WorkCenterShift[];
+  active: boolean;
+  created_by: string | null;
+  created_at: string;
+}
+
+// Módulo de Fabricación (MRP) — Fase 2: Rutas de producción (secuencia de pasos
+// por centro de trabajo que sigue la materia prima hasta convertirse en
+// producto terminado, con puntos de control de calidad opcionales por paso).
+export type ProductionRouteStatus = 'borrador' | 'activa' | 'obsoleta';
+export type RouteCheckpointType = 'foto' | 'medicion' | 'aprobacion';
+
+/** Un paso de la ruta (array `steps`, jsonb en `production_routes`). */
+export interface RouteStep {
+  step_no: number;
+  work_center_id: string | null;
+  name: string;
+  description?: string | null;
+  standard_minutes: number;
+  is_quality_checkpoint: boolean;
+  /** Solo aplica si `is_quality_checkpoint` es true. */
+  checkpoint_type?: RouteCheckpointType | null;
+  /** Nota libre (p. ej. rango numérico esperado si `checkpoint_type` es 'medicion'). */
+  checkpoint_spec?: string | null;
+}
+
+export interface ProductionRoute {
+  id: string;
+  product_item_id: string;
+  bom_version_id: string | null;
+  name: string;
+  status: ProductionRouteStatus;
+  steps: RouteStep[];
+  created_by: string | null;
+  created_at: string;
+}
+
+// Módulo de Fabricación (MRP) — Fase 2: Recetas de producción (Bill of Materials).
+// Cada producto terminado (inventory_items.item_kind = 'producto_terminado') puede
+// tener varias versiones de receta; solo UNA puede estar 'activa' a la vez (lo
+// aplica un índice único parcial en la BD — ver supabase/fabricacion_maestros.sql).
+export type BomVersionStatus = 'borrador' | 'activa' | 'obsoleta';
+
+/** Producto sustituto de un componente (se guarda solo id + nombre snapshot,
+ *  para no depender de un JOIN al mostrar la receta). */
+export interface BomSubstitute {
+  item_id: string;
+  name: string;
+}
+
+/** Un renglón de la receta (array `components`, jsonb en `bom_versions`). */
+export interface BomComponentLine {
+  component_item_id: string;
+  qty_per_output: number;
+  unit: string | null;
+  waste_pct: number; // % de merma (0-100), sobre la cantidad por unidad de salida
+  substitutes: BomSubstitute[];
+  notes: string | null;
+}
+
+export interface BomVersion {
+  id: string;
+  product_item_id: string;
+  version_no: number;
+  status: BomVersionStatus;
+  output_qty: number;
+  output_unit: string | null;
+  components: BomComponentLine[];
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  activated_by: string | null;
+  activated_at: string | null;
 }
