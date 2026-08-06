@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
@@ -189,7 +189,9 @@ export default function ControlPagosScreen({ navigation }: any) {
   const [nominaAmount, setNominaAmount] = useState('');
   const [nominaNote, setNominaNote] = useState('');
   const [savingNomina, setSavingNomina] = useState(false);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(''); // empresa elegida (desde el desplegable)
+  const [empPickerOpen, setEmpPickerOpen] = useState(false); // desplegable de empresas abierto
+  const [empPickerQuery, setEmpPickerQuery] = useState(''); // filtro dentro del desplegable
   const [expandedCompany, setExpandedCompany] = useState<Record<string, boolean>>({}); // empresa → desplegada
 
   // Marcar como pagada
@@ -672,6 +674,12 @@ export default function ControlPagosScreen({ navigation }: any) {
   }, [shown]);
 
   const companyNames = useMemo(() => Array.from(new Set(groups.map((g) => g.company))).sort(), [groups]);
+  // Empresas CON cuenta (actividad) para el desplegable, ordenadas A→Z natural.
+  const empresasList = useMemo(() => Array.from(new Set(visible.map((g) => g.company))).sort((a, b) => cmpText(a, b)), [visible]);
+  const empresasFiltradas = useMemo(() => {
+    const eq = norm(empPickerQuery.trim());
+    return eq ? empresasList.filter((c) => norm(c).includes(eq)) : empresasList;
+  }, [empresasList, empPickerQuery]);
 
   // ── Registrar abono (pago parcial o total) ───────────────────────────────────
   const openPay = (g: Group) => {
@@ -1158,18 +1166,59 @@ export default function ControlPagosScreen({ navigation }: any) {
         <Text style={{ color: colors.text, fontWeight: '700' }}>💲 Tabulador de precios (editar / sincronizar)</Text>
       </TouchableOpacity>
 
-      <TextInput
-        value={query}
-        onChangeText={setQuery}
-        placeholder="🔎 Buscar empresa…"
-        placeholderTextColor={colors.muted}
-        style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }}
-      />
+      {/* Desplegable de empresas (en vez de buscador libre): elige una para ver su cuenta. */}
+      <TouchableOpacity
+        onPress={() => { setEmpPickerQuery(''); setEmpPickerOpen(true); }}
+        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.sm }}
+      >
+        <Text style={{ color: query ? colors.text : colors.muted, fontWeight: query ? '700' : '400', flex: 1 }} numberOfLines={1}>
+          {query ? `🏢 ${query}` : '🏢 Elige una empresa…'}
+        </Text>
+        {query ? (
+          <TouchableOpacity onPress={() => setQuery('')} style={{ paddingHorizontal: spacing.sm }}>
+            <Text style={{ color: colors.danger, fontWeight: '800' }}>✕</Text>
+          </TouchableOpacity>
+        ) : null}
+        <Text style={{ color: colors.muted, fontSize: 16 }}>▾</Text>
+      </TouchableOpacity>
+
+      <Modal visible={empPickerOpen} transparent animationType="fade" onRequestClose={() => setEmpPickerOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: spacing.lg }} onPress={() => setEmpPickerOpen(false)}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '80%', overflow: 'hidden' }}>
+            <View style={{ padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.sm }}>🏢 Empresas ({empresasList.length})</Text>
+              <TextInput
+                value={empPickerQuery}
+                onChangeText={setEmpPickerQuery}
+                placeholder="🔎 Filtrar empresa…"
+                placeholderTextColor={colors.muted}
+                autoFocus
+                style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
+              />
+            </View>
+            <ScrollView style={{ maxHeight: 380 }}>
+              {empresasFiltradas.length === 0 ? (
+                <Text style={{ color: colors.muted, textAlign: 'center', padding: spacing.lg }}>Sin empresas.</Text>
+              ) : (
+                empresasFiltradas.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() => { setQuery(c); setEmpPickerOpen(false); }}
+                    style={{ paddingVertical: spacing.md, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: c === query ? colors.surfaceAlt : 'transparent' }}
+                  >
+                    <Text style={{ color: c === query ? colors.brandText : colors.text, fontWeight: c === query ? '800' : '500' }}>🏢 {c}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {loading ? (
         <Loading />
       ) : byCompany.length === 0 ? (
-        <EmptyState title={q ? 'Sin resultados' : '🔎 Busca una empresa'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Escribe el nombre de la empresa en el buscador para ver su cuenta.'} />
+        <EmptyState title={q ? 'Sin resultados' : '🏢 Elige una empresa'} subtitle={q ? 'Prueba con otra empresa.' : 'Toca el desplegable de arriba y elige una empresa para ver su cuenta.'} />
       ) : (
         byCompany.map(([company, weeks]) => {
           const open = !!expandedCompany[company];
