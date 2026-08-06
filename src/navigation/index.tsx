@@ -394,6 +394,32 @@ function InventarioStack() {
   );
 }
 
+/** Módulo del KIOSCO DE PLANTA (clave `fabricacion_planta`, ver
+ *  `src/lib/permissions.ts`): pensado para un operario "solo kiosco" del taller
+ *  que registra tiempos/avance de las órdenes desde una pantalla fija, sin
+ *  acceso al resto de Fabricación (mangueras, centros de trabajo, recetas...).
+ *  Un rol personalizado cuyo ÚNICO acceso activo es este módulo entra DIRECTO al
+ *  Kiosco, sin pasar por Inicio ni "Más" (mismo patrón que
+ *  `esRolCombustible`/`esRolAsistencia`/`esRolInventario`). */
+const FABRICACION_PLANTA_MODULES = ['fabricacion_planta'];
+function esRolFabricacionPlanta(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => FABRICACION_PLANTA_MODULES.includes(k));
+}
+
+/** Panel de un rol personalizado cuyo ÚNICO acceso es el Kiosco de planta
+ *  (cualquier dispositivo): entra DIRECTO al Kiosco, sin pasar por Inicio ni "Más". */
+function FabricacionPlantaStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="PlantaKioskHome" component={PlantaKioskScreen} options={{ title: 'Kiosco de planta' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -574,7 +600,7 @@ const moreScreens = {
 /** Cada sesión monta UN SOLO árbol de navegación, elegido por rol/teléfono/PC
  *  (ver `pickTree` más abajo). `operador`/`cocina` son una pantalla suelta sin
  *  Stack/Tab, así que no tienen config de `linking` propia. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'inventario' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -625,6 +651,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual' },
   combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual' },
   inventario: { InventarioHome: 'inventario-directo', Manual: 'manual' },
+  fabricacionPlanta: { PlantaKioskHome: 'kiosco-directo', Manual: 'manual' },
   conductor: { ConductorSurtir: 'surtir', ConductorCamiones: 'camiones', ConductorAsistencia: 'asistencia-camiones' },
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', Manual: 'manual' },
 };
@@ -641,6 +668,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   fuelDriver: '/surtir',
   combustible: '/combustible-directo',
   inventario: '/inventario-directo',
+  fabricacionPlanta: '/kiosco-directo',
   conductor: '/surtir',
   asistencia: '/asistencia',
 };
@@ -680,6 +708,8 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolAsistencia(appRole)) return { key: 'asistencia', node: <AsistenciaStack /> };
   // Rol por módulos cuyo único acceso es INVENTARIO: directo a Inventario.
   if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
+  // Rol por módulos cuyo único acceso es el KIOSCO DE PLANTA: directo al Kiosco.
+  if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };

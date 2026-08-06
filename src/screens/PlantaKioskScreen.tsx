@@ -17,6 +17,17 @@
 // `profiles`, se enlaza `assigned_operator_id`; si no, igual queda el
 // snapshot de texto `operator_name`/`operator_cedula` (que es justo para lo
 // que están esas columnas).
+//
+// Identidad de SESIÓN (fix de auditoría): antes solo se identificaba al
+// operador al tocar INICIAR; el resto de acciones (pausar, registrar
+// cantidad, reportar falla, finalizar) quedaban grabadas en `wo_time_logs`
+// con la identidad de quien inició, aunque en la práctica las hiciera otra
+// persona. Pedir carnet/cédula en CADA botón es demasiado disruptivo para una
+// tablet compartida de taller, así que se pide UNA vez por "sesión de uso del
+// kiosco" (se guarda en `sessionOperator`, se limpia al cambiar de orden/
+// centro vía `resetPanels`) y esa identidad se usa para TODAS las acciones de
+// esa sesión (ver `insertLog` e `requireSession` más abajo), en vez de
+// arrastrar siempre la identidad grabada en el INICIO de la WO.
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
@@ -28,15 +39,16 @@ import { levelMeets } from '../lib/permissions';
 import { useToast } from '../components/ToastProvider';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
+import { isOperatorCargo } from '../lib/jornada';
 import { WorkOrder, WorkOrderStatus, WoTimeLogEvent } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
 type WcRow = { id: string; code: string; name: string; active: boolean };
-type MoRow = { id: string; code: string; product_item_id: string | null };
+type MoRow = { id: string; code: string; product_item_id: string | null; company_id: string | null; company?: { name: string } | null };
 type ProductRow = { id: string; name: string };
 type ProfileRow = { id: string; cedula: string | null };
-type IdentifiedOperator = { id: string; name: string; cedula: string; cargo: string | null };
+type IdentifiedOperator = { id: string; name: string; cedula: string; cargo: string | null; companyId?: string | null; companyName?: string | null };
 
 // Estados de WO que el kiosco todavía puede trabajar (lo ya cerrado/cancelado
 // no aparece en el paso 2 — eso se gestiona desde la oficina).
@@ -90,7 +102,7 @@ export default function PlantaKioskScreen() {
 
   const { data: workCenters, loading: loadingWc } = useTable<WcRow>('work_centers', { select: 'id,code,name,active', orderBy: 'code' });
   const { data: workOrders, loading: loadingWo, refetch } = useTable<WorkOrder>('work_orders', { orderBy: 'wo_no', realtimeFrom: ['work_orders'] });
-  const { data: mos } = useTable<MoRow>('manufacturing_orders', { select: 'id, code, product_item_id' });
+  const { data: mos } = useTable<MoRow>('manufacturing_orders', { select: 'id, code, product_item_id, company_id, company:company_id(name)' });
   const { data: products } = useTable<ProductRow>('inventory_items', { select: 'id, name' });
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, cedula' });
 
@@ -100,8 +112,19 @@ export default function PlantaKioskScreen() {
     return m;
   }, [products]);
   const moMap = useMemo(() => {
-    const m: Record<string, { code: string; product: string }> = {};
-    mos.forEach((mo) => { m[mo.id] = { code: mo.code, product: mo.product_item_id ? productMap[mo.product_item_id] ?? '' : '' }; });
+    // companyId/companyName: usados por el FIX 2 (validación de empresa del
+    // operador vs. empresa de la orden, misma comparación que MachineQuickScreen
+    // hace contra `machinery.company_id`, aquí contra `manufacturing_orders.company_id`
+    // — `work_centers` no tiene columna de empresa propia).
+    const m: Record<string, { code: string; product: string; companyId: string | null; companyName: string | null }> = {};
+    mos.forEach((mo) => {
+      m[mo.id] = {
+        code: mo.code,
+        product: mo.product_item_id ? productMap[mo.product_item_id] ?? '' : '',
+        companyId: mo.company_id ?? null,
+        companyName: mo.company?.name ?? null,
+      };
+    });
     return m;
   }, [mos, productMap]);
   const profilesByCedula = useMemo(() => {
@@ -145,6 +168,7 @@ export default function PlantaKioskScreen() {
 
   function resetPanels() {
     setIdentOpen(false); setIdentScanOpen(false); setIdentCedula(''); setIdentEmp(null);
+    setIdentMode('inicio'); setIdentPendingAction(null); setSessionOperator(null);
     setQtyOpen(false); setQtyInput('');
     setFallaOpen(false); setFallaPreset(null); setFallaNote('');
   }
@@ -157,18 +181,30 @@ export default function PlantaKioskScreen() {
       qty_delta: extra?.qty_delta ?? null,
       note: extra?.note ?? null,
       created_by: myId,
-      operator_name: extra?.operator_name ?? selectedWo.operator_name ?? null,
-      operator_cedula: extra?.operator_cedula ?? selectedWo.operator_cedula ?? null,
+      // FIX 1: prioriza la identidad explícita (`extra`, usada por confirmarInicio),
+      // luego la identidad de SESIÓN del kiosco (quien se identificó para pausar/
+      // registrar/reportar falla/finalizar en esta sesión), y solo como último
+      // recurso el snapshot que quedó grabado en la WO al iniciarla — así la
+      // bitácora no queda siempre firmada por quien hizo el INICIAR.
+      operator_name: extra?.operator_name ?? sessionOperator?.name ?? selectedWo.operator_name ?? null,
+      operator_cedula: extra?.operator_cedula ?? sessionOperator?.cedula ?? selectedWo.operator_cedula ?? null,
     });
   };
 
-  // ── Identificación del operador (puerta previa a INICIAR) ───────────────
+  // ── Identificación del operador (puerta previa a INICIAR, y puerta de
+  //    SESIÓN reutilizada por el resto de acciones — ver `requireSession`) ──
   const [identOpen, setIdentOpen] = useState(false);
   const [identScanOpen, setIdentScanOpen] = useState(false);
   const [identCedula, setIdentCedula] = useState('');
   const [identEmp, setIdentEmp] = useState<IdentifiedOperator | null>(null);
   const [identSearching, setIdentSearching] = useState(false);
   const [identBusy, setIdentBusy] = useState(false);
+  // 'inicio': la puerta de identificación arranca la WO (confirmarInicio).
+  // 'sesion': la puerta solo identifica a quien va a operar el kiosco ahora
+  //           (pausar/registrar/reportar falla/finalizar/reanudar) — no toca started_at.
+  const [identMode, setIdentMode] = useState<'inicio' | 'sesion'>('inicio');
+  const [identPendingAction, setIdentPendingAction] = useState<(() => void) | null>(null);
+  const [sessionOperator, setSessionOperator] = useState<IdentifiedOperator | null>(null);
 
   useEffect(() => {
     if (!identOpen) return;
@@ -181,7 +217,7 @@ export default function PlantaKioskScreen() {
       if (cancel) return;
       const emp = (data && (data as any)[0]) as any;
       if (emp) {
-        setIdentEmp({ id: emp.id, name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cedula: String(emp.cedula || ci).trim(), cargo: emp.cargo ?? null });
+        setIdentEmp({ id: emp.id, name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(), cedula: String(emp.cedula || ci).trim(), cargo: emp.cargo ?? null, companyId: emp.company_id ?? null, companyName: emp.company_name ?? null });
       } else {
         setIdentEmp(null);
       }
@@ -198,28 +234,92 @@ export default function PlantaKioskScreen() {
     const emp = (data as any)?.[0] ?? null;
     if (!emp) { toast.error('Ese carnet no corresponde a un empleado registrado.'); return; }
     const nombre = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
-    setIdentEmp({ id: emp.id, name: nombre, cedula: String(emp.cedula || '').trim(), cargo: emp.cargo ?? null });
+    setIdentEmp({ id: emp.id, name: nombre, cedula: String(emp.cedula || '').trim(), cargo: emp.cargo ?? null, companyId: emp.company_id ?? null, companyName: emp.company_name ?? null });
     setIdentCedula(String(emp.cedula || '').trim());
     toast.success(`Identificado: ${nombre}`);
   };
 
+  // FIX 6: ninguna transición de work_orders validaba el estado esperado antes
+  // de escribir, así que dos tablets tocando la misma WO al mismo tiempo podían
+  // pisarse el avance (lost update). `updateWoGuarded` agrega `.eq('status',
+  // expected)` a cada UPDATE y pide las filas afectadas con `.select('id')`: si
+  // el UPDATE no tocó ninguna fila es porque el estado YA cambió (otra tablet
+  // se adelantó), y en ese caso se avisa y se refresca en vez de asumir éxito.
+  const updateWoGuarded = async (expectedStatus: WorkOrderStatus, patch: Record<string, any>) => {
+    if (!selectedWo) return { ok: false as const };
+    const { data, error } = await supabase
+      .from('work_orders')
+      .update(patch)
+      .eq('id', selectedWo.id)
+      .eq('status', expectedStatus)
+      .select('id');
+    if (error) return { ok: false as const, error };
+    if (!data || data.length === 0) {
+      toast.error('Esta orden cambió de estado, actualizando…');
+      refetch();
+      return { ok: false as const, stale: true as const };
+    }
+    return { ok: true as const };
+  };
+
   const confirmarInicio = async () => {
     if (!selectedWo || !identEmp) return;
+    // FIX 2: mismas dos validaciones que MachineQuickScreen.tsx (~líneas 365-400)
+    // antes de dejar operar: cargo autorizado en nómina, y que la empresa del
+    // empleado coincida con la de la orden (aquí, `manufacturing_orders.company_id`
+    // — el equivalente de `machinery.company_id` allá, porque `work_centers` no
+    // tiene columna de empresa propia).
+    if (!isOperatorCargo(identEmp.cargo)) {
+      toast.error(`${identEmp.name}${identEmp.cargo ? ` (${identEmp.cargo})` : ''} no es OPERADOR, CHOFER, SERVICIOS GENERALES ni OBRERO. No puede iniciar esta orden.`);
+      return;
+    }
+    const moInfo = moMap[selectedWo.mo_id];
+    if (moInfo?.companyId && identEmp.companyId && identEmp.companyId !== moInfo.companyId) {
+      toast.error(`⛔ ${identEmp.name} es de ${identEmp.companyName ?? 'otra empresa'}. Esta orden es de ${moInfo.companyName ?? 'otra empresa'}. Solo puede iniciar órdenes de su empresa.`);
+      return;
+    }
     setIdentBusy(true);
     const profileId = profilesByCedula[onlyDigits(identEmp.cedula)] ?? null;
-    const { error } = await supabase.from('work_orders').update({
+    const r = await updateWoGuarded('pendiente', {
       status: 'en_proceso',
       started_at: selectedWo.started_at ?? new Date().toISOString(),
       assigned_operator_id: profileId,
       operator_name: identEmp.name,
       operator_cedula: identEmp.cedula,
-    }).eq('id', selectedWo.id);
-    if (!error) await insertLog('inicio', { operator_name: identEmp.name, operator_cedula: identEmp.cedula });
+    });
+    if (r.ok) {
+      await insertLog('inicio', { operator_name: identEmp.name, operator_cedula: identEmp.cedula });
+      setSessionOperator(identEmp); // FIX 1: ya identificado — sirve de identidad de sesión para el resto de acciones.
+    }
     setIdentBusy(false);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Orden de trabajo iniciada.');
     setIdentOpen(false); setIdentEmp(null); setIdentCedula('');
     refetch();
+  };
+
+  // Confirma la puerta de identificación: en modo 'inicio' arranca la WO; en
+  // modo 'sesion' solo fija `sessionOperator` y dispara la acción pendiente
+  // (la que el operador quería hacer cuando `requireSession` abrió la puerta).
+  const confirmarIdent = async () => {
+    if (!identEmp) return;
+    if (identMode === 'inicio') { await confirmarInicio(); return; }
+    setSessionOperator(identEmp);
+    setIdentOpen(false); setIdentEmp(null); setIdentCedula('');
+    const action = identPendingAction;
+    setIdentPendingAction(null);
+    if (action) action();
+  };
+
+  // FIX 1: puerta de SESIÓN — si ya hay alguien identificado en esta sesión de
+  // uso del kiosco, ejecuta la acción directo; si no, pide carnet/cédula una
+  // sola vez y la deja en cola para ejecutarla al confirmar.
+  const requireSession = (action: () => void) => {
+    if (sessionOperator) { action(); return; }
+    setIdentMode('sesion');
+    setIdentPendingAction(() => action);
+    setIdentEmp(null); setIdentCedula('');
+    setIdentOpen(true);
   };
 
   // ── Transiciones de estado ───────────────────────────────────────────────
@@ -228,10 +328,10 @@ export default function PlantaKioskScreen() {
   const pausar = async () => {
     if (!selectedWo) return;
     setBusy('pausar');
-    const { error } = await supabase.from('work_orders').update({ status: 'pausada' }).eq('id', selectedWo.id);
-    if (!error) await insertLog('pausa');
+    const r = await updateWoGuarded('en_proceso', { status: 'pausada' });
+    if (r.ok) await insertLog('pausa');
     setBusy(null);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Orden pausada.');
     refetch();
   };
@@ -246,10 +346,10 @@ export default function PlantaKioskScreen() {
       .order('created_at', { ascending: false }).limit(1).maybeSingle();
     const addMin = lastPausa ? Math.max(0, Math.round((Date.now() - new Date((lastPausa as any).created_at).getTime()) / 60000)) : 0;
     const nuevoPausedMinutes = (selectedWo.paused_minutes || 0) + addMin;
-    const { error } = await supabase.from('work_orders').update({ status: 'en_proceso', paused_minutes: nuevoPausedMinutes }).eq('id', selectedWo.id);
-    if (!error) await insertLog('reanudacion');
+    const r = await updateWoGuarded('pausada', { status: 'en_proceso', paused_minutes: nuevoPausedMinutes });
+    if (r.ok) await insertLog('reanudacion');
     setBusy(null);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Orden reanudada.');
     refetch();
   };
@@ -261,10 +361,10 @@ export default function PlantaKioskScreen() {
       return;
     }
     setBusy('completar');
-    const { error } = await supabase.from('work_orders').update({ status: 'completada', ended_at: new Date().toISOString() }).eq('id', selectedWo.id);
-    if (!error) await insertLog('fin');
+    const r = await updateWoGuarded('en_proceso', { status: 'completada', ended_at: new Date().toISOString() });
+    if (r.ok) await insertLog('fin');
     setBusy(null);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Orden completada.');
     refetch();
   };
@@ -281,10 +381,10 @@ export default function PlantaKioskScreen() {
     const aplicado = nuevo - (selectedWo.qty_completed || 0);
     if (aplicado <= 0) { toast.error('Ya se alcanzó la cantidad planificada.'); return; }
     setBusyQty(true);
-    const { error } = await supabase.from('work_orders').update({ qty_completed: nuevo }).eq('id', selectedWo.id);
-    if (!error) await insertLog('cantidad', { qty_delta: aplicado, note: `Avance registrado: +${aplicado}` });
+    const r = await updateWoGuarded('en_proceso', { qty_completed: nuevo });
+    if (r.ok) await insertLog('cantidad', { qty_delta: aplicado, note: `Avance registrado: +${aplicado}` });
     setBusyQty(false);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Cantidad registrada.');
     setQtyInput(''); setQtyOpen(false);
     refetch();
@@ -300,10 +400,31 @@ export default function PlantaKioskScreen() {
     const reason = fallaPreset === 'Otro' ? fallaNote.trim() : (fallaPreset || '');
     if (!reason) { toast.error('Selecciona o describe la falla.'); return; }
     setBusyFalla(true);
-    const { error } = await supabase.from('work_orders').update({ status: 'pausada', stop_reason: reason }).eq('id', selectedWo.id);
-    if (!error) await insertLog('falla', { note: reason });
+    // Reportar falla puede llegar desde 'en_proceso' o desde 'pausada' (ya
+    // parada por otro motivo): el estado esperado es el que tiene la WO ahora.
+    const r = await updateWoGuarded(selectedWo.status, { status: 'pausada', stop_reason: reason });
+    if (r.ok) {
+      // FIX 3: reanudar() (arriba) busca el último evento 'pausa' en wo_time_logs
+      // para calcular los minutos pausados. Si solo se registrara 'falla', una WO
+      // pausada por avería NO se contaría en ese cálculo (mismo bug corregido en
+      // WorkOrdersScreen.tsx) — por eso se deja también un log 'pausa' equivalente.
+      await insertLog('falla', { note: reason });
+      await insertLog('pausa', { note: reason });
+      // FIX 4: además de pausar la WO, deja la solicitud abierta en Mantenimiento
+      // (antes `maintenance_requests.work_center_id`, agregado en
+      // fabricacion_calidad_oee.sql, no tenía ningún consumidor en la UI). Mismo
+      // patrón/columnas que usa MantenimientoMaquinariaScreen.tsx al reportar una
+      // avería de máquina: material/notes/status/requested_by.
+      await supabase.from('maintenance_requests').insert({
+        work_center_id: selectedWo.work_center_id,
+        material: reason,
+        notes: `WO ${selectedWo.wo_no}. ${selectedWo.name}${selectedWc ? ` · Centro: ${selectedWc.code} · ${selectedWc.name}` : ''}`,
+        status: 'pendiente',
+        requested_by: myId,
+      });
+    }
     setBusyFalla(false);
-    if (error) { toast.error(error.message); return; }
+    if (!r.ok) { if ('error' in r && r.error) toast.error(r.error.message); return; }
     toast.success('Falla reportada. Orden pausada.');
     setFallaOpen(false); setFallaPreset(null); setFallaNote('');
     refetch();
@@ -434,30 +555,33 @@ export default function PlantaKioskScreen() {
       ) : (
         <View style={{ marginTop: spacing.sm }}>
           {selectedWo.status === 'pendiente' ? (
-            <BigButton label="▶️ INICIAR" sub="Identifica al operador para empezar" bg={colors.success} fg="#fff" onPress={() => { setIdentOpen(true); setIdentEmp(null); setIdentCedula(''); }} />
+            <BigButton label="▶️ INICIAR" sub="Identifica al operador para empezar" bg={colors.success} fg="#fff" onPress={() => { setIdentMode('inicio'); setIdentPendingAction(null); setIdentOpen(true); setIdentEmp(null); setIdentCedula(''); }} />
           ) : null}
 
           {selectedWo.status === 'en_proceso' ? (
             <>
-              <BigButton label="⏸️ PAUSAR" bg={colors.warning} fg="#fff" disabled={busy === 'pausar'} onPress={pausar} />
-              <BigButton label="🔢 REGISTRAR CANTIDAD" bg={colors.brand} fg={colors.brandContrast} onPress={() => setQtyOpen(true)} />
+              <BigButton label="⏸️ PAUSAR" bg={colors.warning} fg="#fff" disabled={busy === 'pausar'} onPress={() => requireSession(pausar)} />
+              <BigButton label="🔢 REGISTRAR CANTIDAD" bg={colors.brand} fg={colors.brandContrast} onPress={() => requireSession(() => setQtyOpen(true))} />
               {qcBlocked ? (
                 <Card style={{ backgroundColor: colors.warningSoftBg, borderColor: colors.warningSoftBorder }}>
                   <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 16, textAlign: 'center' }}>⏳ Este paso requiere aprobación de calidad antes de finalizar</Text>
                   <Text style={{ color: colors.warningSoftText, fontSize: 12, textAlign: 'center' }}>Pide a un supervisor que apruebe o rechace la calidad desde oficina.</Text>
                 </Card>
               ) : (
-                <BigButton label="✅ FINALIZAR" bg={colors.success} fg="#fff" disabled={busy === 'completar'} onPress={finalizar} />
+                <BigButton label="✅ FINALIZAR" bg={colors.success} fg="#fff" disabled={busy === 'completar'} onPress={() => requireSession(finalizar)} />
               )}
             </>
           ) : null}
 
           {selectedWo.status === 'pausada' ? (
-            <BigButton label="▶️ REANUDAR" bg={colors.success} fg="#fff" disabled={busy === 'reanudar'} onPress={reanudar} />
+            <BigButton label="▶️ REANUDAR" bg={colors.success} fg="#fff" disabled={busy === 'reanudar'} onPress={() => requireSession(reanudar)} />
           ) : null}
 
           {selectedWo.status !== 'completada' && selectedWo.status !== 'cancelada' ? (
-            <BigButton label="⚠️ REPORTAR FALLA / PARADA" bg={colors.danger} fg="#fff" onPress={() => setFallaOpen(true)} />
+            <BigButton label="⚠️ REPORTAR FALLA / PARADA" bg={colors.danger} fg="#fff" onPress={() => requireSession(() => setFallaOpen(true))} />
+          ) : null}
+          {sessionOperator ? (
+            <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.xs }}>👤 Sesión: {sessionOperator.name}</Text>
           ) : null}
         </View>
       )}
@@ -468,9 +592,9 @@ export default function PlantaKioskScreen() {
       <View style={{ height: spacing.lg }} />
 
       {/* ── Identificación del operador (puerta previa a INICIAR) ────────── */}
-      <Modal visible={identOpen} animationType="slide" onRequestClose={() => setIdentOpen(false)}>
+      <Modal visible={identOpen} animationType="slide" onRequestClose={() => { setIdentOpen(false); setIdentPendingAction(null); }}>
         <Screen>
-          <SectionTitle>👷 ¿Quién va a iniciar esta orden?</SectionTitle>
+          <SectionTitle>{identMode === 'inicio' ? '👷 ¿Quién va a iniciar esta orden?' : '👷 ¿Quién está operando ahora?'}</SectionTitle>
           <Text style={{ color: colors.muted, fontSize: 14, marginBottom: spacing.sm }}>Escanea tu carnet o ingresa tu cédula.</Text>
 
           <BigButton label="📷 ESCANEAR CARNET" bg="#0EA5E9" fg="#fff" onPress={() => setIdentScanOpen(true)} />
@@ -498,8 +622,8 @@ export default function PlantaKioskScreen() {
           ) : null}
 
           <View style={{ marginTop: spacing.lg }}>
-            <BigButton label="✅ CONFIRMAR E INICIAR" bg={colors.success} fg="#fff" disabled={!identEmp || identBusy} onPress={confirmarInicio} />
-            <TouchableOpacity onPress={() => setIdentOpen(false)} style={{ alignItems: 'center', paddingVertical: spacing.sm }}>
+            <BigButton label={identMode === 'inicio' ? '✅ CONFIRMAR E INICIAR' : '✅ CONFIRMAR IDENTIDAD'} bg={colors.success} fg="#fff" disabled={!identEmp || identBusy} onPress={confirmarIdent} />
+            <TouchableOpacity onPress={() => { setIdentOpen(false); setIdentPendingAction(null); }} style={{ alignItems: 'center', paddingVertical: spacing.sm }}>
               <Text style={{ color: colors.muted, fontWeight: '700' }}>Cancelar</Text>
             </TouchableOpacity>
           </View>

@@ -50,6 +50,11 @@ export type Field =
       createColumn?: string;
       /** Filtro de igualdad opcional para acotar las opciones (p. ej. { role: 'operador' }). */
       filter?: Record<string, string | number | boolean>;
+      /** Columna booleana opcional (p. ej. 'operational') para señalar visualmente las
+       *  opciones inactivas/de baja SIN ocultarlas de la lista (el historial que las
+       *  referencia debe seguir siendo consultable). Si la fila tiene ese campo en
+       *  false, se le agrega el sufijo " (Inactiva)" a la etiqueta mostrada. */
+      activeCol?: string;
       /** Muestra el campo como lista DESPLEGABLE (se abre y se cierra) en vez de la
        *  rejilla de botones siempre visible. Ideal para pocas opciones (empresas). */
       dropdown?: boolean;
@@ -143,13 +148,17 @@ export function RecordForm({
     // Cargar opciones de los campos lookup y las sugerencias de los campos "suggest".
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
-        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}`);
+        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${f.activeCol ? `, ${f.activeCol}` : ''}`);
         if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
         const { data } = await qb;
+        const activeCol = f.activeCol;
         setLookups((prev) => ({
           ...prev,
           [f.key]: (data ?? [])
-            .map((r: any) => ({ label: String(r[f.labelCol]), value: r.id }))
+            .map((r: any) => ({
+              label: activeCol && r[activeCol] === false ? `${String(r[f.labelCol])} (Inactiva)` : String(r[f.labelCol]),
+              value: r.id,
+            }))
             .sort((a: any, b: any) => cmpText(a.label, b.label)),
         }));
       } else if (f.type === 'suggest') {
@@ -198,6 +207,17 @@ export function RecordForm({
       const esTextoLibre = (f.type === 'text' || f.type === 'suggest') && !noFix;
       payload[f.key] = f.type === 'number' ? Number(raw) : esTextoLibre ? corregirTexto(raw) : raw;
     });
+
+    // Campos que quedaron OCULTOS por `showIf` con el estado actual (p. ej.
+    // `machinery_id` cuando `type` pasó de 'maquina' a 'area'): al editar, se
+    // limpian a null en vez de conservar el valor anterior huérfano. Al crear,
+    // simplemente no se envían (ya quedan fuera de `visibleFields`).
+    if (isEdit) {
+      fields.forEach((f) => {
+        if (f.type === 'section') return;
+        if (f.showIf && !f.showIf(values)) payload[f.key] = null;
+      });
+    }
 
     if (fixedValues) Object.assign(payload, fixedValues);
 

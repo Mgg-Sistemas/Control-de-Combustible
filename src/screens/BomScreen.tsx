@@ -13,6 +13,7 @@ import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
 import { levelMeets } from '../lib/permissions';
 import { useToast } from '../components/ToastProvider';
+import { useConfirm } from '../components/ConfirmProvider';
 import { InventoryItem, BomVersion, BomVersionStatus, BomComponentLine } from '../types/database';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -51,6 +52,7 @@ export default function BomScreen() {
   const { colors } = useTheme();
   const { moduleLevel, session } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const level = moduleLevel('mangueras');
 
   if (level === 'none') {
@@ -100,6 +102,7 @@ export default function BomScreen() {
   const [components, setComponents] = useState<BomComponentLine[]>([]);
   const [saving, setSaving] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [obsoleting, setObsoleting] = useState(false);
 
   const openEdit = (v: BomVersion) => {
     setEditing(v);
@@ -108,6 +111,33 @@ export default function BomScreen() {
     setComponents(v.components ?? []);
   };
   const closeEdit = () => setEditing(null);
+
+  // Mensaje amigable para el choque del índice único parcial de version_no
+  // (dos usuarios creando/activando a la vez para el mismo producto).
+  const friendlyDbError = (error: { code?: string; message: string }): string => {
+    if ((error as any).code === '23505' || /duplicate key|unique/i.test(error.message)) {
+      return 'Ya existe una versión con ese número para este producto — probablemente otra persona creó una al mismo tiempo. Recarga e inténtalo de nuevo.';
+    }
+    return error.message;
+  };
+
+  // Receta circular (el producto se incluye a sí mismo como componente) y
+  // renglones duplicados del mismo componente: se bloquean antes de guardar,
+  // no solo se advierten.
+  const validarComponentes = (): string | null => {
+    const llenos = components.filter((c) => c.component_item_id);
+    if (productId && llenos.some((c) => c.component_item_id === productId)) {
+      return 'La receta no puede incluirse a sí misma como componente (receta circular).';
+    }
+    const vistos = new Set<string>();
+    for (const c of llenos) {
+      if (vistos.has(c.component_item_id)) {
+        return 'Hay un componente repetido en la lista — combina las cantidades en un solo renglón.';
+      }
+      vistos.add(c.component_item_id);
+    }
+    return null;
+  };
 
   const [creating, setCreating] = useState(false);
   const nuevaVersion = async () => {
@@ -129,7 +159,7 @@ export default function BomScreen() {
       .single();
     setCreating(false);
     if (error || !data) {
-      toast.error(error?.message || 'No se pudo crear la versión.');
+      toast.error(error ? friendlyDbError(error) : 'No se pudo crear la versión.');
       return;
     }
     refetchVersions();
@@ -138,6 +168,15 @@ export default function BomScreen() {
 
   const guardar = async () => {
     if (!editing) return;
+    if (editing.status !== 'borrador') {
+      toast.error('Esta versión ya está activa u obsoleta — crea una nueva versión para cambiar sus componentes.');
+      return;
+    }
+    const errComponentes = validarComponentes();
+    if (errComponentes) {
+      toast.error(errComponentes);
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from('bom_versions')
@@ -159,6 +198,14 @@ export default function BomScreen() {
 
   const activar = async () => {
     if (!editing) return;
+    if (editing.status !== 'borrador') return;
+    const errComponentes = validarComponentes();
+    if (errComponentes) {
+      toast.error(errComponentes);
+      return;
+    }
+    const ok = await confirm(`¿Activar la versión ${editing.version_no}? Pasará a ser la receta activa de este producto (y dejará de poderse editar directamente).`);
+    if (!ok) return;
     setActivating(true);
     // Guarda primero los cambios pendientes y luego activa, para no perder ediciones.
     const { error: saveErr } = await supabase
@@ -185,6 +232,22 @@ export default function BomScreen() {
       return;
     }
     toast.success('Receta activada.');
+    refetchVersions();
+    closeEdit();
+  };
+
+  const marcarObsoleta = async () => {
+    if (!editing) return;
+    const ok = await confirm('¿Pasar esta receta a obsoleta? Dejará de ser la receta activa del producto.');
+    if (!ok) return;
+    setObsoleting(true);
+    const { error } = await supabase.from('bom_versions').update({ status: 'obsoleta' }).eq('id', editing.id);
+    setObsoleting(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success('Receta marcada como obsoleta.');
     refetchVersions();
     closeEdit();
   };
@@ -277,16 +340,33 @@ export default function BomScreen() {
                 </View>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>{product?.name}</Text>
 
+                {/* El CONTENIDO (cantidad de salida, unidad, componentes) solo se
+                    edita en borrador; activa/obsoleta quedan de solo lectura —
+                    para cambiar algo hay que versionar (+ Nueva versión). */}
+                {editing.status !== 'borrador' ? (
+                  <Card>
+                    <Text style={{ color: colors.warningSoftText, fontSize: 12, fontWeight: '700' }}>
+                      🔒 Esta versión ya está {editing.status} — para cambiar algo, crea una nueva versión.
+                    </Text>
+                  </Card>
+                ) : null}
+
                 <Card>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Cantidad de salida</Text>
-                  <TextInput value={outputQty} editable={canWrite} onChangeText={setOutputQty} keyboardType="numeric" placeholder="1" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={outputQty} editable={canWrite && editing.status === 'borrador'} onChangeText={setOutputQty} keyboardType="numeric" placeholder="1" placeholderTextColor={colors.muted} style={input} />
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Unidad de salida</Text>
-                  <TextInput value={outputUnit} editable={canWrite} onChangeText={(t) => setOutputUnit(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. UND, KG, L" placeholderTextColor={colors.muted} style={input} />
+                  <TextInput value={outputUnit} editable={canWrite && editing.status === 'borrador'} onChangeText={(t) => setOutputUnit(t.toUpperCase())} autoCapitalize="characters" placeholder="EJ. UND, KG, L" placeholderTextColor={colors.muted} style={input} />
                 </Card>
 
                 <Card>
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Componentes</Text>
-                  <BomLinesEditor value={components} onChange={setComponents} items={items} readOnly={!canWrite} />
+                  <BomLinesEditor
+                    value={components}
+                    onChange={setComponents}
+                    items={items}
+                    readOnly={!canWrite || editing.status !== 'borrador'}
+                    excludeItemId={productId}
+                  />
                 </Card>
 
                 {canWrite ? (
@@ -295,13 +375,20 @@ export default function BomScreen() {
                       <TouchableOpacity onPress={closeEdit} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
                         <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={guardar} disabled={saving} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: saving ? 0.6 : 1 }}>
-                        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
-                      </TouchableOpacity>
+                      {editing.status === 'borrador' ? (
+                        <TouchableOpacity onPress={guardar} disabled={saving} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: saving ? 0.6 : 1 }}>
+                          <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                     {editing.status === 'borrador' ? (
                       <TouchableOpacity onPress={activar} disabled={activating} style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: activating ? 0.6 : 1 }}>
                         <Text style={{ color: colors.successSoftText, fontWeight: '800' }}>{activating ? 'Activando…' : '✅ Activar receta'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {editing.status === 'activa' ? (
+                      <TouchableOpacity onPress={marcarObsoleta} disabled={obsoleting} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: obsoleting ? 0.6 : 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: '800' }}>{obsoleting ? 'Marcando…' : '⚪ Marcar obsoleta'}</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>

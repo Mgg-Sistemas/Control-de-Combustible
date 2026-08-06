@@ -93,11 +93,17 @@ export function BomLinesEditor({
   onChange,
   items,
   readOnly,
+  excludeItemId,
 }: {
   value: BomComponentLine[];
   onChange: (lines: BomComponentLine[]) => void;
   items: InventoryItem[];
   readOnly?: boolean;
+  /** Producto que se está editando (el "producto terminado" dueño de esta
+   *  receta): se excluye del picker de componentes y de sustitutos para que
+   *  no se pueda armar una receta circular (un producto que se compone de
+   *  sí mismo). */
+  excludeItemId?: string | null;
 }) {
   const { colors } = useTheme();
   const itemsById = useMemo(() => {
@@ -105,6 +111,13 @@ export function BomLinesEditor({
     items.forEach((i) => { m[i.id] = i; });
     return m;
   }, [items]);
+  // Catálogo utilizable en los pickers: sin el producto que se está editando
+  // (evita recetas circulares). El componente ya elegido en OTRAS líneas no se
+  // excluye aquí: la duplicidad se valida al guardar (mensaje más claro).
+  const pickableItems = useMemo(
+    () => (excludeItemId ? items.filter((i) => i.id !== excludeItemId) : items),
+    [items, excludeItemId]
+  );
 
   // Índice de la línea que tiene abierto su buscador de "+ agregar sustituto"
   // (uno solo a la vez, para no saturar la pantalla).
@@ -141,7 +154,7 @@ export function BomLinesEditor({
             {readOnly ? (
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{comp?.name ?? '—'}</Text>
             ) : (
-              <ItemPicker items={items} value={line.component_item_id} onPick={(it) => pickComponent(i, it)} />
+              <ItemPicker items={pickableItems} value={line.component_item_id} onPick={(it) => pickComponent(i, it)} />
             )}
 
             <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -217,7 +230,7 @@ export function BomLinesEditor({
               {subPickerFor === i ? (
                 <View style={{ marginTop: spacing.xs }}>
                   <ItemPicker
-                    items={items.filter((it) => it.id !== line.component_item_id)}
+                    items={pickableItems.filter((it) => it.id !== line.component_item_id)}
                     onPick={(it) => { addSubstitute(i, it); setSubPickerFor(null); }}
                     placeholder="Buscar sustituto…"
                   />
