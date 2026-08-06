@@ -329,7 +329,7 @@ export default function AjustesScreen() {
               Descarga un archivo JSON con TODOS los datos (máquinas, jornadas, empleados, pagos, inventario…). Acceso restringido a Anthony y Angelica.
             </Text>
             <TouchableOpacity onPress={doBackup} disabled={backupBusy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: backupBusy ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar backup'}</Text>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar backup'}</Text>
             </TouchableOpacity>
             {backupMsg ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>{backupMsg}</Text> : null}
           </Card>
