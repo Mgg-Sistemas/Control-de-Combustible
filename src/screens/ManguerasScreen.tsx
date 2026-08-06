@@ -1,0 +1,383 @@
+// Módulo de Fabricación (MRP) — Fase 1: Control y confección de mangueras
+// hidráulicas (Taller). Registra cada manguera hecha/reparada para la flota:
+// código físico, máquina, descripción del trabajo, costo, proveedor, si ya
+// está instalada y el estado de autorización de pago (lo aprueba "Chelia",
+// vía el nivel de permiso FULL sobre este módulo).
+import React, { useMemo, useState } from 'react';
+import { View, Text, TouchableOpacity, TextInput } from 'react-native';
+import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
+import { RecordForm, Field } from '../components/RecordForm';
+import { useTable } from '../hooks/useTable';
+import { supabase } from '../lib/supabase';
+import { norm, cmpText } from '../lib/text';
+import { useAuth } from '../context/AuthContext';
+import { levelMeets } from '../lib/permissions';
+import { useBcvRate, bsFromUsd, fmtUsd, fmtBs } from '../lib/bcv';
+import { HoseService, HoseInstallStatus, HosePaymentStatus } from '../types/database';
+import { generateHoseServiceReport } from '../lib/hoseServiceReport';
+import { spacing, radius } from '../theme';
+import { useTheme } from '../theme/ThemeContext';
+
+type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null };
+type ProfileRow = { id: string; full_name: string | null };
+
+type Tone = 'info' | 'warning' | 'danger' | 'success';
+function toneSoft(colors: any, tone: Tone) {
+  switch (tone) {
+    case 'success': return { bg: colors.successSoftBg, border: colors.successSoftBorder, text: colors.successSoftText };
+    case 'warning': return { bg: colors.warningSoftBg, border: colors.warningSoftBorder, text: colors.warningSoftText };
+    case 'danger': return { bg: colors.dangerSoftBg, border: colors.dangerSoftBorder, text: colors.dangerSoftText };
+    default: return { bg: colors.infoSoftBg, border: colors.infoSoftBorder, text: colors.infoSoftText };
+  }
+}
+function Pill({ label, tone, colors }: { label: string; tone: Tone; colors: any }) {
+  const t = toneSoft(colors, tone);
+  return (
+    <View style={{ backgroundColor: t.bg, borderWidth: 1, borderColor: t.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, alignSelf: 'flex-start' }}>
+      <Text style={{ color: t.text, fontSize: 12, fontWeight: '800' }}>{label}</Text>
+    </View>
+  );
+}
+
+const INSTALL_INFO: Record<HoseInstallStatus, { label: string; tone: Tone }> = {
+  en_proceso: { label: '🟡 En proceso', tone: 'warning' },
+  instalada: { label: '🟢 Instalada', tone: 'success' },
+};
+const PAYMENT_INFO: Record<HosePaymentStatus, { label: string; tone: Tone }> = {
+  pendiente: { label: '⏳ Pendiente', tone: 'warning' },
+  en_proceso_autorizacion: { label: '📤 En autorización', tone: 'info' },
+  pagado: { label: '✅ Pagado', tone: 'success' },
+};
+
+const INSTALL_FILTERS: { key: '' | HoseInstallStatus; label: string }[] = [
+  { key: '', label: 'Todas' },
+  { key: 'en_proceso', label: '🟡 En proceso' },
+  { key: 'instalada', label: '🟢 Instalada' },
+];
+const PAYMENT_FILTERS: { key: '' | HosePaymentStatus; label: string }[] = [
+  { key: '', label: 'Todas' },
+  { key: 'pendiente', label: '⏳ Pendiente' },
+  { key: 'en_proceso_autorizacion', label: '📤 En autorización' },
+  { key: 'pagado', label: '✅ Pagado' },
+];
+
+const fmtFecha = (iso: string | null | undefined) => {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : String(iso);
+};
+
+export default function ManguerasScreen() {
+  const { colors } = useTheme();
+  const { moduleLevel } = useAuth();
+  const level = moduleLevel('mangueras');
+
+  if (level === 'none') {
+    return (
+      <Screen>
+        <SectionTitle>Mangueras (Taller)</SectionTitle>
+        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
+      </Screen>
+    );
+  }
+  const canWrite = levelMeets(level, 'escritura');
+  // "Chelia": solo el nivel FULL puede aprobar y marcar como pagado.
+  const canApprove = levelMeets(level, 'full');
+
+  const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id', orderBy: 'code' });
+  const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name' });
+  const { rate: bcvRate } = useBcvRate();
+
+  const machineryMap = useMemo(() => {
+    const m: Record<string, { code: string; serial: string | null; plate: string | null }> = {};
+    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate }; });
+    return m;
+  }, [machinery]);
+  const profilesMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    profiles.forEach((p) => { m[p.id] = p.full_name || 'Usuario'; });
+    return m;
+  }, [profiles]);
+
+  // ── Filtros ─────────────────────────────────────────────────────────────
+  const [query, setQuery] = useState('');
+  const [installFilter, setInstallFilter] = useState<'' | HoseInstallStatus>('');
+  const [paymentFilter, setPaymentFilter] = useState<'' | HosePaymentStatus>('');
+  const [machineFilterId, setMachineFilterId] = useState('');
+  const [machineOpen, setMachineOpen] = useState(false);
+  const [machineQuery, setMachineQuery] = useState('');
+
+  const machineFilterInfo = machineFilterId ? machineryMap[machineFilterId] : undefined;
+  const machineFilterLabel = machineFilterInfo?.code;
+
+  const machineOptions = useMemo(() => {
+    const q = norm(machineQuery);
+    const list = q
+      ? machinery.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''}`).includes(q))
+      : machinery;
+    return list.slice().sort((a, b) => cmpText(a.code, b.code)).slice(0, 30);
+  }, [machinery, machineQuery]);
+
+  const q = norm(query.trim());
+  const shown = useMemo(() => {
+    return hoses
+      .filter((h) => !q || norm(`${h.code} ${h.description ?? ''} ${h.provider ?? ''}`).includes(q))
+      .filter((h) => !installFilter || h.install_status === installFilter)
+      .filter((h) => !paymentFilter || h.payment_status === paymentFilter)
+      .filter((h) => !machineFilterId || h.machinery_id === machineFilterId);
+  }, [hoses, q, installFilter, paymentFilter, machineFilterId]);
+
+  // ── Totales / inversión (sobre la lista FILTRADA actual) ──────────────────
+  const totals = useMemo(() => {
+    const total = shown.reduce((s, h) => s + (Number(h.cost_usd) || 0), 0);
+    return { count: shown.length, total };
+  }, [shown]);
+
+  // ── Formulario (crear / editar) ────────────────────────────────────────
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<HoseService | null>(null);
+  const openNew = () => { setEditing(null); setFormOpen(true); };
+  const openEdit = (h: HoseService) => { setEditing(h); setFormOpen(true); };
+
+  const FIELDS: Field[] = [
+    { key: 'code', label: 'Código de la manguera', type: 'text', required: true },
+    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', dropdown: true, required: true },
+    { key: 'description', label: 'Descripción del trabajo', type: 'text' },
+    { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
+    { key: 'cost_usd', label: 'Costo (US$)', type: 'number', required: true },
+    { key: 'provider', label: 'Proveedor', type: 'suggest', table: 'hose_services', column: 'provider', dropdown: true },
+    {
+      key: 'install_status', label: 'Estado de instalación', type: 'select',
+      options: [{ label: 'En proceso', value: 'en_proceso' }, { label: 'Instalada', value: 'instalada' }],
+    },
+  ];
+
+  // payment_status/approved_by/approved_at NUNCA se editan desde este formulario
+  // (solo mediante los botones de acción de abajo), así el flujo de aprobación
+  // no se puede saltar editando el registro. `fixedValues` con payment_status
+  // 'pendiente' se aplica SOLO al crear: si se pasara también al editar,
+  // RecordForm lo re-aplicaría en cada guardado y resetearía el estado de pago
+  // de una manguera ya enviada a autorización o pagada.
+  const formFixedValues = editing ? undefined : { payment_status: 'pendiente' as HosePaymentStatus };
+
+  // ── Acciones por fila ──────────────────────────────────────────────────
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const marcarInstalada = async (h: HoseService) => {
+    setBusy(h.id + '-install');
+    await supabase.from('hose_services').update({ install_status: 'instalada' }).eq('id', h.id);
+    setBusy(null);
+    refetch();
+  };
+  const enviarAutorizacion = async (h: HoseService) => {
+    setBusy(h.id + '-auth');
+    await supabase.from('hose_services').update({ payment_status: 'en_proceso_autorizacion' }).eq('id', h.id);
+    setBusy(null);
+    refetch();
+  };
+  const aprobarPago = async (h: HoseService) => {
+    setBusy(h.id + '-approve');
+    const { data } = await supabase.auth.getUser();
+    await supabase.from('hose_services').update({
+      payment_status: 'pagado',
+      approved_by: data.user?.id ?? null,
+      approved_at: new Date().toISOString(),
+    }).eq('id', h.id);
+    setBusy(null);
+    refetch();
+  };
+
+  // ── Reporte PDF ──────────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false);
+  const exportarReporte = async () => {
+    setExporting(true);
+    try {
+      await generateHoseServiceReport({
+        rows: shown,
+        machineryMap,
+        profilesMap,
+        bcvRate,
+        machineFilterLabel,
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
+
+  const Btn = ({ label, onPress, color, disabled }: { label: string; onPress: () => void; color: string; disabled?: boolean }) => (
+    <TouchableOpacity onPress={onPress} disabled={disabled} style={{ flexGrow: 1, flexBasis: 110, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: color, opacity: disabled ? 0.6 : 1 }}>
+      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  if (loading && hoses.length === 0) {
+    return <Screen><Loading /></Screen>;
+  }
+
+  return (
+    <Screen>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <SectionTitle>🔧 Mangueras (Taller)</SectionTitle>
+        {canWrite ? (
+          <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nueva manguera</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {hoses.length === 0 ? (
+        <EmptyState title="Sin registros" subtitle="Aún no se ha registrado ninguna manguera." />
+      ) : (
+        <>
+          {/* Filtro y consulta por equipo — trazabilidad de mangueras por máquina */}
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🚜 Filtro y consulta por equipo</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Busca una máquina para ver todas las mangueras hechas para ella.</Text>
+            <TouchableOpacity onPress={() => setMachineOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
+                {machineFilterId ? `Equipo: ${machineFilterLabel ?? '—'}` : 'Todos los equipos'}
+              </Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machineOpen ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {machineFilterId ? (
+              <TouchableOpacity onPress={() => { setMachineFilterId(''); setMachineQuery(''); }} style={{ alignSelf: 'flex-start', marginTop: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.danger, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar filtro</Text>
+              </TouchableOpacity>
+            ) : null}
+            {machineOpen ? (
+              <View style={{ marginTop: spacing.xs }}>
+                <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="🔎 Buscar por código, serial o placa…" placeholderTextColor={colors.muted} style={input} />
+                <View style={{ maxHeight: 240, marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                  {machineOptions.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text>
+                  ) : machineOptions.map((m) => (
+                    <TouchableOpacity key={m.id} onPress={() => { setMachineFilterId(m.id); setMachineOpen(false); setMachineQuery(''); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{[m.serial ? `Serial ${m.serial}` : '', m.plate ? `Placa ${m.plate}` : ''].filter(Boolean).join(' · ') || '—'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </Card>
+
+          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar por código, descripción o proveedor…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.xs }}>
+            {INSTALL_FILTERS.map((f) => {
+              const on = installFilter === f.key;
+              return (
+                <TouchableOpacity key={f.key || 'all'} onPress={() => setInstallFilter(f.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {PAYMENT_FILTERS.map((f) => {
+              const on = paymentFilter === f.key;
+              return (
+                <TouchableOpacity key={f.key || 'all'} onPress={() => setPaymentFilter(f.key)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{f.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Total invertido en el filtro actual */}
+          <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+            <Text style={{ color: colors.brandContrast, opacity: 0.85, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>
+              {machineFilterId ? `TOTAL INVERTIDO EN ${(machineFilterLabel ?? '').toUpperCase()}` : 'TOTAL INVERTIDO (FILTROS ACTUALES)'}
+            </Text>
+            <Text style={{ color: colors.brandContrast, fontSize: 20, fontWeight: '900' }}>
+              {fmtUsd(totals.total)}{bcvRate ? ` · ${fmtBs(bsFromUsd(totals.total, bcvRate))}` : ''}
+            </Text>
+            <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, marginTop: 2 }}>{totals.count} registro(s)</Text>
+          </View>
+
+          {shown.length > 0 ? (
+            <TouchableOpacity onPress={exportarReporte} disabled={exporting} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: exporting ? 0.6 : 1 }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{exporting ? 'Generando…' : '📄 Reporte de confección y pago'}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {shown.length === 0 ? (
+            <EmptyState title="Sin resultados" subtitle="Prueba con otra búsqueda o quita algún filtro." />
+          ) : (
+            shown.map((h) => {
+              const mach = h.machinery_id ? machineryMap[h.machinery_id] : undefined;
+              const machLabel = mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : '', mach.plate ? `Placa ${mach.plate}` : ''].filter(Boolean).join(' · ') : '—';
+              const installInfo = INSTALL_INFO[h.install_status] ?? INSTALL_INFO.en_proceso;
+              const paymentInfo = PAYMENT_INFO[h.payment_status] ?? PAYMENT_INFO.pendiente;
+              const registradoPor = h.created_by ? (profilesMap[h.created_by] || 'Usuario') : 'Usuario';
+              const aprobadoPor = h.approved_by ? (profilesMap[h.approved_by] || 'Usuario') : null;
+              return (
+                <Card key={h.id}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.xs }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{h.code}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🚜 {machLabel}</Text>
+                    </View>
+                    <View style={{ gap: 4, alignItems: 'flex-end' }}>
+                      <Pill label={installInfo.label} tone={installInfo.tone} colors={colors} />
+                      <Pill label={paymentInfo.label} tone={paymentInfo.tone} colors={colors} />
+                    </View>
+                  </View>
+
+                  {h.description ? <Text style={{ color: colors.text, fontSize: 13 }}>{h.description}</Text> : null}
+
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>📅 {fmtFecha(h.service_date)}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>
+                      {fmtUsd(h.cost_usd)}{bcvRate ? ` · ${fmtBs(bsFromUsd(h.cost_usd, bcvRate))}` : ''}
+                    </Text>
+                  </View>
+                  {h.provider ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏭 {h.provider}</Text> : null}
+
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>Registrado por {registradoPor} el {fmtFecha(h.created_at)}</Text>
+                  {aprobadoPor ? (
+                    <Text style={{ color: colors.muted, fontSize: 11 }}>Aprobado por {aprobadoPor} el {fmtFecha(h.approved_at)}</Text>
+                  ) : null}
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                    {canWrite ? (
+                      <>
+                        <Btn label="✏️ Editar" color="#475569" onPress={() => openEdit(h)} />
+                        {h.install_status === 'en_proceso' ? (
+                          <Btn label="🔧 Marcar instalada" color="#0EA5E9" disabled={busy === h.id + '-install'} onPress={() => marcarInstalada(h)} />
+                        ) : null}
+                        {h.payment_status === 'pendiente' ? (
+                          <Btn label="📤 Enviar a autorización" color="#D97706" disabled={busy === h.id + '-auth'} onPress={() => enviarAutorizacion(h)} />
+                        ) : null}
+                      </>
+                    ) : null}
+                    {canApprove && h.payment_status !== 'pagado' ? (
+                      <Btn label="✅ Aprobar y marcar pagado" color="#059669" disabled={busy === h.id + '-approve'} onPress={() => aprobarPago(h)} />
+                    ) : null}
+                  </View>
+                </Card>
+              );
+            })
+          )}
+        </>
+      )}
+
+      <RecordForm
+        visible={formOpen}
+        title={editing ? `Editar manguera: ${editing.code}` : 'Nueva manguera'}
+        table="hose_services"
+        fields={FIELDS}
+        fixedValues={formFixedValues}
+        record={editing as any}
+        autoUserField="created_by"
+        onClose={() => setFormOpen(false)}
+        onSaved={refetch}
+      />
+
+      <View style={{ height: spacing.lg }} />
+    </Screen>
+  );
+}

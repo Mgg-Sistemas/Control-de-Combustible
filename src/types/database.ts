@@ -969,3 +969,23 @@ export interface Transfer {
   created_by: string | null;
   created_at: string;
 }
+
+// Módulo de Fabricación (MRP) — Fase 1: Control de mangueras hidráulicas (Taller).
+export type HoseInstallStatus = 'en_proceso' | 'instalada';
+export type HosePaymentStatus = 'pendiente' | 'en_proceso_autorizacion' | 'pagado';
+
+export interface HoseService {
+  id: string;
+  code: string;
+  machinery_id: string | null;
+  description: string | null;
+  service_date: string; // YYYY-MM-DD
+  cost_usd: number;
+  provider: string | null;
+  install_status: HoseInstallStatus;
+  payment_status: HosePaymentStatus;
+  created_by: string | null;
+  created_at: string;
+  approved_by: string | null;
+  approved_at: string | null;
+}

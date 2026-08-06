@@ -1683,6 +1683,58 @@ las manejara). Solo el usuario "máquinas sin asignar" se ve afectado por este c
 
 ---
 
+## 4.26. Mangueras hidráulicas (Fabricación / Taller)
+
+Primera fase de un módulo de **Fabricación (MRP)** más amplio. Lleva el control de cada
+**manguera hidráulica** confeccionada o reparada en el taller para la flota: qué máquina la lleva,
+qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya está autorizado y pagado.
+
+> **Acceso y permisos:** este módulo es **restringido por defecto** ("Sin acceso"), igual que
+> Compras o Uniformes — un administrador debe otorgarlo explícitamente desde **Usuarios →
+> permisos por módulo** (o en un rol dinámico). Se llega desde **"Más → 🔧 Mangueras
+> hidráulicas"**. Los 3 niveles de permiso hacen exactamente esto:
+> - **Lectura:** solo puede ver el listado, los filtros y el total invertido. No ve el botón
+>   "+ Nueva manguera" ni los botones de acción de cada tarjeta.
+> - **Escritura:** además puede **registrar mangueras nuevas**, editarlas, marcarlas
+>   **"🔧 Marcar instalada"** y **enviarlas a autorización de pago** ("📤 Enviar a autorización").
+> - **Full control:** además de todo lo anterior, es el ÚNICO nivel que puede **aprobar el pago**
+>   con el botón **"✅ Aprobar y marcar pagado"** — por ejemplo, se le da este nivel puntual a
+>   **Chelia**, igual que se hizo antes con Diana para Uniformes.
+
+**Registrar una manguera nueva:**
+1. Toca **"+ Nueva manguera"**.
+2. Llena el **Código de la manguera** (la numeración física, ej. "87-AC"), elige la **Máquina**
+   (buscador del catálogo de maquinaria existente), la **Descripción del trabajo**, la **Fecha**,
+   el **Costo (US$)** y el **Proveedor** (operador del taller que la hizo).
+3. Deja el **Estado de instalación** en *En proceso* (o *Instalada*, si ya se montó). Guarda: queda
+   con estado de pago **⏳ Pendiente por pagar** automáticamente.
+4. Cuando se instale, toca **"🔧 Marcar instalada"** en su tarjeta.
+5. Cuando el trabajo esté listo para cobrarse, toca **"📤 Enviar a autorización"**: pasa a
+   **📤 En proceso de autorización**. Solo desde ahí, quien tenga **Full control** puede tocar
+   **"✅ Aprobar y marcar pagado"**, que la deja en **✅ Pagado** y guarda **quién aprobó y
+   cuándo** (queda visible en la tarjeta: "Aprobado por … el …").
+
+> No hay forma de **eliminar** un registro de manguera (ni botón ni permiso de borrado): el
+> historial completo se conserva a propósito.
+
+**Filtrar por máquina (trazabilidad):**
+En la tarjeta **"🚜 Filtro y consulta por equipo"**, busca la máquina por **código, serial o
+placa** y elígela. La lista y el recuadro de **total invertido** (en US$ y su equivalente en Bs a
+la tasa BCV del día) quedan acotados a esa sola máquina — útil para ver, por ejemplo, todas las
+mangueras hechas para una excavadora puntual y cuánto ha costado en fallas de mangueras. Toca
+**"✕ Quitar filtro"** para volver a ver todas. También hay chips para filtrar por **estado de
+instalación** (En proceso / Instalada) y **estado de pago** (Pendiente / En autorización /
+Pagado), y un buscador de texto por código, descripción o proveedor. El **total invertido**
+respeta siempre cualquier combinación de filtros activos, con o sin máquina elegida.
+
+**Reporte PDF:**
+Toca **"📄 Reporte de confección y pago"**: genera un PDF con el listado que estás viendo (con
+los filtros aplicados), el **total invertido**, el detalle de cada manguera (código, máquina,
+fecha, descripción, costo, proveedor, estado de instalación, estado de pago) y **quién la
+registró** y **quién aprobó el pago**.
+
+---
+
 ## 5. Cosas que sirven en TODAS las secciones
 
 - **🔎 Buscar:** escribe parte del nombre, serial o empresa.
