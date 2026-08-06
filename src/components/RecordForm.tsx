@@ -274,13 +274,25 @@ export function RecordForm({
         <View style={styles.sheet}>
           <Text style={[typography.title, { marginBottom: spacing.md }]}>{title}</Text>
           {isEdit && headerImageUrl ? (
-            <Image
-              source={{ uri: headerImageUrl }}
-              // contain + ancho acotado y centrado: en web el formulario es muy ancho y
-              // con "cover" la foto se recortaba en una franja. Así se ve la máquina completa.
-              style={{ width: '100%', maxWidth: 420, aspectRatio: 4 / 3, alignSelf: 'center', height: undefined, borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}
-              resizeMode="contain"
-            />
+            // Foto de la máquina COMPLETA (sin recortar). En WEB, la RN Image con
+            // aspectRatio recortaba la imagen; usamos <img> con object-fit: contain
+            // y una altura fija para que siempre se vea entera (con letterbox si hace falta).
+            Platform.OS === 'web' ? (
+              React.createElement('img', {
+                src: headerImageUrl,
+                style: {
+                  width: '100%', maxWidth: 420, height: 240, objectFit: 'contain',
+                  alignSelf: 'center', display: 'block', margin: '0 auto',
+                  borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt,
+                },
+              })
+            ) : (
+              <Image
+                source={{ uri: headerImageUrl }}
+                style={{ width: '100%', maxWidth: 420, height: 240, alignSelf: 'center', borderRadius: radius.md, marginBottom: spacing.md, backgroundColor: colors.surfaceAlt }}
+                resizeMode="contain"
+              />
+            )
           ) : null}
           <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: spacing.sm }}>
             {visibleFields.map((f) => (
