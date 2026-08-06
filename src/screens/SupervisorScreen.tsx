@@ -2483,6 +2483,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
                   <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
                 </View>
+              ) : ci && paradaIds.has(ci.id) && !jornadaStart ? (
+                // Máquina PARADA sin jornada abierta: no se puede iniciar jornada estando
+                // parada — primero hay que volver a ponerla OPERATIVA (botón de abajo).
+                <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>🟡 Máquina parada</Text>
+                  <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté parada. Vuélvela a OPERATIVA primero (abajo).</Text>
+                </View>
               ) : jornadaStart ? (
                 <View style={{ marginBottom: spacing.sm }}>
                   <View style={{ backgroundColor: colors.successSoftBg, borderWidth: 1, borderColor: colors.successSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
@@ -2647,7 +2654,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>Motivo: NO TRABAJÓ LA MÁQUINA</Text>
                       <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
                       <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
-                        <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar (opcional)'}</Text>
+                        <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>
                       {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio/sector: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia)}</Text></Text> : null}
                       <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 2 }}>Referencia (opcional, ej. “cerca de…”)</Text>
