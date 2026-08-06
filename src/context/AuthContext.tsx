@@ -23,6 +23,10 @@ type AuthState = {
   role: UserRole | null;
   /** Rol DINÁMICO asignado (define qué módulos ve). null = usa el rol base + permisos. */
   appRole: AppRole | null;
+  /** ¿Ya se resolvieron `role` Y `appRole` para la sesión actual? Úsalo antes de
+   *  decidir a qué pantalla mandar al usuario (evita un salto al árbol equivocado
+   *  mientras `appRole` todavía está cargando detrás de `role`). */
+  roleReady: boolean;
   /** ¿el usuario puede ver el módulo de Auditoría (bitácora de todos)? */
   canAudit: boolean;
   /** Nombre completo del usuario autenticado (profiles.full_name). */
@@ -63,6 +67,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(false);
   const [role, setRole] = useState<UserRole | null>(null);
   const [appRole, setAppRole] = useState<AppRole | null>(null);
+  // ¿Ya terminó de cargar TANTO `role` como `appRole`? `role` llega primero (query
+  // simple) y `appRole` un instante después (segunda consulta encadenada) — si la
+  // navegación decide el árbol (pickTree) apenas `role` está listo pero `appRole`
+  // TODAVÍA está en null, un usuario con rol dinámico (combustible, coordinador QR…)
+  // cae un instante en el árbol genérico equivocado antes de corregirse solo, y esa
+  // primera decisión puede dejarlo "atascado" ahí. `roleReady` deja esperar a que
+  // los DOS estén resueltos antes de elegir el árbol.
+  const [roleReady, setRoleReady] = useState(false);
   const [canAudit, setCanAudit] = useState(false);
   const [fullName, setFullName] = useState<string | null>(null);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
@@ -123,10 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setFullName(null);
       setOnlineIds([]);
       setPermissions({});
+      setRoleReady(true); // nada que cargar: sin sesión no hay rol que esperar.
       return;
     }
     const uid = session.user.id;
     let active = true;
+    setRoleReady(false); // nueva sesión: vuelve a esperar role + appRole juntos.
 
     // El ROL se carga con un query SIMPLE (nunca toca columnas de app_roles), para que
     // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
@@ -139,12 +153,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCanAudit((data?.role as UserRole) === 'admin' || !!(data as any)?.can_audit);
       setFullName((data as any)?.full_name ?? null);
       const arId = (data as any)?.app_role_id ?? null;
-      if (!arId) { setAppRole(null); return; }
+      if (!arId) { setAppRole(null); setRoleReady(true); return; }
       // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.
       let ar = await supabase.from('app_roles').select('id, name, modules, panel_type, created_at').eq('id', arId).single();
       if (ar.error) ar = await supabase.from('app_roles').select('id, name, modules, created_at').eq('id', arId).single();
       if (!active) return;
       setAppRole((ar.data as AppRole) ?? null);
+      setRoleReady(true);
     })();
 
     // Permisos por módulo del usuario.
@@ -376,6 +391,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         configured: isSupabaseConfigured,
         role,
         appRole,
+        roleReady,
         canAudit,
         fullName,
         onlineIds,

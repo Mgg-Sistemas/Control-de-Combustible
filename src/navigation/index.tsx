@@ -619,7 +619,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, fullName, signOut, loading, canSee } = useAuth();
+  const { session, configured, locked, role, appRole, roleReady, fullName, signOut, loading, canSee } = useAuth();
   // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
   // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
   // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
@@ -695,7 +695,13 @@ export default function RootNavigator() {
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
   const loggedInCocina = loggedInReal && role === 'cocina';
-  const roleLoading = loggedInReal && role == null;
+  // Antes solo miraba `role == null`, pero `appRole` (el rol DINÁMICO — el que
+  // decide combustible/coordinador QR/etc.) llega en una segunda consulta
+  // encadenada después de `role`: pickTree podía correr con `role` ya listo pero
+  // `appRole` todavía en null, eligiendo el árbol genérico por error antes de
+  // corregirse solo un instante después (a veces quedando "atascado" ahí). Con
+  // `roleReady` (ver AuthContext) se espera a que AMBOS estén resueltos.
+  const roleLoading = loggedInReal && !roleReady;
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -714,7 +720,9 @@ export default function RootNavigator() {
   // el mismo orden, en cada render. Durante un flujo de QR (?maquina=, …) no
   // aplica: esas pantallas son planas, sin rutas con nombre que enlazar.
   const inQrFlow = !!(qrComidaId || qrAliadoId || qrEmployeeId || qrMachineId);
-  const treePick = !inQrFlow && showApp && !locked && !(phone && roleLoading)
+  // Sin el filtro `phone &&`: en PC el enrutamiento también depende de `appRole`
+  // (combustible, coordinador QR…), así que también debe esperar a `roleReady`.
+  const treePick = !inQrFlow && showApp && !locked && !roleLoading
     ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema })
     : null;
   const treeKey = treePick?.key ?? null;
@@ -830,8 +838,9 @@ export default function RootNavigator() {
         <LoginScreen />
       ) : locked ? (
         <BiometricLockScreen />
-      ) : phone && roleLoading ? (
-        // En teléfono, mientras carga el rol esperamos (para saber si es patio).
+      ) : roleLoading ? (
+        // Mientras carga el rol (y el rol dinámico) esperamos, en cualquier
+        // dispositivo, para no caer un instante en el árbol equivocado.
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator color={colors.primary} />
         </View>
