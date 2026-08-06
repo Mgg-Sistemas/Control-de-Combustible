@@ -50,7 +50,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string };
 const ESTADO_META: Record<EstadoKey, { txt: string; color: string }> = {
   encurso: { txt: '● En curso', color: '#B45309' },
   parada: { txt: '🟡 Parada', color: '#B45309' },
@@ -172,7 +172,7 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
   ((rounds ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
-  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
+  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
     if (cos && !cos.includes(base.company)) return;
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
     data.set(turno, tMap);
@@ -195,6 +195,8 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     iMap.set(id, {
       id,
       code: base.code,
+      serial: base.serial,
+      plate: base.plate,
       company: base.company,
       sector: base.sector || 'Sin sector',
       referencia: base.referencia,
@@ -212,6 +214,8 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
   assignments.forEach((a) => {
     putMach(a.shift as Turno, a.inspector_name || '—', a.machinery_id, {
       code: a.code,
+      serial: a.serial ?? null,
+      plate: a.plate ?? null,
       company: a.companyName,
       sector: (a.sector && String(a.sector).trim()) || 'Sin sector',
       referencia: (a.referencia && String(a.referencia).trim()) || '',
@@ -233,6 +237,8 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     const mm = r.machine || {};
     putMach(turno, nameById[rb] || '—', r.machinery_id, {
       code: mm.code ?? '—',
+      serial: mm.serial ?? null,
+      plate: mm.plate ?? null,
       company: mm.company?.name ?? 'Sin empresa',
       sector: (mm.sector && String(mm.sector).trim()) || 'Sin sector',
       referencia: (mm.referencia && String(mm.referencia).trim()) || '',
@@ -271,7 +277,7 @@ export async function listInspectorNames(date: string, companies?: string[] | nu
 export async function generateInspectorReport(opts: { date: string; shift: InspectorShift; companies?: string[] | null; inspectors?: string[] | null }): Promise<boolean> {
   const { date, shift } = opts;
   const inspFilter = opts.inspectors && opts.inspectors.length ? new Set(opts.inspectors) : null;
-  const { data, machineLocs, machCoords, coordTxt } = await computeInspectorData(date, opts.companies);
+  const { data, machineLocs } = await computeInspectorData(date, opts.companies);
 
   // ── HTML ──────────────────────────────────────────────────────────────────
   const turnoMeta: Record<Turno, { icon: string; label: string }> = {
@@ -280,19 +286,18 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   };
 
   const estRank = (e: EstadoKey) => (e === 'encurso' ? 0 : e === 'parada' ? 1 : e === 'pendiente' ? 2 : 3);
-  const renderInspector = (insp: string, machMap: Map<string, Mach>): string => {
+  const renderInspector = (turno: Turno, insp: string, machMap: Map<string, Mach>): string => {
     const list = [...machMap.values()].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
     let tD = 0, tN = 0;
     const rows = list.map((m, i) => {
       const tot = r2(m.dayH + m.nightH);
       tD += m.dayH; tN += m.nightH;
       const moved = machineLocs(m.id).length > 1;
-      const { lat, lng } = machCoords(m);
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${m.estado === 'parada' && m.motivo ? `<div style="color:#B45309;font-size:10px">${esc(m.motivo)}</div>` : ''}`;
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.referencia || '—')}</td><td>${esc(m.edificio || '—')}</td><td class="coord">${esc(coordTxt(lat, lng))}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.referencia || '—')}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Referencia</th><th>Edificio</th><th>Ubicación</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Referencia</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales.
     const bySec = new Map<string, { c: number; d: number; n: number }>();
@@ -320,6 +325,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       ? `<div class="sub">🗺️ Máquinas que cambiaron de ubicación</div><table class="ir loc-table"><thead><tr><th>Máquina / Equipo</th><th>Ubicación anterior</th><th>Ubicación nueva</th><th>Hora / Fecha</th></tr></thead><tbody>${locRows.join('')}</tbody></table>`
       : '';
 
+    // Total de horas del TURNO de esta sección (junto a la firma). Para el inspector
+    // de día muestra el total de horas de día; para el de noche, las de noche.
+    const totLabel = turno === 'day' ? 'día' : 'noche';
+    const totTurno = turno === 'day' ? tD : tN;
+    const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${r2(totTurno)} h</b> · General (día + noche): <b>${r2(tD + tN)} h</b></div>`;
+
     // Firma del inspector de ESTA sección (nombre completo + línea + rótulo).
     const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(insp)}</div><div class="frole">Inspector</div></div>`;
 
@@ -335,7 +346,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       cFin ? `<span style="color:#166534">✅ ${cFin} finalizada(s)</span>` : '',
     ].filter(Boolean).join(' · ');
 
-    return `<div class="insp">👷 Inspector: <b>${esc(insp)}</b> <span class="cnt">${list.length} equipo(s)</span>${resumen ? `<div class="estres">${resumen}</div>` : ''}</div>${machTable}${secTable}${locHtml}${firmaInsp}`;
+    return `<div class="insp">👷 Inspector: <b>${esc(insp)}</b> <span class="cnt">${list.length} equipo(s)</span>${resumen ? `<div class="estres">${resumen}</div>` : ''}</div>${machTable}${secTable}${locHtml}${totHoras}${firmaInsp}`;
   };
 
   const renderTurno = (turno: Turno): string => {
@@ -349,7 +360,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     if (!inspNames.length) {
       return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">Sin inspectores seleccionados en este turno.</p>`;
     }
-    return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${inspNames.length} inspector(es)</span></h2>${inspNames.map((n) => renderInspector(n, tMap.get(n)!)).join('')}`;
+    return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${inspNames.length} inspector(es)</span></h2>${inspNames.map((n) => renderInspector(turno, n, tMap.get(n)!)).join('')}`;
   };
 
   const turnos: Turno[] = shift === 'day' ? ['day'] : shift === 'night' ? ['night'] : ['day', 'night'];
@@ -387,7 +398,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     table.loc-table td{page-break-inside:avoid}
     table.loc-table tr{page-break-inside:avoid;page-break-after:auto}
     .none{color:#6B7280;font-size:12px}
-    .firma-insp{width:260px;margin:34px 0 8px;page-break-inside:avoid}
+    .tot-horas{margin:12px 0 2px;font-size:12.5px;color:#1E3A5F;font-weight:700;background:#EEF2F7;border-radius:6px;padding:6px 10px;display:inline-block}
+    .firma-insp{width:260px;margin:20px 0 8px;page-break-inside:avoid}
     .firma-insp .line{border-top:1px solid #333;margin-bottom:4px}
     .firma-insp .fname{font-size:12px;font-weight:700;color:#111}
     .firma-insp .frole{font-size:10px;color:#6B7280}
