@@ -659,7 +659,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   const inspShown = useMemo(() => {
     const nq = norm(inspQ.trim());
-    return nq ? perInspector.filter((i) => norm(i.name).includes(nq)) : perInspector;
+    // El cajón MAQUINAS FALTANTES NO es un inspector real: no va como barra propia.
+    // Sus máquinas se muestran como "MÁQUINAS POR ASIGNAR" (pendiente por asignar),
+    // una sola fuente — así no aparece un pseudo-inspector con 100% que descuadra.
+    const base = perInspector.filter((i) => !i.isFaltantes);
+    return nq ? base.filter((i) => norm(i.name).includes(nq)) : base;
   }, [perInspector, inspQ]);
   const maxInsp = Math.max(1, ...inspShown.map((i) => i.ini.length));
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
