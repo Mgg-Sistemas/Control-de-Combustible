@@ -119,6 +119,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [showAll, setShowAll] = useState(false);
   // Filtro por segmento (chips) para la vista admin "Ver todas".
   const [segFilter, setSegFilter] = useState<'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'>('all');
+  // Lista de "Todas las máquinas" (vista admin) COLAPSADA por defecto: no se
+  // pintan las filas hasta que el usuario la despliega, para no volcar de una
+  // vez las ~200 máquinas. Ya combinada con los chips de segmento de arriba.
+  const [allListOpen, setAllListOpen] = useState(false);
   // "Mis máquinas" (vista del inspector) agrupadas por ESTADO, cada grupo COLAPSABLE
   // (cerrado por defecto) y con su propio buscador.
   const [grpOpen, setGrpOpen] = useState<Record<string, boolean>>({});
@@ -1493,10 +1497,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </View>
           <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
           {renderSegChips()}
-          <View style={{ marginTop: spacing.xs }}>
-            {searchList.slice(0, 100).map(renderMachine)}
-            {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre, empresa o cambia el filtro." /> : null}
-          </View>
+          {/* Lista COLAPSABLE: no se pinta nada hasta que se despliega, y respeta el
+              buscador + chip de segmento de arriba (searchList ya viene filtrado). */}
+          <TouchableOpacity
+            onPress={() => setAllListOpen((v) => !v)}
+            activeOpacity={0.7}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md }}
+          >
+            <Text style={{ flex: 1, color: colors.text, fontWeight: '900', fontSize: 14 }}>
+              {allListOpen ? 'Ocultar resultados' : 'Ver resultados'}
+            </Text>
+            <View style={{ minWidth: 30, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{searchList.length}</Text>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{allListOpen ? '▾' : '▸'}</Text>
+          </TouchableOpacity>
+          {allListOpen ? (
+            <View style={{ marginTop: spacing.xs }}>
+              {searchList.slice(0, 100).map(renderMachine)}
+              {searchList.length === 0 ? <EmptyState title="Sin resultados" subtitle="Prueba con otro nombre, empresa o cambia el filtro." /> : null}
+            </View>
+          ) : null}
         </>
       ) : (
         <>
