@@ -396,10 +396,10 @@ ${slide4}
 /** Encabezado de la vista previa: logo + título azul + empresa (como el PDF). */
 function ReportHeader({ title, colors }: { title: string; colors: AppColors }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: 3, borderBottomColor: '#1E3A5F' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm, paddingBottom: spacing.sm, borderBottomWidth: 3, borderBottomColor: colors.brand }}>
       <Image source={{ uri: LOGO_DATA_URI }} style={{ width: 46, height: 46, borderRadius: 8 }} resizeMode="contain" />
       <View style={{ flex: 1 }}>
-        <Text style={{ color: '#2563EB', fontWeight: '800', fontSize: 17 }}>{title}</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 17 }}>{title}</Text>
         <Text style={{ color: colors.muted, fontSize: 11 }}>{COMPANY_NAME}</Text>
       </View>
     </View>
@@ -2152,7 +2152,7 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12 }}>Inspectores (marca uno o varios)</Text>
               {inspSelected.length > 0 ? (
                 <TouchableOpacity onPress={() => setInspSelected([])}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -2237,7 +2237,7 @@ export default function ReportsScreen({ route }: any) {
           <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas (marca una o varias)</Text>
           {repCompanies.length > 0 ? (
             <TouchableOpacity onPress={() => setRepCompanies([])}>
-              <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
+              <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar</Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -2275,7 +2275,7 @@ export default function ReportsScreen({ route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12 }}>Clasificación (marca una o varias)</Text>
               {fleetTypes.length > 0 ? (
                 <TouchableOpacity onPress={() => setFleetTypes([])}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Limpiar ({fleetTypes.length})</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Limpiar ({fleetTypes.length})</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -2345,8 +2345,8 @@ export default function ReportsScreen({ route }: any) {
       <Modal visible={conteoPreview} animationType="slide" onRequestClose={() => setConteoPreview(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setConteoPreview(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>📊 Conteo de equipos</SectionTitle>
           {conteo ? (
@@ -2363,12 +2363,12 @@ export default function ReportsScreen({ route }: any) {
                 </Text>
                 <Switch value={tacConPersonal} onValueChange={setTacConPersonal} />
               </View>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* Reporte de TODO el personal por departamento (del administrativo a cocina). */}
-              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, marginBottom: spacing.sm }]} onPress={downloadPersonalPdf}>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>👥 Personal por departamento</Text>
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={downloadPersonalPdf}>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>👥 Personal por departamento</Text>
               </TouchableOpacity>
               {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -2379,9 +2379,9 @@ export default function ReportsScreen({ route }: any) {
                   { k: 'Total flota', v: conteo.flota, c: colors.text, d: 'flota' as const },
                 ].map((s) => (
                   <TouchableOpacity key={s.k} activeOpacity={0.7} onPress={() => setConteoDetail(s.d)} style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                    <Text style={{ color: s.c, fontSize: 22, fontWeight: '900' }}>{s.v}</Text>
+                    <Text style={{ color: s.c, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{s.v}</Text>
                     <Text style={{ color: colors.muted, fontSize: 10, textAlign: 'center' }}>{s.k}</Text>
-                    <Text style={{ color: colors.primary, fontSize: 9, fontWeight: '700', marginTop: 1 }}>ver detalle ›</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 9, fontWeight: '700', marginTop: 1 }}>ver detalle ›</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -2403,7 +2403,7 @@ export default function ReportsScreen({ route }: any) {
                 />
                 {tiposSel.size > 0 ? (
                   <TouchableOpacity onPress={() => setTiposSel(new Set())} style={{ alignSelf: 'flex-start', marginTop: spacing.xs }}>
-                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar selección ({tiposSel.size})</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar selección ({tiposSel.size})</Text>
                   </TouchableOpacity>
                 ) : null}
                 <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs }} nestedScrollEnabled>
@@ -2427,7 +2427,7 @@ export default function ReportsScreen({ route }: any) {
                 {tipoResultado ? (
                   <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm }}>
-                      <Text style={{ color: colors.primary, fontSize: 40, fontWeight: '800' }}>{tipoResultado.total}</Text>
+                      <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
                       <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
                     </View>
                     <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Cantidad por empresa</Text>
@@ -2457,7 +2457,7 @@ export default function ReportsScreen({ route }: any) {
                 return (
                   <Card>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, flex: 1 }}>🗺️ Filtrar por zona (ubicación en el mapa)</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, flex: 1 }}>🗺️ Filtrar por zona (ubicación en el mapa)</Text>
                       <TouchableOpacity onPress={() => setConteoMap(true)} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
                         <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>🗺️ Ver en mapa</Text>
                       </TouchableOpacity>
@@ -2486,14 +2486,14 @@ export default function ReportsScreen({ route }: any) {
                   qué sector (Este / Oeste) las que están ubicadas. Cuenta TODAS las transferidas. */}
               {conteo.dispoDetail.length ? (
                 <Card>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🏛️ A disposición de</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🏛️ A disposición de</Text>
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 4 }}>Máquinas a disposición de cada ente y en qué sector (Este / Oeste) las ubicadas.</Text>
                   {conteo.dispoDetail.map((d) => {
                     const parts = [d.este ? `${d.este} en Este` : '', d.oeste ? `${d.oeste} en Oeste` : ''].filter(Boolean).join(' · ');
                     return (
                       <View key={d.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>{d.name}{parts ? <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}> · {parts}</Text> : null}</Text>
-                        <Text style={{ color: colors.primary, fontSize: 15, fontWeight: '900' }}>{d.total}</Text>
+                        <Text style={{ color: colors.brandText, fontSize: 15, fontWeight: '900' }}>{d.total}</Text>
                       </View>
                     );
                   })}
@@ -2513,7 +2513,7 @@ export default function ReportsScreen({ route }: any) {
                 if (!rows.length) return null;
                 return (
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(Este / Oeste)</Text></Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona <Text style={{ color: colors.muted, fontSize: 11 }}>(Este / Oeste)</Text></Text>
                     {rows.map(([tipo, e]) => {
                       const parts = [...e.sec.entries()].sort((a, b) => (a[0] === 'Sin zona' ? 1 : b[0] === 'Sin zona' ? -1 : cmpText(a[0], b[0]))).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
@@ -2559,22 +2559,22 @@ export default function ReportsScreen({ route }: any) {
                 const byClas = aggregate('clas');
                 const byTipo = aggregate('tipo');
                 const totalCnt = rowsZona.length;
-                const colFor = colors.primary;
+                const colFor = colors.brandText;
                 const tableCard = (title: string, rows: ConteoRow[]) => (
                   <Card>
                     <View style={{ flexDirection: 'row', marginBottom: 4 }}>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, flex: 1 }}>{title}</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, flex: 1 }}>{title}</Text>
                       <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', width: 70, textAlign: 'right' }}>CANTIDAD</Text>
                     </View>
                     {rows.map((r) => (
                       <View key={r.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{r.name}</Text>
-                        <Text style={{ color: colFor, fontSize: 14, fontWeight: '800', width: 70, textAlign: 'right' }}>{r.count}</Text>
+                        <Text style={{ color: colFor, fontSize: 14, fontWeight: '800', width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{r.count}</Text>
                       </View>
                     ))}
                     <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderTopWidth: 2, borderTopColor: colors.border }}>
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>TOTAL</Text>
-                      <Text style={{ color: colFor, fontSize: 15, fontWeight: '900', width: 70, textAlign: 'right' }}>{totalCnt}</Text>
+                      <Text style={{ color: colFor, fontSize: 15, fontWeight: '900', width: 70, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{totalCnt}</Text>
                     </View>
                   </Card>
                 );
@@ -2622,7 +2622,7 @@ export default function ReportsScreen({ route }: any) {
                             <View style={{ flex: 1 }}>
                               <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
                               <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.tipo}</Text>
-                              {m.encargado ? <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+                              {m.encargado ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                             </View>
                             {conteoDetail === 'flota' ? (
                               <View style={{ backgroundColor: b.c + '22', borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 2 }}>
@@ -2645,8 +2645,8 @@ export default function ReportsScreen({ route }: any) {
         <Modal visible={conteoMap} animationType="slide" onRequestClose={() => setConteoMap(false)}>
           <Screen>
             <TouchableOpacity onPress={() => setConteoMap(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-              <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-              <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver al conteo</Text>
+              <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver al conteo</Text>
             </TouchableOpacity>
             <SectionTitle>Mapa por sectores</SectionTitle>
             {conteo ? (() => {
@@ -2673,12 +2673,12 @@ export default function ReportsScreen({ route }: any) {
 
                   {/* Leyenda: Este / Oeste con su color y conteo (solo GPS). */}
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicadosGps} ubicados por GPS)</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Zonas ({conteo.ubicadosGps} ubicados por GPS)</Text>
                     {zonaRows.map(([name, count]) => (
                       <View key={name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                         <View style={{ width: 12, height: 12, borderRadius: 3, backgroundColor: zoneColor[name] ?? colors.muted, marginRight: spacing.sm }} />
                         <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{name}</Text>
-                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{count}</Text>
+                        <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{count}</Text>
                       </View>
                     ))}
                   </Card>
@@ -2686,13 +2686,13 @@ export default function ReportsScreen({ route }: any) {
                   {/* Leyenda: a disposición de (Gobernación/FANB/CVM…), cuántas y en qué sector. */}
                   {conteo.dispoDetail.length ? (
                     <Card>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>🏛️ A disposición de</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>🏛️ A disposición de</Text>
                       {conteo.dispoDetail.map((d) => {
                         const parts = [d.este ? `${d.este} en Este` : '', d.oeste ? `${d.oeste} en Oeste` : ''].filter(Boolean).join(' · ');
                         return (
                           <View key={d.name} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 4, borderTopWidth: 1, borderTopColor: colors.border }}>
                             <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{d.name}{parts ? <Text style={{ color: colors.muted, fontSize: 12 }}> · {parts}</Text> : null}</Text>
-                            <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>{d.total}</Text>
+                            <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800' }}>{d.total}</Text>
                           </View>
                         );
                       })}
@@ -2701,7 +2701,7 @@ export default function ReportsScreen({ route }: any) {
 
                   {/* Leyenda: por tipo y zona. */}
                   <Card>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4 }}>Por tipo y zona</Text>
                     {tzRows.map(([tipo, e]) => {
                       const parts = [...e.sec.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([s, n]) => `${n} en ${s}`).join(' · ');
                       return (
@@ -2723,8 +2723,8 @@ export default function ReportsScreen({ route }: any) {
       <Modal visible={preview} animationType="slide" onRequestClose={() => setPreview(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setPreview(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Vista previa del reporte</SectionTitle>
           <ReportHeader title="REPORTE DE COMBUSTIBLE" colors={colors} />
@@ -2754,7 +2754,7 @@ export default function ReportsScreen({ route }: any) {
                   {byDay.map((r) => (
                     <TouchableOpacity key={r.label} onPress={() => setSelectedDay(r.label)} style={{ alignItems: 'center', justifyContent: 'flex-end' }}>
                       <Text style={{ fontSize: 10, color: colors.text }}>{r.liters.toLocaleString()}</Text>
-                      <View style={{ width: 28, height: Math.max(4, (r.liters / maxDay) * 120), backgroundColor: colors.primary, borderRadius: 4 }} />
+                      <View style={{ width: 28, height: Math.max(4, (r.liters / maxDay) * 120), backgroundColor: colors.brand, borderRadius: 4 }} />
                       <Text style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>{r.label.slice(5)}</Text>
                     </TouchableOpacity>
                   ))}
@@ -2775,7 +2775,7 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 13 }}>{r.liters.toLocaleString()} L</Text>
                   </View>
                   <View style={{ height: 8, backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, marginTop: 2 }}>
-                    <View style={{ height: 8, width: `${(r.liters / maxAsset) * 100}%`, backgroundColor: colors.primary, borderRadius: radius.pill }} />
+                    <View style={{ height: 8, width: `${(r.liters / maxAsset) * 100}%`, backgroundColor: colors.brand, borderRadius: radius.pill }} />
                   </View>
                 </View>
               ))
@@ -2856,7 +2856,7 @@ export default function ReportsScreen({ route }: any) {
           <ReportHeader title="INFORME POR JORNADA" colors={colors} />
           <Card>
             <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
-            {roundsCompany ? <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
+            {roundsCompany ? <Text style={{ color: colors.brandText, fontWeight: '700', marginTop: 2 }}>🏢 {roundsCompany}</Text> : null}
             <Text style={{ color: colors.text, fontWeight: '800', marginTop: 2 }}>
               {roundGroups.reduce((s, g) => s + g.machines.length, 0)} máquina(s) · {nH(roundGroups.reduce((s, g) => s + g.totalH, 0))} · {usd(roundGroups.reduce((s, g) => s + g.totalUSD + g.viajesUSD, 0))}
             </Text>
@@ -2867,12 +2867,12 @@ export default function ReportsScreen({ route }: any) {
               const saldo = Math.max(0, fact - abon);
               return abon > 0 ? (
                 <Text style={{ fontSize: 13, marginTop: 4, fontWeight: '800', color: colors.text }}>
-                  💰 Abonado <Text style={{ color: colors.success }}>{usd(abon)}</Text> · Saldo pendiente <Text style={{ color: colors.primary }}>{usd(saldo)}</Text>
+                  💰 Abonado <Text style={{ color: colors.success }}>{usd(abon)}</Text> · Saldo pendiente <Text style={{ color: colors.brandText }}>{usd(saldo)}</Text>
                 </Text>
               ) : null;
             })()}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.xs }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A' }} />
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.success }} />
               <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>En vivo · se actualiza solo al agregar o editar jornadas</Text>
             </View>
           </Card>
@@ -2933,7 +2933,7 @@ export default function ReportsScreen({ route }: any) {
             );
             return (
               <Card style={{ marginBottom: spacing.md }}>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 4 }}>Total por clasificación</Text>
                 {hdr('CLASIFICACIÓN', 'CANT.', 'HORAS', '$/HORA', 'TOTAL')}
                 {clas.map(([c, a]) => (
@@ -2957,7 +2957,7 @@ export default function ReportsScreen({ route }: any) {
           ) : (
             roundGroups.map((g) => (
               <View key={g.company} style={{ marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: 4, textTransform: 'uppercase' }}>
                   🏢 {g.company}{companyRif[g.company] ? ` · RIF ${companyRif[g.company]}` : ''} ({g.machines.length})
                 </Text>
                 {g.machines.map((m, i) => (
@@ -2968,7 +2968,7 @@ export default function ReportsScreen({ route }: any) {
                         <Text style={{ color: colors.muted, fontSize: 11 }}>Clasificación: {m.clasificacion}</Text>
                       </View>
                       <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
-                        <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>{m.tipo}</Text>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{m.tipo}</Text>
                       </View>
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: 4 }}>
@@ -3035,7 +3035,7 @@ export default function ReportsScreen({ route }: any) {
           {/* Estado de la flota de maquinaria */}
           {roundGroups.length > 0 ? (
             <Card style={{ marginTop: spacing.md }}>
-              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Estado de la flota de maquinaria</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>Estado de la flota de maquinaria</Text>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Total de activos</Text>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fleetStatus.total} unidades</Text>
@@ -3052,7 +3052,7 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1, paddingRight: spacing.sm }}>Unidades inactivas{'\n'}<Text style={{ color: colors.muted, fontWeight: '400', fontSize: 11 }}>Fuera de servicio / dadas de baja</Text></Text>
                 <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 13 }}>{fleetStatus.inactivos} unidades</Text>
               </View>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 2, borderTopColor: colors.primary }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTopWidth: 2, borderTopColor: colors.brand }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>TOTAL DE LA FLOTA</Text>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{fleetStatus.totalFlota} unidades</Text>
               </View>
@@ -3125,16 +3125,16 @@ export default function ReportsScreen({ route }: any) {
           {/* Reporte solo con la CANTIDAD de equipos (sin horas ni precio). */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }]}
+              style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }]}
               onPress={() => downloadFleetCountPdf()}
             >
-              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🔢 Cantidad · General</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🔢 Cantidad · General</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: showCountByCompany ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }]}
+              style={[styles.btn, { backgroundColor: showCountByCompany ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }]}
               onPress={() => setShowCountByCompany((v) => !v)}
             >
-              <Text style={{ color: showCountByCompany ? colors.primaryContrast : colors.primary, fontWeight: '800', fontSize: 13 }}>🏢 Cantidad · Por empresa</Text>
+              <Text style={{ color: showCountByCompany ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 13 }}>🏢 Cantidad · Por empresa</Text>
             </TouchableOpacity>
           </View>
           {showCountByCompany ? (
@@ -3145,9 +3145,9 @@ export default function ReportsScreen({ route }: any) {
                   <TouchableOpacity
                     key={c.company}
                     onPress={() => downloadFleetCountPdf(c.company)}
-                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                    style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
                   >
-                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>{c.company} ({c.count})</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>{c.company} ({c.count})</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -3163,9 +3163,9 @@ export default function ReportsScreen({ route }: any) {
                   <TouchableOpacity
                     key={c.company}
                     onPress={() => downloadFleetPdf(c.company, fleetWithPrices)}
-                    style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+                    style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
                   >
-                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
                       {c.company} ({c.count})
                     </Text>
                   </TouchableOpacity>
@@ -3187,7 +3187,7 @@ export default function ReportsScreen({ route }: any) {
               ))}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{fleetItems.length}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{fleetItems.length}</Text>
               </View>
 
               <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 2 }}>Totales de equipos por empresa</Text>
@@ -3199,7 +3199,7 @@ export default function ReportsScreen({ route }: any) {
               ))}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{fleetItems.length}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{fleetItems.length}</Text>
               </View>
             </Card>
           ) : null}
@@ -3216,7 +3216,7 @@ export default function ReportsScreen({ route }: any) {
               ))}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL FLETES</Text>
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>{usd(fleetFletes.reduce((s, f) => s + f.usd, 0))}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(fleetFletes.reduce((s, f) => s + f.usd, 0))}</Text>
               </View>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>En el PDF, cada empresa muestra sus viajes y el "TOTAL POR PAGAR (equipos + fletes)".</Text>
             </Card>
@@ -3273,7 +3273,7 @@ export default function ReportsScreen({ route }: any) {
               </TouchableOpacity>
 
               {/* 🧱 Transporte de escombros: mismos volteos, hoja con check Día/Noche por día */}
-              <Card style={{ borderColor: colors.primary, borderWidth: 1 }}>
+              <Card style={{ borderColor: colors.brand, borderWidth: 1 }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🧱 Transporte de escombros (turnos Día/Noche)</Text>
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.xs }}>
                   {camData.escompanies.reduce((s, c) => s + c.items.length, 0)} equipo(s) de volteo · marca ☐ Día / ☐ Noche por día a mano.
@@ -3297,7 +3297,7 @@ export default function ReportsScreen({ route }: any) {
               {/* Camiones por empresa */}
               {camData.companies.map((co) => (
                 <Card key={co.company}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🏢 {co.company} — {co.items.length} camión(es)</Text>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🏢 {co.company} — {co.items.length} camión(es)</Text>
                   {co.items.map((t) => (
                     <View key={t.code} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                       <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{t.code}</Text>

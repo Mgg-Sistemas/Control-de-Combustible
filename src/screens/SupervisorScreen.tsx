@@ -164,6 +164,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Selección MÚLTIPLE para asignar/reasignar por LOTE (paso 2). Filtro "solo pendientes".
   const [selIds, setSelIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
+  // ── "↪ Reasignar a…": mover una o varias máquinas a OTRO inspector destino (elegido
+  //    en línea, sin volver al paso 1) y luego DÍA / NOCHE / AMBOS. Disponible en la
+  //    barra de lote y por máquina. `reassign` = ids a mover; `reassignTo` = destino.
+  const [reassign, setReassign] = useState<{ ids: string[] } | null>(null);
+  const [reassignTo, setReassignTo] = useState<{ id: string; name: string } | null>(null);
+  const [reassignQuery, setReassignQuery] = useState('');
+  const [reassignBusy, setReassignBusy] = useState(false);
   type CheckFilterMode = 'mine' | 'pending' | 'all';
   const [checkFilter, setCheckFilter] = useState<CheckFilterMode>('mine');
   // Acordeón del Resumen: inspectores/pendientes expandidos (por id o 'pend').
@@ -722,6 +729,34 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       : `✅ ${que} asignado a ${ids.length} máquina(s) → ${target.name}.${err ? ` (${err} con error)` : ''}`);
   };
   const toggleSel = (id: string) => setSelIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // ── "↪ Reasignar a…": MUEVE las máquinas de `reassign.ids` al inspector destino
+  //    `reassignTo` en el turno elegido (día/noche/ambos). Es un upsert directo por
+  //    máquina+turno (sobreescribe a quien la tuviera). Sincroniza en vivo y cierra.
+  const doReassign = async (mode: 'day' | 'night' | 'both') => {
+    if (!reassign || !reassignTo || reassignBusy) return;
+    setReassignBusy(true); setNotice(null);
+    const ids = reassign.ids;
+    const shifts: Shift[] = mode === 'day' ? ['day'] : mode === 'night' ? ['night'] : ['day', 'night'];
+    let ok = 0, err = 0, res: { error?: string; missing?: boolean } | null = null;
+    for (const id of ids) {
+      for (const sh of shifts) {
+        res = await assignInspector(id, reassignTo.id, reassignTo.name, sh);
+        if (res?.error) err++; else ok++;
+      }
+    }
+    await reloadAssigns();
+    logAudit('CHECK', 'machinery', ids[0] ?? '', `REASIGNAR ${mode} · ${ids.length} máquina(s) → ${reassignTo.name}`);
+    const que = mode === 'both' ? 'Día + Noche' : shiftLabel(mode as Shift);
+    const dest = reassignTo.name;
+    setReassignBusy(false); setSelIds(new Set());
+    setReassign(null); setReassignTo(null); setReassignQuery('');
+    if (err > 0 && ok === 0) {
+      setNotice(res?.missing ? '❌ Falta activar la asignación: corre supabase/inspector_turno.sql en Supabase.' : `❌ No se pudo reasignar (${err} error/es).`);
+      return;
+    }
+    setNotice(`↪ Reasignada(s) ${ids.length} máquina(s) · ${que} → ${dest}.${err ? ` (${err} con error)` : ''}`);
+  };
 
   // ── Asignar/reasignar el inspector de UNA máquina en un turno, DESDE su ficha
   //    (lista "Todas las máquinas", solo admin). insp=null quita el turno.
@@ -1529,24 +1564,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
               {/* 4 grupos por ESTADO, COLAPSADOS por defecto, con contador y buscador propio. */}
               {([
-                { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success },
-                { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText },
-                { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning },
-                { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger },
-              ] as const).map(({ key, label, icon, color }) => {
+                { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success, desc: 'Jornada abierta ahora mismo' },
+                { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText, desc: 'Aún sin iniciar la jornada de hoy' },
+                { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning, desc: 'Paradas (arrastran el estado del día anterior)' },
+                { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger, desc: 'Con avería pendiente por resolver' },
+              ] as const).map(({ key, label, icon, color, desc }) => {
                 const all = grupos[key];
                 const open = !!grpOpen[key];
                 const q = norm((grpQuery[key] || '').trim());
                 const shown = q ? all.filter((m) => matchQuery(m, q)) : all;
+                const n = all.length;
                 return (
-                  <View key={key} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' }}>
-                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
-                      <Text style={{ fontSize: 16 }}>{icon}</Text>
-                      <Text style={{ flex: 1, color, fontWeight: '900', fontSize: 14 }}>{label}</Text>
-                      <View style={{ minWidth: 30, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{all.length}</Text>
+                  <View key={key} style={{ borderWidth: 1, borderColor: open ? color : colors.border, borderRadius: radius.md, backgroundColor: 'transparent', overflow: 'hidden' }}>
+                    {/* MISMA fila del MENÚ (ver MoreScreen): ícono + título + subtítulo + CANTIDAD + chevron. Al tocar despliega la lista de ese estado. */}
+                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md }}>
+                      <Text style={{ fontSize: 24, width: 30, textAlign: 'center' }}>{icon}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 15.5 }}>{label}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>{n} {n === 1 ? 'máquina' : 'máquinas'} · {desc}</Text>
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any, minWidth: 20, textAlign: 'right' }}>{n}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 20 }}>{open ? '⌄' : '›'}</Text>
                     </TouchableOpacity>
                     {open ? (
                       <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
@@ -1869,13 +1907,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </View>
                   {/* Barra de acciones por LOTE (solo con selección) */}
                   {selIds.size > 0 ? (
-                    <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                      {([['☀️ Día', 'day'], ['🌙 Noche', 'night'], ['☀️🌙 Ambos', 'both'], ['✖ Quitar', 'remove']] as const).map(([lbl, mode]) => (
-                        <TouchableOpacity key={mode} disabled={batchBusy} onPress={() => assignBatch(mode)} style={{ flexGrow: 1, alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: mode === 'remove' ? colors.danger : colors.primary, backgroundColor: mode === 'remove' ? colors.surface : colors.primary, opacity: batchBusy ? 0.6 : 1 }}>
-                          <Text style={{ color: mode === 'remove' ? colors.danger : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{batchBusy ? '⏳' : lbl}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    <>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Asignar a <Text style={{ fontWeight: '800', color: colors.text }}>{checkInspector.name}</Text>:</Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: 4, flexWrap: 'wrap' }}>
+                        {([['☀️ Día', 'day'], ['🌙 Noche', 'night'], ['☀️🌙 Ambos', 'both'], ['✖ Quitar', 'remove']] as const).map(([lbl, mode]) => (
+                          <TouchableOpacity key={mode} disabled={batchBusy} onPress={() => assignBatch(mode)} style={{ flexGrow: 1, alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: mode === 'remove' ? colors.danger : colors.primary, backgroundColor: mode === 'remove' ? colors.surface : colors.primary, opacity: batchBusy ? 0.6 : 1 }}>
+                            <Text style={{ color: mode === 'remove' ? colors.danger : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{batchBusy ? '⏳' : lbl}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                      {/* Mover el lote a OTRO inspector (destino elegido en línea → Día/Noche/Ambos). */}
+                      <TouchableOpacity onPress={() => { setReassign({ ids: Array.from(selIds) }); setReassignTo(null); setReassignQuery(''); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: colors.accentSoftBg }}>
+                        <Text style={{ color: colors.accentSoftText, fontWeight: '900', fontSize: 12 }}>↪ Reasignar {selIds.size} a otro inspector…</Text>
+                      </TouchableOpacity>
+                    </>
                   ) : null}
                   <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                     {shown.map((m) => {
@@ -1920,6 +1965,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                             {shiftBtn('day')}
                             {shiftBtn('night')}
                           </View>
+                          {/* Reasignar ESTA máquina a otro inspector (destino en línea → Día/Noche/Ambos). */}
+                          <TouchableOpacity onPress={() => { setReassign({ ids: [m.id] }); setReassignTo(null); setReassignQuery(''); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: spacing.xs, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.accent, backgroundColor: colors.accentSoftBg }}>
+                            <Text style={{ color: colors.accentSoftText, fontWeight: '800', fontSize: 11 }}>↪ Reasignar a otro inspector…</Text>
+                          </TouchableOpacity>
                         </View>
                       );
                     })}
@@ -2007,6 +2056,59 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             );
           })() : null}
         </Screen>
+      </Modal>
+
+      {/* ↪ REASIGNAR a OTRO inspector (lote o individual): se elige el inspector destino
+          en línea y luego el turno (Día / Noche / Ambos). Mueve la asignación directo. */}
+      <Modal visible={!!reassign} transparent animationType="fade" onRequestClose={() => { setReassign(null); setReassignTo(null); }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%', overflow: 'hidden' }}>
+            <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>↪ Reasignar a otro inspector</Text>
+                <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{reassign ? `${reassign.ids.length} máquina(s)` : ''}{reassignTo ? ` → ${reassignTo.name}` : ''}</Text>
+              </View>
+              <TouchableOpacity onPress={() => { setReassign(null); setReassignTo(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+            {!reassignTo ? (
+              // ── PASO A: elegir el inspector DESTINO ──────────────────────────────
+              <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige el inspector destino:</Text>
+                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+                <ScrollView style={{ maxHeight: 320, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {inspectors.filter((p) => !reassignQuery.trim() || norm(p.name).includes(norm(reassignQuery.trim()))).map((p) => (
+                    <TouchableOpacity key={p.id} onPress={() => setReassignTo({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
+                      <Text style={{ fontSize: 18 }}>👮</Text>
+                      <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
+                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>›</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {inspectors.length === 0 ? <EmptyState title="Sin inspectores" subtitle="No hay inspectores/coordinadores para asignar." /> : null}
+                </ScrollView>
+              </View>
+            ) : (
+              // ── PASO B: elegir el TURNO a mover (Día / Noche / Ambos) ────────────
+              <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
+                <TouchableOpacity onPress={() => { setReassignTo(null); setReassignQuery(''); }} style={{ alignSelf: 'flex-start', marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>‹ Cambiar inspector</Text>
+                </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+                  Mover {reassign?.ids.length} máquina(s) a <Text style={{ fontWeight: '900', color: colors.text }}>{reassignTo.name}</Text>. ¿En qué turno?
+                </Text>
+                <View style={{ gap: spacing.xs }}>
+                  {([['☀️ Día', 'day'], ['🌙 Noche', 'night'], ['☀️🌙 Ambos (día y noche)', 'both']] as const).map(([lbl, mode]) => (
+                    <TouchableOpacity key={mode} disabled={reassignBusy} onPress={() => doReassign(mode)} style={{ alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.accent, backgroundColor: colors.accent, opacity: reassignBusy ? 0.6 : 1 }}>
+                      <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 14 }}>{reassignBusy ? '⏳ Moviendo…' : lbl}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>Reasignar es directo: si otra persona la tenía en ese turno, se la pasas al destino.</Text>
+              </View>
+            )}
+          </View>
+        </View>
       </Modal>
 
       {/* Surtir gasoil a la máquina del check-in */}

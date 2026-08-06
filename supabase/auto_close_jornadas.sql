@@ -10,13 +10,16 @@
 --
 --   Cuando un supervisor/inspector REAL inicia jornada en un camión, ahora
 --   sigue el flujo NORMAL, igual que cualquier otra máquina:
---     • turno DÍA   -> cierra a las 7:00pm del round_date, horas reales.
---     • turno NOCHE -> cierra a las 7:00am del día siguiente, horas reales.
+--     • turno DÍA   -> cierra a las 7:00pm del round_date con 12h FIJAS (regla del
+--                      cliente: máquinas de permanencia; el arranque marcado no es el
+--                      inicio real). Actualizado 05-ago-2026.
+--     • turno NOCHE -> cierra a las 7:00am del día siguiente, horas REALES.
 --   Candado: SOLO cierra si la hora de fin es 7 o 19 (Caracas) → nunca medianoche.
 --   Guarda de recencia: no auto-cierra jornadas cuyo fin fue hace +2 días (debris → manual).
 --   Corre CADA 10 MIN con pg_cron.
 --
--- NOTA: no pisa horas ya guardadas (siempre se SUMA con coalesce). Idempotente.
+-- NOTA: NOCHE suma con coalesce (no pisa lo ya guardado); DÍA fija day_hours=12.
+--   Idempotente: al cerrar pone jornada_start_at=null, así que no re-procesa la fila.
 -- Correr una vez en Supabase. pg_cron debe estar habilitado (Database → Extensions).
 -- ============================================================================
 create extension if not exists pg_cron;
@@ -51,18 +54,26 @@ begin
     -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
     -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
     if now() >= end_ts and r.jornada_start_at < end_ts then
-      hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
       if r.jornada_shift = 'night' then
+        -- NOCHE: horas REALES (inicio → 7am del día siguiente).
+        hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
         update public.machine_rounds
           set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
           where id = r.id;
+        insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
+          values (r.machinery_id, r.round_date, 'night', r.jornada_start_at, end_ts, hrs, 'auto_close');
       else
+        -- DÍA: 12h FIJAS (regla del cliente; máquinas de permanencia). NO se usan las
+        -- horas reales porque el arranque registrado es cuando el inspector marcó, no
+        -- el inicio real de trabajo. La traza se guarda como 7am → 7pm (12h).
+        hrs := 12;
         update public.machine_rounds
-          set day_hours = coalesce(day_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
+          set day_hours = 12, jornada_start_at = null, status = 'operativa'
           where id = r.id;
+        insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
+          values (r.machinery_id, r.round_date, 'day',
+                  (r.round_date + time '07:00') at time zone 'America/Caracas', end_ts, 12, 'auto_close');
       end if;
-      insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
-        values (r.machinery_id, r.round_date, r.jornada_shift, r.jornada_start_at, end_ts, hrs, 'auto_close');
     end if;
   end loop;
 end $$;

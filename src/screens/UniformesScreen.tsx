@@ -6,7 +6,7 @@ import { DateField } from '../components/DateField';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { caracasParts } from '../lib/jornada';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { norm } from '../lib/text';
+import { norm, cmpText } from '../lib/text';
 import { Company, Employee, UniformDelivery, InventoryMovement, InventoryTransfer, InventoryItem } from '../types/database';
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
@@ -145,7 +145,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     let list = employees.slice();
     if (onlyActive) list = list.filter((e) => e.status === 'activo');
     if (nq) list = list.filter((e) => norm(`${fullName(e)} ${e.cedula ?? ''} ${e.cargo ?? ''}`).includes(nq));
-    return list.sort((a, b) => companyName(a.company_id).localeCompare(companyName(b.company_id), 'es') || fullName(a).localeCompare(fullName(b), 'es'));
+    return list.sort((a, b) => cmpText(companyName(a.company_id), companyName(b.company_id)) || cmpText(fullName(a), fullName(b)));
   }, [employees, onlyActive, nq, companies]);
 
   // Agrupa por empresa (para la vista en pantalla).
@@ -157,7 +157,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       g.items.push(e);
       m.set(k, g);
     });
-    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    return Array.from(m.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [filtered, companies]);
 
   // Resumen de totales por talla del listado filtrado (camisas / pantalones / botas).
@@ -278,11 +278,11 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Distribución de uniformes</SectionTitle>
         <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-          <TouchableOpacity onPress={reporteEntregas} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>📦 Reporte de entregas</Text>
+          <TouchableOpacity onPress={reporteEntregas} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📦 Reporte de entregas</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={imprimir} style={{ backgroundColor: '#111827', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>⬇️ Listado (tallas)</Text>
+          <TouchableOpacity onPress={imprimir} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Listado (tallas)</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -294,8 +294,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         {[{ k: true, label: 'Activos' }, { k: false, label: 'Todos' }].map((o) => {
           const on = onlyActive === o.k;
           return (
-            <TouchableOpacity key={o.label} onPress={() => setOnlyActive(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
+            <TouchableOpacity key={o.label} onPress={() => setOnlyActive(o.k)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{o.label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -310,7 +310,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       ) : (
         byCompany.map((g) => (
           <View key={g.key} style={{ marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name} <Text style={{ color: colors.muted, fontSize: 12 }}>({g.items.length})</Text></Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name} <Text style={{ color: colors.muted, fontSize: 12 }}>({g.items.length})</Text></Text>
             {g.items.map((e) => (
               <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => openEmp(e)}>
                 <Card>
@@ -319,7 +319,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fullName(e)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{[e.cargo, e.cedula ? `C.I ${e.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
                     </View>
-                    <Text style={{ color: colors.primary, fontWeight: '800' }}>✎</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>✎</Text>
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs }}>
                     {sizeChip('👕 Camisa', e.talla_camisa)}
@@ -351,12 +351,12 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
             const sinTalla = filtered.length - g.t.total;
             return (
               <View key={g.label} style={{ marginTop: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
                 {g.t.rows.length ? (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                     {g.t.rows.map((r) => (
                       <View key={r.size} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
-                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{r.size}: <Text style={{ color: colors.primary }}>{r.count}</Text></Text>
+                        <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{r.size}: <Text style={{ color: colors.brandText, fontVariant: ['tabular-nums'] as any }}>{r.count}</Text></Text>
                       </View>
                     ))}
                   </View>
@@ -414,7 +414,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                     const dels = empDeliveries(sel.id); const tot = sumDeliveries(dels);
                     return (
                       <View style={{ marginTop: spacing.sm }}>
-                        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>Total entregado: 👕 {tot.camisas} · 👖 {tot.pantalones} · 👟 {tot.zapatos}</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>Total entregado: 👕 {tot.camisas} · 👖 {tot.pantalones} · 👟 {tot.zapatos}</Text>
                         {dels.length === 0 ? (
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Aún no hay entregas registradas.</Text>
                         ) : dels.map((d) => (
@@ -433,8 +433,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                     <Text style={{ color: colors.text, fontWeight: '700' }}>{canWrite ? 'Cancelar' : 'Cerrar'}</Text>
                   </TouchableOpacity>
                   {canWrite ? (
-                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
+                    <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: saving ? 0.7 : 1 }} onPress={guardar} disabled={saving}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{saving ? 'Guardando…' : 'Guardar'}</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
@@ -582,8 +582,8 @@ function OtrasEntregasTab() {
 
       {/* Empleado: selector único (para filtrar), filtrable por nombre. */}
       <TouchableOpacity onPress={() => setEmpOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.xs }}>
-        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Empleado: <Text style={{ color: empFilterId ? colors.primary : colors.muted }}>{empFilterId ? (empFilterName || 'Empleado') : 'Todos'}</Text></Text>
-        <Text style={{ color: colors.primary, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
+        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>👷 Empleado: <Text style={{ color: empFilterId ? colors.brandText : colors.muted }}>{empFilterId ? (empFilterName || 'Empleado') : 'Todos'}</Text></Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{empOpen ? '▲' : '▼'}</Text>
       </TouchableOpacity>
       {empOpen ? (
         <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
@@ -620,14 +620,14 @@ function OtrasEntregasTab() {
         </View>
         {hayFiltro ? (
           <TouchableOpacity onPress={() => { setEmpFilterId(''); setEmpQuery(''); setFFrom(''); setFTo(''); }} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-            <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar</Text>
           </TouchableOpacity>
         ) : null}
       </View>
 
       {shown.length ? (
-        <TouchableOpacity onPress={reporteOtras} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-          <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧾 Reporte ({shown.length})</Text>
+        <TouchableOpacity onPress={reporteOtras} style={{ marginBottom: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🧾 Reporte ({shown.length})</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -689,9 +689,9 @@ export default function UniformesScreen() {
           {TABS.map((t) => {
             const on = t.key === active;
             return (
-              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
+              <TouchableOpacity key={t.key} onPress={() => setActive(t.key)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
                 <Text style={{ fontSize: 15 }}>{t.icon}</Text>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
+                <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}

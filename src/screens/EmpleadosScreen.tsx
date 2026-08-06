@@ -130,7 +130,7 @@ export default function EmpleadosScreen({ navigation }: any) {
   const cargoCounts = useMemo(() => {
     const map = new Map<string, number>();
     baseFiltered.forEach((e) => { const k = cargoLabel(e); map.set(k, (map.get(k) ?? 0) + 1); });
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
   }, [baseFiltered]);
 
   const shown = useMemo(
@@ -215,7 +215,7 @@ export default function EmpleadosScreen({ navigation }: any) {
     // Resumen por cargo DE LA SELECCIÓN.
     const selMap = new Map<string, number>();
     list.forEach((e) => { const k = cargoLabel(e); selMap.set(k, (selMap.get(k) ?? 0) + 1); });
-    const selCounts = Array.from(selMap.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const selCounts = Array.from(selMap.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]));
     const rowsSum = selCounts.map(([c, n]) => `<tr><td>${esc(c)}</td><td class="r">${n}</td></tr>`).join('');
 
     // Listado de las personas seleccionadas.
@@ -278,8 +278,8 @@ export default function EmpleadosScreen({ navigation }: any) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Empleados</SectionTitle>
-        <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nuevo</Text>
+        <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>+ Nuevo</Text>
         </TouchableOpacity>
       </View>
 
@@ -296,7 +296,7 @@ export default function EmpleadosScreen({ navigation }: any) {
         <Text style={{ color: colors.muted, fontSize: 12, marginRight: spacing.xs }}>Estado:</Text>
         {([['todos', 'Todos', statusCounts.todos], ['activo', 'Activos', statusCounts.activo], ['inactivo', 'Inactivos', statusCounts.inactivo], ['otro', 'Otro', statusCounts.otro]] as const).map(([key, label, n]) => {
           const on = statusFilter === key;
-          const tint = key === 'todos' ? colors.primary : EMPLOYEE_STATUS_COLOR[key] ?? colors.primary;
+          const tint = key === 'todos' ? colors.brand : EMPLOYEE_STATUS_COLOR[key] ?? colors.brand;
           return (
             <TouchableOpacity
               key={key}
@@ -318,9 +318,9 @@ export default function EmpleadosScreen({ navigation }: any) {
             <TouchableOpacity
               key={key}
               onPress={() => setSortDir(key)}
-              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
             >
-              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
             </TouchableOpacity>
           );
         })}
@@ -331,13 +331,13 @@ export default function EmpleadosScreen({ navigation }: any) {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
           <TouchableOpacity onPress={() => setCargosOpen((v) => !v)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🏷️ Cargo: </Text>
-            <Text style={{ color: cargoSel.size ? colors.primary : colors.muted, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
+            <Text style={{ color: cargoSel.size ? colors.brandText : colors.muted, fontWeight: '800', fontSize: 14, flex: 1 }} numberOfLines={1}>
               {cargoSel.size === 0 ? 'Todos' : Array.from(cargoSel).sort().join(', ')}
             </Text>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{cargosOpen ? '▲' : '▼'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={reporteSeleccion} disabled={busy === 'reporte-cargo'} style={{ backgroundColor: '#0F766E', paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: busy === 'reporte-cargo' ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>{busy === 'reporte-cargo' ? 'Generando…' : '📊 Reporte'}</Text>
+          <TouchableOpacity onPress={reporteSeleccion} disabled={busy === 'reporte-cargo'} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: busy === 'reporte-cargo' ? 0.6 : 1 }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>{busy === 'reporte-cargo' ? 'Generando…' : '📊 Reporte'}</Text>
           </TouchableOpacity>
         </View>
         {cargosOpen ? (
@@ -347,9 +347,9 @@ export default function EmpleadosScreen({ navigation }: any) {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
                 <TouchableOpacity
                   onPress={() => setCargoSel(new Set())}
-                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: cargoSel.size === 0 ? colors.primary : colors.border, backgroundColor: cargoSel.size === 0 ? colors.primary : colors.surface }}
+                  style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: cargoSel.size === 0 ? colors.brand : colors.border, backgroundColor: cargoSel.size === 0 ? colors.brand : colors.surface }}
                 >
-                  <Text style={{ color: cargoSel.size === 0 ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
+                  <Text style={{ color: cargoSel.size === 0 ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>Todos · {baseFiltered.length}</Text>
                 </TouchableOpacity>
                 {cargoCounts.filter(([cargo]) => !cargoQ.trim() || norm(cargo).includes(norm(cargoQ))).map(([cargo, n]) => {
                   const on = cargoSel.has(cargo);
@@ -357,9 +357,9 @@ export default function EmpleadosScreen({ navigation }: any) {
                     <TouchableOpacity
                       key={cargo}
                       onPress={() => setCargoSel((prev) => { const s = new Set(prev); if (s.has(cargo)) s.delete(cargo); else s.add(cargo); return s; })}
-                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                      style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}
                     >
-                      <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{cargo} · {n}</Text>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{on ? '✓ ' : ''}{cargo} · {n}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -416,9 +416,9 @@ export default function EmpleadosScreen({ navigation }: any) {
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
                         <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Constancia'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
-                        <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color="#059669" disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
+                        <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
-                          <Btn label="🗑️ Quitar foto" color="#B91C1C" disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
+                          <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />
                         ) : null}
                       </View>
                     </>

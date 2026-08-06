@@ -819,7 +819,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       byCompany.set(key, g);
     }
     const companyRows = [...byCompany.entries()]
-      .sort((a, b) => a[0].localeCompare(b[0]))
+      .sort((a, b) => cmpText(a[0], b[0]))
       .map(([name, g]) =>
         `<tr><td style="font-weight:700">${name}</td>` +
         `<td style="text-align:center">${g.machs.size}</td>` +
@@ -1404,7 +1404,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
       {notice ? (
         <TouchableOpacity onPress={() => setNotice(null)}>
-          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
             <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
           </View>
@@ -1454,7 +1454,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginTop: spacing.xs }}>
+        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginTop: spacing.xs }}>
           🗓️ {dayLabel(weekStart)} → {dayLabel(weekEnd)} · {dayCount} día(s)
         </Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center' }}>
@@ -1466,9 +1466,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setSummaryOpen((v) => !v)}
-            style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, alignItems: 'center' }}
+            style={{ flex: 1, paddingVertical: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, alignItems: 'center' }}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>📊 Ver reporte {summaryOpen ? '▴' : '▾'}</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>📊 Ver reporte {summaryOpen ? '▴' : '▾'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1509,9 +1509,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   key={chip.value}
                   onPress={() => openSummary(chip.value)}
                   activeOpacity={0.7}
-                  style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary, backgroundColor: chip.value === '__all__' ? colors.primary : colors.surfaceAlt }}
+                  style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: chip.value === '__all__' ? colors.brand : colors.surfaceAlt }}
                 >
-                  <Text style={{ color: chip.value === '__all__' ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{chip.label}</Text>
+                  <Text style={{ color: chip.value === '__all__' ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{chip.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1520,10 +1520,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             <TouchableOpacity
               onPress={() => openCalendar(companyFilter, sumFrom, sumTo)}
               activeOpacity={0.8}
-              style={{ marginTop: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: '#1E3A5F' }}
+              style={{ marginTop: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}
             >
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🗓️ Calendario de empresas (equipos por día)</Text>
-              <Text style={{ color: '#CFE0F5', fontSize: 11, marginTop: 2 }}>Días en columnas · empresas en filas · total de equipos</Text>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 14 }}>🗓️ Calendario de empresas (equipos por día)</Text>
+              <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11, marginTop: 2 }}>Días en columnas · empresas en filas · total de equipos</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -1538,9 +1538,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setDayCount((n) => Math.min(31, n + 1))}
-            style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md }}
+            style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md }}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>+ día</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16 }}>+ día</Text>
           </TouchableOpacity>
         </View>
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>
@@ -1573,15 +1573,15 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Encargado</Text>
         <TouchableOpacity
           onPress={() => setEncargadoOpen((v) => !v)}
-          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: encargadoOpen ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: encargadoOpen ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
         >
           <Text style={{ color: encargadoSel.size > 0 ? colors.text : colors.muted, fontWeight: '700' }} numberOfLines={1}>
             👤 {encargadoSel.size === 0 ? 'Todos los encargados' : `${encargadoSel.size} seleccionado(s)`}
           </Text>
-          <Text style={{ color: colors.primary, fontSize: 16 }}>{encargadoOpen ? '▴' : '▾'}</Text>
+          <Text style={{ color: colors.brandText, fontSize: 16 }}>{encargadoOpen ? '▴' : '▾'}</Text>
         </TouchableOpacity>
         {encargadoOpen ? (
-          <View style={{ borderWidth: 1, borderColor: colors.primary, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
+          <View style={{ borderWidth: 1, borderColor: colors.brand, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
               <Text style={{ fontSize: 13 }}>🔎</Text>
               <TextInput value={encargadoQuery} onChangeText={setEncargadoQuery} placeholder="Buscar encargado…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.xs, paddingHorizontal: spacing.xs }} />
@@ -1590,7 +1590,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               {encargadoShown.map((o) => {
                 const on = encargadoSel.has(o.name);
                 return (
-                  <TouchableOpacity key={o.name} onPress={() => toggleEncargado(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.primary + '12' : 'transparent' }}>
+                  <TouchableOpacity key={o.name} onPress={() => toggleEncargado(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand + '12' : 'transparent' }}>
                     <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
                     <Text style={{ color: colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{o.count}</Text>
@@ -1601,7 +1601,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             </ScrollView>
             {encargadoSel.size > 0 ? (
               <TouchableOpacity onPress={() => setEncargadoSel(new Set())} style={{ marginTop: spacing.xs, alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 6, borderWidth: 1, borderColor: colors.border }}>
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Limpiar selección</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>Limpiar selección</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -1632,7 +1632,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               </Text>
               {enEsperaByCompany.map((g) => (
                 <View key={g.key} style={{ marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>
                     🏢 {g.name} <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>· {g.items.length}</Text>
                   </Text>
                   {g.items.map((m) => (
@@ -1691,14 +1691,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <TouchableOpacity
                 onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
                 activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm }}
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                  <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                  <Text style={{ color: open ? colors.brandContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                  <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
                 </View>
-                <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                  <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                  <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
                 </View>
               </TouchableOpacity>
               {/* Flete GENERAL de la empresa (sin máquina). Se suma al TOTAL POR PAGAR igual. */}
@@ -1706,8 +1706,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 const gen = fletesGeneral[g.key] ?? [];
                 const genUSD = gen.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
                 return (
-                  <TouchableOpacity onPress={() => openFleteGeneral(g.key, g.name)} style={{ marginBottom: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surfaceAlt }}>
-                    <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>🚚 Flete general de {g.name}{gen.length ? ` · ${gen.length} en el bloque = $${genUSD.toLocaleString()}` : ''}</Text>
+                  <TouchableOpacity onPress={() => openFleteGeneral(g.key, g.name)} style={{ marginBottom: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt }}>
+                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>🚚 Flete general de {g.name}{gen.length ? ` · ${gen.length} en el bloque = $${genUSD.toLocaleString()}` : ''}</Text>
                   </TouchableOpacity>
                 );
               })() : null}
@@ -1724,9 +1724,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   return acc;
                 }, { hours: 0, amount: 0 });
                 return (
-                  <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary }}>
+                  <View style={{ marginBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }}>
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>📊 Total del rango (empresa)</Text>
-                    <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '800' }}>
+                    <Text style={{ color: colors.brandText, fontSize: 14, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>
                       {Math.round(compTot.hours)} h · ${compTot.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </Text>
                   </View>
@@ -1749,7 +1749,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
                 <TouchableOpacity activeOpacity={puedeEditarPrecio ? 0.6 : 1} onPress={() => openPrice(m)} style={{ flex: 1 }}>
                   <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
-                    {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.primary, fontSize: 13 }}> ✎</Text> : null}
+                    {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.brandText, fontSize: 13 }}> ✎</Text> : null}
                   </Text>
                   {averiadas.has(m.id) ? (
                     <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '900', marginTop: 2 }}>
@@ -1761,7 +1761,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       ⛔ Inactiva · se mantiene en este corte por sus horas trabajadas
                     </Text>
                   ) : null}
-                  <Text style={{ color: m.company_id ? colors.primary : colors.muted, fontSize: 13, fontWeight: '600' }}>
+                  <Text style={{ color: m.company_id ? colors.brandText : colors.muted, fontSize: 13, fontWeight: '600' }}>
                     🏢 {m.company_id ? (companies[m.company_id] ?? 'Empresa') : 'Sin empresa'}
                   </Text>
                   {m.plate || m.serial ? (
@@ -1772,7 +1772,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     💵 {m.price_per_hour != null ? `$${Number(m.price_per_hour).toLocaleString()} / jornada · $${pricePerHour(Number(m.price_per_hour)).toLocaleString(undefined, { maximumFractionDigits: 2 })}/h${puedeEditarPrecio ? ' · toca para editar' : ''}` : (puedeEditarPrecio ? 'Sin precio · toca el nombre para fijarlo' : 'Sin precio')}
                   </Text>
-                  {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                  {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                   {fuelWeek[m.id]?.liters ? (
                     <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '700' }}>
                       ⛽ {litersLabel(fuelWeek[m.id].liters)} L{weekWorked > 0 ? ` · ${lphOf(fuelWeek[m.id].liters, weekWorked)} L/h` : ''} <Text style={{ color: colors.muted, fontWeight: '400' }}>(período)</Text>
@@ -1823,9 +1823,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <View key={kind} style={{ flex: 1 }}>
                       <TouchableOpacity
                         onPress={() => setMove(m, kind, !active)}
-                        style={{ paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, alignItems: 'center' }}
+                        style={{ paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surfaceAlt, alignItems: 'center' }}
                       >
-                        <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>
+                        <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>
                           {active ? '✓ ' : ''}{label}
                         </Text>
                       </TouchableOpacity>
@@ -1846,9 +1846,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               {/* Flete / viaje del equipo: confirma cuántos viajes hizo y a qué precio (con fecha). */}
               <TouchableOpacity
                 onPress={() => openFlete(m)}
-                style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surfaceAlt }}
+                style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.surfaceAlt }}
               >
-                <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
                   ➕ Flete / viaje{machFletes.length ? ` · ${machFletes.length} en el bloque = $${fletesUSD.toLocaleString()}` : ''}
                 </Text>
               </TouchableOpacity>
@@ -1891,10 +1891,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             onPress={() => openSegments(m, dISO)}
                             style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}
                           >
-                            <Text style={{ color: colors.primary, fontSize: 10, fontWeight: '700' }}>🕒 Ver tramos</Text>
+                            <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>🕒 Ver tramos</Text>
                           </TouchableOpacity>
                         </View>
-                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13 }}>{Math.round(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
+                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.round(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
@@ -1924,7 +1924,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             {cur > 0 ? (
                               <TouchableOpacity onPress={() => openOperator(m, dISO, which)} style={{ marginTop: 2, marginLeft: 24 }}>
                                 <Text style={{ fontSize: 11, color: opName ? colors.text : colors.warning }}>
-                                  👷 {opName ? `${opName}${opCi ? ` · C.I ${opCi}` : ''}` : 'Sin operador · toca'} <Text style={{ color: colors.primary }}>✎</Text>
+                                  👷 {opName ? `${opName}${opCi ? ` · C.I ${opCi}` : ''}` : 'Sin operador · toca'} <Text style={{ color: colors.brandText }}>✎</Text>
                                 </Text>
                               </TouchableOpacity>
                             ) : null}
@@ -1953,7 +1953,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: '#0EA5E9', borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>
@@ -1971,7 +1971,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
               <View style={{ marginTop: spacing.sm, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Total del bloque ({dayCount} día(s))</Text>
-                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16 }}>{Math.round(weekWorked)} h</Text>
+                <Text style={{ color: weekWorked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{Math.round(weekWorked)} h</Text>
               </View>
               </>) : null}
             </Card>
@@ -1996,11 +1996,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     onPress={() => { setCompanyFilter(o.value); setCompanyPickerOpen(false); }}
                     style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}
                   >
-                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
-                    <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                    <Text style={{ color: active ? colors.brandText : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
+                    <View style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
                     </View>
-                    {active ? <Text style={{ color: colors.primary, fontWeight: '800' }}>✓</Text> : null}
+                    {active ? <Text style={{ color: colors.brandText, fontWeight: '800' }}>✓</Text> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -2038,9 +2038,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                           onPress={() => { setAveriaCompany(o.value); setAveriaCompanyOpen(false); setAveriaMachine(null); setAveriaMachQ(''); setAveriaMachineOpen(true); }}
                           style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: active ? colors.surfaceAlt : 'transparent', borderTopWidth: 1, borderTopColor: colors.border }}
                         >
-                          <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.name}</Text>
-                          <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
-                            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                          <Text style={{ color: active ? colors.brandText : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.name}</Text>
+                          <View style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
                           </View>
                         </TouchableOpacity>
                       );
@@ -2083,7 +2083,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                               onPress={() => { setAveriaMachine(m); setAveriaMachineOpen(false); }}
                               style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: active ? colors.surfaceAlt : 'transparent', borderTopWidth: 1, borderTopColor: colors.border }}
                             >
-                              <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '600' }}>{m.code}{active ? '  ✓' : ''}</Text>
+                              <Text style={{ color: active ? colors.brandText : colors.text, fontWeight: active ? '800' : '600' }}>{m.code}{active ? '  ✓' : ''}</Text>
                               <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>
                                 {ident ? `🔖 ${ident}` : 'Sin serial / placa'}{m.tipo ? `  ·  ${m.tipo}` : ''}
                               </Text>
@@ -2187,9 +2187,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <TouchableOpacity
                     onPress={saveFlete}
                     disabled={fleteBusy}
-                    style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: fleteBusy ? 0.6 : 1 }}
+                    style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: fleteBusy ? 0.6 : 1 }}
                   >
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{fleteBusy ? 'Guardando…' : '💾 Registrar flete'}</Text>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{fleteBusy ? 'Guardando…' : '💾 Registrar flete'}</Text>
                   </TouchableOpacity>
 
                   {/* Fletes ya registrados de este equipo dentro del bloque visible. */}
@@ -2277,15 +2277,15 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.xs }}>
                     <TouchableOpacity onPress={() => { setPriceFrom(sumFrom); setPriceTo(sumTo); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>📊 Rango del reporte ({dayLabel(sumFrom)}→{dayLabel(sumTo)})</Text>
+                      <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>📊 Rango del reporte ({dayLabel(sumFrom)}→{dayLabel(sumTo)})</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => { setPriceFrom(weekStart); setPriceTo(weekEnd); }} style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>Corte visible ({dayLabel(weekStart)}→{dayLabel(weekEnd)})</Text>
+                      <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>Corte visible ({dayLabel(weekStart)}→{dayLabel(weekEnd)})</Text>
                     </TouchableOpacity>
                   </View>
 
                   {/* Switch: BLINDAR el precio a esas fechas (queda clavado). */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, backgroundColor: priceBlindar ? colors.surfaceAlt : colors.surface, borderWidth: 1, borderColor: priceBlindar ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.md, backgroundColor: priceBlindar ? colors.surfaceAlt : colors.surface, borderWidth: 1, borderColor: priceBlindar ? colors.brand : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
                     <View style={{ flex: 1, paddingRight: spacing.sm }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🔒 Blindar precio a estas fechas</Text>
                       <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
@@ -2300,7 +2300,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   {/* Precio por hora: automático = jornada ÷ 12 */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>⏱️ Precio por hora (auto = ÷ 12)</Text>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15 }}>${perHour.toLocaleString(undefined, { maximumFractionDigits: 2 })}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>${perHour.toLocaleString(undefined, { maximumFractionDigits: 2 })}</Text>
                   </View>
 
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
@@ -2329,8 +2329,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setPriceFor(null)}>
                       <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity disabled={savingPrice} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: savingPrice ? 0.6 : 1 }} onPress={() => savePrice(priceFor, priceInput)}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{savingPrice ? 'Guardando…' : 'Guardar precio del rango'}</Text>
+                    <TouchableOpacity disabled={savingPrice} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: savingPrice ? 0.6 : 1 }} onPress={() => savePrice(priceFor, priceInput)}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>{savingPrice ? 'Guardando…' : 'Guardar precio del rango'}</Text>
                     </TouchableOpacity>
                   </View>
                 </>
@@ -2370,8 +2370,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setOpFor(null)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={saveOperator}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Guardar</Text>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={saveOperator}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>Guardar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2382,8 +2382,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       <Modal visible={histOpen} animationType="slide" onRequestClose={() => setHistOpen(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setHistOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>Histórico de controles</SectionTitle>
           {closures.length === 0 ? (
@@ -2412,7 +2412,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               );
               return list.map((g) => (
                 <View key={g.company} style={{ marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>
                     🏢 {g.company} <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>· {g.items.length} cierre(s)</Text>
                   </Text>
                   {g.items.map(({ c, machines }) => {
@@ -2424,7 +2424,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                         <Card>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ color: colors.text, fontWeight: '700' }}>📅 {rng}</Text>
-                            <Text style={{ color: colors.primary, fontWeight: '800' }}>{machines} máq.</Text>
+                            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machines} máq.</Text>
                           </View>
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>Toca para ver e imprimir el reporte</Text>
                         </Card>
@@ -2435,8 +2435,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               ));
             })()
           )}
-          <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => setHistOpen(false)}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>Cerrar</Text>
+          <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={() => setHistOpen(false)}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>Cerrar</Text>
           </TouchableOpacity>
         </Screen>
       </Modal>
@@ -2447,8 +2447,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           {closureSel ? (
             <>
               <TouchableOpacity onPress={() => setClosureSel(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>
                 Control {closureSel.detail?.dateFrom && closureSel.detail?.dateTo && closureSel.detail.dateFrom !== closureSel.detail.dateTo
@@ -2456,13 +2456,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   : `del ${closureSel.detail?.dateFrom ?? closureSel.closure_date}`}
               </SectionTitle>
               {closureCompany ? (
-                <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800', marginBottom: 2 }}>🏢 {closureCompany}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', marginBottom: 2 }}>🏢 {closureCompany}</Text>
               ) : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
                 {(() => { const mm = (closureSel.detail?.machines ?? []).filter((x) => !closureCompany || (x.company || 'Sin empresa') === closureCompany); return `${new Set(mm.map((x) => x.machineId || x.serial || x.code)).size} máquina(s) · ${mm.length} registro(s)`; })()}
               </Text>
               {confirmReabrir ? (
-                <View style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22' }}>
+                <View style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.warningSoftBorder, backgroundColor: colors.warningSoftBg }}>
                   <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm }}>
                     ¿Reabrir este cierre? Sus registros vuelven al control activo para editarlos y el cierre sale del histórico.
                   </Text>
@@ -2475,7 +2475,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       disabled={reabriendo === closureSel.id}
-                      style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning ?? '#F59E0B', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                      style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning, opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
                       onPress={() => reabrirCierre(closureSel)}
                     >
                       <Text style={{ color: '#fff', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : 'Sí, reabrir'}</Text>
@@ -2486,10 +2486,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 <>
                   <TouchableOpacity
                     disabled={reabriendo === closureSel.id}
-                    style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warning ?? '#F59E0B', backgroundColor: (colors.warning ?? '#F59E0B') + '22', opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
+                    style={{ marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.warningSoftBorder, backgroundColor: colors.warningSoftBg, opacity: reabriendo === closureSel.id ? 0.6 : 1 }}
                     onPress={() => setConfirmReabrir(true)}
                   >
-                    <Text style={{ color: colors.warning ?? '#B45309', fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
+                    <Text style={{ color: colors.warningSoftText, fontWeight: '800' }}>{reabriendo === closureSel.id ? 'Reabriendo…' : '♻️ Reabrir cierre (editar en control)'}</Text>
                   </TouchableOpacity>
                   <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center', marginBottom: spacing.sm }}>
                     Reabrir devuelve estos registros al control activo para editarlos. Al terminar, vuelve a cerrar el control.
@@ -2527,9 +2527,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
                 const StatBox = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
-                  <View style={{ flex: 1, borderWidth: 1, borderColor: accent ? colors.primary : colors.border, backgroundColor: accent ? colors.primary : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
-                    <Text style={{ color: accent ? colors.primaryContrast : colors.muted, fontSize: 10 }}>{k}</Text>
-                    <Text style={{ color: accent ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15 }}>{v}</Text>
+                  <View style={{ flex: 1, borderWidth: 1, borderColor: accent ? colors.brand : colors.border, backgroundColor: accent ? colors.brand : colors.surfaceAlt, borderRadius: radius.md, paddingVertical: spacing.xs, paddingHorizontal: spacing.sm }}>
+                    <Text style={{ color: accent ? colors.brandContrast : colors.muted, fontSize: 10 }}>{k}</Text>
+                    <Text style={{ color: accent ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{v}</Text>
                   </View>
                 );
                 return groups.map((g) => {
@@ -2553,7 +2553,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       <TouchableOpacity activeOpacity={0.7} onPress={() => setClosureExpanded((p) => ({ ...p, [g.key]: !p[g.key] }))}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}{g.serial ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>  ·  {g.serial}</Text> : null}</Text>
-                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>
                         <View style={{ flexDirection: 'row', gap: spacing.xs }}>
@@ -2585,8 +2585,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   );
                 });
               })()}
-              <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={() => downloadClosurePdf(closureSel)}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+              <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={() => downloadClosurePdf(closureSel)}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
               </TouchableOpacity>
               <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setClosureSel(null)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
