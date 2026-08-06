@@ -85,6 +85,8 @@ export interface AuditLog {
   row_id: string | null;
   detail?: string | null; // texto legible del evento (p. ej. el código de la máquina)
   device?: string | null; // dispositivo desde donde se hizo (📱 teléfono / 💻 PC)
+  row_label?: string | null; // nombre/código legible del registro afectado (audit_detalle.sql)
+  changes?: Record<string, any> | null; // UPDATE: {campo:{de,a}}; INSERT/DELETE: la fila (audit_detalle.sql)
 }
 
 /** Registro de ENTRADA / SALIDA de un camión al patio (Coordinador de Patio). */
