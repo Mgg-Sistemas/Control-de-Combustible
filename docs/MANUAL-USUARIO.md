@@ -658,15 +658,15 @@ Sirve para saber si los inspectores **sí están yendo a las máquinas** a revis
 trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantalla principal es
 **🪖 Revisar** (la lista de todas las máquinas para marcarlas). También tiene 🗺️ Mapa y 🚜 Catálogo.
 
-> **📱 Teléfono vs 💻 PC:** desde un **teléfono**, al iniciar sesión **todos los usuarios** caen
-> en el módulo de **Inspectores** (esta pantalla). Desde una **PC** cada quien ve la app normal
-> según su rol y la **sesión se mantiene iniciada**. El **coordinador de patio** en teléfono ve su
+> **📱 Teléfono vs 💻 PC:** cada rol entra a **su propia pantalla**, igual en teléfono que en PC
+> (ver 4.25 "Enrutamiento por rol al iniciar sesión" para el mapa completo) — el **inspector**
+> (rol `supervisor`) es quien realmente cae aquí, en 🪖 Revisar. El **coordinador de patio** ve su
 > propia pantalla (jornada de camiones), no la de máquinas.
-> **El administrador** ve arriba un botón **🗂️ SISTEMA** que lo lleva a la **app completa**
-> desde el teléfono (para volver a Inspectores, recarga la página). **Jesús Lozada** también ve
-> ese mismo botón **🗂️ SISTEMA** dentro de su Vista de Inspector (excepción puntual, igual que el
-> administrador), aunque su forma de entrar a la app en el teléfono no cambia (sigue entrando a
-> Inspectores como siempre).
+> **El administrador**, en teléfono, SÍ entra a esta Vista de Inspector por defecto, pero con un
+> botón **🗂️ SISTEMA** arriba que lo lleva a la **app completa** (para volver a Inspectores, recarga
+> la página). **Jesús Lozada** también ve ese mismo botón **🗂️ SISTEMA** dentro de su Vista de
+> Inspector (excepción puntual, igual que el administrador), aunque su forma de entrar a la app en
+> el teléfono no cambia (sigue entrando a Inspectores como siempre).
 
 > **🔄 Sincronización en vivo:** las pantallas de **CHECK MÁQUINA** (asignación de máquina) y la de
 > **entrada/salida de camiones en el patio** se actualizan solas al instante en todos los
@@ -677,7 +677,10 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > **✅ CHECK MÁQUINA**, **1)** elige el **inspector** de una lista buscable, y **2)** busca la
 > máquina y toca el **turno** (☀️ Día / 🌙 Noche) para asignársela (o de nuevo para quitársela). Cada
 > máquina tiene **dos inspectores** (día y noche). Queda en la **Auditoría** (✅ *se asignó · Día/Noche
-> → nombre*). También hay **"Ver todas"**.
+> → nombre*). También hay **"Ver todas"**, con el buscador y los chips de segmento (Todas/Pendientes/
+> Iniciadas/Paradas/Por avería) de siempre — la lista de resultados está **colapsada por defecto**
+> (botón **"Ver resultados (N)"**) para no volcar de golpe las ~200 máquinas; se despliega al tocarlo
+> y respeta el chip que tengas elegido.
 >
 > **👥 Coordinador de Inspectores (rol nuevo):** además del administrador, cualquier usuario con el
 > permiso de módulo **"Coordinador de inspectores"** (se activa desde **Usuarios**, igual que
