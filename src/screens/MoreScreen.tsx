@@ -25,7 +25,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Inventario', route: 'Inventario', desc: 'Existencias por material con PMP, entradas desde compras, salidas y consumo', icon: '📦', module: 'inventario' },
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
-  { label: 'Mangueras hidráulicas', route: 'Mangueras', desc: 'Fabricación (Taller): confección por máquina, costeo y autorización de pago', icon: '🔧', module: 'mangueras' },
+  { label: 'Fabricación', route: 'Mangueras', desc: 'Taller: confección de mangueras por máquina, costeo y autorización de pago', icon: '🔧', module: 'mangueras' },
 ];
 
 export default function MoreScreen({ navigation }: any) {

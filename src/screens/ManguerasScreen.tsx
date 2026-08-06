@@ -75,7 +75,7 @@ export default function ManguerasScreen() {
   if (level === 'none') {
     return (
       <Screen>
-        <SectionTitle>Mangueras (Taller)</SectionTitle>
+        <SectionTitle>Fabricación (Taller)</SectionTitle>
         <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
       </Screen>
     );
@@ -141,7 +141,7 @@ export default function ManguerasScreen() {
   const openEdit = (h: HoseService) => { setEditing(h); setFormOpen(true); };
 
   const FIELDS: Field[] = [
-    { key: 'code', label: 'Código de la manguera', type: 'text', required: true },
+    { key: 'code', label: 'Código de la fabricación', type: 'text', required: true },
     { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', dropdown: true, required: true },
     { key: 'description', label: 'Descripción del trabajo', type: 'text' },
     { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
@@ -220,22 +220,22 @@ export default function ManguerasScreen() {
   return (
     <Screen>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <SectionTitle>🔧 Mangueras (Taller)</SectionTitle>
+        <SectionTitle>🔧 Fabricación (Taller)</SectionTitle>
         {canWrite ? (
           <TouchableOpacity onPress={openNew} style={{ backgroundColor: colors.primary, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nueva manguera</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>+ Nueva fabricación</Text>
           </TouchableOpacity>
         ) : null}
       </View>
 
       {hoses.length === 0 ? (
-        <EmptyState title="Sin registros" subtitle="Aún no se ha registrado ninguna manguera." />
+        <EmptyState title="Sin registros" subtitle="Aún no se ha registrado ninguna fabricación." />
       ) : (
         <>
           {/* Filtro y consulta por equipo — trazabilidad de mangueras por máquina */}
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>🚜 Filtro y consulta por equipo</Text>
-            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Busca una máquina para ver todas las mangueras hechas para ella.</Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Busca una máquina para ver todas las fabricaciones hechas para ella.</Text>
             <TouchableOpacity onPress={() => setMachineOpen((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
               <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }}>
                 {machineFilterId ? `Equipo: ${machineFilterLabel ?? '—'}` : 'Todos los equipos'}
@@ -367,7 +367,7 @@ export default function ManguerasScreen() {
 
       <RecordForm
         visible={formOpen}
-        title={editing ? `Editar manguera: ${editing.code}` : 'Nueva manguera'}
+        title={editing ? `Editar fabricación: ${editing.code}` : 'Nueva fabricación'}
         table="hose_services"
         fields={FIELDS}
         fixedValues={formFixedValues}
