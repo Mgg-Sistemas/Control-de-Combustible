@@ -6,14 +6,21 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { cmpText, norm } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
+import { listInspectorAssignments } from '../lib/machineInspectors';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 
-// Histórico de JORNADAS FINALIZADAS por inspector. Fuente: machine_rounds (lo que
-// ya se guarda al finalizar cada jornada: horas de día/noche, turno, inspector que
-// la registró y horómetro). No requiere tabla nueva. Se ve por rango de fechas.
+// Histórico de JORNADAS por inspector. Fuente: machine_rounds (horas de día/noche,
+// turno y horómetro). Cada jornada se atribuye al inspector ASIGNADO (CHECK,
+// machine_inspectors) SEGÚN SU TURNO — igual que el teléfono — NO a quien apretó el
+// botón (recorded_by): así aparecen TODOS los inspectores (incluidos los de noche,
+// que antes no salían) y las horas de noche cuentan para su inspector real. Se ve
+// por rango de fechas. No requiere tabla nueva.
 
 const CARACAS_TZ = 'America/Caracas';
+// El cajón "MAQUINAS FALTANTES" (o sin asignar) no es un inspector real. Mismo
+// criterio que InspectionsSummary para no mezclarlo con inspectores de verdad.
+const sinInspectorReal = (name: string | null | undefined) => !name || /faltant/i.test(name);
 function caracasToday(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
     .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
@@ -44,52 +51,54 @@ export default function HistoricoJornadasScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    // Perfiles: nombre por id + admins a excluir (mismo criterio que Inspecciones).
-    const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
-    const nameById: Record<string, string> = {};
-    const adminIds = new Set<string>();
-    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; if (p.role === 'admin') adminIds.add(p.id); });
-    // Rondas del rango; se quedan las FINALIZADAS (con horas de día o noche).
+    // Asignaciones inspector↔máquina POR TURNO (CHECK) — la misma fuente que el
+    // teléfono. Un inspector distinto para el día y para la noche de una misma máquina.
+    const { rows: assigns } = await listInspectorAssignments();
+    const dayInsp = new Map<string, string>();
+    const nightInsp = new Map<string, string>();
+    assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
+    // Rondas del rango con horas (de día y/o de noche).
     const rs = await selectAllRows(
       'machine_rounds',
-      'id, round_date, day_hours, night_hours, jornada_shift, horometro_inicial, horometro_final, recorded_by, machine:machinery_id(code, serial, plate, company:company_id(name))',
+      'id, machinery_id, round_date, day_hours, night_hours, horometro_inicial, horometro_final, machine:machinery_id(code, serial, plate, company:company_id(name))',
       (q) => q.gte('round_date', from).lte('round_date', to),
     );
-    const list: Row[] = ((rs ?? []) as any[])
-      .filter((r) => r.recorded_by && !adminIds.has(r.recorded_by)) // solo inspectores, sin admin
-      .map((r) => {
-        const dayH = Number(r.day_hours) || 0;
-        const nightH = Number(r.night_hours) || 0;
-        const mm = r.machine || {};
-        return {
-          id: r.id as string,
-          round_date: r.round_date as string,
-          inspector: nameById[r.recorded_by] || '—',
-          code: mm.code ?? '—',
-          serial: mm.serial ?? null,
-          plate: mm.plate ?? null,
-          company: mm.company?.name ?? 'Sin empresa',
-          shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
-          dayH, nightH, total: r2(dayH + nightH),
-          horoIni: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
-          horoFin: r.horometro_final != null ? Number(r.horometro_final) : null,
-        };
-      })
-      .filter((r) => r.total > 0); // FINALIZADAS: con horas registradas
+    // Cada ronda con horas se PARTE por turno: las horas de DÍA cuentan para el
+    // inspector de día asignado; las de NOCHE, para el de noche. Así el trabajo
+    // nocturno cuenta para su inspector real (antes se perdía) y aparecen todos.
+    const list: Row[] = [];
+    ((rs ?? []) as any[]).forEach((r) => {
+      const dayH = Number(r.day_hours) || 0;
+      const nightH = Number(r.night_hours) || 0;
+      const mm = r.machine || {};
+      const base = {
+        round_date: r.round_date as string,
+        code: mm.code ?? '—',
+        serial: mm.serial ?? null,
+        plate: mm.plate ?? null,
+        company: mm.company?.name ?? 'Sin empresa',
+        horoIni: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
+        horoFin: r.horometro_final != null ? Number(r.horometro_final) : null,
+      };
+      if (dayH > 0) list.push({ ...base, id: `${r.id}:d`, inspector: dayInsp.get(r.machinery_id) || '', shift: 'day', dayH, nightH: 0, total: r2(dayH) });
+      if (nightH > 0) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
+    });
     setRows(list);
     setLoading(false);
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
-  // Al finalizar/cerrar una jornada (o auto-cierre), el histórico se actualiza solo.
-  useRealtimeRefresh(['machine_rounds'], () => { load(); });
+  // Al finalizar/cerrar una jornada (o cambiar asignaciones), el histórico se
+  // actualiza solo. machine_inspectors: porque la atribución depende del CHECK.
+  useRealtimeRefresh(['machine_rounds', 'machine_inspectors'], () => { load(); });
 
   const byInspector = useMemo(() => {
     const nq = norm(query.trim());
+    const inspLabel = (r: Row) => (sinInspectorReal(r.inspector) ? '⚠️ Por asignar' : r.inspector);
     const filtered = nq
-      ? rows.filter((r) => norm(`${r.inspector} ${r.code} ${r.company} ${r.serial ?? ''} ${r.plate ?? ''}`).includes(nq))
+      ? rows.filter((r) => norm(`${inspLabel(r)} ${r.code} ${r.company} ${r.serial ?? ''} ${r.plate ?? ''}`).includes(nq))
       : rows;
     const map = new Map<string, Row[]>();
-    filtered.forEach((r) => { const k = r.inspector || '—'; if (!map.has(k)) map.set(k, []); map.get(k)!.push(r); });
+    filtered.forEach((r) => { const k = inspLabel(r); if (!map.has(k)) map.set(k, []); map.get(k)!.push(r); });
     // Más recientes primero; dentro de una fecha, A→Z por código.
     map.forEach((l) => l.sort((a, b) => (a.round_date === b.round_date ? cmpText(a.code, b.code) : a.round_date < b.round_date ? 1 : -1)));
     return Array.from(map.entries()).sort((a, b) => cmpText(a[0], b[0]));
@@ -122,7 +131,7 @@ export default function HistoricoJornadasScreen() {
     <Screen>
       <SectionTitle>📚 Histórico de jornadas por inspector</SectionTitle>
       <Card>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Jornadas FINALIZADAS (con horas) en el rango, agrupadas por inspector. Más recientes primero.</Text>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Jornadas con horas en el rango, por inspector ASIGNADO según su turno (día/noche), igual que el teléfono. Más recientes primero.</Text>
         <View style={{ flexDirection: 'row', gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
             <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
