@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Platform, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BiometricToggle } from '../components/BiometricToggle';
@@ -30,6 +30,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
+import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
+import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
+import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
+import InspectorSearchBar from '../components/redesign/InspectorSearchBar';
 
 const CARACAS_TZ = 'America/Caracas';
 /** Día ISO (AAAA-MM-DD) de hoy en horario de Caracas. */
@@ -224,6 +228,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const poll = setInterval(tryFlush, 30000);
     return () => { unsub(); unsubConn(); clearInterval(poll); };
   }, []);
+  // ── PREVIEW del rediseño (header/hero/KPIs/buscador): SOLO se activa con
+  //    ?ui=v2 en la URL — nadie más lo ve, cero riesgo para el sistema real.
+  //    Toda la lógica/datos siguen siendo EXACTAMENTE los mismos de siempre;
+  //    esto únicamente cambia qué JSX se pinta arriba. Quitar el parámetro (o
+  //    no ponerlo) deja la vista actual intacta.
+  const [uiV2] = useState(() => {
+    try { return Platform.OS === 'web' && new URLSearchParams((globalThis as any).location.search).get('ui') === 'v2'; }
+    catch { return false; }
+  });
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Buscador único de "Mis máquinas" (preview v2): al escribir, filtra las 4
+  // categorías a la vez (antes cada una tenía su propio buscador) y las abre
+  // si hay coincidencias — no toca `grupos` ni `renderMachine`, solo reusa
+  // `grpQuery`/`grpOpen` que ya existían por categoría.
+  const [mineQuery, setMineQuery] = useState('');
+  const onMineQueryChange = (t: string) => {
+    setMineQuery(t);
+    setGrpQuery({ iniciadas: t, pendientes: t, paradas: t, averiadas: t });
+    if (t.trim()) setGrpOpen({ iniciadas: true, pendientes: true, paradas: true, averiadas: true });
+  };
 
   // ── ASISTENCIA DEL PERSONAL (solo usuarios con permiso 'asistencia') ────────
   // Modal en esta misma pantalla: escanea el carnet o busca al empleado, y marca
@@ -1588,92 +1612,143 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </Text>
         </View>
       ) : null}
-      <View>
-        {/* Fila 1: nombre del inspector + Salir (el nombre se recorta, no se apila). */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Inspector</Text>
-            <Text numberOfLines={1} style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
-          </View>
-          <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Fila 2: acciones (se acomodan en varias líneas si no caben). */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-          {/* 🔄 ACTUALIZAR: recarga manual desde el teléfono. En web (navegador móvil)
-              el "jalar para refrescar" del Screen no funciona; este botón sí recarga
-              máquinas, asignaciones, jornadas, paradas y averías (llama a `load`). */}
-          <TouchableOpacity
-            onPress={() => { if (!loading) { setLoading(true); load(); } }}
-            disabled={loading}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: loading ? 0.6 : 1 }}
-          >
-            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{loading ? '⏳ Actualizando…' : '🔄 Actualizar'}</Text>
-          </TouchableOpacity>
-          {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
-          {onSistema ? (
-            <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗂️ SISTEMA</Text>
-            </TouchableOpacity>
-          ) : null}
-          <ChangePasswordButton />
-        </View>
-      </View>
+      {uiV2 ? (
+        <>
+          <InspectorHeaderBar
+            name={fullName || 'Mi ronda'}
+            subtitle="Inspector"
+            onMenuPress={() => setMenuOpen(true)}
+          />
+          <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+            <Pressable onPress={() => setMenuOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', paddingTop: 56, paddingRight: spacing.md, alignItems: 'flex-end' }}>
+              <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, minWidth: 230, overflow: 'hidden' }}>
+                <TouchableOpacity onPress={() => { setMenuOpen(false); if (!loading) { setLoading(true); load(); } }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
+                  <Text style={{ fontSize: 16 }}>🔄</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{loading ? 'Actualizando…' : 'Actualizar'}</Text>
+                </TouchableOpacity>
+                {onSistema ? (
+                  <TouchableOpacity onPress={() => { setMenuOpen(false); onSistema(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <Text style={{ fontSize: 16 }}>🗂️</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Sistema</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <View style={{ borderTopWidth: 1, borderTopColor: colors.border, padding: spacing.md }}>
+                  <ChangePasswordButton variant="row" />
+                </View>
+                <TouchableOpacity onPress={() => { setMenuOpen(false); signOut(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                  <Text style={{ fontSize: 16 }}>🚪</Text>
+                  <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>Cerrar sesión</Text>
+                </TouchableOpacity>
+              </Pressable>
+            </Pressable>
+          </Modal>
 
-      <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🪖 Mi ronda de hoy</Text>
-        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-          Revisadas hoy: <Text style={{ color: colors.success, fontWeight: '800' }}>{revisadas}</Text>
-          {mine.length > 0 ? <> · Mis máquinas: <Text style={{ color: colors.text, fontWeight: '800' }}>{mine.length}</Text></> : null}
-        </Text>
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-          Toca una máquina o escanea su QR para marcarla. Si no la marcas, esa jornada queda sin validar.
-        </Text>
-        {/* Botón GRANDE y cuadrado para escanear (pensado para el teléfono). */}
-        <TouchableOpacity
-          onPress={() => setScanOpen(true)}
-          activeOpacity={0.85}
-          style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.lg, aspectRatio: 1.35, maxHeight: 220, width: '100%', alignSelf: 'center', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Text style={{ fontSize: 64 }}>📷</Text>
-          <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
-          <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
-        </TouchableOpacity>
-        {/* MARCAR ASISTENCIA DEL PERSONAL: solo los usuarios con permiso del
-            módulo 'asistencia' pueden verlo. Abre un modal para escanear/buscar
-            al empleado y marcar su ENTRADA/SALIDA. */}
-        {canAsistencia ? (
-          <TouchableOpacity
-            onPress={() => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); }}
-            activeOpacity={0.85}
-            style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: '#0EA5E9', borderRadius: radius.md, paddingVertical: spacing.md }}
-          >
-            <Text style={{ fontSize: 20 }}>🕒</Text>
-            <Text style={{ color: '#0EA5E9', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>MARCAR ASISTENCIA DEL PERSONAL</Text>
-          </TouchableOpacity>
-        ) : null}
-        {/* CHECK MÁQUINA (admin o coordinador de inspectores): asignar máquinas a los inspectores. */}
-        {puedeCoordinar ? (
-          <>
-            <TouchableOpacity
-              onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); }}
-              activeOpacity={0.85}
-              style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
-            >
-              <Text style={{ fontSize: 20 }}>✅</Text>
-              <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
-            </TouchableOpacity>
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
-              Asigna las máquinas a cada inspector (día / noche). Solo el administrador o el coordinador de inspectores puede asignar.
+          <View style={{ marginTop: spacing.sm }}>
+            <InspectorHeroCard
+              statsLine={`Revisadas hoy: ${revisadas}${mine.length > 0 ? ` · Mis máquinas: ${mine.length}` : ''}`}
+              onScanPress={() => setScanOpen(true)}
+              secondaryActions={[
+                ...(canAsistencia ? [{ key: 'asistencia', label: 'MARCAR ASISTENCIA', icon: '🕒', color: '#0EA5E9', onPress: () => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); } }] : []),
+                ...(puedeCoordinar ? [{ key: 'check', label: 'CHECK MÁQUINA', icon: '✅', color: colors.primary, onPress: () => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); } }] : []),
+              ]}
+            />
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
+              {puedeCoordinar
+                ? 'CHECK MÁQUINA asigna las máquinas a cada inspector (día / noche).'
+                : 'Toca una máquina de la lista o escanea su QR para marcarla.'}
             </Text>
-          </>
-        ) : (
-          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
-            Aquí ves las máquinas que el administrador te asignó. Tócalas para hacer el check-in.
-          </Text>
-        )}
-      </Card>
+          </View>
+        </>
+      ) : (
+        <>
+          <View>
+            {/* Fila 1: nombre del inspector + Salir (el nombre se recorta, no se apila). */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Inspector</Text>
+                <Text numberOfLines={1} style={{ color: colors.text, fontSize: 18, fontWeight: '800' }}>{fullName || 'Mi ronda'}</Text>
+              </View>
+              <TouchableOpacity onPress={signOut} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Salir</Text>
+              </TouchableOpacity>
+            </View>
+            {/* Fila 2: acciones (se acomodan en varias líneas si no caben). */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+              {/* 🔄 ACTUALIZAR: recarga manual desde el teléfono. En web (navegador móvil)
+                  el "jalar para refrescar" del Screen no funciona; este botón sí recarga
+                  máquinas, asignaciones, jornadas, paradas y averías (llama a `load`). */}
+              <TouchableOpacity
+                onPress={() => { if (!loading) { setLoading(true); load(); } }}
+                disabled={loading}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: loading ? 0.6 : 1 }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{loading ? '⏳ Actualizando…' : '🔄 Actualizar'}</Text>
+              </TouchableOpacity>
+              {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
+              {onSistema ? (
+                <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🗂️ SISTEMA</Text>
+                </TouchableOpacity>
+              ) : null}
+              <ChangePasswordButton />
+            </View>
+          </View>
+
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🪖 Mi ronda de hoy</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+              Revisadas hoy: <Text style={{ color: colors.success, fontWeight: '800' }}>{revisadas}</Text>
+              {mine.length > 0 ? <> · Mis máquinas: <Text style={{ color: colors.text, fontWeight: '800' }}>{mine.length}</Text></> : null}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
+              Toca una máquina o escanea su QR para marcarla. Si no la marcas, esa jornada queda sin validar.
+            </Text>
+            {/* Botón GRANDE y cuadrado para escanear (pensado para el teléfono). */}
+            <TouchableOpacity
+              onPress={() => setScanOpen(true)}
+              activeOpacity={0.85}
+              style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.lg, aspectRatio: 1.35, maxHeight: 220, width: '100%', alignSelf: 'center', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ fontSize: 64 }}>📷</Text>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 20, marginTop: spacing.sm, letterSpacing: 0.5 }}>ESCANEAR QR</Text>
+              <Text style={{ color: colors.primaryContrast, fontSize: 12, opacity: 0.9, marginTop: 2 }}>Apunta al código de la máquina</Text>
+            </TouchableOpacity>
+            {/* MARCAR ASISTENCIA DEL PERSONAL: solo los usuarios con permiso del
+                módulo 'asistencia' pueden verlo. Abre un modal para escanear/buscar
+                al empleado y marcar su ENTRADA/SALIDA. */}
+            {canAsistencia ? (
+              <TouchableOpacity
+                onPress={() => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); }}
+                activeOpacity={0.85}
+                style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: '#0EA5E9', borderRadius: radius.md, paddingVertical: spacing.md }}
+              >
+                <Text style={{ fontSize: 20 }}>🕒</Text>
+                <Text style={{ color: '#0EA5E9', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>MARCAR ASISTENCIA DEL PERSONAL</Text>
+              </TouchableOpacity>
+            ) : null}
+            {/* CHECK MÁQUINA (admin o coordinador de inspectores): asignar máquinas a los inspectores. */}
+            {puedeCoordinar ? (
+              <>
+                <TouchableOpacity
+                  onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); }}
+                  activeOpacity={0.85}
+                  style={{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md }}
+                >
+                  <Text style={{ fontSize: 20 }}>✅</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
+                </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4, textAlign: 'center' }}>
+                  Asigna las máquinas a cada inspector (día / noche). Solo el administrador o el coordinador de inspectores puede asignar.
+                </Text>
+              </>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm, textAlign: 'center' }}>
+                Aquí ves las máquinas que el administrador te asignó. Tócalas para hacer el check-in.
+              </Text>
+            )}
+          </Card>
+        </>
+      )}
 
       {/* 📚 HISTÓRICO por inspector (jornadas finalizadas) — también desde el teléfono. */}
       <TouchableOpacity onPress={() => setShowHist(true)} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
@@ -1693,15 +1768,51 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
+      {uiV2 ? (
+        <View style={{ marginBottom: spacing.sm }}>
+          <InspectorSearchBar
+            value={showAll ? query : mineQuery}
+            onChange={showAll ? setQuery : onMineQueryChange}
+            placeholder="🔎 Buscar: nombre, serial, placa, empresa…"
+            segments={puedeCoordinar ? [{ key: 'mine', label: '👤 Solo las mías' }, { key: 'all', label: '🚜 Todas las máquinas' }] : undefined}
+            segmentValue={showAll ? 'all' : 'mine'}
+            onSegmentChange={(k) => setShowAll(k === 'all')}
+          />
+          {!showAll ? (
+            <View style={{ marginTop: spacing.sm }}>
+              <InspectorKpiGrid
+                items={[
+                  { key: 'iniciadas', label: 'Iniciadas', value: grupos.iniciadas.length, tone: 'success', icon: '🟢' },
+                  { key: 'pendientes', label: 'Pendientes', value: grupos.pendientes.length, tone: 'accent', icon: '⏳' },
+                  { key: 'paradas', label: 'Paradas', value: grupos.paradas.length, tone: 'warning', icon: '🟡' },
+                  { key: 'averiadas', label: 'Averiadas', value: grupos.averiadas.length, tone: 'danger', icon: '🔴' },
+                ]}
+                activeKey={Object.entries(grpOpen).find(([, v]) => v)?.[0] ?? null}
+                onSelect={(key) => {
+                  const wasOpen = !!grpOpen[key];
+                  setGrpOpen({ iniciadas: false, pendientes: false, paradas: false, averiadas: false, [key]: !wasOpen });
+                }}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {puedeCoordinar && showAll ? (
         // Admin o coordinador de inspectores: ver TODAS las máquinas. El inspector normal no ve esto.
         <>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          {!uiV2 ? (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <SectionTitle>Todas las máquinas</SectionTitle>
+                <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
+              </View>
+              <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
+              {renderSegChips()}
+            </>
+          ) : (
             <SectionTitle>Todas las máquinas</SectionTitle>
-            <TouchableOpacity onPress={() => setShowAll(false)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Solo las mías</Text></TouchableOpacity>
-          </View>
-          <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado, edificio…" placeholderTextColor={colors.muted} style={input} />
-          {renderSegChips()}
+          )}
           {/* Lista COLAPSABLE: no se pinta nada hasta que se despliega, y respeta el
               buscador + chip de segmento de arriba (searchList ya viene filtrado). */}
           <TouchableOpacity
@@ -1728,7 +1839,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <SectionTitle>Mis máquinas asignadas</SectionTitle>
-            {puedeCoordinar ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
+            {puedeCoordinar && !uiV2 ? <TouchableOpacity onPress={() => setShowAll(true)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>Ver todas</Text></TouchableOpacity> : null}
           </View>
           {mine.length > 0 ? (
             <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
