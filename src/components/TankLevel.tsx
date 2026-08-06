@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { radius } from '../theme';
+import { figFont, figFontStyle } from '../lib/figFont';
 
 /**
  * Medidor de nivel de tanque (rediseño). La FORMA comunica el dato: barra con el
@@ -47,10 +48,10 @@ export function TankLevelLabel({ liters, pct, low }: { liters: number; pct: numb
   const { colors } = useTheme();
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 5 }}>
-      <Text style={{ fontSize: 12, fontVariant: ['tabular-nums'], color: low ? colors.tankCrit : colors.muted, fontWeight: low ? '800' : '500' }}>
+      <Text {...figFont} style={[{ fontSize: 12, fontVariant: ['tabular-nums'], color: low ? colors.tankCrit : colors.muted, fontWeight: low ? '800' : '500' }, figFontStyle]}>
         {Number(liters).toLocaleString()} L
       </Text>
-      <Text style={{ fontSize: 12, fontVariant: ['tabular-nums'], color: colors.muted, fontWeight: '600' }}>{Math.round(Number(pct) || 0)}%</Text>
+      <Text {...figFont} style={[{ fontSize: 12, fontVariant: ['tabular-nums'], color: colors.muted, fontWeight: '600' }, figFontStyle]}>{Math.round(Number(pct) || 0)}%</Text>
     </View>
   );
 }
