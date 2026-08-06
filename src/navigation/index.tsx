@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, TouchableOpacity, View, Image, Platform, ActivityIndicator } from 'react-native';
+import { Text, TouchableOpacity, View, Image, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation, LinkingOptions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -81,20 +81,36 @@ const tabIcon = (emoji: string) => () => <Text style={{ fontSize: 18 }}>{emoji}<
 
 const LOGO = require('../../assets/logo.png');
 
-/** Marca del encabezado: logo de la empresa + título de la pantalla. */
+// Ancho de pantalla por debajo del cual el header no tiene espacio para todo
+// (logo+título a la izquierda y tuerca+campana+cerrar sesión+reloj a la derecha)
+// y hay que achicar/ocultar lo menos importante para que nada se superponga.
+const HEADER_COMPACT_BREAKPOINT = 420;
+
+/** Marca del encabezado: logo de la empresa + título de la pantalla (se recorta,
+ *  nunca empuja ni se superpone con los botones de la derecha). */
 function HeaderBrand({ title }: { title?: string }) {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const compact = width < HEADER_COMPACT_BREAKPOINT;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-      <Image source={LOGO} style={{ width: 30, height: 30 }} resizeMode="contain" />
-      {title ? <Text style={{ color: colors.text, fontSize: 17, fontWeight: '700' }}>{title}</Text> : null}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: width * (compact ? 0.38 : 0.5) }}>
+      <Image source={LOGO} style={{ width: 26, height: 26 }} resizeMode="contain" />
+      {title ? (
+        <Text numberOfLines={1} style={{ color: colors.text, fontSize: compact ? 14 : 17, fontWeight: '700', flexShrink: 1 }}>
+          {title}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
-/** Fecha y hora del día en horario de Caracas (Venezuela). */
+/** Fecha y hora del día en horario de Caracas (Venezuela). En pantallas angostas
+ *  se oculta la fecha y deja solo la hora, para no competir por espacio con la
+ *  tuerca/campana/"Cerrar sesión" (evita que el título se les monte encima). */
 function HeaderClock() {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const compact = width < HEADER_COMPACT_BREAKPOINT;
   const [now, setNow] = React.useState(new Date());
   React.useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30000);
@@ -104,9 +120,9 @@ function HeaderClock() {
   const fecha = now.toLocaleDateString('es-VE', { ...opts, day: '2-digit', month: '2-digit', year: 'numeric' });
   const hora = now.toLocaleTimeString('es-VE', { ...opts, hour: '2-digit', minute: '2-digit', hour12: true });
   return (
-    <View style={{ alignItems: 'flex-end', paddingRight: 12 }}>
+    <View style={{ alignItems: 'flex-end', paddingRight: compact ? 4 : 12 }}>
       <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>{hora}</Text>
-      <Text style={{ color: colors.muted, fontSize: 10 }}>{fecha} · Caracas 🇻🇪</Text>
+      {compact ? null : <Text style={{ color: colors.muted, fontSize: 10 }}>{fecha} · Caracas 🇻🇪</Text>}
     </View>
   );
 }
@@ -132,34 +148,39 @@ function HeaderHomeButton() {
   );
 }
 
-/** Botón "Salir" del encabezado (para vistas sin menú "Más", p. ej. supervisor). */
-function HeaderLogoutButton() {
-  const { signOut } = useAuth();
+/** "Cerrar sesión": texto completo si hay espacio, solo el ícono 🚪 en pantallas
+ *  angostas (mismo accessibilityLabel en ambos casos, así no se pierde para lectores
+ *  de pantalla). Es lo que más ancho ocupaba y lo que más chocaba con el título. */
+function HeaderSignOutButton() {
   const { colors } = useTheme();
+  const { signOut } = useAuth();
+  const { width } = useWindowDimensions();
+  const compact = width < HEADER_COMPACT_BREAKPOINT;
   return (
-    <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal: 12, paddingVertical: 4 }} accessibilityLabel="Salir">
-      <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '800' }}>Salir</Text>
+    <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal: 8, paddingVertical: 4 }} accessibilityLabel="Cerrar sesión">
+      {compact
+        ? <Text style={{ fontSize: 17 }}>🚪</Text>
+        : <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>Cerrar sesión</Text>}
     </TouchableOpacity>
   );
 }
 
 function useScreenHeader() {
   const { colors } = useTheme();
-  const { signOut } = useAuth();
   return {
     headerStyle: { backgroundColor: colors.surface },
     headerTitleStyle: { color: colors.text },
     headerTintColor: colors.primary,
     // Logo de la empresa + tuerca ⚙️ (ajustes rápidos) + campana (solo admin) +
-    // "Cerrar sesión" + fecha/hora (Caracas), todo a la derecha.
+    // "Cerrar sesión" + fecha/hora (Caracas), todo a la derecha. Cada pieza se
+    // achica sola en pantallas angostas (ver HEADER_COMPACT_BREAKPOINT) para que
+    // nunca se superpongan con el título, sin dejar de estar disponibles.
     headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
     headerRight: () => (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <HeaderSettings />
         <NotificationBell />
-        <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal: 8, paddingVertical: 4 }} accessibilityLabel="Cerrar sesión">
-          <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>Cerrar sesión</Text>
-        </TouchableOpacity>
+        <HeaderSignOutButton />
         <HeaderClock />
       </View>
     ),
@@ -185,9 +206,7 @@ function MoreStack() {
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
           Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
           mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
-      {/* headerShown: false — SupervisorScreen ya pinta su propio encabezado
-          (nombre + Salir); sin esto se veía duplicado con el header nativo del stack. */}
-      <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)', headerShown: false }} />
+      <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)' }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
@@ -230,7 +249,7 @@ function CoordinadorStack() {
   const screenHeader = useScreenHeader();
   return (
     <Stack.Navigator screenOptions={screenHeader}>
-      <Stack.Screen name="RoleHome" component={RoleHomeScreen} options={{ title: 'Mi panel', headerLeft: () => <HeaderLogoutButton /> }} />
+      <Stack.Screen name="RoleHome" component={RoleHomeScreen} options={{ title: 'Mi panel' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento de Maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
@@ -256,7 +275,10 @@ function PatioStack() {
   const screenHeader = useScreenHeader();
   return (
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
-      <Stack.Screen name="PatioHome" component={PatioScreen} options={{ title: 'Coordinador de Patio', headerLeft: () => <HeaderLogoutButton /> }} />
+      {/* Pantalla RAÍZ de este panel: sin flecha "volver" (no hay Dashboard al que
+          volver en este rol) y sin "Salir" propio (ya está "Cerrar sesión" en el
+          header compartido) — así no compiten dos botones de salir en el mismo header. */}
+      <Stack.Screen name="PatioHome" component={PatioScreen} options={{ title: 'Coordinador de Patio', headerLeft: () => null }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
@@ -271,7 +293,8 @@ function FuelDriverStack() {
   const screenHeader = useScreenHeader();
   return (
     <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
-      <Stack.Screen name="FuelDriverHome" component={FuelDriverScreen} options={{ title: 'Surtir combustible', headerLeft: () => <HeaderLogoutButton /> }} />
+      {/* Pantalla RAÍZ: mismo criterio que PatioHome (sin flecha ni "Salir" propio). */}
+      <Stack.Screen name="FuelDriverHome" component={FuelDriverScreen} options={{ title: 'Surtir combustible', headerLeft: () => null }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
   );
@@ -311,8 +334,11 @@ function tabsHomeRoute(role: UserRole | null, appRole: AppRole | null, canSee: (
  *  Traslados), sin pasar por Inicio ni el menú "Más". */
 function CombustibleStack() {
   const screenHeader = useScreenHeader();
+  // Sin headerLeft propio: "Cerrar sesión" ya está en el header compartido
+  // (screenHeader.headerRight) — con esto, además, "Manual" recupera la
+  // flecha "volver" normal del stack en vez de mostrar "Salir" ahí también.
   return (
-    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderLogoutButton /> }}>
+    <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="CombustibleHome" component={CombustibleScreen} options={{ title: 'Combustible' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
     </Stack.Navigator>
@@ -332,15 +358,15 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
     <Tab.Navigator
       screenOptions={{
         ...screenHeader,
-        headerLeft: () => <HeaderLogoutButton />,
+        // Sin headerLeft propio: "Cerrar sesión" ya está en el header compartido
+        // (screenHeader.headerRight) — mostrar también "Salir" aquí era redundante
+        // y, en pantallas angostas, chocaba con el resto de los elementos.
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
-      {/* "Revisar" ya pinta su propio encabezado (nombre + Salir) dentro de
-          SupervisorScreen; sin esto se veía duplicado con el header nativo del tab. */}
-      <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖'), headerShown: false }} />
+      <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
     </Tab.Navigator>
