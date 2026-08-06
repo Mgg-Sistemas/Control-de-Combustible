@@ -146,6 +146,11 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> con la tarjeta "🧩 Máquinas por asignar (N)" ya cubriendo ese cajón (punto anterior), mostrarlo TAMBIÉN como una barra vacía sin eficiencia real en "👷 POR INSPECTOR" era redundante — se quitó "MAQUINAS FALTANTES" de <code>inspShown</code> (la lista que alimenta las barras) en <code>InspectionsSummary.tsx</code>. El desplegable de asignación no se tocó.</p>
   </div>
 
+  <div class="card">
+    <h3>Corrección posterior (mismo día): el filtro "solo cuenta como avería si es de HOY" era la regla incorrecta <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Corrección — ver punto 07 más abajo:</b> este trabajo sobre <code>InspectionsSummary.tsx</code> traía un criterio de "SOLO cuenta como avería la que se reportó ESE mismo día" (para alinear el panel admin con lo que hacía el teléfono en ese momento). Más tarde, hoy mismo, se determinó que esa regla era la incorrecta: una avería real pendiente debe seguir contando como avería TODOS los días hasta resolverse, no solo el día que se reportó — igual que ya pasaba con "parada". Se corrigió en ambas pantallas (teléfono y admin); detalle completo en el punto <b>07</b> de este mismo día. Esta entrada se deja tal cual como registro histórico.</p>
+  </div>
+
   <h2><span class="n">04</span> Botón "atrás" del navegador y URL de inicio por rol</h2>
   <p class="sec-note">Reporte: el botón "atrás" del navegador podía dejar la app trabada/en blanco. Se investigó la causa de raíz en el sistema de enlaces (<code>linking</code>) de React Navigation.</p>
 
@@ -167,6 +172,44 @@
   <div class="card">
     <h3>Fases siguientes (planificadas, no construidas todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XL</span></span></h3>
     <p class="fix">Fase 3 — Órdenes de Fabricación/Trabajo, reserva de insumos con semáforo 🟢🟡🔴 e integración con Compras (reutilizando el flujo de "Requerimientos" que ya existe en Inventario, sin tabla nueva). Fase 4 — vista Kiosco de planta (tablet, botones grandes: iniciar/pausar/registrar cantidad/reportar falla/finalizar, escaneo QR de operario). Fase 5 — puntos de control de calidad como candado real, mantenimiento del taller (reutilizando <code>maintenance_requests</code>) y OEE. Fase 6 — trazabilidad por lote/serie. Cada fase es independiente y no requiere tocar las anteriores.</p>
+  </div>
+
+  <h2><span class="n">06</span> Control de Maquinaria: el analista ya puede poner y quitar horas (el precio sigue bloqueado)</h2>
+  <p class="sec-note">Trabajo de la compañera de equipo. Ajuste de permisos sobre el candado que traía el rol ANALISTA en Control de Maquinaria.</p>
+
+  <div class="card feat">
+    <h3>El analista edita libremente día/noche/parada/extra; el precio sigue solo para administrador <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Antes, en <code>ControlMaquinariaScreen.tsx</code>, el rol ANALISTA solo podía <b>INGRESAR horas nuevas</b> (campo vacío/0) — en cuanto un valor de día/noche/parada/extra ya estaba cargado, quedaba bloqueado con un 🔒 (<code>bloqueadoAnalista</code>) y solo un administrador podía corregirlo o quitarlo. Eso generaba fricción para algo tan simple como corregir un dato mal tipeado.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>bloqueadoAnalista</code> ahora siempre devuelve <code>false</code> — el analista puede <b>poner y quitar</b> horas de día/noche/parada/extra sin restricción, incluidas las que ya estaban cargadas. El único candado que se mantiene es el <b>PRECIO</b> de la jornada (<code>puedeEditarPrecio = !esAnalista</code>), que sigue exclusivo del administrador. Los cambios de horas del analista siguen quedando con su rastro como <code>ajuste_manual</code> en <code>machine_work_segments</code>, visible en "🕒 Ver tramos".</p>
+  </div>
+
+  <h2><span class="n">07</span> Avería PENDIENTE = averiada hasta resolver (arrastre) + sincroniza teléfono y resumen admin</h2>
+  <p class="sec-note">Trabajo de la compañera de equipo. Corrige el criterio de fecha que se había introducido hoy mismo en el punto 03 de este día (ver la nota de corrección agregada ahí) — la regla correcta para una avería real pendiente es que se arrastre día a día, no que decaiga al día siguiente.</p>
+
+  <div class="card feat">
+    <h3>Se quitó el filtro "solo cuenta si es de HOY" en ambas pantallas + misma prioridad de estados <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">El teléfono (<code>SupervisorScreen.tsx</code>) solo marcaba 🔴 avería el <b>mismo día</b> del reporte (filtraba por <code>created_at &gt;= hoy</code>); al día siguiente la máquina bajaba sola a "parada" (o a "pendiente" si era una avería pura), como si ya no hubiera falla. El resumen admin (<code>InspectionsSummary.tsx</code>) tenía el mismo criterio de "solo HOY" — agregado hoy mismo en el punto 03 de este día para alinearlo con el teléfono — pero ambos rompían el arrastre esperado: una avería real sin resolver debería seguir contando como avería, igual que ya pasa con "parada". Además, el resumen admin priorizaba "iniciada" por encima de avería/parada, mientras el teléfono priorizaba avería/parada por encima de iniciada — dos criterios distintos que desalineaban las cuentas por inspector entre ambas pantallas.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se quitó el filtro de fecha en ambas pantallas — en <code>SupervisorScreen.tsx</code>, la consulta de averías reales pendientes ya no lleva <code>.gte('created_at', hoy)</code>; en <code>InspectionsSummary.tsx</code> solo se conserva la cota <b>superior</b> (<code>&lt;= dayEndMs</code>, para no contar en un día pasado averías reportadas después). Con esto, una avería real pendiente mantiene la máquina <b>🔴 AVERIADA día tras día</b> hasta que alguien la marque operativa (🟢 Volver a OPERATIVA) — se arrastra, igual que "parada". También se igualó la prioridad de estados del resumen admin a la del teléfono: <b>avería &gt; parada &gt; iniciada &gt; pendiente</b> (antes era iniciada &gt; avería &gt; parada), tanto en <code>estadoOf()</code> como en el desglose por inspector. La <b>eficiencia no cambia</b> — sigue dependiendo solo de las máquinas dejadas pendientes/sin tocar. "No trabajó" (🟡 solo "MÁQUINA PARADA", sin avería real) sigue igual y también se arrastra, como ya lo hacía.</p>
+  </div>
+
+  <h2><span class="n">08</span> Módulo de Fabricación (MRP) — Fase 3: Órdenes de Fabricación (MO) y de Trabajo (WO)</h2>
+  <p class="sec-note">Tercera fase del MRP: convierte los maestros de la Fase 2 (centros de trabajo, recetas, rutas) en producción real — planifica, reserva insumos, ejecuta por centro de trabajo y cierra actualizando Inventario. 100% aditivo.</p>
+
+  <div class="card feat">
+    <h3>Órdenes de Fabricación: disponibilidad de insumos, "Solicitar faltantes" y cierre con movimiento de inventario <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Con solo los maestros (Fase 2) no se podía planificar una producción real: faltaba saber si hay insumos suficientes, pedirlos si no los hay, ejecutar la orden y — al terminar — que el producto fabricado entrara al inventario y los componentes usados salieran, sin tocar el stock a mano.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL ejecutado en producción, <code>supabase/fabricacion_ordenes.sql</code>):</b> nueva tabla <code>manufacturing_orders</code> con código correlativo <b>MO-####</b> asignado por un trigger en la base (mismo mecanismo real que ya usa <code>REQ-####</code> en Requerimientos, con <code>pg_advisory_xact_lock</code> para no duplicarse en creaciones simultáneas). Pantalla <code>ManufacturingOrdersScreen.tsx</code>: al crear una orden se elige el producto, la app toma su receta y ruta <b>activas</b> y calcula un <code>components_snapshot</code> (cantidad de cada insumo × lo planificado, con la merma de la receta ya aplicada) que queda fijo aunque la receta cambie después. En el detalle, cada insumo muestra semáforo 🟢🟡🔴 contra el stock real de Inventario; si falta algo, <b>"📤 Solicitar faltantes"</b> crea un requerimiento en el mismo módulo de Compras que ya existe (sin tabla nueva). <b>"▶️ Iniciar producción"</b> genera las Órdenes de Trabajo (una por paso de la ruta). <b>"🔒 Cerrar orden"</b> registra en <code>inventory_movements</code> el consumo de cada insumo y la entrada del producto terminado (con su costo), y el PMP de Inventario se recalcula solo (el trigger existente no se tocó).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Órdenes de Trabajo: operario, tiempo, avance de cantidad, fallas y control de calidad <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ L</span></span></h3>
+    <p class="why">Cada paso de una orden de fabricación necesita gestionarse por separado: quién lo hace, cuánto lleva avanzado, si hubo una falla, y si ese paso es un punto de control de calidad, que no se pueda dar por completado sin aprobarlo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> pantalla <code>WorkOrdersScreen.tsx</code> (vista de gestión de oficina, no la de planta — esa es la Fase 4): asignar operario, transicionar estado (iniciar/pausar/reanudar/completar/cancelar), registrar avance de cantidad, reportar falla (pausa la orden con el motivo) y aprobar/rechazar el punto de control de calidad cuando aplica (bloquea "Completar" hasta resolverlo). Cada acción queda en una bitácora inmutable (<code>wo_time_logs</code>, sin política de editar ni borrar) con quién y cuándo.</p>
+  </div>
+
+  <div class="card">
+    <h3>Fases siguientes (planificadas, no construidas todavía) <span class="meta"><span class="chip" style="background:var(--warn);color:#fff;border-color:transparent">◔ Planificado</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XL</span></span></h3>
+    <p class="fix">Fase 4 — vista Kiosco de planta (tablet, botones grandes: iniciar/pausar/registrar cantidad/reportar falla/finalizar, escaneo QR de operario). Fase 5 — puntos de control de calidad como candado real (ya se puede aprobar/rechazar, falta que bloquee de verdad el avance del centro de trabajo siguiente), mantenimiento del taller y OEE. Fase 6 — trazabilidad por lote/serie.</p>
   </div>
 
   </section>

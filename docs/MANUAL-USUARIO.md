@@ -151,9 +151,11 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 4. Si te lo pide, escribe el **operador** de ese turno.
 5. Todo **se guarda solo**.
 
-> **Rol ANALISTA:** solo puede **INGRESAR horas nuevas** (día/noche, parada y extra), **no
-> modificar** las ya cargadas. Cuando un valor ya está cargado aparece un **🔒** y no se puede
-> cambiar; si hay que corregirlo, lo hace un **administrador**. Tampoco cambia precios.
+> **Rol ANALISTA (actualizado 06/08/2026):** puede **poner y quitar horas** libremente
+> (día/noche, parada y extra), **incluso las que ya estaban cargadas** — ya no aparece el 🔒 que
+> antes bloqueaba corregir un valor existente. Lo único que sigue sin poder tocar es el
+> **PRECIO** de la jornada; eso lo sigue haciendo solo un **administrador**. Los cambios de horas
+> del analista quedan igual con su rastro (ajuste manual) en **🕒 Ver tramos**.
 
 **🕒 Ver tramos (detalle de cada arranque/parada del día):**
 - Junto al total de horas de cada día, hay un botón **"🕒 Ver tramos"**.
@@ -785,6 +787,15 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > desplegarla se ve cada máquina que sigue sin inspector real, con un botón **"Asignar ▾"** que
 > despliega los inspectores disponibles — al tocar un nombre, la máquina queda asignada a esa
 > persona para ese turno al instante (sin salir de esta pantalla).
+>
+> **🔴 Avería pendiente = se arrastra día a día (06/08/2026, corrección):** una avería real
+> **pendiente** (sin resolver) mantiene la máquina **🔴 averiada** todos los días siguientes, no
+> solo el día en que se reportó — ya no "baja" sola a parada o pendiente al día siguiente. Antes
+> tanto el teléfono como este resumen solo contaban la avería si era del mismo día; se corrigió
+> en **ambas** vistas (teléfono e Inspecciones aquí en PC) para que muestren siempre el mismo
+> conteo. Solo se quita marcando la máquina **🟢 Volver a OPERATIVA**. La **eficiencia** no
+> cambia con esta corrección — sigue dependiendo solo de las máquinas dejadas **sin tocar**
+> (pendientes).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
@@ -1779,8 +1790,8 @@ registró** y **quién aprobó el pago**.
 
 ### 4.26b. Centros de trabajo · Recetas (BoM) · Rutas de producción (Fase 2)
 
-Datos maestros para planificar y costear fabricación — todavía sin Órdenes de Fabricación (esa es
-la Fase 3, pendiente). Se llega desde el panel **"Más → 🏭 Fabricación"**.
+Datos maestros para planificar y costear fabricación. Se llega desde el panel
+**"Más → 🏭 Fabricación"**.
 
 **🏗️ Centros de trabajo:** el lugar donde se produce — una máquina, un área o una cuadrilla.
 "+ Nuevo centro de trabajo" pide código, nombre, tipo, la máquina asociada (si el tipo es
@@ -1800,6 +1811,30 @@ hasta terminar el producto. Cada paso puede marcarse como **punto de control de 
 (📷 Foto / 📏 Medición / ✅ Aprobación) con una nota de especificación. Los pasos se reordenan con
 las flechas ⬆️⬇️. Igual que las recetas, solo puede haber **una ruta "🟢 Activa" por producto** a
 la vez.
+
+### 4.26c. Órdenes de Fabricación (MO) y Órdenes de Trabajo (WO) (Fase 3)
+
+Convierte los maestros en producción real. Se llega desde **"Más → 🏭 Fabricación"**.
+
+**📦 Órdenes de fabricación:** "+ Nueva orden" pide el producto terminado y la cantidad a
+fabricar; la app toma automáticamente la receta y la ruta **activas** de ese producto. En el
+detalle de la orden (código **MO-####**, asignado solo):
+- Cada insumo de la receta muestra un semáforo 🟢🟡🔴 contra el stock real de Inventario.
+- **"📤 Solicitar faltantes"** crea un requerimiento de compra (el mismo módulo de Compras de
+  siempre) con lo que falta.
+- **"▶️ Iniciar producción"** genera una Órden de Trabajo por cada paso de la ruta.
+- **"🔒 Cerrar orden"** registra en Inventario el consumo de cada insumo y la entrada del
+  producto terminado — no se puede deshacer, pide confirmación.
+
+**🧰 Órdenes de trabajo:** lista de todas las tareas por centro de trabajo, con filtro por estado
+y buscador. Al entrar a una: asignar operario, **iniciar/pausar/reanudar/completar/cancelar**,
+registrar avance de cantidad, reportar una falla (la pausa con el motivo) y — si el paso es un
+punto de control de calidad — **aprobar o rechazar**, lo que bloquea "Completar" hasta resolverlo.
+Cada acción queda en una bitácora con quién y cuándo.
+
+> Pendiente (fases futuras): la vista Kiosco de planta (tablet, botones grandes, sin necesidad de
+> usar teclado) y que el control de calidad bloquee de verdad el paso siguiente, no solo se
+> muestre pendiente.
 
 ---
 
