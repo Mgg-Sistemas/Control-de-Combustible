@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Text, TouchableOpacity, View, Switch, TextInput } from 'react-native';
+import { Text, TouchableOpacity, View, Switch, TextInput, Platform } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
@@ -28,11 +28,31 @@ type SearchProfile = { id: string; full_name: string | null; username: string | 
  * que "Más" sea solo el menú de módulos.
  */
 export default function AjustesScreen() {
-  const { signOut, session, configured, role } = useAuth();
+  const { signOut, session, configured, role, fullName } = useAuth();
   const { colors, scheme, toggle } = useTheme();
   const toast = useToast();
   const [bioSupported, setBioSupported] = useState(false);
   const [bioOn, setBioOn] = useState(false);
+
+  // Backup de la BD: SOLO para Anthony y Angelica (por nombre, sin tildes). Web.
+  const nfull = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  const puedeBackup = nfull.includes('ANTHONY') || nfull.includes('ANGELICA');
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState<string | null>(null);
+  const doBackup = async () => {
+    setBackupBusy(true); setBackupMsg('Preparando…');
+    try {
+      const { runBackup } = await import('../lib/backup');
+      const res = await runBackup((name, i, total) => setBackupMsg(`Respaldando ${i}/${total}: ${name}…`));
+      setBackupMsg(`✓ Backup descargado: ${res.rows.toLocaleString('es-VE')} filas de ${res.tables} tablas.`);
+      toast.success('Backup descargado.');
+    } catch {
+      setBackupMsg('❌ No se pudo generar el backup.');
+      toast.error('No se pudo generar el backup.');
+    } finally {
+      setBackupBusy(false);
+    }
+  };
 
   // Panel "🔧 Activar/desactivar máquinas por supervisor" (feature_toggles.maquinas_bulk_toggle).
   const [maqEnabled, setMaqEnabled] = useState(true);
@@ -296,6 +316,22 @@ export default function AjustesScreen() {
                 </View>
               ) : null}
             </View>
+          </Card>
+        </>
+      ) : null}
+
+      {puedeBackup && Platform.OS === 'web' ? (
+        <>
+          <SectionTitle>Respaldo</SectionTitle>
+          <Card>
+            <Text style={{ fontWeight: '700', color: colors.text }}>Backup de la base de datos</Text>
+            <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>
+              Descarga un archivo JSON con TODOS los datos (máquinas, jornadas, empleados, pagos, inventario…). Acceso restringido a Anthony y Angelica.
+            </Text>
+            <TouchableOpacity onPress={doBackup} disabled={backupBusy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', opacity: backupBusy ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '800' }}>{backupBusy ? 'Generando…' : '⬇️ Descargar backup'}</Text>
+            </TouchableOpacity>
+            {backupMsg ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>{backupMsg}</Text> : null}
           </Card>
         </>
       ) : null}

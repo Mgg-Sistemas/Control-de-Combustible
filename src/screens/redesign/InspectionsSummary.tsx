@@ -11,6 +11,7 @@ import { listInspectorAssignments, assignInspector } from '../../lib/machineInsp
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
+import { generateEmpresaDiaReport } from '../../lib/porEmpresaReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
@@ -39,6 +40,8 @@ const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); re
 const POR_ASIGNAR_KEY = '__por_asignar__';
 // Token de pdfBusy para el reporte de eficiencia (todos los inspectores).
 const EFICIENCIA_KEY = '__eficiencia__';
+// Token de pdfBusy para el reporte del día POR EMPRESA.
+const EMPRESA_KEY = '__empresa_dia__';
 // Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
 // el dashboard en el turno correcto (antes abría siempre en DÍA).
 function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
@@ -161,6 +164,22 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
   };
 
+  // REPORTE DEL DÍA POR EMPRESA: se eligen empresas (tipo check) y genera un PDF con
+  // Máquina, Serial/Placa, Inspector asignado, Horas trabajadas, Horas paradas/avería
+  // y la avería/motivo. El reporte hace sus propias consultas (ver porEmpresaReport).
+  const [empresaPickerOpen, setEmpresaPickerOpen] = useState(false);
+  const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
+  const makeEmpresaReport = async () => {
+    if (empresaSel.size === 0) return;
+    setEmpresaPickerOpen(false);
+    setPdfBusy(EMPRESA_KEY);
+    try {
+      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel] });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   // REPORTE (PDF) de eficiencia de TODOS los inspectores del día — cuántas de sus
   // máquinas asignadas chequearon (iniciada, parada o averiada) vs. cuáles dejaron
   // sin tocar. Mismo cálculo que `generateSummaryReport` (ver inspectorSummaryReport.ts).
@@ -189,7 +208,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
-      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company_id, company:company_id(name)'),
       // Histórico COMPLETO (todas las fechas) solo de horas, para "Horas reales totales".
       selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours'),
     ]);
@@ -530,6 +549,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const s = new Set<string>();
     machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
     return s;
+  }, [machList]);
+
+  // Empresas (id + nombre) que tienen máquinas — para el selector del "Reporte del
+  // día por empresa" (tipo check). A→Z por nombre.
+  const empresasList = useMemo(() => {
+    const m = new Map<string, string>();
+    machList.forEach((x: any) => { if (x.company_id) m.set(x.company_id, x.company?.name || 'Sin empresa'); });
+    return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => cmpText(a.name, b.name));
   }, [machList]);
 
   // Ficha COMPLETA por máquina (placa, serial, ubicación, empresa, encargado…).
@@ -895,21 +922,62 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             })}
           </View>
 
-          {/* Reporte (PDF) de máquinas por asignar / por iniciar del día + turno. */}
-          <TouchableOpacity onPress={makePorAsignarReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-            <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Reporte de máquinas por asignar / por iniciar'}</Text>
+          {/* Fila con DOS botones en línea: reporte "por asignar/iniciar" + "Gestionar". */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+            <TouchableOpacity onPress={makePorAsignarReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Por asignar / por iniciar'}</Text>
+            </TouchableOpacity>
+            {bulkAllowed ? (
+              <TouchableOpacity onPress={() => setBulkOpen((o) => !o)} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>🔧 Gestionar iniciada / pendiente {bulkOpen ? '▲' : '▼'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
+          <TouchableOpacity onPress={() => setEmpresaPickerOpen(true)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
           </TouchableOpacity>
 
-          {/* Panel "Gestionar Iniciada/Pendiente por supervisor" — SOLO visible para las
-              2 cuentas en BULK_TOGGLE_USERNAMES/CEDULAS (ver arriba) o quien se sume
-              desde Ajustes. Marca o quita el arranque de jornada del día de HOY en
-              `machine_rounds`, en bloque, agrupado por inspector. */}
-          {bulkAllowed ? (
-            <View style={{ marginTop: spacing.md }}>
-              <TouchableOpacity onPress={() => setBulkOpen((o) => !o)} activeOpacity={0.85} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>🔧 Gestionar Iniciada / Pendiente por supervisor {bulkOpen ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-              {bulkOpen ? (
+          {/* Selector de EMPRESAS (tipo check) para el reporte del día. */}
+          <Modal visible={empresaPickerOpen} transparent animationType="slide" onRequestClose={() => setEmpresaPickerOpen(false)}>
+            <Pressable onPress={() => setEmpresaPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+              <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>📊 Reporte del día por empresa · {shortDate(selDay)}</Text>
+                  <TouchableOpacity onPress={() => setEmpresaPickerOpen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.sm }}>
+                  <TouchableOpacity onPress={() => setEmpresaSel(new Set(empresasList.map((e) => e.id)))}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12.5 }}>✓ Todas ({empresasList.length})</Text></TouchableOpacity>
+                  {empresaSel.size > 0 ? <TouchableOpacity onPress={() => setEmpresaSel(new Set())}><Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12.5 }}>✕ Ninguna</Text></TouchableOpacity> : null}
+                </View>
+                <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                  {empresasList.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.lg }}>Sin empresas.</Text>
+                  ) : empresasList.map((e) => {
+                    const on = empresaSel.has(e.id);
+                    return (
+                      <TouchableOpacity key={e.id} onPress={() => setEmpresaSel((p) => { const s = new Set(p); s.has(e.id) ? s.delete(e.id) : s.add(e.id); return s; })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                        <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                          {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                        </View>
+                        <Text style={{ color: colors.text, fontSize: 14, flex: 1 }} numberOfLines={1}>🏢 {e.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <TouchableOpacity onPress={makeEmpresaReport} disabled={empresaSel.size === 0} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', opacity: empresaSel.size === 0 ? 0.5 : 1 }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar reporte ({empresaSel.size})</Text>
+                </TouchableOpacity>
+              </Pressable>
+            </Pressable>
+          </Modal>
+
+          {/* Panel "Gestionar Iniciada/Pendiente por supervisor" (expandible) — SOLO
+              visible para las cuentas en BULK_TOGGLE o quien se sume desde Ajustes. */}
+          {bulkAllowed && bulkOpen ? (
                 <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                   {!bulkIsToday ? (
                     <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginBottom: spacing.sm }}>
@@ -1006,8 +1074,6 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   </View>
                 </View>
               ) : null}
-            </View>
-          ) : null}
 
           {/* Barras VERTICALES por inspector (del turno). Tocar → detalle. */}
           <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs, letterSpacing: 0.3, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
