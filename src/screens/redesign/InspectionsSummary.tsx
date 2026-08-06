@@ -440,16 +440,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // no el jornada_shift de la ronda — antes el doble filtro (`&& roundShift===shift`)
     // ESCONDÍA máquinas reales que sí arrancaron (p. ej. días de mayoría-noche vistos en
     // turno "día"), y por eso "no se sincronizaba" con lo que ve el inspector.
-    //   HOY: INICIADA = jornada ABIERTA (jornada_start_at). Las horas de sistema (backfill
-    //   12/6) SIN jornada abierta NO cuentan (ficticio), igual que el teléfono.
-    //   DÍAS PASADOS: la jornada ya se cerró (jornada_start_at limpio) → el único indicio
-    //   de trabajo son las horas (roundStarted = arrancada o con horas).
+    // INICIADA = jornada ABIERTA ahora, o ya FINALIZADA con horas (día/noche > 0): al
+    // cerrar la jornada se borra jornada_start_at, así que las horas son la evidencia de
+    // que se trabajó de verdad — aplica igual para hoy y para días pasados (confirmado
+    // explícitamente por el cliente: las finalizadas deben verse en las tarjetas y en
+    // los reportes, no solo las que quedaron con la jornada todavía abierta).
     const isToday = selDay === caracasToday();
     const startedSet = new Set<string>();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      const started = isToday ? !!r.jornada_start_at : roundStarted(r);
-      if (started) startedSet.add(r.machinery_id);
+      if (roundStarted(r)) startedSet.add(r.machinery_id);
     });
     // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche, termina a las 7am):
     // sin esto, al ver "hoy" recién pasada la medianoche esas máquinas parecían
