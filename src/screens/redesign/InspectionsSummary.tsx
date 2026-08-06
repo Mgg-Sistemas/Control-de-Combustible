@@ -264,10 +264,20 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [bulkHideStopped, setBulkHideStopped] = useState(false);
   // Averiadas del día (no depende del turno — igual que `daySets`). Paradas SÍ
   // depende del turno de cada ítem, así se calcula por separado para día y noche.
+  // SOLO cuenta como "avería" la reportada ESE día (igual que SupervisorScreen.tsx,
+  // que solo marca el segmento 🔴 avería el mismo día en que se reportó); una
+  // avería vieja sin resolver pasa a "parada" (arrastrada) — antes, sin este límite
+  // inferior, una avería de hace semanas se quedaba marcada "averiada" para
+  // siempre y nunca aparecía como "parada", desalineando este panel del que ve
+  // el inspector en su teléfono.
   const bulkAverSet = useMemo(() => {
+    const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
     const s = new Set<string>();
-    maint.forEach((m) => { if (m.material !== 'MÁQUINA PARADA' && new Date(m.created_at).getTime() <= dayEndMs) s.add(m.machinery_id); });
+    maint.forEach((m) => {
+      const t = new Date(m.created_at).getTime();
+      if (m.material !== 'MÁQUINA PARADA' && t >= dayStartMs && t <= dayEndMs) s.add(m.machinery_id);
+    });
     return s;
   }, [maint, selDay]);
   // Solo se puede gestionar el día de HOY (no días pasados): "Iniciar" fabricaría
@@ -434,8 +444,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
+    // SOLO cuenta como "avería" la reportada ESE día — igual que averiaPendienteIds
+    // en SupervisorScreen.tsx (filtra por `created_at >= hoy`), que solo marca 🔴
+    // avería el mismo día en que se reportó. Sin el límite inferior, una avería
+    // vieja sin resolver se quedaba "averiada" para siempre y nunca bajaba a
+    // "parada" (arrastrada) más abajo, desalineando este panel del que ve el
+    // inspector en su teléfono (menos "paradas" y más "averiadas" de la cuenta).
     const averSet = new Set<string>();
-    maint.forEach((m) => { if (m.material !== 'MÁQUINA PARADA' && new Date(m.created_at).getTime() <= dayEndMs) averSet.add(m.machinery_id); });
+    maint.forEach((m) => {
+      const t = new Date(m.created_at).getTime();
+      if (m.material !== 'MÁQUINA PARADA' && t >= dayStartMs && t <= dayEndMs) averSet.add(m.machinery_id);
+    });
     const paradaSet = new Set<string>();
     maint.forEach((m) => {
       if (m.material !== 'MÁQUINA PARADA') return;
