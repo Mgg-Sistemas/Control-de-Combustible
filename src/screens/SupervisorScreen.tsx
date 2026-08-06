@@ -682,12 +682,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // 1) Lo marcado HOY (avería/parada de hoy) gana incluso sobre "trabajando".
     if (averiaHoyIds.has(id)) return 'averia';
     if (paradaHoyIds.has(id)) return 'parada';
-    // 2) Trabajó hoy gana sobre avería/parada ARRASTRADA (vieja): si arrancó jornada,
-    //    la máquina se reactivó → NO debe salir en averiadas/paradas. "Trabajó" =
-    //    jornada ABIERTA o jornada ya FINALIZADA con horas (día/noche > 0). Antes solo
-    //    contaba la abierta, así una jornada ya CERRADA (12h) salía como "por iniciar",
-    //    desincronizada con el admin que la cuenta como INICIADA. Ahora cuadran.
-    if (roundsById[id]?.open || (roundsById[id]?.worked ?? 0) > 0) return 'iniciada';
+    // 2) INICIADA = jornada ABIERTA ahora (el inspector la arrancó). NO cuenta las
+    //    horas de sistema (backfill 12/6) como "iniciada": esas son ficticias hasta que
+    //    el inspector abra la jornada. Una jornada abierta gana sobre avería/parada
+    //    ARRASTRADA (la máquina se reactivó). Este es el criterio REAL del teléfono.
+    if (roundsById[id]?.open) return 'iniciada';
     // 3) Avería/parada arrastrada: solo si NO trabaja hoy (se arrastra hasta reactivar).
     if (averiaPendienteIds.has(id)) return 'averia';
     if (paradaIds.has(id)) return 'parada';
@@ -2248,6 +2247,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                               <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800' }}>{on ? '✅ ' : ''}{m.code}</Text>
                               <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName} · {((m as any).plate || (m as any).serial || '—')}</Text>
                               <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>📍 {edif || 'Sin edificio/referencia'}</Text>
+                              {m.encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>👤 Encargado: {m.encargado}</Text> : null}
                             </View>
                           </TouchableOpacity>
                           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>

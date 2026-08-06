@@ -67,8 +67,12 @@ type MInfo = {
 };
 type Estado = 'iniciada' | 'pendiente' | 'parada' | 'averiada';
 
-// ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Igual que SupervisionScreen.
-const roundStarted = (r: Round) => !!r.jornada_start_at || (Number(r.day_hours) || 0) > 0 || (Number(r.night_hours) || 0) > 0;
+// ¿La ronda cuenta como jornada INICIADA? SOLO si el inspector ABRIÓ la jornada
+// (jornada_start_at). NO cuenta las horas de sistema (backfill 12/6) sin jornada
+// abierta: esas son FICTICIAS hasta que el inspector arranque. Mismo criterio REAL
+// que el teléfono (segmentoDe usa roundsById.open = jornada_start_at). Las jornadas
+// reales que trabajaron horas conservan jornada_start_at, así que no se pierden.
+const roundStarted = (r: Round) => !!r.jornada_start_at;
 // Turno de la ronda (una ronda pertenece a UN turno). Igual que inspectorReport.
 const roundShift = (r: Round): 'day' | 'night' =>
   r.jornada_shift === 'night' ? 'night'
