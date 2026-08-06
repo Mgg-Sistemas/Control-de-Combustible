@@ -139,13 +139,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const confirm = useConfirm();
   const toast = useToast();
   const { session, role } = useAuth();
-  // Las ANALISTAS solo pueden INGRESAR horas nuevas (campo vacío), NO modificar las
-  // ya cargadas, y tampoco cambiar precios. `esAnalista` bloquea la edición de un
-  // valor que ya existe (día/noche/parada/extra); si está en 0/vacío, sí lo pueden cargar.
+  // Las ANALISTAS pueden PONER y QUITAR horas libremente (día/noche/parada/extra),
+  // incluso las ya cargadas; lo único que NO pueden tocar es el PRECIO de la jornada.
   const esAnalista = role === 'analista';
   const puedeEditarPrecio = !esAnalista;
-  // ¿un analista tiene bloqueado ESTE valor por estar ya cargado (>0)?
-  const bloqueadoAnalista = (valorActual: number) => esAnalista && Number(valorActual) > 0;
+  // Las horas ya NO se bloquean para el analista (queda por trazabilidad `ajuste_manual`).
+  const bloqueadoAnalista = (_valorActual: number) => false;
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina

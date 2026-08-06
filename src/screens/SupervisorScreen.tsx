@@ -385,9 +385,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
       supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
-      // TAREA 1: averías REALES pendientes de HOY (material distinto de 'MÁQUINA
-      // PARADA') — solo LECTURA, para el chip "🔧 Por avería" (SupervisorScreen).
-      supabase.from('maintenance_requests').select('machinery_id').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').gte('created_at', `${today}T00:00:00-04:00`),
+      // Averías REALES PENDIENTES (material distinto de 'MÁQUINA PARADA'), SIN filtro
+      // de fecha: una avería sin resolver mantiene la máquina AVERIADA día tras día
+      // (se arrastra hasta que se marque operativa), NO baja a parada/pendiente al
+      // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
+      supabase.from('maintenance_requests').select('machinery_id').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
