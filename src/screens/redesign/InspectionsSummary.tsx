@@ -1059,6 +1059,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
+                          {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
+                          {info?.encargado ? (
+                            <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>
+                              👷 Encargado: {info.encargado}
+                            </Text>
+                          ) : null}
                           <Text style={{ color: sinInspectorReal(r.inspector) ? colors.warning : colors.muted, fontSize: 11.5, marginTop: 1, fontWeight: sinInspectorReal(r.inspector) ? '800' : '400' }} numberOfLines={1}>
                             {inspLbl}
                           </Text>
