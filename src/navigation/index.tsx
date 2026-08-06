@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { AppRole, UserRole } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
+import HeaderSettings from '../components/HeaderSettings';
 import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/redesign/LoginPilot'; // PILOTO rediseño (Sesión); original en ../screens/LoginScreen
 import BiometricLockScreen from '../screens/BiometricLockScreen';
@@ -144,15 +145,21 @@ function HeaderLogoutButton() {
 
 function useScreenHeader() {
   const { colors } = useTheme();
+  const { signOut } = useAuth();
   return {
     headerStyle: { backgroundColor: colors.surface },
     headerTitleStyle: { color: colors.text },
     headerTintColor: colors.primary,
-    // Logo de la empresa en el navbar + campana (solo admin) + fecha/hora (Caracas) a la derecha.
+    // Logo de la empresa + tuerca ⚙️ (ajustes rápidos) + campana (solo admin) +
+    // "Cerrar sesión" + fecha/hora (Caracas), todo a la derecha.
     headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
     headerRight: () => (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <HeaderSettings />
         <NotificationBell />
+        <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal: 8, paddingVertical: 4 }} accessibilityLabel="Cerrar sesión">
+          <Text style={{ color: colors.danger, fontSize: 12, fontWeight: '800' }}>Cerrar sesión</Text>
+        </TouchableOpacity>
         <HeaderClock />
       </View>
     ),
