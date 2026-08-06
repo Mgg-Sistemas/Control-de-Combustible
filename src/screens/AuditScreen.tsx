@@ -20,6 +20,25 @@ function caracasToday(): string {
 function caracasDT(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+// Suma/resta N días a una fecha ISO (YYYY-MM-DD) sin problemas de zona horaria.
+function addDaysISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const nd = new Date(Date.UTC(y, m - 1, d + n));
+  const p = (x: number) => `${x}`.padStart(2, '0');
+  return `${nd.getUTCFullYear()}-${p(nd.getUTCMonth() + 1)}-${p(nd.getUTCDate())}`;
+}
+const dmy = (iso: string) => iso.split('-').reverse().join('/');
+// Valor legible para la sección "Cambios" (null/objeto/booleano → texto).
+function fmtVal(x: any): string {
+  if (x === null || x === undefined || x === '') return '∅';
+  if (typeof x === 'boolean') return x ? 'sí' : 'no';
+  if (typeof x === 'object') { try { return JSON.stringify(x); } catch { return String(x); } }
+  return String(x);
+}
+// Tope de filas que traemos de la BD. Con búsqueda subimos el tope porque el
+// filtro ya lo hace el servidor (no trae "todo el día", solo lo que coincide).
+const LIMIT_BASE = 2000;
+const LIMIT_SEARCH = 5000;
 
 // Nombre legible de cada tabla y su ícono.
 const TABLE_LABEL: Record<string, string> = {
@@ -69,21 +88,45 @@ async function resolveTarget(table: string, rowId: string | null): Promise<strin
 
 /**
  * AUDITORÍA / BITÁCORA (solo para quien tenga can_audit): muestra quién creó, modificó
- * o eliminó qué y cuándo. Filtra por fecha, por usuario y por tipo. Los datos los
- * escribe un trigger en la BD; aquí solo se leen (RLS deja leer solo a can_audit).
+ * o eliminó qué y cuándo. Se filtra por RANGO de fechas (Desde–Hasta, con atajos),
+ * por usuario, por tipo y por BÚSQUEDA LIBRE. La búsqueda corre EN EL SERVIDOR sobre
+ * todo el rango (usuario, detalle/código de máquina, tipo y acción), así se encuentra
+ * una máquina de otra fecha sin tener que pararse en ese día. Los datos los escribe un
+ * trigger en la BD; aquí solo se leen (RLS deja leer solo a can_audit).
  */
 export default function AuditScreen() {
   const { colors } = useTheme();
   const { canAudit } = useAuth();
   const [rows, setRows] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(caracasToday()); // día a revisar
+  const [from, setFrom] = useState(caracasToday()); // inicio del rango
+  const [to, setTo] = useState(caracasToday());     // fin del rango
   const [userFilter, setUserFilter] = useState('__all__');
   const [tableFilter, setTableFilter] = useState('__all__');
   const [q, setQ] = useState('');
+  const [truncated, setTruncated] = useState(false); // se alcanzó el tope de filas
   const [detail, setDetail] = useState<AuditLog | null>(null);   // fila abierta en detalle
   const [targetName, setTargetName] = useState<string | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
+
+  // Al cambiar Desde por encima de Hasta (o viceversa), se emparejan para no invertir.
+  const setFromSafe = (v: string) => { setFrom(v); if (v > to) setTo(v); };
+  const setToSafe = (v: string) => { setTo(v); if (v < from) setFrom(v); };
+  // Atajos de rango.
+  const today = caracasToday();
+  const setPreset = (kind: 'hoy' | '7' | '30' | 'mes') => {
+    if (kind === 'hoy') { setFrom(today); setTo(today); }
+    else if (kind === '7') { setFrom(addDaysISO(today, -6)); setTo(today); }
+    else if (kind === '30') { setFrom(addDaysISO(today, -29)); setTo(today); }
+    else { setFrom(`${today.slice(0, 7)}-01`); setTo(today); }
+  };
+  // Mueve la ventana completa (Desde y Hasta) un día (◀ / ▶), conservando su tamaño.
+  const shiftWindow = (d: number) => {
+    const nf = addDaysISO(from, d);
+    const nt = addDaysISO(to, d);
+    if (nt > today) return; // no adelantar más allá de hoy
+    setFrom(nf); setTo(nt);
+  };
 
   useEffect(() => {
     if (!detail) { setTargetName(null); return; }
@@ -91,17 +134,48 @@ export default function AuditScreen() {
     resolveTarget(detail.table_name, detail.row_id).then((n) => { setTargetName(n); setTargetLoading(false); });
   }, [detail]);
 
-  const load = async () => {
-    setLoading(true);
-    const from = `${date}T00:00:00-04:00`;
-    const to = `${date}T23:59:59.999-04:00`;
-    const { data } = await supabase.from('audit_log').select('*')
-      .gte('at', from).lte('at', to)
-      .order('at', { ascending: false }).limit(2000);
-    setRows((data as AuditLog[]) ?? []);
-    setLoading(false);
-  };
-  useEffect(() => { load(); }, [date]);
+  // Carga con debounce cuando hay búsqueda (para no pegarle a la BD en cada tecla).
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      setLoading(true);
+      const fromTs = `${from}T00:00:00-04:00`;
+      const toTs = `${to}T23:59:59.999-04:00`;
+      const nq = norm(q.trim());
+      // Texto seguro para el .or() de PostgREST (coma y paréntesis son separadores).
+      const safe = q.trim().replace(/[,()%]/g, ' ').trim();
+
+      const limit = nq ? LIMIT_SEARCH : LIMIT_BASE;
+      // Tipos cuyo NOMBRE legible coincide con el texto (ej. "máquina" → machinery).
+      const matchTables = Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t);
+      // Acciones cuyo verbo coincide (ej. "modificó" → UPDATE).
+      const matchActions = Object.entries(ACTION_META).filter(([, m]) => norm(m.label).includes(nq)).map(([a]) => a);
+      // Arma la consulta. `withRowLabel` incluye row_label en la búsqueda; si esa
+      // columna aún no existe (audit_detalle.sql sin correr) reintentamos sin ella.
+      const build = (withRowLabel: boolean) => {
+        let query = supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs);
+        if (nq && safe) {
+          const ors = [`user_name.ilike.%${safe}%`, `detail.ilike.%${safe}%`, `table_name.ilike.%${safe}%`];
+          if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
+          if (matchTables.length) ors.push(`table_name.in.(${matchTables.join(',')})`);
+          if (matchActions.length) ors.push(`action.in.(${matchActions.join(',')})`);
+          query = query.or(ors.join(','));
+        }
+        return query.order('at', { ascending: false }).limit(limit);
+      };
+      let { data, error } = await build(true);
+      if (error && /row_label/.test(error.message || '')) {
+        ({ data, error } = await build(false)); // columna aún no creada → sin row_label
+      }
+      if (!alive) return;
+      const list = (data as AuditLog[]) ?? [];
+      setRows(list);
+      setTruncated(list.length >= limit);
+      setLoading(false);
+    };
+    const t = setTimeout(run, q ? 350 : 0);
+    return () => { alive = false; clearTimeout(t); };
+  }, [from, to, q]);
 
   const users = useMemo(() => {
     const s = new Set<string>();
@@ -114,12 +188,13 @@ export default function AuditScreen() {
     return Array.from(s).sort((a, b) => cmpText(tableLabel(a), tableLabel(b)));
   }, [rows]);
 
-  const nq = norm(q.trim());
+  // La búsqueda libre ya la aplicó el servidor; aquí solo refinamos por los CHIPS
+  // (usuario / tipo) sobre lo cargado, para no ocultar filas que coincidieron por detalle.
   const shown = rows.filter((r) =>
     (userFilter === '__all__' || r.user_name === userFilter) &&
-    (tableFilter === '__all__' || r.table_name === tableFilter) &&
-    (!nq || norm(r.user_name).includes(nq) || norm(tableLabel(r.table_name)).includes(nq))
+    (tableFilter === '__all__' || r.table_name === tableFilter)
   );
+  const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
 
   // PDF de la bitácora (con las filas ya filtradas). En web abre la VISTA PREVIA
   // (modal con Imprimir / Guardar como PDF); en móvil comparte el archivo.
@@ -127,6 +202,7 @@ export default function AuditScreen() {
     if (shown.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const filtro = [
+      q.trim() ? `Búsqueda: "${q.trim()}"` : '',
       userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
       tableFilter !== '__all__' ? `Tipo: ${tableLabel(tableFilter)}` : '',
     ].filter(Boolean).join(' · ');
@@ -134,7 +210,7 @@ export default function AuditScreen() {
       const a = ACTION_META[r.action] ?? { label: r.action.toLowerCase() };
       const ev = EVENT_ACTIONS.has(r.action);
       const accion = ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`;
-      const detalle = ev ? (r.detail ?? '') : '';
+      const detalle = ev ? (r.detail ?? '') : (r.detail ?? '');
       return `<tr>
         <td>${esc(caracasDT(r.at))}</td>
         <td>${esc(r.user_name || 'Alguien')}</td>
@@ -145,29 +221,27 @@ export default function AuditScreen() {
     }).join('');
     const html = pdfDocument({
       title: 'Auditoría · Bitácora',
-      subtitle: `${date.split('-').reverse().join('/')} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
+      subtitle: `${rangoTxt} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left;vertical-align:top}
         th{background:#16324F;color:#fff} tr:nth-child(even) td{background:#f4f7fb}`,
       body: `<table><thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Máquina / detalle</th><th>Dispositivo</th></tr></thead><tbody>${filas}</tbody></table>`,
     });
-    await exportPdf(html, `Auditoria ${date}`);
+    await exportPdf(html, `Auditoria ${from}_${to}`);
   };
 
   if (!canAudit) {
     return (<Screen><SectionTitle>Auditoría</SectionTitle><EmptyState title="Sin acceso" subtitle="Este módulo es privado." /></Screen>);
   }
 
-  const shiftDay = (d: number) => {
-    const [y, m, dd] = date.split('-').map(Number);
-    const nd = new Date(Date.UTC(y, m - 1, dd + d));
-    const p = (n: number) => `${n}`.padStart(2, '0');
-    setDate(`${nd.getUTCFullYear()}-${p(nd.getUTCMonth() + 1)}-${p(nd.getUTCDate())}`);
-  };
-
   const Chip = ({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) => (
     <TouchableOpacity onPress={onPress} style={{ backgroundColor: on ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: on ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
       <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+    </TouchableOpacity>
+  );
+  const Preset = ({ label, kind }: { label: string; kind: 'hoy' | '7' | '30' | 'mes' }) => (
+    <TouchableOpacity onPress={() => setPreset(kind)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>{label}</Text>
     </TouchableOpacity>
   );
 
@@ -176,26 +250,43 @@ export default function AuditScreen() {
       <ConfigBanner />
       <SectionTitle>🕵️ Auditoría — quién hace qué</SectionTitle>
 
-      {/* Selector de día */}
+      {/* Rango de fechas (Desde–Hasta) + atajos */}
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+          <TouchableOpacity onPress={() => shiftWindow(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
             <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
           </TouchableOpacity>
-          <View style={{ flex: 1 }}><DateField value={date} onChange={setDate} maxISO={caracasToday()} /></View>
-          <TouchableOpacity onPress={() => shiftDay(1)} disabled={date >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: date >= caracasToday() ? 0.4 : 1 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', marginBottom: 2 }}>DESDE</Text>
+            <DateField value={from} onChange={setFromSafe} maxISO={today} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', marginBottom: 2 }}>HASTA</Text>
+            <DateField value={to} onChange={setToSafe} maxISO={today} />
+          </View>
+          <TouchableOpacity onPress={() => shiftWindow(1)} disabled={to >= today} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: to >= today ? 0.4 : 1 }}>
             <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
-          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>{shown.length} acción(es) este día{userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, marginTop: spacing.sm }}>
+          <Preset label="Hoy" kind="hoy" />
+          <Preset label="7 días" kind="7" />
+          <Preset label="30 días" kind="30" />
+          <Preset label="Este mes" kind="mes" />
+        </ScrollView>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm }}>
+          <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
+            {shown.length} acción(es) · {rangoTxt}
+            {userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}
+            {truncated ? ` · ⚠️ tope ${rows.length}, acota el rango o afina la búsqueda` : ''}
+          </Text>
           <TouchableOpacity onPress={generarPdf} disabled={shown.length === 0} style={{ backgroundColor: shown.length === 0 ? colors.surfaceAlt : colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: shown.length === 0 ? 0.5 : 1 }}>
             <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF (vista previa)</Text>
           </TouchableOpacity>
         </View>
       </Card>
 
-      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar usuario o tipo…" placeholderTextColor={colors.muted}
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina, usuario, tipo o acción… (en todo el rango)" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm }} />
 
       {/* Filtro por usuario */}
@@ -217,7 +308,7 @@ export default function AuditScreen() {
       {loading ? (
         <Loading />
       ) : shown.length === 0 ? (
-        <EmptyState title="Sin actividad" subtitle="No hay acciones registradas para este día y filtro." />
+        <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoTxt}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />
       ) : (
         shown.map((r) => {
           const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
@@ -233,6 +324,9 @@ export default function AuditScreen() {
                       {EVENT_ACTIONS.has(r.action)
                         ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
                         : <Text style={{ fontWeight: '700' }}> {tableLabel(r.table_name)}</Text>}
+                      {/* Para creó/modificó/eliminó, mostrar CUÁL registro (código de máquina, etc.). */}
+                      {!EVENT_ACTIONS.has(r.action) && (r.row_label || r.detail) ? <Text style={{ color: colors.muted, fontWeight: '700' }}> · {r.row_label || r.detail}</Text> : null}
+                      {r.action === 'UPDATE' && r.changes ? <Text style={{ color: colors.muted, fontSize: 12 }}> ({Object.keys(r.changes).length} cambio{Object.keys(r.changes).length === 1 ? '' : 's'})</Text> : null}
                     </Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
                   </View>
@@ -264,9 +358,35 @@ export default function AuditScreen() {
                   </View>
                   <Row k="Quién" v={detail.user_name || 'No registrado (acción del servidor · gestión de usuarios)'} />
                   <Row k="Qué hizo" v={EVENT_ACTIONS.has(detail.action) ? a.label.toUpperCase() : `${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
-                  <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
+                  <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? detail.row_label ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
                   <Row k="Cuándo" v={caracasDT(detail.at)} />
                   {detail.device ? <Row k="Dispositivo" v={detail.device} /> : null}
+                  {detail.row_id ? <Row k="ID interno" v={detail.row_id} /> : null}
+
+                  {/* CAMBIOS: UPDATE muestra campo + (de → a); INSERT/DELETE muestra la fila. */}
+                  {detail.changes && Object.keys(detail.changes).length > 0 ? (
+                    <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: spacing.xs }}>
+                        {detail.action === 'UPDATE' ? `Cambios (${Object.keys(detail.changes).length})` : detail.action === 'INSERT' ? 'Datos creados' : 'Datos eliminados'}
+                      </Text>
+                      <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                        {Object.entries(detail.changes).map(([k, v]) => (
+                          <View key={k} style={{ marginBottom: 5 }}>
+                            <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{k}</Text>
+                            {detail.action === 'UPDATE' ? (
+                              <Text style={{ color: colors.text, fontSize: 12 }}>
+                                <Text style={{ color: colors.danger }}>{fmtVal((v as any)?.de)}</Text>
+                                {'  →  '}
+                                <Text style={{ color: colors.success }}>{fmtVal((v as any)?.a)}</Text>
+                              </Text>
+                            ) : (
+                              <Text style={{ color: colors.text, fontSize: 12 }}>{fmtVal(v)}</Text>
+                            )}
+                          </View>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
                   {detail.user_name ? null : (
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
                       ℹ️ Las ediciones de usuario hechas antes de esta actualización no guardaron quién las hizo. De ahora en adelante sí queda registrado el admin.
