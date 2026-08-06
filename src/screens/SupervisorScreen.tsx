@@ -45,6 +45,14 @@ function caracasToday(): string {
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+/** Hora ACTUAL del sistema (Caracas) como "HH:MM" (24h) — es el default REAL al
+ *  iniciar una jornada (la hora en que de verdad se está iniciando), en vez de un
+ *  7:00am/7:00pm fijo. El inspector puede corregirla si hace falta. */
+function nowHHMM(): string {
+  const p: any = new Intl.DateTimeFormat('en-GB', { timeZone: CARACAS_TZ, hour12: false, hour: '2-digit', minute: '2-digit' })
+    .formatToParts(new Date()).reduce((a: any, x) => { a[x.type] = x.value; return a; }, {});
+  return `${p.hour}:${p.minute}`;
+}
 /** Retraso legible a partir de minutos: "45 min", "1 h", "1 h 30 min". */
 function retrasoLabel(min: number): string {
   const m = Math.max(0, Math.round(min));
@@ -356,10 +364,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
     setNtCoords(null); setNtReferencia(''); setNtBusy(false);
-    // Turno/hora de inicio por defecto según el momento: día → 07:00, noche → 19:00.
+    // Turno por defecto según el momento; HORA de inicio = la hora REAL del sistema
+    // (Caracas) al abrir — no un 7:00am/7:00pm fijo. El inspector la corrige si hace falta.
     const defShift = shiftOf(caracasParts(new Date()).hour).key;
     setIniShift(defShift);
-    setIniTime(defShift === 'night' ? '19:00' : '07:00');
+    setIniTime(nowHHMM());
     (async () => {
       let r = await getMachineRound(ci.id, today);
       // Si HOY no tiene jornada abierta, rescata la de NOCHE de AYER si sigue abierta
@@ -733,7 +742,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [myShift, myGlobalShifts, puedeCualquierTurno]);
   // Fuerza el turno declarado al turno del inspector (no puede elegir el otro).
   useEffect(() => {
-    if (fixedShift) { setIniShift(fixedShift); setIniTime(fixedShift === 'night' ? '19:00' : '07:00'); }
+    if (fixedShift) { setIniShift(fixedShift); setIniTime(nowHHMM()); }
   }, [fixedShift, ci?.id]);
 
   // ✅ CHECK MÁQUINA por TURNO (SOLO ADMIN): asigna (o quita) al INSPECTOR ELEGIDO
@@ -2561,7 +2570,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       {(['day', 'night'] as const).map((s) => {
                         const on = iniShift === s;
                         return (
-                          <TouchableOpacity key={s} onPress={() => { setIniShift(s); setIniTime(s === 'night' ? '19:00' : '07:00'); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                          <TouchableOpacity key={s} onPress={() => { setIniShift(s); setIniTime(nowHHMM()); }} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
                             <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{s === 'day' ? '☀️ Día' : '🌙 Noche'}</Text>
                           </TouchableOpacity>
                         );
