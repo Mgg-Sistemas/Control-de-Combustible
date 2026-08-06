@@ -1091,3 +1091,102 @@ export interface BomVersion {
   activated_by: string | null;
   activated_at: string | null;
 }
+
+// Módulo de Fabricación (MRP) — Fase 3: Órdenes de fabricación (MO) y las
+// órdenes de trabajo (WO) que se generan por cada paso de su ruta activa.
+export type ManufacturingOrderStatus =
+  | 'planificada'
+  | 'reservada'
+  | 'en_proceso'
+  | 'pausada'
+  | 'completada'
+  | 'cerrada'
+  | 'cancelada';
+export type ManufacturingOrderTrigger = 'manual' | 'stock_minimo' | 'pedido_venta';
+
+/** Renglón de componente requerido (array `components_snapshot`, jsonb en
+ *  `manufacturing_orders`). Se calcula UNA vez desde la receta activa al crear
+ *  la orden (qty_required = qty_per_output × qty_planned, ajustado por
+ *  waste_pct) y no se recalcula si la receta cambia después. */
+export interface ManufacturingOrderComponentSnapshot {
+  component_item_id: string;
+  name: string;
+  qty_required: number;
+  unit: string | null;
+  waste_pct: number;
+}
+
+export interface ManufacturingOrder {
+  id: string;
+  code: string;
+  product_item_id: string;
+  bom_version_id: string | null;
+  route_id: string | null;
+  demand_trigger: ManufacturingOrderTrigger;
+  qty_planned: number;
+  qty_produced: number;
+  uom: string | null;
+  status: ManufacturingOrderStatus;
+  components_snapshot: ManufacturingOrderComponentSnapshot[];
+  planned_start: string | null;
+  planned_end: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  estimated_cost: number;
+  real_cost: number;
+  company_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  closed_by: string | null;
+  closed_at: string | null;
+}
+
+export type WorkOrderStatus = 'pendiente' | 'en_proceso' | 'pausada' | 'completada' | 'cancelada';
+export type WorkOrderQcResult = 'pendiente' | 'aprobado' | 'rechazado';
+
+/** Orden de trabajo: un paso de la ruta de una MO, ejecutado en un centro de
+ *  trabajo. Se crea una por cada paso al iniciar la producción de la MO. */
+export interface WorkOrder {
+  id: string;
+  mo_id: string;
+  wo_no: number;
+  work_center_id: string | null;
+  step_no: number | null;
+  name: string;
+  description: string | null;
+  status: WorkOrderStatus;
+  qty_planned: number;
+  qty_completed: number;
+  qty_scrap: number;
+  assigned_operator_id: string | null;
+  operator_name: string | null;
+  operator_cedula: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  paused_minutes: number;
+  is_quality_checkpoint: boolean;
+  qc_result: WorkOrderQcResult;
+  qc_data: Record<string, any>;
+  stop_reason: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export type WoTimeLogEvent = 'inicio' | 'pausa' | 'reanudacion' | 'fin' | 'falla' | 'cantidad' | 'cancelada';
+
+/** Bitácora de una orden de trabajo: un evento de ciclo de vida (inicio/pausa/
+ *  reanudación/fin/falla/cancelada) o un avance de cantidad (`event:'cantidad'`,
+ *  `qty_delta` con el valor registrado). La columna es NOT NULL en la base
+ *  (ver supabase/fabricacion_ordenes.sql) — todo evento tiene un tipo. */
+export interface WoTimeLog {
+  id: string;
+  wo_id: string;
+  event: WoTimeLogEvent;
+  qty_delta: number | null;
+  note: string | null;
+  created_by: string | null;
+  operator_name: string | null;
+  operator_cedula: string | null;
+  created_at: string;
+}
