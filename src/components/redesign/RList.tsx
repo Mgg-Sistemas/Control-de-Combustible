@@ -4,6 +4,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius, AppColors } from '../../theme';
 import { useTable } from '../../hooks/useTable';
 import { norm } from '../../lib/text';
+import { figFont, figFontStyle } from '../../lib/figFont';
 import { RecordForm, Field } from '../RecordForm';
 
 /**
@@ -41,7 +42,15 @@ export function RRow({ label, value, mono = false }: { label: string; value: Rea
   return (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 1 }}>
       <Text style={{ color: colors.muted, fontSize: 12.5 }}>{label}</Text>
-      <Text style={{ color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right', ...(mono ? { fontVariant: ['tabular-nums'] as any } : {}) }} numberOfLines={1}>
+      <Text
+        {...(mono ? figFont : {})}
+        style={[
+          { color: colors.text, fontSize: 12.5, fontWeight: '600', textAlign: 'right' },
+          mono ? { fontVariant: ['tabular-nums'] as any } : null,
+          mono ? figFontStyle : null,
+        ]}
+        numberOfLines={1}
+      >
         {value}
       </Text>
     </View>
@@ -54,7 +63,7 @@ export function RRow({ label, value, mono = false }: { label: string; value: Rea
 export function RAmount({ children, tone }: { children: React.ReactNode; tone?: 'brand' | 'text' }) {
   const { colors } = useTheme();
   return (
-    <Text style={{ color: tone === 'brand' ? colors.brandText : colors.text, fontWeight: '900', fontSize: 17, fontVariant: ['tabular-nums'] as any }}>
+    <Text {...figFont} style={[{ color: tone === 'brand' ? colors.brandText : colors.text, fontWeight: '900', fontSize: 17, fontVariant: ['tabular-nums'] as any }, figFontStyle]}>
       {children}
     </Text>
   );
@@ -71,7 +80,7 @@ export function RBarChart({ data, fmt, max }: { data: { label: string; value: nu
         <View key={`${d.label}-${i}`}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
             <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 12.5, flex: 1, paddingRight: spacing.sm }}>{d.label}</Text>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5, fontVariant: ['tabular-nums'] as any }}>{format(d.value)}</Text>
+            <Text {...figFont} style={[{ color: colors.text, fontWeight: '800', fontSize: 12.5, fontVariant: ['tabular-nums'] as any }, figFontStyle]}>{format(d.value)}</Text>
           </View>
           <View style={{ height: 11, backgroundColor: colors.tankTrack, borderRadius: radius.pill, overflow: 'hidden' }}>
             <View style={{ height: 11, width: `${Math.max(2, (d.value / top) * 100)}%`, backgroundColor: colors.tankFill, borderRadius: radius.pill }} />

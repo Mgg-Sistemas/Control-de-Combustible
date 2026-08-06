@@ -135,8 +135,8 @@ export default function DispatchesPilot() {
               </View>
               <View style={{ marginTop: 6 }}>
                 <RRow label="Fecha" value={d.dispatch_date} />
-                {(d as any).machine?.code ? <RRow label="Máquina" value={(d as any).machine.code} /> : null}
-                {(d as any).vehicle?.plate ? <RRow label="Placa" value={(d as any).vehicle.plate} /> : null}
+                {(d as any).machine?.code ? <RRow label="Máquina" value={(d as any).machine.code} mono /> : null}
+                {(d as any).vehicle?.plate ? <RRow label="Placa" value={(d as any).vehicle.plate} mono /> : null}
                 {d.driver_operator ? <RRow label="Conductor/Operador" value={d.driver_operator} /> : null}
                 {d.odometer_km != null ? <RRow label="Odómetro" value={`${d.odometer_km} km`} mono /> : null}
                 {d.hourmeter_h != null ? <RRow label="Horómetro" value={`${d.hourmeter_h} h`} mono /> : null}

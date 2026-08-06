@@ -29,6 +29,23 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
     ` input[type="password"] { text-transform: none !important; }` +
     ` input::placeholder, textarea::placeholder { text-transform: uppercase; }`;
   document.head.appendChild(style);
+
+  // REDISEÑO: IBM Plex Mono SOLO para CIFRAS (litros, placas/seriales, horas, montos).
+  // Cada <Text> de cifra se marca con data-fig="mono" (ver src/lib/figFont.ts). El
+  // selector de atributo [data-fig="mono"] (especificidad 0,1,0) le gana al
+  // `* { font-family: Tahoma !important }` de arriba (0,0,0), así la cifra sale en mono
+  // aunque el resto del texto siga en Tahoma MAYÚSCULA. NO se toca el casing.
+  const monoLink = document.createElement('link');
+  monoLink.rel = 'stylesheet';
+  monoLink.href = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap';
+  document.head.appendChild(monoLink);
+  const figStyle = document.createElement('style');
+  figStyle.setAttribute('data-app-font', 'fig-mono');
+  figStyle.textContent =
+    `[data-fig="mono"], [data-fig="mono"] * {` +
+    ` font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;` +
+    ` font-variant-numeric: tabular-nums; }`;
+  document.head.appendChild(figStyle);
 } else {
   // Nativo: valor por defecto para los Text que no definan su propia familia.
   const T: any = Text as any;
