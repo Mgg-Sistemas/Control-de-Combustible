@@ -538,7 +538,8 @@ create policy fletes_write on public.fletes for all to authenticated using (true
 
 alter table public.machinery add column if not exists plate       text;
 alter table public.machinery add column if not exists serial      text;
-alter table public.machinery add column if not exists photo_url   text;
+alter table public.machinery add column if not exists photo_url        text;  -- foto de la MAQUINARIA
+alter table public.machinery add column if not exists photo_serial_url text;  -- foto del SERIAL / PLACA
 alter table public.machinery add column if not exists company_id  uuid references public.companies(id);
 alter table public.machinery add column if not exists operational boolean not null default true;
 -- 3er estado de la máquina: "En espera por recepción" (aún no recibida en el control activo).

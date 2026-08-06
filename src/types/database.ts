@@ -142,7 +142,8 @@ export interface Machinery {
   plate: string | null;
   serial: string | null;
   identifier: string | null;
-  photo_url: string | null;
+  photo_url: string | null;          // foto de la MAQUINARIA
+  photo_serial_url: string | null;   // foto del SERIAL / PLACA
   company_id: string | null;
   active: boolean;
   operational: boolean;
