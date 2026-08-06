@@ -65,11 +65,21 @@ export async function listInspectorAssignments(): Promise<{ rows: AssignmentRow[
     .eq('active', true)
     .order('assigned_at', { ascending: false });
   if (error) return { rows: [], missing: isMissingTable(error.message) };
+  // Nombre VIVO del inspector: `inspector_name` queda "congelado" al asignar (se guardó
+  // el full_name de ese momento), así que si luego lo renombran en Usuarios no cambia.
+  // Leemos el full_name actual de profiles por inspector_id y lo PREFERIMOS, para que
+  // el módulo/teléfono/PDF siempre muestren el nombre vigente. Fallback: el guardado.
+  const inspIds = Array.from(new Set(((data ?? []) as any[]).map((r) => r.inspector_id).filter(Boolean)));
+  const liveName: Record<string, string> = {};
+  if (inspIds.length) {
+    const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', inspIds);
+    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) liveName[p.id] = p.full_name; });
+  }
   const rows = ((data ?? []) as any[]).map((r) => ({
     id: r.id as string,
     machinery_id: r.machinery_id as string,
     inspector_id: (r.inspector_id ?? null) as string | null,
-    inspector_name: (r.inspector_name || '—') as string,
+    inspector_name: ((r.inspector_id && liveName[r.inspector_id]) || r.inspector_name || '—') as string,
     shift: (r.shift === 'night' ? 'night' : 'day') as Shift,
     assigned_at: r.assigned_at as string,
     code: r.machine?.code ?? '—',

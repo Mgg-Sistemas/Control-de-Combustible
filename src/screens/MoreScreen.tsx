@@ -16,8 +16,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
-  { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal por empresa y período, con recibos y reportes', icon: '🧾', module: 'nomina' },
-  { label: 'Distribución de uniformes', route: 'Uniformes', desc: 'Tallas, dotación básica y otras entregas/herramientas por empleado', icon: '🦺', module: 'uniformes' },
+  { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal, uniformes, asistencia y organigrama por empresa y período', icon: '🧾', module: 'nomina' },
   { label: 'Control de asistencia', route: 'Asistencia', desc: 'Marcar entrada/salida del personal escaneando el carnet (hora y fecha), con reporte', icon: '🕒', module: 'asistencia' },
   { label: 'Asistencia de camiones', route: 'AsistenciaCamiones', desc: 'Volteos/volquetas: presente/ausente (auto al iniciar jornada + manual), avería y gasoil por escáner o manual', icon: '🚚', module: 'asistencia_camiones' },
   { label: 'Aliados', route: 'Aliados', desc: 'Colaboradores externos con ficha y carnet propios (QR con sus datos)', icon: '🤝', module: 'aliados' },
@@ -44,7 +43,9 @@ export default function MoreScreen({ navigation }: any) {
     list.push({ label: 'Manual / Ayuda', route: 'Manual', desc: 'Guía paso a paso para usar el sistema, en lenguaje simple', icon: '📖' });
     if (role === 'admin') list.push({ label: 'Usuarios', route: 'Users', desc: 'Crear personas, ver conectados y asignar roles', icon: '👥' });
     if (canAudit) list.push({ label: 'Auditoría', route: 'Audit', desc: 'Quién crea, modifica o elimina cada cosa', icon: '🕵️' });
-    list.push({ label: 'Ajustes', route: 'Ajustes', desc: 'Apariencia (modo oscuro), seguridad (contraseña y huella) y cerrar sesión', icon: '⚙️' });
+    // "Ajustes" ya NO va como fila del menú: vive en la TUERCA ⚙️ del encabezado
+    // (junto a la campana) → modo oscuro, huella y contraseña, con "Más ajustes"
+    // para las herramientas avanzadas.
     return list.sort((a, b) => cmpText(a.label, b.label));
   }, [canSee, role, canAudit]);
 
