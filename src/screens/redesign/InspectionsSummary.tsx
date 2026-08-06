@@ -444,16 +444,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
-    // SOLO cuenta como "avería" la reportada ESE día — igual que averiaPendienteIds
-    // en SupervisorScreen.tsx (filtra por `created_at >= hoy`), que solo marca 🔴
-    // avería el mismo día en que se reportó. Sin el límite inferior, una avería
-    // vieja sin resolver se quedaba "averiada" para siempre y nunca bajaba a
-    // "parada" (arrastrada) más abajo, desalineando este panel del que ve el
-    // inspector en su teléfono (menos "paradas" y más "averiadas" de la cuenta).
+    // Una avería PENDIENTE (material real, sin resolver) mantiene la máquina AVERIADA
+    // día tras día HASTA que se marque operativa — se arrastra, no baja a parada ni a
+    // pendiente al día siguiente. Solo se aplica la cota SUPERIOR (`<= dayEndMs`) para
+    // que al mirar un día pasado no se cuenten averías reportadas después. Mismo
+    // criterio que `averiaPendienteIds` en SupervisorScreen.tsx (sin filtro de fecha).
     const averSet = new Set<string>();
     maint.forEach((m) => {
       const t = new Date(m.created_at).getTime();
-      if (m.material !== 'MÁQUINA PARADA' && t >= dayStartMs && t <= dayEndMs) averSet.add(m.machinery_id);
+      if (m.material !== 'MÁQUINA PARADA' && t <= dayEndMs) averSet.add(m.machinery_id);
     });
     const paradaSet = new Set<string>();
     maint.forEach((m) => {
@@ -526,10 +525,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [rounds, selDay]);
 
   // Estado (iniciada/averiada/parada/pendiente) de una máquina en selDay+turno.
-  // Misma prioridad que el desglose por inspector: iniciada > averiada > parada > pendiente.
+  // Misma prioridad que el teléfono (segmentoDe) y el desglose por inspector:
+  // avería > parada > iniciada > pendiente (una máquina averiada/parada no cuenta
+  // como iniciada aunque haya arrancado jornada).
   const estadoOf = useCallback((id: string): Estado => {
     const { startedSet, averSet, paradaSet } = daySets;
-    return startedSet.has(id) ? 'iniciada' : averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : 'pendiente';
+    return averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : startedSet.has(id) ? 'iniciada' : 'pendiente';
   }, [daySets]);
 
   // Inspector asignado a cada máquina en el turno elegido. El cajón "…FALTANTES"
@@ -590,10 +591,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     });
     return [...byName.values()].map((e) => {
       const ini: string[] = [], pend: string[] = [], par: string[] = [], ave: string[] = [];
+      // MISMA prioridad que el teléfono (segmentoDe): avería > parada > iniciada >
+      // pendiente. Una máquina averiada/parada NO se cuenta como iniciada aunque haya
+      // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
       e.ids.forEach((id) => {
-        if (startedSet.has(id)) ini.push(id);          // iniciada gana (trabajó)
-        else if (averSet.has(id)) ave.push(id);
+        if (averSet.has(id)) ave.push(id);
         else if (paradaSet.has(id)) par.push(id);
+        else if (startedSet.has(id)) ini.push(id);
         else pend.push(id);
       });
       // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
