@@ -68,7 +68,30 @@ jobs:
           git add dist
           if git diff --cached --quiet; then
             echo "Sin cambios en dist; nada que publicar."
-          else
-            git commit -m "build(web): dist automática [skip ci]"
-            git push
+            exit 0
           fi
+          git commit -m "build(web): dist automática [skip ci]"
+          # A veces alguien despliega a mano (npm run deploy) mientras este build
+          # corre, y `main` avanza antes de que este paso pueda subir su propio
+          # commit de dist. Antes eso hacía fallar el `git push` (non-fast-forward)
+          # y todo el job quedaba en rojo aunque la compilación hubiera salido
+          # bien — así se veían las alertas persistentes de Actions. Reintenta
+          # con rebase unas cuantas veces; si al final alguien más YA dejó a
+          # `main` con una dist más nueva, se descarta el commit propio y se
+          # sale en verde (no hace falta pelear por subir el mismo resultado).
+          for i in 1 2 3 4 5; do
+            if git push; then
+              echo "Publicado en el intento $i."
+              exit 0
+            fi
+            echo "Push rechazado (intento $i) — main avanzó mientras compilábamos. Reintentando…"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "Rebase con conflicto — main ya tiene una dist más nueva. Se descarta este commit."
+              git rebase --abort
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "No se pudo publicar tras varios intentos; main sigue avanzando muy rápido. Revisar manualmente."
+          exit 1
