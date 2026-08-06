@@ -98,6 +98,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // MAQUINAS FALTANTES) — mismos roles que puede elegir el CHECK MÁQUINA del teléfono.
   const [realInspectors, setRealInspectors] = useState<{ id: string; full_name: string }[]>([]);
   const [faltantesOpen, setFaltantesOpen] = useState(false);
+  const [faltantesQ, setFaltantesQ] = useState(''); // buscador de "máquinas por asignar"
   const [assignPickerFor, setAssignPickerFor] = useState<string | null>(null); // machinery_id con el desplegable abierto
   const [assignBusy, setAssignBusy] = useState<string | null>(null); // machinery_id en proceso de asignar
   // El día visible puede venir CONTROLADO por la pantalla padre (para compartir la
@@ -674,6 +675,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     if (!faltantes) return [];
     return [...faltantes.ini, ...faltantes.pend, ...faltantes.par, ...faltantes.ave].sort(cmpId);
   }, [faltantes, cmpId]);
+  // Buscador de "máquinas por asignar": filtra por TODAS las características posibles
+  // (código, placa, serial, identificador, empresa, encargado, ubicación/referencia/
+  // sector/zona, tipo y clasificación). Sin texto → todas.
+  const faltantesShown = useMemo(() => {
+    const nq = norm(faltantesQ.trim());
+    if (!nq) return faltantesIds;
+    return faltantesIds.filter((id) => {
+      const i = machineInfo.get(id);
+      return [codeById.get(id), i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type]
+        .some((v) => norm(v).includes(nq));
+    });
+  }, [faltantesIds, faltantesQ, machineInfo, codeById]);
 
   const shiftIcon = shift === 'day' ? '☀️' : '🌙';
   const shiftLbl = shift === 'day' ? 'DÍA' : 'NOCHE';
@@ -948,7 +961,29 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }}>
                     Sin inspector real — el sistema les acumula horas automáticamente. Elige a quién asignárselas.
                   </Text>
-                  {faltantesIds.map((id) => {
+                  {/* Buscador: filtra por código, placa, serial, empresa, encargado, ubicación, tipo… */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+                    <Text style={{ fontSize: 14 }}>🔎</Text>
+                    <TextInput
+                      value={faltantesQ}
+                      onChangeText={setFaltantesQ}
+                      placeholder="Buscar por código, placa, serial, empresa, encargado, ubicación…"
+                      placeholderTextColor={colors.muted}
+                      style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }}
+                    />
+                    {faltantesQ ? (
+                      <TouchableOpacity onPress={() => setFaltantesQ('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 15 }}>✕</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {faltantesQ ? (
+                    <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>{faltantesShown.length} de {faltantesIds.length}</Text>
+                  ) : null}
+                  {faltantesShown.length === 0 ? (
+                    <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: spacing.sm, textAlign: 'center' }}>Sin resultados para “{faltantesQ}”.</Text>
+                  ) : null}
+                  {faltantesShown.map((id) => {
                     const code = codeById.get(id) ?? '—';
                     const info = machineInfo.get(id);
                     const ps = info?.plate || info?.serial || null;   // placa o, en su defecto, serial
