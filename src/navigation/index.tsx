@@ -377,9 +377,13 @@ function Tabs() {
         // "tocar Más = ver el menú" basta el listener de tabPress de abajo.
         options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰') }}
         listeners={({ navigation }) => ({
-          // Al TOCAR la pestaña "Más" mostrar el menú (no el último módulo). Solo se
-          // dispara en un toque real: al recargar no corre, así se conserva la vista.
-          tabPress: () => {
+          // Al TOCAR la pestaña "Más" mostrar SIEMPRE el menú (no el último módulo).
+          // preventDefault() evita que la pestaña restaure primero la última pantalla
+          // (ej. Inspectores) y le gane al navigate; sin él, "tocar Más" seguía cayendo
+          // en el módulo abierto. Solo corre en un toque real → al recargar no se dispara,
+          // así se conserva la vista restaurada por el linking.
+          tabPress: (e) => {
+            e.preventDefault();
             navigation.navigate('More', { screen: 'MoreMenu' });
           },
         })}
