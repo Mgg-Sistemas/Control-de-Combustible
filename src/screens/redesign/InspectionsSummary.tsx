@@ -50,7 +50,7 @@ type Round = {
   jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null;
   horometro_inicial: number | null; horometro_final: number | null; machine?: { code?: string } | null;
 };
-type Maint = { machinery_id: string; material: string | null; created_at: string; machine?: { code?: string } | null };
+type Maint = { machinery_id: string; material: string | null; notes: string | null; created_at: string; machine?: { code?: string } | null };
 type Assign = { machinery_id: string; inspector_name: string | null; shift: 'day' | 'night'; code: string };
 // Ficha del catálogo (machinery) por máquina — para el detalle del modal.
 type MachRow = {
@@ -181,7 +181,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const minDate = selDay < fromDate ? selDay : fromDate;
     const [roundsRows, maintRes, asg, machRows] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
-      supabase.from('maintenance_requests').select('machinery_id, material, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company:company_id(name)'),
@@ -600,6 +600,25 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const s = (ids: Iterable<string>) => [...ids].sort(cmpId);
     return { ini: s(startedSet), pend: s(pendIds), par: s(paradaSet), ave: s(averSet) };
   }, [daySets, cmpId]);
+
+  // Motivo (el "por qué") de la parada/avería por máquina, del más reciente PENDIENTE.
+  // Parada → texto de las notas ('MÁQUINA PARADA'); avería → notas o, si no hay, el
+  // material (aceite/repuesto/…). Se muestra en el detalle de la lista por estado.
+  const motivoByMachine = useMemo(() => {
+    const aver = new Map<string, { m: string; t: number }>();
+    const par = new Map<string, { m: string; t: number }>();
+    maint.forEach((x) => {
+      const t = new Date(x.created_at).getTime();
+      const notes = (x.notes && String(x.notes).trim()) || '';
+      if (x.material === 'MÁQUINA PARADA') {
+        const prev = par.get(x.machinery_id); if (!prev || t > prev.t) par.set(x.machinery_id, { m: notes, t });
+      } else {
+        const motivo = notes || (x.material ? String(x.material) : '');
+        const prev = aver.get(x.machinery_id); if (!prev || t > prev.t) aver.set(x.machinery_id, { m: motivo, t });
+      }
+    });
+    return { aver, par };
+  }, [maint]);
 
   // Modal de LISTA de máquinas de un estado (filtrable por TODAS sus características).
   const [listModal, setListModal] = useState<{ title: string; ids: string[] } | null>(null);
@@ -1087,6 +1106,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 listShown.map((r, i) => {
                   const em = estadoMeta(r.estado);
                   const info = r.info;
+                  const motivo = r.estado === 'averiada' ? (motivoByMachine.aver.get(r.id)?.m || '') : r.estado === 'parada' ? (motivoByMachine.par.get(r.id)?.m || '') : '';
                   const open = listExpanded === r.id;
                   const lph = r.fuel ? lphOf(r.fuel.liters, r.worked) : null;
                   const litros = r.fuel && r.fuel.liters > 0 ? `${litersLabel(r.fuel.liters)} L` : '—';
@@ -1104,6 +1124,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ color: em.fg, fontSize: 10, fontWeight: '900' }}>{em.label}</Text>
                             </View>
                           </View>
+                          {/* El PORQUÉ de la parada/avería (de maintenance_requests.notes / material). */}
+                          {motivo ? (
+                            <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11.5, fontWeight: '700', marginTop: 2 }} numberOfLines={open ? undefined : 2}>
+                              {r.estado === 'averiada' ? '🔧 Motivo avería: ' : '🟡 Motivo parada: '}{motivo}
+                            </Text>
+                          ) : null}
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={open ? undefined : 1}>
                             {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
                           </Text>
@@ -1127,6 +1153,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         <View style={{ marginTop: spacing.sm, marginLeft: 26 + spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                           {detailRow('Código', r.code)}
                           {detailRow('Estado', em.label)}
+                          {motivo ? detailRow(r.estado === 'averiada' ? 'Motivo avería' : 'Motivo parada', motivo) : null}
                           {detailRow('Inspector asignado', sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : r.inspector!)}
                           {detailRow('Empresa', info?.company || '—')}
                           {detailRow('Placa', info?.plate || '—')}
