@@ -120,11 +120,11 @@ export async function generateHoseServiceReport(opts: {
   ].filter(Boolean);
 
   const html = pdfDocument({
-    title: 'Reporte de Confección y Pago — Mangueras Hidráulicas',
+    title: 'Reporte de Confección y Pago — Fabricación',
     subtitle: partesSubtitulo.join(' · '),
     body: resumen + tabla,
     extraCss,
   });
 
-  return await exportPdf(html, 'Reporte - Confección y pago de mangueras');
+  return await exportPdf(html, 'Reporte - Confección y pago - Fabricación');
 }

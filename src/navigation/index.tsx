@@ -185,7 +185,7 @@ function MoreStack() {
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
-      <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Mangueras hidráulicas' }} />
+      <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Fabricación' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
@@ -402,7 +402,7 @@ const moreScreens = {
   Compras: 'compras',
   Inventario: 'inventario',
   InspeccionesMaq: 'inspecciones-maquinaria',
-  Mangueras: 'mangueras',
+  Mangueras: 'fabricacion',
   ScanQr: 'escanear',
   MachineQuick: 'maquina',
   Transfers: 'traslados',
