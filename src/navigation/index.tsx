@@ -312,6 +312,32 @@ function esRolCombustible(appRole: AppRole | null): boolean {
   return activos.length > 0 && activos.every((k) => COMBUSTIBLE_MODULES.includes(k));
 }
 
+/** Módulos de ASISTENCIA (personal y camiones). Un rol cuyos módulos activos son
+ *  SOLO de asistencia entra DIRECTO a "Control de asistencia" (escanear carnets),
+ *  sin pasar por el menú "Más". Cubre a los usuarios cuyo trabajo es marcar la
+ *  asistencia del personal. */
+const ASISTENCIA_MODULES = ['asistencia', 'asistencia_camiones'];
+function esRolAsistencia(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => ASISTENCIA_MODULES.includes(k));
+}
+
+/** Panel de un rol cuyo ÚNICO acceso es ASISTENCIA: arranca en "Control de
+ *  asistencia" (marcar personal por carnet). Si además tiene asistencia de
+ *  camiones, la alcanza desde el stack. No ve el resto del sistema. */
+function AsistenciaStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      {/* Pantalla RAÍZ: sin flecha ni "Salir" propio (ya hay "Cerrar sesión" en el header). */}
+      <Stack.Screen name="AsistenciaHome" component={AsistenciaScreen} options={{ title: 'Control de asistencia', headerLeft: () => null }} />
+      <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Pantalla "de inicio" dentro del árbol `tabs` para un rol PERSONALIZADO cuyos
  *  módulos son una MEZCLA (no calza en ningún panel dedicado ni en el combo
  *  100% combustible de `esRolCombustible`): entra por el PRIMER módulo que sí
@@ -369,6 +395,28 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
       <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
+    </Tab.Navigator>
+  );
+}
+
+/** Panel del CONDUCTOR (chofer): sus 3 funciones diarias en pestañas — surtir
+ *  combustible, entrada/salida de camiones y asistencia de camiones. No ve el
+ *  resto del sistema. Arranca en "Surtir". */
+function ConductorTabs() {
+  const { colors } = useTheme();
+  const screenHeader = useScreenHeader();
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        ...screenHeader,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.muted,
+        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
+      }}
+    >
+      <Tab.Screen name="ConductorSurtir" component={FuelDriverScreen} options={{ title: 'Surtir', tabBarIcon: tabIcon('⛽') }} />
+      <Tab.Screen name="ConductorCamiones" component={CamionesScreen} options={{ title: 'Camiones', tabBarIcon: tabIcon('🚪') }} />
+      <Tab.Screen name="ConductorAsistencia" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia', tabBarIcon: tabIcon('📋') }} />
     </Tab.Navigator>
   );
 }
@@ -503,7 +551,7 @@ const moreScreens = {
 /** Cada sesión monta UN SOLO árbol de navegación, elegido por rol/teléfono/PC
  *  (ver `pickTree` más abajo). `operador`/`cocina` son una pantalla suelta sin
  *  Stack/Tab, así que no tienen config de `linking` propia. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'operador' | 'cocina';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -553,6 +601,8 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   },
   fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual' },
   combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual' },
+  conductor: { ConductorSurtir: 'surtir', ConductorCamiones: 'camiones', ConductorAsistencia: 'asistencia-camiones' },
+  asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', Manual: 'manual' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -566,6 +616,8 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   coordinador: '/panel',
   fuelDriver: '/surtir',
   combustible: '/combustible-directo',
+  conductor: '/surtir',
+  asistencia: '/asistencia',
 };
 
 /** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
@@ -586,8 +638,13 @@ function pickTree(ctx: {
   if (phone && (role === 'admin' || isJesusLozada) && sistemaMode) return { key: 'tabs', node: <Tabs /> };
   if (phone && (role === 'admin' || isJesusLozada)) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
   if (role === 'supervisor') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
+  // CONDUCTOR (chofer): rol fijo con su propio panel (surtir · camiones · asistencia
+  // de camiones), igual que supervisor tiene el suyo — independiente de appRole.
+  if (role === 'conductor') return { key: 'conductor', node: <ConductorTabs /> };
   if (appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr') return { key: 'coordinador', node: <CoordinadorStack /> };
   if (appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
+  // Rol por módulos cuyo único acceso es ASISTENCIA: directo a "Control de asistencia".
+  if (appRole && role !== 'admin' && esRolAsistencia(appRole)) return { key: 'asistencia', node: <AsistenciaStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };
