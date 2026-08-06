@@ -7,7 +7,8 @@ import { cmpText, norm } from '../../lib/text';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
-import { listInspectorAssignments } from '../../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector } from '../../lib/machineInspectors';
+import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
@@ -85,6 +86,7 @@ const BULK_TOGGLE_CEDULAS = ['27514385'];
 export default function InspectionsSummary({ date, onDateChange }: { date?: string; onDateChange?: (d: string) => void } = {}) {
   const { colors } = useTheme();
   const { session } = useAuth();
+  const toast = useToast();
   const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [maint, setMaint] = useState<Maint[]>([]);
@@ -92,6 +94,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [machList, setMachList] = useState<MachRow[]>([]);       // ficha del catálogo por máquina
   const [fuelDay, setFuelDay] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en selDay
   const [loading, setLoading] = useState(true);
+  // Inspectores REALES (para el desplegable de "Máquinas por asignar" del cajón
+  // MAQUINAS FALTANTES) — mismos roles que puede elegir el CHECK MÁQUINA del teléfono.
+  const [realInspectors, setRealInspectors] = useState<{ id: string; full_name: string }[]>([]);
+  const [faltantesOpen, setFaltantesOpen] = useState(false);
+  const [assignPickerFor, setAssignPickerFor] = useState<string | null>(null); // machinery_id con el desplegable abierto
+  const [assignBusy, setAssignBusy] = useState<string | null>(null); // machinery_id en proceso de asignar
   // El día visible puede venir CONTROLADO por la pantalla padre (para compartir la
   // misma fecha con la lista de rondas de abajo); si no, se maneja internamente.
   const [internalDay, setInternalDay] = useState(caracasToday());
@@ -185,6 +193,29 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   useEffect(() => { load(); }, [load]);
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors'], load);
+
+  // Lista de inspectores reales para el desplegable de asignación (una sola vez).
+  useEffect(() => {
+    supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name')
+      .then(({ data }) => setRealInspectors(((data ?? []) as any[]).map((p) => ({ id: p.id, full_name: p.full_name || '—' }))))
+      .then(undefined, () => {});
+  }, []);
+
+  // Asigna una máquina "por asignar" (MAQUINAS FALTANTES) a un inspector real, en el
+  // turno elegido. Reemplaza la asignación automática (1 inspector por máquina+turno).
+  const doAssign = async (machineryId: string, insp: { id: string; full_name: string }) => {
+    setAssignBusy(machineryId);
+    const res = await assignInspector(machineryId, insp.id, insp.full_name, shift);
+    setAssignBusy(null);
+    if (res.error) {
+      toast.error(res.missing ? 'Falta activar la asignación: corre supabase/inspector_turno.sql en Supabase.' : res.error);
+      return;
+    }
+    setAssignPickerFor(null);
+    toast.success(`✅ ${codeById.get(machineryId) ?? 'Máquina'} asignada a ${insp.full_name}.`);
+    logAudit('CHECK', 'machinery', machineryId, `${codeById.get(machineryId) ?? ''} · ${shiftLbl} → ${insp.full_name}`);
+    load();
+  };
 
   // ¿Esta cuenta puede ver el panel de activar/desactivar por supervisor? Se resuelve
   // aparte (no viene en useAuth) para no tocar el contexto global por una excepción
@@ -548,11 +579,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       });
       // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
       const s = (a: string[]) => a.sort((x, y) => cmpText(e.code.get(x) || '', e.code.get(y) || ''));
+      // El cajón MAQUINAS FALTANTES no es un inspector real: no le calculamos
+      // eficiencia (no tiene sentido "premiar/penalizar" al usuario de sistema) — en
+      // su lugar se ofrece un desplegable para asignar sus máquinas a alguien real.
+      const isFaltantes = sinInspectorReal(e.name);
       // Eficiencia = % de asignadas que el inspector SÍ chequeó (iniciada, parada o
       // averiada) contra las que dejó completamente sin tocar (pendientes). Misma
       // fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
-      const eficiencia = e.ids.size > 0 ? Math.round(((e.ids.size - pend.length) / e.ids.size) * 100) : null;
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size, eficiencia };
+      const eficiencia = isFaltantes || e.ids.size === 0 ? null : Math.round(((e.ids.size - pend.length) / e.ids.size) * 100);
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: e.ids.size, eficiencia, isFaltantes };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets]);
 
@@ -562,6 +597,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [perInspector, inspQ]);
   const maxInsp = Math.max(1, ...inspShown.map((i) => i.ini.length));
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
+  // Cajón MAQUINAS FALTANTES del turno: sus máquinas son, por definición, las que
+  // no tienen inspector real — se ofrecen para asignar directo desde aquí.
+  const faltantes = perInspector.find((i) => i.isFaltantes) ?? null;
+  const faltantesIds = useMemo(() => {
+    if (!faltantes) return [];
+    return [...faltantes.ini, ...faltantes.pend, ...faltantes.par, ...faltantes.ave].sort(cmpId);
+  }, [faltantes, cmpId]);
 
   const shiftIcon = shift === 'day' ? '☀️' : '🌙';
   const shiftLbl = shift === 'day' ? 'DÍA' : 'NOCHE';
@@ -821,6 +863,57 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
               })}
             </ScrollView>
           )}
+
+          {/* 🧩 Máquinas por asignar (cajón MAQUINAS FALTANTES): desplegable con la
+              lista de sus máquinas y un selector de inspector real para asignarlas. */}
+          {faltantes && faltantesIds.length > 0 ? (
+            <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.warning, borderRadius: radius.md, overflow: 'hidden' }}>
+              <TouchableOpacity onPress={() => setFaltantesOpen((v) => !v)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, backgroundColor: colors.warningSoftBg }}>
+                <Text style={{ fontSize: 16 }}>🧩</Text>
+                <Text style={{ flex: 1, color: colors.warningSoftText, fontWeight: '900', fontSize: 13 }}>Máquinas por asignar ({faltantesIds.length})</Text>
+                <Text style={{ color: colors.warningSoftText, fontWeight: '900', fontSize: 16 }}>{faltantesOpen ? '▾' : '▸'}</Text>
+              </TouchableOpacity>
+              {faltantesOpen ? (
+                <View style={{ padding: spacing.sm, gap: spacing.xs, backgroundColor: colors.background }}>
+                  <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }}>
+                    Sin inspector real — el sistema les acumula horas automáticamente. Elige a quién asignárselas.
+                  </Text>
+                  {faltantesIds.map((id) => {
+                    const code = codeById.get(id) ?? '—';
+                    const pickerOpen = assignPickerFor === id;
+                    const busy = assignBusy === id;
+                    return (
+                      <View key={id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                          <Text style={{ flex: 1, color: colors.text, fontWeight: '700', fontSize: 13 }}>{code}</Text>
+                          <TouchableOpacity
+                            onPress={() => setAssignPickerFor(pickerOpen ? null : id)}
+                            disabled={busy}
+                            style={{ borderWidth: 1, borderColor: colors.accent, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, opacity: busy ? 0.6 : 1 }}
+                          >
+                            <Text style={{ color: colors.accent, fontWeight: '800', fontSize: 11.5 }}>{busy ? 'Asignando…' : pickerOpen ? 'Cerrar ▴' : 'Asignar ▾'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                        {pickerOpen ? (
+                          <View style={{ marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.xs, gap: 4 }}>
+                            {realInspectors.length === 0 ? (
+                              <Text style={{ color: colors.muted, fontSize: 12 }}>No hay inspectores registrados.</Text>
+                            ) : (
+                              realInspectors.map((insp) => (
+                                <TouchableOpacity key={insp.id} onPress={() => doAssign(id, insp)} activeOpacity={0.6} style={{ paddingVertical: 6, paddingHorizontal: spacing.xs, borderRadius: radius.sm }}>
+                                  <Text style={{ color: colors.text, fontSize: 12.5 }}>👮 {insp.full_name}</Text>
+                                </TouchableOpacity>
+                              ))
+                            )}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           {/* Detalle del inspector elegido: los MISMOS 4 datos, por inspector. */}
           {sel ? (

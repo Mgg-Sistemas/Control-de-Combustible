@@ -132,6 +132,15 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la tarjeta "📄 Guías descargables" ahora es <b>plegable</b> (arranca cerrada; se toca el encabezado para desplegar la lista de 7 botones), igual que el resto de tarjetas del manual. Se retiró la guía del Administrador de la lista (y su archivo <code>src/lib/guides/adminGuide.ts</code>, que quedó huérfano) a pedido del cliente — quedan 7 guías: Inspector, Operador, Cocina, Coordinador de Patio, Chofer de Combustible, Coordinador QR y Analista.</p>
   </div>
 
+  <h2><span class="n">03</span> Resumen de Inspecciones: el cajón "MAQUINAS FALTANTES" ya no muestra un % de eficiencia falso</h2>
+  <p class="sec-note">Pedido directo: "esas maquinas faltantes no les asignes ese porcentaje, si no que haya una lista desplegable... de máquinas por asignar para poder asignarlas".</p>
+
+  <div class="card feat">
+    <h3>Sin % de eficiencia para el cajón del sistema + desplegable para asignarlas a un inspector real <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En "👷 POR INSPECTOR" (<code>InspectionsSummary.tsx</code>), la barra "MAQUINAS FALTANTES" (el usuario de sistema que cubre automáticamente los turnos sin inspector humano, ver <code>PLACEHOLDER_INSPECTOR_ID</code>) se calculaba EXACTAMENTE igual que cualquier inspector real, incluyendo un % de "eficiencia" — un número sin sentido, porque no es una persona chequeando nada.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se reutilizó el mismo criterio que ya usaba esta pantalla para detectar el cajón del sistema (<code>sinInspectorReal()</code>, por nombre) y ahora esa barra muestra "—" en vez de un %. En su lugar, debajo de las barras aparece una tarjeta plegable <b>"🧩 Máquinas por asignar (N)"</b> (arranca cerrada) con la lista completa de esas máquinas; cada una tiene un botón <b>"Asignar ▾"</b> que despliega los inspectores reales disponibles (mismos roles que puede elegir el CHECK MÁQUINA del teléfono: supervisor/coordinador de patio) — al tocar un nombre, la máquina se le asigna de inmediato para ese turno (mismo mecanismo que el CHECK MÁQUINA, <code>assignInspector()</code>), queda en la Auditoría, y la lista se actualiza sola.</p>
+  </div>
+
   </section>
 
   <section class="day-group" id="day-2026-08-05">
