@@ -29,6 +29,7 @@ import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 
 const CARACAS_TZ = 'America/Caracas';
 /** Día ISO (AAAA-MM-DD) de hoy en horario de Caracas. */
@@ -208,6 +209,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [averiaHoyIds, setAveriaHoyIds] = useState<Set<string>>(new Set());
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
+  // ── Cola offline: acciones guardadas en el teléfono porque no había señal, a
+  //    la espera de subirse. `pendingSync` es solo para la insignia/aviso; el
+  //    flush real vive en src/lib/offlineQueue.ts (persistido en AsyncStorage,
+  //    sobrevive a cerrar la app). Se reintenta solo al volver la conexión y,
+  //    por si acaso, con un ping periódico (algunos navegadores no disparan
+  //    'online' de forma confiable en datos móviles).
+  const [pendingSync, setPendingSync] = useState(0);
+  useEffect(() => {
+    const unsub = subscribeQueue((items) => setPendingSync(items.length));
+    const tryFlush = () => { flushQueue().catch(() => {}); };
+    tryFlush();
+    const unsubConn = onConnectivityChange((online) => { if (online) tryFlush(); });
+    const poll = setInterval(tryFlush, 30000);
+    return () => { unsub(); unsubConn(); clearInterval(poll); };
+  }, []);
 
   // ── ASISTENCIA DEL PERSONAL (solo usuarios con permiso 'asistencia') ────────
   // Modal en esta misma pantalla: escanea el carnet o busca al empleado, y marca
@@ -919,7 +935,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const registrarAveria = async () => {
     if (!ci || !avMaterial) return;
     setAvSaving(true);
-    const { error } = await supabase.from('maintenance_requests').insert({
+    const payload = {
       machinery_id: ci.id,
       material: avMaterial,
       quantity: avNumOrNull(avQty),
@@ -927,9 +943,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       status: 'pendiente',
       requested_by: uid || null,
       photo_url: avPhoto,
-    });
+    };
+    // Sin señal: guarda la avería en el teléfono y avisa — se sube sola al reconectar.
+    if (!isOnline()) {
+      await enqueueAveria(payload, `${ci.code} · avería ${matLabelOf(avMaterial)}`);
+      setAvSaving(false);
+      setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setAvOpen(false);
+      setNotice('📶 Sin conexión: avería guardada en el teléfono, se subirá sola cuando haya señal.');
+      return;
+    }
+    const { error } = await supabase.from('maintenance_requests').insert(payload);
+    if (error) {
+      if (isNetworkErrorMsg(error.message)) {
+        await enqueueAveria(payload, `${ci.code} · avería ${matLabelOf(avMaterial)}`);
+        setAvSaving(false);
+        setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setAvOpen(false);
+        setNotice('📶 Sin conexión: avería guardada en el teléfono, se subirá sola cuando haya señal.');
+        return;
+      }
+      setAvSaving(false); setNotice('❌ ' + error.message); return;
+    }
     setAvSaving(false);
-    if (error) { setNotice('❌ ' + error.message); return; }
     setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setAvOpen(false);
     setNotice('✅ Avería registrada. Va al módulo de Mantenimiento de Maquinaria.');
   };
@@ -966,6 +1000,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // como "trabajando" en Inspecciones. El botón pasa a "Finalizar jornada".
   const iniciarJornada = async () => {
     if (!ci || jornadaBusy) return;
+    // INICIAR/FINALIZAR JORNADA no se difieren offline (a propósito, ver
+    // src/lib/offlineQueue.ts): calculan retraso/alertas contra el estado real
+    // del servidor y validan el horómetro — mejor pedir señal que arriesgar un
+    // cálculo de horas equivocado.
+    if (!isOnline()) { setNotice('📶 Sin conexión: para iniciar jornada hace falta señal (valida datos contra el servidor). El check-in de parada/avería sí funciona sin conexión.'); return; }
     // Regla: NO puedes iniciar la jornada de una máquina asignada a OTRO inspector.
     // Excepción: admin y coordinador (pueden iniciar cualquier máquina).
     const puedeCualquiera = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
@@ -1060,6 +1099,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // en Control de maquinaria. Cierra la jornada (borra la hora de inicio).
   const finalizarJornada = async () => {
     if (!ci || !jornadaStart || jornadaBusy) return;
+    if (!isOnline()) { setNotice('📶 Sin conexión: para finalizar jornada hace falta señal (suma horas contra el estado del servidor).'); return; }
     // El inspector puede FINALIZAR su jornada en cualquier momento (cierre manual
     // anticipado). Si no la cierra, el auto-cierre del servidor la cierra sola a las
     // 7:00pm (día) / 7:00am (noche). Antes había un bloqueo por hora que impedía
@@ -1170,6 +1210,31 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!paMaterial) { setNotice('⚠️ Elige el material que necesita la máquina.'); return; }
     if (paMaterial === 'otro' && !ciMotivo.trim()) { setNotice('⚠️ Describe la falla para registrar "Otro".'); return; }
     setCiSaving(true); setNotice(null);
+    // Sin señal: encola la visita "parada" + el bancado de horas (si había jornada
+    // abierta) + las 2 solicitudes de Mantenimiento, tal cual — se reproducen en el
+    // mismo orden al reconectar (ver replayOne en offlineQueue.ts).
+    if (!isOnline()) {
+      const hourBanking = jornadaStart
+        ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        : null;
+      await enqueueParada({
+        visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
+        maintenance: [
+          { machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty), notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: paPhoto },
+          { machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: ciMotivo.trim() || null, status: 'pendiente', requested_by: uid || null, photo_url: null },
+        ],
+        hourBanking,
+        auditDetail: `${ci.code} · avería: ${matLabelOf(paMaterial)}${ciMotivo.trim() ? ` · ${ciMotivo.trim()}` : ''}`,
+        machineryId: ci.id,
+        machineCode: ci.code,
+      }, `${ci.code} · PARADA (avería: ${matLabelOf(paMaterial)})`);
+      if (jornadaStart) setJornadaStart(null);
+      setCiSaving(false);
+      setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
+      setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
+      setCi(null);
+      return;
+    }
     const ok = await registrarParadaBase('parada_averia');
     if (!ok) { setCiSaving(false); return; }
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
@@ -1198,6 +1263,29 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || ciSaving) return;
     if (!ntCoords) { setNotice('⚠️ Captura la ubicación GPS antes de confirmar.'); return; }
     setCiSaving(true); setNotice(null);
+    if (!isOnline()) {
+      const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
+      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'} · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}`;
+      const hourBanking = jornadaStart
+        ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        : null;
+      await enqueueParada({
+        visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
+        maintenance: [
+          { machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null, photo_url: null },
+        ],
+        hourBanking,
+        auditDetail: `${ci.code} · no trabajó · ${edificio}`,
+        machineryId: ci.id,
+        machineCode: ci.code,
+      }, `${ci.code} · PARADA (no trabajó)`);
+      if (jornadaStart) setJornadaStart(null);
+      setCiSaving(false);
+      setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
+      setNtCoords(null); setNtReferencia(''); setParadaOpen(false);
+      setCi(null);
+      return;
+    }
     const ok = await registrarParadaBase('parada_no_trabajo');
     if (!ok) { setCiSaving(false); return; }
     const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
@@ -1231,6 +1319,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const volverOperativa = async () => {
     if (!ci || ciSaving) return;
     setCiSaving(true); setNotice(null);
+    if (!isOnline()) {
+      await enqueueVolverOperativa({
+        visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'trabajando', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
+        machineryId: ci.id,
+        machineCode: ci.code,
+        resolvedBy: uid || null,
+      }, `${ci.code} · vuelve a OPERATIVA`);
+      setCiSaving(false);
+      setNotice(`📶 Sin conexión: ${ci.code} guardada como OPERATIVA en el teléfono, se subirá sola cuando haya señal.`);
+      return;
+    }
     const vis = await registrarVisita('trabajando');
     const { error: upErr } = await supabase
       .from('maintenance_requests')
@@ -1464,6 +1563,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
+      {pendingSync > 0 ? (
+        <View style={{ backgroundColor: '#FEF3C7', borderRadius: radius.md, borderWidth: 1, borderColor: '#F59E0B', padding: spacing.sm, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ fontSize: 16 }}>📶</Text>
+          <Text style={{ color: '#92400E', fontSize: 12.5, fontWeight: '700', flex: 1 }}>
+            {pendingSync} {pendingSync === 1 ? 'acción guardada' : 'acciones guardadas'} en el teléfono sin subir. Se suben solas al recuperar señal.
+          </Text>
+        </View>
+      ) : null}
       <View>
         {/* Fila 1: nombre del inspector + Salir (el nombre se recorta, no se apila). */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
