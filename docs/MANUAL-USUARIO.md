@@ -778,12 +778,13 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > inicial ordenada de **menor a mayor eficiencia** — los que necesitan seguimiento aparecen
 > primero — más el detalle de cada inspector.
 >
-> **🧩 Excepción — el cajón MAQUINAS FALTANTES (06/08/2026):** la barra del usuario de sistema
-> **MAQUINAS FALTANTES** no muestra un % de eficiencia (no es una persona chequeando nada — el "—"
-> es intencional). En su lugar, debajo de las barras aparece una tarjeta plegable
-> **"🧩 Máquinas por asignar (N)"**: al desplegarla se ve cada máquina que sigue sin inspector real,
-> con un botón **"Asignar ▾"** que despliega los inspectores disponibles — al tocar un nombre, la
-> máquina queda asignada a esa persona para ese turno al instante (sin salir de esta pantalla).
+> **🧩 Excepción — el cajón MAQUINAS FALTANTES (06/08/2026):** el usuario de sistema
+> **MAQUINAS FALTANTES** no es una persona chequeando nada, así que ya **no aparece como barra** en
+> **👷 POR INSPECTOR** (se quitó del gráfico por no tener un % de eficiencia real que mostrar). En
+> su lugar, debajo de las barras hay una tarjeta plegable **"🧩 Máquinas por asignar (N)"**: al
+> desplegarla se ve cada máquina que sigue sin inspector real, con un botón **"Asignar ▾"** que
+> despliega los inspectores disponibles — al tocar un nombre, la máquina queda asignada a esa
+> persona para ese turno al instante (sin salir de esta pantalla).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
@@ -1470,6 +1471,34 @@ igual, son rutas aparte que se resuelven antes de este mapa. Helper nuevo `esRol
 módulos con permiso distinto de "Sin acceso" están dentro de {tanques, ingresos, consumos,
 traslados, autorizaciones} — si tiene aunque sea un módulo fuera de ese grupo (ej. inventario,
 equipos), ya no aplica la entrada directa y usa la app normal con pestañas.
+
+### Enlaces (linking) por árbol de navegación y URL de inicio por rol (06/08/2026)
+
+**Reporte:** en la versión web, el botón **"atrás" del navegador** podía dejar la app trabada o en
+blanco. **Causa:** `src/navigation/index.tsx` armaba UN solo `linking` global mezclando las
+pantallas de todos los árboles de rol (Tabs/"Más", SupervisorTabs, PatioStack, CoordinadorStack,
+FuelDriverStack, CombustibleStack) como si fueran hermanas de un mismo navegador — ej. "Asistencia"
+o "Manual" están anidadas bajo "Más" solo en algunos árboles, pero son pantallas de nivel superior
+en otros. Ese descalce rompía la traducción entre URL y pantalla de React Navigation.
+
+**Corregido:** el `linking` ahora se arma POR árbol de navegación (uno por cada fila de la tabla
+de arriba), reflejando exactamente las pantallas reales de ese árbol — ya no hay una única config
+"superset". Además, al iniciar sesión sin un link directo (el navegador cae en "/"), la app
+reescribe la URL a la pantalla de inicio de ese rol, sin recargar:
+
+| Rol / panel | URL de inicio |
+|---|---|
+| admin / rol genérico | `/inicio` |
+| Inspector (`supervisor`) | `/revisar` |
+| Coordinador de patio | `/patio` |
+| Rol dinámico "Coordinador QR" | `/panel` |
+| Chofer de combustible | `/surtir` |
+| Rol dinámico solo-combustible, en teléfono | `/combustible-directo` |
+
+Con esto, la barra de direcciones y el historial siempre arrancan desde una URL que sí resuelve a
+una pantalla real, así que el botón "atrás" tiene a dónde volver. De paso se agregó al `linking` la
+pantalla **"Mangueras hidráulicas"** (ver 3.x), que había quedado fuera por un descuido. No cambió
+el comportamiento de "tocar Más = ver el menú" (ya funcionaba bien).
 
 ### Seguridad: fuga de sueldos/datos bancarios a sesión anónima (cerrada)
 

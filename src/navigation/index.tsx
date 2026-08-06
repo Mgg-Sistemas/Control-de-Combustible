@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../context/AuthContext';
-import { AppRole } from '../types/database';
+import { AppRole, UserRole } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
 import DashboardScreen from '../screens/DashboardScreen';
@@ -372,78 +372,141 @@ function Tabs() {
   );
 }
 
-/** Clave en localStorage para recordar la última pantalla/pestaña (web/PC). */
-const NAV_STATE_KEY = 'NAV_STATE_V1';
+/** Pantallas de "Más" (Stack anidado dentro del tab "More" del árbol `tabs`).
+ *  Debe reflejar EXACTAMENTE los `Stack.Screen` de `MoreStack()` de arriba. */
+const moreScreens = {
+  MoreMenu: 'mas',
+  Combustible: 'combustible',
+  Tanks: 'tanques',
+  Intakes: 'ingresos',
+  Dispatches: 'consumos',
+  Authorizations: 'solicitudes',
+  ControlPagos: 'control-pagos',
+  MargenGanancia: 'margen-ganancia',
+  MantenimientoMaquinaria: 'mantenimiento',
+  Operadores: 'operadores',
+  Supervision: 'inspecciones',
+  HistoricoJornadas: 'historico',
+  InspectorTlf: 'vista-inspector',
+  Camiones: 'camiones',
+  Comida: 'comida',
+  Empleados: 'empleados',
+  EmployeeCard: 'ficha-empleado',
+  Aliados: 'aliados',
+  AliadoCard: 'ficha-aliado',
+  Nomina: 'nomina',
+  PagoPersonal: 'pago-personal',
+  Uniformes: 'uniformes',
+  Asistencia: 'asistencia',
+  AsistenciaCamiones: 'asistencia-camiones',
+  Compras: 'compras',
+  Inventario: 'inventario',
+  InspeccionesMaq: 'inspecciones-maquinaria',
+  Mangueras: 'mangueras',
+  ScanQr: 'escanear',
+  MachineQuick: 'maquina',
+  Transfers: 'traslados',
+  Reports: 'reportes',
+  Users: 'usuarios',
+  Audit: 'auditoria',
+  Empresas: 'empresas',
+  Manual: 'manual',
+  Ajustes: 'ajustes',
+};
+
+/** Cada sesión monta UN SOLO árbol de navegación, elegido por rol/teléfono/PC
+ *  (ver `pickTree` más abajo). `operador`/`cocina` son una pantalla suelta sin
+ *  Stack/Tab, así que no tienen config de `linking` propia. */
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'operador' | 'cocina';
 
 /**
- * LINKING (web): sincroniza la URL con la pantalla activa. Así la URL pasa de
- * `soslaguaira.com` a `soslaguaira.com/inventario`, y al RECARGAR el navegador
- * React Navigation restaura la pantalla DIRECTO desde la URL (incluida la
- * pantalla honda dentro de "Más"). Reemplaza al truco de guardar el estado en
- * localStorage + resetRoot, que en PC solo restauraba la pestaña y caía en el
- * menú. El flujo de QR (?maquina=, ?empleado=, …) renderiza pantallas planas
- * ANTES de montar cualquier navegador, así que este linking no lo afecta.
+ * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
+ * URL pasa de `soslaguaira.com` a `soslaguaira.com/inventario` y al RECARGAR
+ * el navegador React Navigation restaura la pantalla DIRECTO desde la URL
+ * (incluida la pantalla honda dentro de "Más"). El flujo de QR (?maquina=,
+ * ?empleado=, …) renderiza pantallas planas ANTES de montar cualquier
+ * navegador, así que este linking no lo afecta.
  *
- * El config es un SUPERCONJUNTO: incluye pantallas de varios árboles por rol
- * (Tabs, SupervisorTabs, Patio, etc.). React Navigation solo aplica las que
- * existan en el navegador montado; las demás se ignoran sin error.
+ * ANTES había un único config "superconjunto" con las pantallas de TODOS los
+ * árboles mezcladas como si fueran hermanas de un solo navegador. Eso rompía
+ * `getPathFromState`/`getStateFromPath` para los roles que no usan "Más"
+ * (coordinador, patio, chofer de combustible…): pantallas como
+ * Asistencia/Manual/Camiones solo estaban declaradas ANIDADAS bajo "More",
+ * pero en esos árboles son pantallas de primer nivel — así que el botón
+ * "atrás" del navegador podía no encontrar una ruta válida y la app se
+ * quedaba sin pantalla. Ahora cada árbol tiene su PROPIA config, que solo
+ * describe lo que ese árbol realmente monta.
  */
-const linking: LinkingOptions<any> = {
-  prefixes: [],
-  config: {
-    screens: {
-      Dashboard: 'inicio',
-      ControlMaquinaria: 'control',
-      Map: 'mapa',
-      Equipos: 'catalogo',
-      Revisar: 'revisar',
-      RoleHome: 'panel',
-      PatioHome: 'patio',
-      FuelDriverHome: 'surtir',
-      CombustibleHome: 'combustible-directo',
-      More: {
-        screens: {
-          MoreMenu: 'mas',
-          Combustible: 'combustible',
-          Tanks: 'tanques',
-          Intakes: 'ingresos',
-          Dispatches: 'consumos',
-          Authorizations: 'solicitudes',
-          ControlPagos: 'control-pagos',
-          MargenGanancia: 'margen-ganancia',
-          MantenimientoMaquinaria: 'mantenimiento',
-          Operadores: 'operadores',
-          Supervision: 'inspecciones',
-          HistoricoJornadas: 'historico',
-          InspectorTlf: 'vista-inspector',
-          Camiones: 'camiones',
-          Comida: 'comida',
-          Empleados: 'empleados',
-          EmployeeCard: 'ficha-empleado',
-          Aliados: 'aliados',
-          AliadoCard: 'ficha-aliado',
-          Nomina: 'nomina',
-          PagoPersonal: 'pago-personal',
-          Uniformes: 'uniformes',
-          Asistencia: 'asistencia',
-          AsistenciaCamiones: 'asistencia-camiones',
-          Compras: 'compras',
-          Inventario: 'inventario',
-          InspeccionesMaq: 'inspecciones-maquinaria',
-          ScanQr: 'escanear',
-          MachineQuick: 'maquina',
-          Transfers: 'traslados',
-          Reports: 'reportes',
-          Users: 'usuarios',
-          Audit: 'auditoria',
-          Empresas: 'empresas',
-          Manual: 'manual',
-          Ajustes: 'ajustes',
-        },
-      },
-    },
+const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['config']>['screens']>> = {
+  tabs: {
+    Dashboard: 'inicio',
+    ControlMaquinaria: 'control',
+    Map: 'mapa',
+    Equipos: 'catalogo',
+    More: { screens: moreScreens },
   },
+  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo' },
+  patio: { PatioHome: 'patio', Camiones: 'camiones', Asistencia: 'asistencia', Manual: 'manual' },
+  coordinador: {
+    RoleHome: 'panel',
+    MantenimientoMaquinaria: 'mantenimiento',
+    Operadores: 'operadores',
+    Supervision: 'inspecciones',
+    HistoricoJornadas: 'historico',
+    Equipos: 'catalogo',
+    Map: 'mapa',
+    Reports: 'reportes',
+    Inventario: 'inventario',
+    InspeccionesMaq: 'inspecciones-maquinaria',
+    Comida: 'comida',
+    ControlMaquinaria: 'control',
+    EmployeeCard: 'ficha-empleado',
+    Asistencia: 'asistencia',
+    AsistenciaCamiones: 'asistencia-camiones',
+    Manual: 'manual',
+  },
+  fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual' },
+  combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual' },
 };
+
+/** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
+ *  (URL "/") se fija la barra de direcciones a esta ruta, así el botón
+ *  "atrás" del navegador siempre parte de una URL que la config sí reconoce,
+ *  en vez de una "/" que ninguna config mapea a una pantalla. */
+const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
+  tabs: '/inicio',
+  supervisorTabs: '/revisar',
+  patio: '/patio',
+  coordinador: '/panel',
+  fuelDriver: '/surtir',
+  combustible: '/combustible-directo',
+};
+
+/** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
+ *  MISMO ORDEN de condiciones que antes vivía inline en el `return` de
+ *  `RootNavigator`. Se extrajo a función para poder saber, además de qué
+ *  renderizar, la `key` con la que buscar su config de `linking` (arriba). */
+function pickTree(ctx: {
+  phone: boolean;
+  role: UserRole | null;
+  appRole: AppRole | null;
+  isJesusLozada: boolean;
+  sistemaMode: boolean;
+  goSistema: () => void;
+}): { key: TreeKey; node: React.ReactNode } {
+  const { phone, role, appRole, isJesusLozada, sistemaMode, goSistema } = ctx;
+  if (appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible') return { key: 'fuelDriver', node: <FuelDriverStack /> };
+  if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
+  if (phone && (role === 'admin' || isJesusLozada) && sistemaMode) return { key: 'tabs', node: <Tabs /> };
+  if (phone && (role === 'admin' || isJesusLozada)) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
+  if (role === 'supervisor') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
+  if (appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr') return { key: 'coordinador', node: <CoordinadorStack /> };
+  if (phone && appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
+  if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
+  if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
+  if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };
+  return { key: 'tabs', node: <Tabs /> };
+}
 
 /** Lee un parámetro de la URL (solo web) para abrir por QR: ?maquina=<id> o ?empleado=<id>. */
 function useQrParam(name: string): [string | null, () => void] {
@@ -538,10 +601,10 @@ export default function RootNavigator() {
   // cada pocos segundos (perdía el modal de CHECK, el scroll y recargaba). Con
   // useCallback la referencia es fija y la pestaña ya no se remonta.
   const goSistema = React.useCallback(() => setSistemaMode(true), []);
-  // PERSISTENCIA DE NAVEGACIÓN (web): ahora la maneja `linking` (arriba). La URL
-  // refleja la pantalla activa (soslaguaira.com/inventario) y al RECARGAR React
-  // Navigation restaura la vista DIRECTO desde la URL — incluida la pantalla honda
-  // dentro de "Más". Ya no se guarda el estado en localStorage ni se hace resetRoot.
+  // PERSISTENCIA DE NAVEGACIÓN (web): la maneja `linking` (se arma más abajo,
+  // según el árbol). La URL refleja la pantalla activa (soslaguaira.com/inventario)
+  // y al RECARGAR React Navigation restaura la vista DIRECTO desde la URL —
+  // incluida la pantalla honda dentro de "Más". No se guarda estado en localStorage.
   // Sesión real (no anónima) ya cargada.
   const loggedInReal = !!session && !isAnon;
   const loggedInSup = loggedInReal && role === 'supervisor';
@@ -560,6 +623,34 @@ export default function RootNavigator() {
   };
   // En modo demo (sin Supabase) o con sesión NO anónima, mostramos la app.
   const showApp = !configured || (!!session && !isAnon);
+  // Árbol de navegación + URL de esta sesión. Se calculan aquí (ANTES de los
+  // `return` de carga/QR de abajo) porque son Hooks: deben correr siempre, en
+  // el mismo orden, en cada render. Durante un flujo de QR (?maquina=, …) no
+  // aplica: esas pantallas son planas, sin rutas con nombre que enlazar.
+  const inQrFlow = !!(qrComidaId || qrAliadoId || qrEmployeeId || qrMachineId);
+  const treePick = !inQrFlow && showApp && !locked && !(phone && roleLoading)
+    ? pickTree({ phone, role, appRole, isJesusLozada, sistemaMode, goSistema })
+    : null;
+  const treeKey = treePick?.key ?? null;
+  const linking = React.useMemo<LinkingOptions<any>>(() => ({
+    prefixes: [],
+    config: { screens: (treeKey && TREE_LINKING[treeKey]) || {} },
+  }), [treeKey]);
+  // Al entrar SIN deep link (URL "/") fija la barra de direcciones a la
+  // pantalla de inicio del rol, para que el botón "atrás" del navegador
+  // siempre parta de una URL válida en vez de una "/" que ninguna config
+  // reconoce (la causa más común de quedarse "sin pantalla" al ir atrás).
+  React.useEffect(() => {
+    if (inQrFlow || Platform.OS !== 'web' || !treeKey) return;
+    const home = TREE_HOME_PATH[treeKey];
+    if (!home) return;
+    try {
+      const w: any = globalThis;
+      if (w.location.pathname === '/' || w.location.pathname === '') {
+        w.history.replaceState({}, '', home + w.location.search);
+      }
+    } catch {}
+  }, [treeKey, inQrFlow]);
   // ⏳ NO montar el navegador hasta que el auth resuelva (la sesión de Supabase se
   // restaura de forma ASÍNCRONA) y, si hay sesión, hasta saber el ROL. Motivo: si
   // <Tabs/> (u otro navegador por rol) monta DESPUÉS del contenedor, React
@@ -655,46 +746,12 @@ export default function RootNavigator() {
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible' ? (
-        // Rol "Chofer de combustible" (teléfono): panel para SURTIR combustible
-        // (escanear/elegir máquina, litros + monto, fotos). Se intercepta ANTES de
-        // cualquier otro chequeo para que no caiga en la vista de Inspectores.
-        <FuelDriverStack />
-      ) : role === 'coordinador_patio' ? (
-        // Coordinador de patio: registra entrada/salida de camiones (QR) y averías.
-        // Mismo panel en teléfono y PC.
-        <PatioStack />
-      ) : phone && (role === 'admin' || isJesusLozada) && sistemaMode ? (
-        // TELÉFONO · admin (o Jesús Lozada, excepción puntual) que tocó "SISTEMA":
-        // ve la app completa.
-        <Tabs />
-      ) : phone && (role === 'admin' || isJesusLozada) ? (
-        // TELÉFONO · admin (o Jesús Lozada): cae en el módulo de INSPECTORES pero
-        // con el botón SISTEMA para saltar a la app completa cuando lo necesite.
-        <SupervisorTabs onSistema={goSistema} />
-      ) : role === 'supervisor' ? (
-        // El supervisor (etiqueta "inspector") entra a SU vista — Revisar/Mapa/
-        // Catálogo — igual en teléfono que en PC. La jornada, averías y combustible
-        // se inician escaneando el QR de cada máquina.
-        <SupervisorTabs />
-      ) : appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr' ? (
-        // Rol "Coordinador QR": panel de escaneo (surtir gasoil / avería / marcar lista).
-        <CoordinadorStack />
-      ) : phone && appRole && role !== 'admin' && esRolCombustible(appRole) ? (
-        // TELÉFONO · rol personalizado cuyo ÚNICO acceso es de combustible (tanques/
-        // ingresos/consumos/traslados): entra DIRECTO al módulo Combustible, sin
-        // pasar por Inicio ni el menú "Más".
-        <CombustibleStack />
-      ) : appRole && role !== 'admin' ? (
-        // Rol personalizado (FIJO) por módulos: navega por la app normal (pestañas + Más),
-        // todo filtrado por sus permisos. Igual en teléfono y PC.
-        <Tabs />
-      ) : role === 'operador' ? (
-        // El operador tiene su propia vista (independiente de la administración).
-        <OperatorScreen />
-      ) : role === 'cocina' ? (
-        // Cocina reparte comida: escanea carnets y registra las comidas entregadas.
-        <CocinaScreen />
+      ) : treePick ? (
+        // Árbol de navegación según el rol (ver `pickTree`, arriba del componente):
+        // chofer de combustible, patio, admin/Jesús Lozada por teléfono (con o sin
+        // SISTEMA), supervisor, coordinador QR, rol de combustible por teléfono,
+        // rol personalizado por módulos, operador o cocina.
+        treePick.node
       ) : (
         <Tabs />
       )}
