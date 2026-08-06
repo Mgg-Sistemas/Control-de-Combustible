@@ -20,7 +20,10 @@ permissions:
 
 concurrency:
   group: build-web
-  cancel-in-progress: true
+  cancel-in-progress: false     # NO cancelar el build en curso: cuando somos 2 subiendo
+                                 # cambios seguidos, cancelarlo hacía que ninguno terminara
+                                 # nunca (cada push cancelaba al anterior). Ahora se ENCOLAN
+                                 # y corren uno tras otro sin perderse ninguno.
 
 jobs:
   build:
