@@ -637,6 +637,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return { aver, par };
   }, [maint]);
 
+  // Modal de horas por MÁQUINA (desglose individual) del inspector seleccionado —
+  // se abre al tocar "Horas reales" o "Horas reales totales" (pedido del cliente:
+  // poder ver equipo a equipo sus horas, con buscador y filtros). `sortBy` recuerda
+  // cuál tarjeta se tocó, para ordenar por esa columna de horas por defecto.
+  const [horasModal, setHorasModal] = useState<{ inspector: string; sortBy: 'dia' | 'total' } | null>(null);
+  const [horasQ, setHorasQ] = useState('');
+  const [horasEstadoFilter, setHorasEstadoFilter] = useState<'all' | Estado>('all');
+  const openHorasModal = (insp: string, sortBy: 'dia' | 'total') => {
+    setHorasQ(''); setHorasEstadoFilter('all');
+    setHorasModal({ inspector: insp, sortBy });
+  };
+
   // Modal de LISTA de máquinas de un estado (filtrable por TODAS sus características).
   const [listModal, setListModal] = useState<{ title: string; ids: string[] } | null>(null);
   const [listQ, setListQ] = useState('');
@@ -709,6 +721,40 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
+
+  // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
+  // abierto (las mismas que suman "Horas reales"/"Horas reales totales"), con su
+  // estado ya resuelto por el arreglo (ini/pend/par/ave) al que pertenecen —así no
+  // se recalcula con estadoOf y queda garantizado que coincide 1:1 con esas tarjetas.
+  const horasRows = useMemo(() => {
+    if (!horasModal) return [];
+    const s = perInspector.find((i) => i.name === horasModal.inspector);
+    if (!s) return [];
+    const withEstado: { id: string; estado: Estado }[] = [
+      ...s.ave.map((id) => ({ id, estado: 'averiada' as Estado })),
+      ...s.par.map((id) => ({ id, estado: 'parada' as Estado })),
+      ...s.ini.map((id) => ({ id, estado: 'iniciada' as Estado })),
+      ...s.pend.map((id) => ({ id, estado: 'pendiente' as Estado })),
+    ];
+    return withEstado.map(({ id, estado }) => {
+      const info = machineInfo.get(id) ?? null;
+      return {
+        id, estado, info,
+        code: info?.code ?? codeById.get(id) ?? '—',
+        horasDia: Math.round(liveHorasOf(id) * 10) / 10,
+        horasTotal: Math.round((allHoursByMachine[id] ?? 0) * 10) / 10,
+      };
+    });
+  }, [horasModal, perInspector, machineInfo, codeById, liveHorasOf, allHoursByMachine]);
+  // Filtrado (buscador + chip de estado) y orden por mayor cantidad de horas (día o
+  // total, según la tarjeta que se tocó para abrir el modal).
+  const horasShown = useMemo(() => {
+    const nq = norm(horasQ.trim());
+    let rows = horasRows.filter((r) => horasEstadoFilter === 'all' || r.estado === horasEstadoFilter);
+    if (nq) rows = rows.filter((r) => [r.code, r.info?.plate, r.info?.serial, r.info?.identifier].some((v) => norm(v).includes(nq)));
+    const byTotal = horasModal?.sortBy === 'total';
+    return [...rows].sort((a, b) => (byTotal ? b.horasTotal - a.horasTotal : b.horasDia - a.horasDia) || cmpText(a.code, b.code));
+  }, [horasRows, horasQ, horasEstadoFilter, horasModal]);
 
   const inspShown = useMemo(() => {
     const nq = norm(inspQ.trim());
@@ -1092,8 +1138,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
                 <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
-                <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" />
-                <KpiCard label="Horas reales totales" value={`${sel.horasTotales.toFixed(1)}h`} tone="brand" />
+                <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'dia')} />
+                <KpiCard label="Horas reales totales" value={`${sel.horasTotales.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'total')} />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
@@ -1196,6 +1242,76 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Último horómetro', info?.lastHoro != null ? String(info.lastHoro) : '—')}
                         </View>
                       ) : null}
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Desglose de HORAS por máquina del inspector (equipo a equipo), con buscador
+          y chips de estado — se abre al tocar "Horas reales" o "Horas reales
+          totales" en el panel de detalle de arriba. Mismo lenguaje visual que el
+          modal de listado de arriba (Modal + Pressable de fondo, hoja deslizante). */}
+      <Modal visible={horasModal != null} transparent animationType="slide" onRequestClose={() => setHorasModal(null)}>
+        <Pressable onPress={() => setHorasModal(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs, gap: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>
+                🏁 Horas por máquina · {horasModal?.inspector} ({horasShown.length})
+              </Text>
+              <TouchableOpacity onPress={() => setHorasModal(null)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>
+              Ordenado por {horasModal?.sortBy === 'total' ? 'horas totales (histórico)' : 'horas de hoy'}, de mayor a menor.
+            </Text>
+            {/* Buscador: filtra por código, placa, serial o identificador de la máquina. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+              <Text style={{ fontSize: 14 }}>🔎</Text>
+              <TextInput value={horasQ} onChangeText={setHorasQ} placeholder="Buscar por código, placa, serial…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
+              {horasQ ? <TouchableOpacity onPress={() => setHorasQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
+            </View>
+            {/* Chips de estado — mismo patrón visual que los filtros de turno/estado del panel "Gestionar Iniciada/Pendiente". */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
+              {([['all', 'Todas'], ['iniciada', '✅ Iniciadas'], ['parada', '🟡 Paradas'], ['averiada', '🔴 Averiadas'], ['pendiente', '⏳ Pendientes']] as const).map(([v, lbl]) => {
+                const on = horasEstadoFilter === v;
+                return (
+                  <TouchableOpacity key={v} onPress={() => setHorasEstadoFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 11.5 }}>{lbl}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+              {horasShown.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', paddingVertical: spacing.lg }}>Sin máquinas para estos filtros.</Text>
+              ) : (
+                horasShown.map((r, i) => {
+                  const em = estadoMeta(r.estado);
+                  return (
+                    <View key={r.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, paddingVertical: 10 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>{i + 1}</Text>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: '800' }}>{r.code}</Text>
+                          <View style={{ backgroundColor: em.bg, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ color: em.fg, fontSize: 10, fontWeight: '900' }}>{em.label}</Text>
+                          </View>
+                        </View>
+                        <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={1}>
+                          {[r.info?.plate ? `🚗 ${r.info.plate}` : null, r.info?.serial ? `#️⃣ ${r.info.serial}` : null].filter(Boolean).join(' · ') || '—'}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{r.horasDia.toFixed(1)}h</Text>
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>hoy</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12, marginTop: 3, fontVariant: ['tabular-nums'] as any }}>{r.horasTotal.toFixed(1)}h</Text>
+                        <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700' }}>total</Text>
+                      </View>
                     </View>
                   );
                 })

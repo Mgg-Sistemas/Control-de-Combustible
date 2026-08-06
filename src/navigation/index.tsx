@@ -371,6 +371,29 @@ function CombustibleStack() {
   );
 }
 
+/** Módulo de INVENTARIO / ALMACÉN (clave `inventario` en `src/lib/permissions.ts`).
+ *  Un rol personalizado cuyo único acceso activo es este módulo entra DIRECTO a
+ *  Inventario, sin pasar por Inicio ni el menú "Más" (mismo patrón que
+ *  `esRolCombustible`/`esRolAsistencia`). */
+const INVENTARIO_MODULES = ['inventario'];
+function esRolInventario(appRole: AppRole | null): boolean {
+  const mods = appRole?.modules ?? {};
+  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
+  return activos.length > 0 && activos.every((k) => INVENTARIO_MODULES.includes(k));
+}
+
+/** Panel de un rol personalizado cuyo ÚNICO acceso es Inventario (cualquier
+ *  dispositivo): entra DIRECTO a Inventario, sin pasar por Inicio ni "Más". */
+function InventarioStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={screenHeader}>
+      <Stack.Screen name="InventarioHome" component={InventarioScreen} options={{ title: 'Inventario' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Vista del SUPERVISOR: su pantalla principal es "Revisar" (lista de máquinas +
  *  check-in con GPS). También ve Mapa y Catálogo. Puede marcar cualquier máquina
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
@@ -551,7 +574,7 @@ const moreScreens = {
 /** Cada sesión monta UN SOLO árbol de navegación, elegido por rol/teléfono/PC
  *  (ver `pickTree` más abajo). `operador`/`cocina` son una pantalla suelta sin
  *  Stack/Tab, así que no tienen config de `linking` propia. */
-type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
+type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'inventario' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
 
 /**
  * LINKING (web) por árbol: sincroniza la URL con la pantalla activa, así la
@@ -601,6 +624,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   },
   fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual' },
   combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual' },
+  inventario: { InventarioHome: 'inventario-directo', Manual: 'manual' },
   conductor: { ConductorSurtir: 'surtir', ConductorCamiones: 'camiones', ConductorAsistencia: 'asistencia-camiones' },
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', Manual: 'manual' },
 };
@@ -616,6 +640,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   coordinador: '/panel',
   fuelDriver: '/surtir',
   combustible: '/combustible-directo',
+  inventario: '/inventario-directo',
   conductor: '/surtir',
   asistencia: '/asistencia',
 };
@@ -635,8 +660,16 @@ function pickTree(ctx: {
   const { phone, role, appRole, isJesusLozada, sistemaMode, goSistema } = ctx;
   if (appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible') return { key: 'fuelDriver', node: <FuelDriverStack /> };
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
-  if (phone && (role === 'admin' || isJesusLozada) && sistemaMode) return { key: 'tabs', node: <Tabs /> };
-  if (phone && (role === 'admin' || isJesusLozada)) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
+  // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
+  // cliente pidió explícitamente que el/los administrador(es) no inicien en la
+  // vista de Inspector. No depende de `sistemaMode` (eso es solo para el caso
+  // Jesús Lozada, ver más abajo).
+  if (phone && role === 'admin') return { key: 'tabs', node: <Tabs /> };
+  // Excepción puntual (ver comentario de `isJesusLozada` más abajo): esta persona
+  // SÍ arranca en la vista de Inspector en teléfono, con el botón SISTEMA para
+  // saltar a la app completa cuando lo necesite.
+  if (phone && isJesusLozada && sistemaMode) return { key: 'tabs', node: <Tabs /> };
+  if (phone && isJesusLozada) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
   if (role === 'supervisor') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
   // CONDUCTOR (chofer): rol fijo con su propio panel (surtir · camiones · asistencia
   // de camiones), igual que supervisor tiene el suyo — independiente de appRole.
@@ -645,6 +678,8 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
   // Rol por módulos cuyo único acceso es ASISTENCIA: directo a "Control de asistencia".
   if (appRole && role !== 'admin' && esRolAsistencia(appRole)) return { key: 'asistencia', node: <AsistenciaStack /> };
+  // Rol por módulos cuyo único acceso es INVENTARIO: directo a Inventario.
+  if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };
@@ -735,8 +770,10 @@ export default function RootNavigator() {
   // el módulo de Inspectores; en PC ven la app normal según su rol (y se mantiene
   // la sesión iniciada). Se calcula una sola vez (el dispositivo no cambia en vivo).
   const phone = React.useMemo(() => isPhoneDevice(), []);
-  // Admin en teléfono: cae en Inspectores, pero con el botón SISTEMA salta a la
-  // app completa (este flag lo activa). Se reinicia al recargar / cerrar sesión.
+  // SOLO para el caso Jesús Lozada (ver `isJesusLozada` arriba): en teléfono cae
+  // en Inspectores, pero con el botón SISTEMA salta a la app completa (este flag
+  // lo activa). El admin genérico YA NO pasa por aquí: arranca directo en la app
+  // completa (ver `pickTree`). Se reinicia al recargar / cerrar sesión.
   const [sistemaMode, setSistemaMode] = React.useState(false);
   // Callback ESTABLE para el botón SISTEMA. Si se pasara inline (`() => ...`), su
   // identidad cambiaría en cada render del provider (p. ej. cuando la presencia
