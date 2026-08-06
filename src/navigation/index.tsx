@@ -287,9 +287,26 @@ function esRolCombustible(appRole: AppRole | null): boolean {
   return activos.length > 0 && activos.every((k) => COMBUSTIBLE_MODULES.includes(k));
 }
 
-/** Panel de un rol personalizado cuyo ÚNICO acceso es de combustible (teléfono):
- *  entra DIRECTO al módulo Combustible (Tanques/Ingresos/Consumos/Traslados),
- *  sin pasar por Inicio ni el menú "Más". */
+/** Pantalla "de inicio" dentro del árbol `tabs` para un rol PERSONALIZADO cuyos
+ *  módulos son una MEZCLA (no calza en ningún panel dedicado ni en el combo
+ *  100% combustible de `esRolCombustible`): entra por el PRIMER módulo que sí
+ *  tenga — Control Maquinaria, Mapa o Catálogo — en vez de "Inicio" (KPIs
+ *  globales de tanques/combustible que puede no gestionar). Si no tiene ninguno
+ *  de esos tres, cae en el menú "Más" (agrupa lo que sí tenga: Combustible,
+ *  Nómina, etc.). El admin (ve todo) siempre entra por Inicio, su panel real.
+ *  `name` = pantalla del Tab.Navigator; `path` = URL equivalente (deben ir
+ *  siempre juntos: si difieren, recargar la página manda a Inicio y pisa esto). */
+function tabsHomeRoute(role: UserRole | null, appRole: AppRole | null, canSee: (k: string) => boolean): { name: string; path: string } {
+  if (!appRole || role === 'admin') return { name: 'Dashboard', path: '/inicio' };
+  if (canSee('control_maquinaria')) return { name: 'ControlMaquinaria', path: '/control' };
+  if (canSee('mapa')) return { name: 'Map', path: '/mapa' };
+  if (canSee('equipos')) return { name: 'Equipos', path: '/catalogo' };
+  return { name: 'More', path: '/mas' };
+}
+
+/** Panel de un rol personalizado cuyo ÚNICO acceso es de combustible (cualquier
+ *  dispositivo): entra DIRECTO al módulo Combustible (Tanques/Ingresos/Consumos/
+ *  Traslados), sin pasar por Inicio ni el menú "Más". */
 function CombustibleStack() {
   const screenHeader = useScreenHeader();
   return (
@@ -328,12 +345,16 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
 
 function Tabs() {
   const { colors } = useTheme();
-  const { canSee } = useAuth();
+  const { canSee, role, appRole } = useAuth();
   const screenHeader = useScreenHeader();
+  // Ruta inicial: ver `tabsHomeRoute` (misma lógica que la URL "de inicio", más
+  // abajo — deben coincidir para que un recargo del navegador no pise esto).
+  const initialRouteName = React.useMemo(() => tabsHomeRoute(role, appRole, canSee).name, [role, appRole, canSee]);
   // Inicio y Más SIEMPRE; las demás pestañas solo si el rol tiene permiso de ese módulo
   // (así un rol fijo con pocos módulos no ve pestañas que no puede usar).
   return (
     <Tab.Navigator
+      initialRouteName={initialRouteName}
       screenOptions={{
         ...screenHeader,
         // lazy: false — por defecto React Navigation NO monta el contenido de una
@@ -536,7 +557,7 @@ function pickTree(ctx: {
   if (phone && (role === 'admin' || isJesusLozada)) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
   if (role === 'supervisor') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
   if (appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr') return { key: 'coordinador', node: <CoordinadorStack /> };
-  if (phone && appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
+  if (appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };
@@ -568,7 +589,7 @@ function useQrParam(name: string): [string | null, () => void] {
 }
 
 export default function RootNavigator() {
-  const { session, configured, locked, role, appRole, fullName, signOut, loading } = useAuth();
+  const { session, configured, locked, role, appRole, fullName, signOut, loading, canSee } = useAuth();
   // Excepción puntual: Jesús Lozada entra a la Vista de Inspector como cualquier
   // otro rol en teléfono (no se toca su enrutamiento), pero además ve el botón
   // "SISTEMA" para saltar al módulo administrativo general (Tabs), igual que el
@@ -677,7 +698,10 @@ export default function RootNavigator() {
   // reconoce (la causa más común de quedarse "sin pantalla" al ir atrás).
   React.useEffect(() => {
     if (inQrFlow || Platform.OS !== 'web' || !treeKey) return;
-    const home = TREE_HOME_PATH[treeKey];
+    // El árbol `tabs` no tiene una única "pantalla de inicio" fija: depende del
+    // rol (ver `tabsHomeRoute`) — debe coincidir con `initialRouteName` en
+    // `Tabs()`, si no, recargar la página manda siempre a Inicio y lo pisa.
+    const home = treeKey === 'tabs' ? tabsHomeRoute(role, appRole, canSee).path : TREE_HOME_PATH[treeKey];
     if (!home) return;
     try {
       const w: any = globalThis;
@@ -685,7 +709,7 @@ export default function RootNavigator() {
         w.history.replaceState({}, '', home + w.location.search);
       }
     } catch {}
-  }, [treeKey, inQrFlow]);
+  }, [treeKey, inQrFlow, role, appRole, canSee]);
   // ⏳ NO montar el navegador hasta que el auth resuelva (la sesión de Supabase se
   // restaura de forma ASÍNCRONA) y, si hay sesión, hasta saber el ROL. Motivo: si
   // <Tabs/> (u otro navegador por rol) monta DESPUÉS del contenedor, React
