@@ -682,11 +682,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // 1) Lo marcado HOY (avería/parada de hoy) gana incluso sobre "trabajando".
     if (averiaHoyIds.has(id)) return 'averia';
     if (paradaHoyIds.has(id)) return 'parada';
-    // 2) INICIADA = jornada ABIERTA ahora (el inspector la arrancó). NO cuenta las
-    //    horas de sistema (backfill 12/6) como "iniciada": esas son ficticias hasta que
-    //    el inspector abra la jornada. Una jornada abierta gana sobre avería/parada
-    //    ARRASTRADA (la máquina se reactivó). Este es el criterio REAL del teléfono.
-    if (roundsById[id]?.open) return 'iniciada';
+    // 2) INICIADA = jornada ABIERTA ahora, o ya FINALIZADA con horas (día/noche > 0):
+    //    al cerrar la jornada se borra jornada_start_at, así que las horas son la
+    //    evidencia de que se trabajó de verdad. Gana sobre avería/parada ARRASTRADA
+    //    (la máquina se reactivó).
+    if (roundsById[id]?.open || (roundsById[id]?.worked ?? 0) > 0) return 'iniciada';
     // 3) Avería/parada arrastrada: solo si NO trabaja hoy (se arrastra hasta reactivar).
     if (averiaPendienteIds.has(id)) return 'averia';
     if (paradaIds.has(id)) return 'parada';

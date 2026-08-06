@@ -67,10 +67,10 @@ type MInfo = {
 };
 type Estado = 'iniciada' | 'pendiente' | 'parada' | 'averiada';
 
-// ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Se usa para
-// DÍAS PASADOS: ahí las jornadas ya se cerraron y jornada_start_at quedó limpio,
-// así que el ÚNICO indicio de que se trabajó son las horas. Para HOY se usa un
-// criterio más estricto (solo jornada abierta) — ver `daySets` (`startedForToday`).
+// ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Aplica igual
+// para hoy y días pasados: jornada abierta ahora mismo, O ya finalizada con horas
+// (día/noche > 0) — al cerrar, jornada_start_at siempre queda limpio, así que las
+// horas son la evidencia de que se trabajó.
 const roundStarted = (r: Round) => !!r.jornada_start_at || (Number(r.day_hours) || 0) > 0 || (Number(r.night_hours) || 0) > 0;
 // Turno de la ronda (una ronda pertenece a UN turno). Igual que inspectorReport.
 const roundShift = (r: Round): 'day' | 'night' =>
@@ -435,16 +435,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const daySets = useMemo(() => {
     // Iniciadas del día elegido, directo de las rondas (robusto aunque el día quede
     // fuera de la ventana de 14 días de la gráfica).
-    // HOY: INICIADA = jornada ABIERTA por el inspector (jornada_start_at) — las horas de
-    // sistema (backfill 12/6) SIN jornada abierta NO cuentan (ficticio), igual que el
-    // teléfono. DÍAS PASADOS: la jornada ya se cerró (jornada_start_at limpio), así que el
-    // único indicio de trabajo son las horas → se usa startedForShift (arrancada o con horas).
-    const isToday = selDay === caracasToday();
+    // INICIADA = jornada ABIERTA (jornada_start_at) o YA FINALIZADA con horas
+    // registradas (día/noche > 0). Una jornada finalizada hoy con horas es trabajo
+    // REAL — debe seguir contando como iniciada en las tarjetas y en los reportes,
+    // igual que un día pasado (ahí jornada_start_at siempre queda limpio al cerrar,
+    // así que las horas son el único indicio de que se trabajó).
     const startedSet = new Set<string>();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      const started = isToday ? (!!r.jornada_start_at && roundShift(r) === shift) : startedForShift(r, shift);
-      if (started) startedSet.add(r.machinery_id);
+      if (startedForShift(r, shift)) startedSet.add(r.machinery_id);
     });
     // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche, termina a las 7am):
     // sin esto, al ver "hoy" recién pasada la medianoche esas máquinas parecían

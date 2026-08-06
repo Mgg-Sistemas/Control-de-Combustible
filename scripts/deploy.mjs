@@ -11,6 +11,7 @@
 // ambas ramas (DO despliega desde main; dev queda igual).
 
 import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 
 const msg = process.argv.slice(2).join(' ').trim() || 'deploy: build web';
 const run = (cmd) => { console.log(`\n$ ${cmd}`); execSync(cmd, { stdio: 'inherit' }); };
@@ -23,8 +24,24 @@ try {
     process.exit(1);
   }
 
+  // ID de esta build: se incrusta en el bundle (EXPO_PUBLIC_BUILD_ID) Y en
+  // dist/version.json con el MISMO valor. Si no coinciden, la barra
+  // "ACTUALIZAR" del sitio (src/lib/version.ts → isUpdateAvailable) se queda
+  // pegada para siempre, porque compara justo esos dos valores. Antes este
+  // script no tocaba ninguno de los dos: cada `expo export` dejaba el
+  // BUILD_ID del bundle con lo que hubiera en el entorno (o "dev") y
+  // dist/version.json intacto (o incluso lo borraba, al no regenerarlo).
+  // Como el deploy MANUAL es el que usa DigitalOcean (.do/app.yaml: build
+  // command vacío, sirve dist tal cual), esa desincronización quedaba
+  // publicada en producción sin forma de arreglarse con un simple reload.
+  const buildId = out('git rev-parse HEAD');
+
   console.log('\n⏳ Compilando la web (expo export)…');
+  process.env.EXPO_PUBLIC_BUILD_ID = buildId;
   run('npx expo export -p web');
+
+  writeFileSync('dist/version.json', JSON.stringify({ v: buildId }));
+  console.log(`\nversion.json → ${buildId}`);
 
   // ¿Hay cambios que commitear?
   const dirty = out('git status --porcelain');
