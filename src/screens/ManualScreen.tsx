@@ -11,9 +11,10 @@ import { generatePatioGuide } from '../lib/guides/patioGuide';
 import { generateChoferCombustibleGuide } from '../lib/guides/choferCombustibleGuide';
 import { generateCoordinadorQrGuide } from '../lib/guides/coordinadorQrGuide';
 import { generateAnalistaGuide } from '../lib/guides/analistaGuide';
-import { generateAdminGuide } from '../lib/guides/adminGuide';
 
 // ── Guías rápidas descargables (PDF), una por rol — ver src/lib/guides/. ──────
+// Sin la de Administrador a propósito (pedido del cliente): no aporta como hoja
+// de referencia de campo, el admin ya tiene acceso a todo el manual completo.
 const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run: () => Promise<boolean> }[] = [
   { key: 'inspector', label: 'Inspector', desc: 'Iniciar sesión, escanear la máquina y llevar la jornada', icon: '🪖', run: generateInspectorGuide },
   { key: 'operador', label: 'Operador', desc: 'Registrar tu jornada y el combustible desde el teléfono', icon: '👷', run: generateOperadorGuide },
@@ -22,7 +23,6 @@ const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run
   { key: 'chofer', label: 'Chofer de Combustible', desc: 'Surtir combustible a las máquinas', icon: '⛽', run: generateChoferCombustibleGuide },
   { key: 'coordqr', label: 'Coordinador QR', desc: 'Surtir gasoil, reportar avería y marcar máquina lista', icon: '📷', run: generateCoordinadorQrGuide },
   { key: 'analista', label: 'Analista', desc: 'Marcar asistencia del personal', icon: '📊', run: generateAnalistaGuide },
-  { key: 'admin', label: 'Administrador', desc: 'Entrar desde el teléfono y el botón SISTEMA', icon: '🗂️', run: generateAdminGuide },
 ];
 
 // ── Contenido del manual (lenguaje simple, paso a paso) ───────────────────────
@@ -629,6 +629,7 @@ export default function ManualScreen() {
   const [open, setOpen] = useState<Record<number, boolean>>({ 0: true });
   const [query, setQuery] = useState('');
   const [guideBusy, setGuideBusy] = useState<string | null>(null);
+  const [guidesOpen, setGuidesOpen] = useState(false);
 
   const downloadGuide = async (g: (typeof ROLE_GUIDES)[number]) => {
     if (guideBusy) return;
@@ -666,31 +667,41 @@ export default function ManualScreen() {
       {/* Guías rápidas descargables (PDF): una por rol, con mockups de pantalla,
           para imprimir/enviar a quien trabaja desde el teléfono. */}
       <Card>
-        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>📄 Guías descargables</Text>
-        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-          Un PDF corto por rol, con los pasos exactos de la aplicación. Ideal para imprimir o enviar por WhatsApp.
-        </Text>
-        <View style={{ gap: spacing.xs }}>
-          {ROLE_GUIDES.map((g) => {
-            const busy = guideBusy === g.key;
-            return (
-              <TouchableOpacity
-                key={g.key}
-                onPress={() => downloadGuide(g)}
-                disabled={busy}
-                activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: busy ? 0.6 : 1 }}
-              >
-                <Text style={{ fontSize: 20 }}>{g.icon}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>{g.label}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 11.5 }}>{g.desc}</Text>
-                </View>
-                <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{busy ? 'Generando…' : '📄 Descargar'}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setGuidesOpen((v) => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+        >
+          <Text style={{ fontSize: 20 }}>📄</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>Guías descargables</Text>
+            <Text style={{ color: colors.muted, fontSize: 12 }}>Un PDF corto por rol, con los pasos exactos de la aplicación</Text>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 16 }}>{guidesOpen ? '▾' : '▸'}</Text>
+        </TouchableOpacity>
+        {guidesOpen ? (
+          <View style={{ marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs }}>
+            {ROLE_GUIDES.map((g) => {
+              const busy = guideBusy === g.key;
+              return (
+                <TouchableOpacity
+                  key={g.key}
+                  onPress={() => downloadGuide(g)}
+                  disabled={busy}
+                  activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, opacity: busy ? 0.6 : 1 }}
+                >
+                  <Text style={{ fontSize: 20 }}>{g.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>{g.label}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>{g.desc}</Text>
+                  </View>
+                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{busy ? 'Generando…' : '📄 Descargar'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
       </Card>
 
       {shown.length === 0 ? (
