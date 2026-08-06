@@ -203,6 +203,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // 'MÁQUINA PARADA'), para distinguir "Parada" (marcarParadaNoTrabajo) de "Por
   // avería" (marcarParadaAveria / registrarAveria) en los chips de segmento.
   const [averiaPendienteIds, setAveriaPendienteIds] = useState<Set<string>>(new Set());
+  // Averías marcadas HOY (no arrastradas): GANAN sobre "trabajando". Las arrastradas
+  // (en averiaPendienteIds) pierden si la máquina trabaja hoy — igual que las paradas.
+  const [averiaHoyIds, setAveriaHoyIds] = useState<Set<string>>(new Set());
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -389,7 +392,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // de fecha: una avería sin resolver mantiene la máquina AVERIADA día tras día
       // (se arrastra hasta que se marque operativa), NO baja a parada/pendiente al
       // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
-      supabase.from('maintenance_requests').select('machinery_id').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
     const rmap: Record<string, { open: boolean; worked: number }> = {};
     ((rs ?? []) as any[]).forEach((r) => {
@@ -407,7 +410,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // hasta marcarla operativa. La de HOY respeta el turno (no pisa al otro inspector).
     const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
     setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim(), arrastrada: new Date(p.created_at).getTime() < dayStartMs })));
-    setAveriaPendienteIds(new Set(((avPend ?? []) as any[]).map((p) => p.machinery_id as string)));
+    // Avería PENDIENTE: todas (se arrastran) + set de las marcadas HOY (ganan sobre trabajando).
+    const avAll = new Set<string>();
+    const avHoy = new Set<string>();
+    ((avPend ?? []) as any[]).forEach((p) => {
+      const id = p.machinery_id as string;
+      avAll.add(id);
+      if (new Date(p.created_at).getTime() >= dayStartMs) avHoy.add(id);
+    });
+    setAveriaPendienteIds(avAll);
+    setAveriaHoyIds(avHoy);
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
@@ -623,9 +635,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // del día anterior) > jornada abierta hoy > pendiente por iniciar. Base común de los
   // chips (vista admin) y de los grupos colapsables (vista del inspector).
   const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
-    if (averiaPendienteIds.has(id)) return 'averia';
-    if (paradaHoyIds.has(id) || paradaIds.has(id)) return 'parada';
+    // 1) Lo marcado HOY (avería/parada de hoy) gana incluso sobre "trabajando".
+    if (averiaHoyIds.has(id)) return 'averia';
+    if (paradaHoyIds.has(id)) return 'parada';
+    // 2) Trabajando hoy (jornada abierta) gana sobre avería/parada ARRASTRADA (vieja):
+    //    si arrancó jornada, la máquina se reactivó → NO debe salir en averiadas/paradas.
     if (roundsById[id]?.open) return 'iniciada';
+    // 3) Avería/parada arrastrada: solo si NO trabaja hoy (se arrastra hasta reactivar).
+    if (averiaPendienteIds.has(id)) return 'averia';
+    if (paradaIds.has(id)) return 'parada';
     return 'pendiente';
   };
   // Buscador sobre MIS máquinas asignadas (nombre/serial/placa/empresa/encargado/
@@ -633,14 +651,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const mineList = useMemo(() => {
     const q = norm(query.trim());
     return mine.filter((m) => matchQuery(m, q) && (segFilter === 'all' || segmentoDe(m.id) === segFilter));
-  }, [mine, query, segFilter, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  }, [mine, query, segFilter, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById]);
   // "Todas las máquinas" (admin/coordinador, vista operativa): mismo buscador +
   // chip de segmento, EXCLUYE inactivas salvo jornada abierta (TAREA 4). No es el
   // CHECK (checkList), que sigue mostrando el catálogo completo.
   const searchList = useMemo(() => {
     const q = norm(query.trim());
     return machines.filter((m) => matchQuery(m, q) && visibleParaInspector(m) && (segFilter === 'all' || segmentoDe(m.id) === segFilter));
-  }, [machines, query, segFilter, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  }, [machines, query, segFilter, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById]);
   // Contadores de los chips: sobre la base ya filtrada por texto/inactivas que se
   // está mostrando (mis máquinas, o "todas" si el admin/coordinador las activó).
   const segCountsBase = useMemo(() => {
@@ -649,7 +667,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const counts = { all: base.length, pendiente: 0, iniciada: 0, parada: 0, averia: 0 };
     base.forEach((m) => { counts[segmentoDe(m.id)]++; });
     return counts;
-  }, [machines, mine, query, showAll, puedeCoordinar, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  }, [machines, mine, query, showAll, puedeCoordinar, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById]);
   // Grupos colapsables de la vista del INSPECTOR (mis máquinas), por estado, usando el
   // MISMO segmentoDe: 🟢 iniciadas · ⏳ pendientes · 🟡 paradas (incl. arrastradas) · 🔴 averiadas.
   const grupos = useMemo(() => {
@@ -659,7 +677,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       g[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
     });
     return g;
-  }, [mine, averiaPendienteIds, paradaHoyIds, paradaIds, roundsById]);
+  }, [mine, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById]);
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
   // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {

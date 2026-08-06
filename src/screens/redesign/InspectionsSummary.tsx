@@ -451,8 +451,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // criterio que `averiaPendienteIds` en SupervisorScreen.tsx (sin filtro de fecha).
     const averSet = new Set<string>();
     maint.forEach((m) => {
+      if (m.material === 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
-      if (m.material !== 'MÁQUINA PARADA' && t <= dayEndMs) averSet.add(m.machinery_id);
+      if (t > dayEndMs) return; // reportada DESPUÉS del día → no cuenta
+      const arr = t < dayStartMs; // avería marcada ANTES del día = arrastrada
+      // Arrastrada: solo si la máquina NO trabajó hoy (si arrancó jornada se reactivó →
+      // no debe salir como averiada). Del día: siempre (gana sobre "trabajando").
+      // Mismo criterio que segmentoDe en SupervisorScreen.tsx (teléfono).
+      if (arr ? !startedSet.has(m.machinery_id) : true) averSet.add(m.machinery_id);
     });
     const paradaSet = new Set<string>();
     maint.forEach((m) => {

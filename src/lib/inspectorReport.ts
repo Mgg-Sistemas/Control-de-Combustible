@@ -49,9 +49,10 @@ const dmyHm = (iso: string): string => {
 };
 
 type Turno = 'day' | 'night';
-type EstadoKey = 'encurso' | 'parada' | 'finalizada' | 'pendiente';
+type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
 type Mach = { id: string; code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string };
 const ESTADO_META: Record<EstadoKey, { txt: string; color: string }> = {
+  averia: { txt: '🔴 Averiada', color: '#B91C1C' },
   encurso: { txt: '● En curso', color: '#B45309' },
   parada: { txt: '🟡 Parada', color: '#B45309' },
   finalizada: { txt: '✅ Finalizada', color: '#166534' },
@@ -118,6 +119,16 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     .eq('status', 'pendiente')
     .lte('created_at', `${date}T23:59:59.999-04:00`)
     .order('created_at', { ascending: false });
+  // Averías REALES pendientes (material != MÁQUINA PARADA): la máquina queda AVERIADA.
+  // Igual que teléfono/admin: la de HOY gana sobre trabajando; la ARRASTRADA pierde si
+  // la máquina inició jornada. Se separan por fecha de marca respecto al día del reporte.
+  const { data: maintAver } = await supabase
+    .from('maintenance_requests')
+    .select('machinery_id, notes, created_at')
+    .neq('material', 'MÁQUINA PARADA')
+    .eq('status', 'pendiente')
+    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .order('created_at', { ascending: false });
   // Parada POR TURNO: machine → turno → motivo. Así la parada del inspector de DÍA no
   // afecta al de NOCHE (misma máquina, 2 inspectores) ni tapa la jornada del otro turno.
   // Parada de HOY por turno (respeta el turno). ARRASTRADA (marcada antes del día del
@@ -136,6 +147,19 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       const mm = paradaHoyByShift.get(id) ?? new Map<Turno, string>();
       if (!mm.has(sh)) mm.set(sh, motivo);
       paradaHoyByShift.set(id, mm);
+    }
+  });
+  // Avería HOY (marcada en el día del reporte) vs ARRASTRADA (antes). El motivo es el
+  // material/nota de la avería.
+  const averiaHoy = new Map<string, string>();
+  const averiaArr = new Map<string, string>();
+  ((maintAver ?? []) as any[]).forEach((m) => {
+    const id = m.machinery_id as string;
+    const motivo = String(m.notes ?? '').trim();
+    if (new Date(m.created_at).getTime() < dayStartMs) {
+      if (!averiaArr.has(id)) averiaArr.set(id, motivo);
+    } else if (!averiaHoy.has(id)) {
+      averiaHoy.set(id, motivo);
     }
   });
 
@@ -186,12 +210,26 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;
     const openForShift = !!rd?.jornada_start_at && rd?.jornada_shift === turno;
-    // Parada de HOY del mismo turno gana; una ARRASTRADA solo aplica si NO trabaja hoy
-    // (si iniciaron jornada, la máquina se reactivó → en curso, no parada vieja).
+    // Prioridad UNIFICADA (igual que el teléfono `segmentoDe` y el admin):
+    //  avería HOY > parada HOY > trabajando > avería ARRASTRADA > parada ARRASTRADA >
+    //  finalizada (con horas) > por iniciar. Lo de HOY gana sobre "trabajando"; lo
+    //  arrastrado pierde si la máquina inició jornada (se reactivó).
     const parHoy = paradaHoyByShift.get(id)?.get(turno);
-    const parMot = parHoy != null ? parHoy : (!openForShift ? paradaArr.get(id) : undefined);
-    const parada = parMot != null;
-    const estado: EstadoKey = parada ? 'parada' : openForShift ? 'encurso' : hoursForShift > 0 ? 'finalizada' : 'pendiente';
+    const averHoyMot = averiaHoy.get(id);
+    const averArrMot = !openForShift ? averiaArr.get(id) : undefined;
+    const parArrMot = !openForShift ? paradaArr.get(id) : undefined;
+    const estado: EstadoKey =
+      averHoyMot != null ? 'averia'
+      : parHoy != null ? 'parada'
+      : openForShift ? 'encurso'
+      : averArrMot != null ? 'averia'
+      : parArrMot != null ? 'parada'
+      : hoursForShift > 0 ? 'finalizada'
+      : 'pendiente';
+    const motivo =
+      estado === 'averia' ? (averHoyMot ?? averArrMot ?? '')
+      : estado === 'parada' ? (parHoy ?? parArrMot ?? '')
+      : '';
     iMap.set(id, {
       id,
       code: base.code,
@@ -206,7 +244,7 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       dayH,
       nightH,
       estado,
-      motivo: parada ? (parMot || '') : '',
+      motivo,
     });
   };
 
@@ -285,7 +323,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     night: { icon: '🌙', label: 'Jornada de noche' },
   };
 
-  const estRank = (e: EstadoKey) => (e === 'encurso' ? 0 : e === 'parada' ? 1 : e === 'pendiente' ? 2 : 3);
+  const estRank = (e: EstadoKey) => (e === 'averia' ? 0 : e === 'encurso' ? 1 : e === 'parada' ? 2 : e === 'pendiente' ? 3 : 4);
   const renderInspector = (turno: Turno, insp: string, machMap: Map<string, Mach>): string => {
     const list = [...machMap.values()].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
     let tD = 0, tN = 0;
@@ -294,7 +332,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       tD += m.dayH; tN += m.nightH;
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
-      const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${m.estado === 'parada' && m.motivo ? `<div style="color:#B45309;font-size:10px">${esc(m.motivo)}</div>` : ''}`;
+      const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${(m.estado === 'parada' || m.estado === 'averia') && m.motivo ? `<div style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</div>` : ''}`;
       return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.referencia || '—')}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td></tr>`;
     }).join('');
     const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Referencia</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td></tr></tfoot></table>`;
@@ -335,11 +373,13 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(insp)}</div><div class="frole">Inspector</div></div>`;
 
     // Resumen de estados del inspector (todas sus máquinas a ese nivel).
+    const cAve = list.filter((m) => m.estado === 'averia').length;
     const cEn = list.filter((m) => m.estado === 'encurso').length;
     const cPar = list.filter((m) => m.estado === 'parada').length;
     const cPen = list.filter((m) => m.estado === 'pendiente').length;
     const cFin = list.filter((m) => m.estado === 'finalizada').length;
     const resumen = [
+      cAve ? `<span style="color:#B91C1C">🔴 ${cAve} averiada(s)</span>` : '',
       cEn ? `<span style="color:#B45309">● ${cEn} en curso</span>` : '',
       cPar ? `<span style="color:#B45309">🟡 ${cPar} parada(s)</span>` : '',
       cPen ? `<span style="color:#6B7280">⏳ ${cPen} por iniciar</span>` : '',
@@ -399,7 +439,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     table.loc-table tr{page-break-inside:avoid;page-break-after:auto}
     .none{color:#6B7280;font-size:12px}
     .tot-horas{margin:12px 0 2px;font-size:12.5px;color:#1E3A5F;font-weight:700;background:#EEF2F7;border-radius:6px;padding:6px 10px;display:inline-block}
-    .firma-insp{width:260px;margin:20px 0 8px;page-break-inside:avoid}
+    .firma-insp{width:260px;margin:64px 0 8px;page-break-inside:avoid}
     .firma-insp .line{border-top:1px solid #333;margin-bottom:4px}
     .firma-insp .fname{font-size:12px;font-weight:700;color:#111}
     .firma-insp .frole{font-size:10px;color:#6B7280}
