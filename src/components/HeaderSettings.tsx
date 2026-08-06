@@ -36,10 +36,25 @@ export default function HeaderSettings() {
     setBioOn(value);
   };
 
+  // Abre la pantalla completa de Ajustes desde CUALQUIER pantalla. Ojo: en React
+  // Navigation `navigate('Ajustes')` NO lanza si la ruta no existe en el stack
+  // actual — solo emite un warning y no hace nada. Por eso el try/catch anterior
+  // no servía: desde una pestaña como Inicio (cuyo navegador es el Tab, que solo
+  // tiene el tab "More", no "Ajustes") el botón quedaba muerto. Aquí subimos por
+  // los navegadores (actual → padres) y actuamos sobre el PRIMERO que conozca la
+  // ruta: si tiene el tab "More" navegamos anidado a Ajustes; si tiene "Ajustes"
+  // directo (paneles de rol) vamos ahí.
   const goAjustes = () => {
     setOpen(false);
-    try { navigation.navigate('Ajustes'); }
-    catch { try { navigation.navigate('More', { screen: 'Ajustes' }); } catch {} }
+    let nav: any = navigation;
+    while (nav) {
+      const names: string[] = nav.getState?.()?.routeNames ?? [];
+      if (names.includes('More')) { nav.navigate('More', { screen: 'Ajustes' }); return; }
+      if (names.includes('Ajustes')) { nav.navigate('Ajustes'); return; }
+      nav = nav.getParent?.();
+    }
+    // Último recurso.
+    navigation.navigate('Ajustes');
   };
 
   return (

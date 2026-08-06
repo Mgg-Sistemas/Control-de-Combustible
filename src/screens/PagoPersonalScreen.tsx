@@ -675,17 +675,6 @@ export default function PagoPersonalScreen() {
           ) : null}
         </View>
       </View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs }}>
-        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', flex: 1 }}>{bcvInfoTxt}</Text>
-        <TouchableOpacity
-          onPress={onRefreshBcv}
-          disabled={bcvLoading}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, opacity: bcvLoading ? 0.6 : 1 }}
-        >
-          {bcvLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🔄 Actualizar tasa BCV</Text>
-        </TouchableOpacity>
-      </View>
       <TabuladorCargos visible={tabOpen} onClose={() => setTabOpen(false)} canEdit={puedeTarifa} onSynced={refetch} />
 
       {/* Cambio de vista: Por persona (ledger) / Por período (nóminas). */}
@@ -730,7 +719,6 @@ export default function PagoPersonalScreen() {
                           <Text style={{ color: colors.muted, fontSize: 12 }}>{TYPE_LABEL[p.period_type]} · {fmtDMY(p.date_from)} → {fmtDMY(p.date_to)} · {MODE_LABEL[p.mode]}</Text>
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text style={{ color: colors.success, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{usd(p.total_amount)}</Text>
-                            {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{bsTxt(p.total_amount)}</Text> : null}
                           </View>
                         </View>
                       </Card>
@@ -826,13 +814,11 @@ export default function PagoPersonalScreen() {
                 <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.xs }}>
                   <Text style={{ color: colors.brandContrast, opacity: 0.85, fontWeight: '800', fontSize: 11, letterSpacing: 0.5 }}>TOTAL DEL PERÍODO</Text>
                   <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 28, fontVariant: ['tabular-nums'] as any, marginTop: 2 }}>{usd(sel.total_amount)}</Text>
-                  {bcvRate ? <Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 12, fontWeight: '700' }}>{bsTxt(sel.total_amount)}</Text> : null}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.2)' }}>
-                    <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}{bcvRate ? ` · ${bsTxt(totalPagado)}` : ''}</Text>
-                    {totalSaldo > 0 ? <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}{bcvRate ? ` · ${bsTxt(totalSaldo)}` : ''}</Text> : null}
+                    <Text style={{ color: colors.brandContrast, opacity: 0.9, fontSize: 13, fontWeight: '800' }}>Pagada {usd(totalPagado)}</Text>
+                    {totalSaldo > 0 ? <Text style={{ color: colors.brandContrast, opacity: 0.75, fontSize: 12, fontWeight: '700' }}>Saldo {usd(totalSaldo)}</Text> : null}
                   </View>
                 </View>
-                {bcvRate ? <Text style={{ color: colors.muted, fontSize: 10, marginTop: 2 }}>Tasa BCV del día: {fmtBs(bcvRate)}/US$</Text> : null}
               </Card>
 
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -996,7 +982,6 @@ export default function PagoPersonalScreen() {
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={{ color: colors.success, fontWeight: '800', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{usd(it.total)}</Text>
-                          {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>{bsTxt(it.total)}</Text> : null}
                           {pagado > 0 ? <Text style={{ color: saldo > 0 ? colors.danger : colors.success, fontSize: 11, fontWeight: '700' }}>{saldo > 0 ? `saldo ${usd(saldo)}` : '✓ pagado'}</Text> : null}
                         </View>
                       </View>
@@ -1144,16 +1129,9 @@ export default function PagoPersonalScreen() {
             {payFor ? (
               <>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>Abonar a {payFor.person_name}</Text>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Total {usd(payFor.total)} · saldo {usd(saldoOf(payFor))}</Text>
-                {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, marginBottom: spacing.sm }}>≈ {bsTxt(payFor.total)} · saldo {bsTxt(saldoOf(payFor))} (tasa BCV {fmtBs(bcvRate)}/US$)</Text> : <View style={{ marginBottom: spacing.sm }} />}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>Monto del abono ({pMontoCur === 'USD' ? '$' : 'Bs'})</Text>
-                  <TouchableOpacity onPress={() => setPMontoCur(pMontoCur === 'USD' ? 'VES' : 'USD')} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 1 }}>
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>{pMontoCur === 'USD' ? '$→Bs' : 'Bs→$'}</Text>
-                  </TouchableOpacity>
-                </View>
+                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Total {usd(payFor.total)} · saldo {usd(saldoOf(payFor))}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Monto del abono ($)</Text>
                 <TextInput value={pMonto} onChangeText={(t) => setPMonto(onlyDecimal(t))} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={input} />
-                {bcvRate ? <Text style={{ color: colors.brandText, fontSize: 11, marginTop: 2 }}>≈ {pMontoCur === 'USD' ? bsTxt(parseNum(pMonto)) : usd(usdFromBs(parseNum(pMonto), bcvRate))}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Método</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                   {METODOS.map((m) => (
