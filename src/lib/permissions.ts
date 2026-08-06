@@ -47,7 +47,7 @@ export const MODULES: { key: string; label: string }[] = [
   { key: 'reportes', label: 'Reportes' },
   { key: 'asistencia_camiones', label: 'Asistencia de camiones' },
   { key: 'usuarios', label: 'Usuarios' },
-  { key: 'mangueras', label: 'Fabricación · Mangueras hidráulicas' },
+  { key: 'mangueras', label: 'Fabricación' },
 ];
 
 /** Nivel por defecto para un usuario no-admin sin fila explícita.
