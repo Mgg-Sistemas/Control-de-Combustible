@@ -31,8 +31,23 @@ export function UpdateBanner() {
   }, []);
 
   const actualizar = () => {
-    try { (globalThis as any).location?.reload?.(true); } catch {}
-    try { (globalThis as any).location?.reload?.(); } catch {}
+    setShow(false); // feedback inmediato
+    const w: any = globalThis;
+    // 1) Limpia caches del navegador / PWA si existen (por si un service worker
+    //    guardó el index/bundle viejo).
+    try { w.caches?.keys?.().then((ks: string[]) => ks.forEach((k) => w.caches.delete(k))).catch(() => {}); } catch {}
+    // 2) Recarga FORZANDO un index.html FRESCO con un cache-buster (_v). Un simple
+    //    location.reload() reusa el index cacheado → vuelve a cargar el bundle VIEJO
+    //    y el aviso reaparece. Con la query nueva el navegador baja el index nuevo,
+    //    que referencia el bundle con hash nuevo (URL distinta) → carga la versión nueva.
+    try {
+      const url = new w.URL(w.location.href);
+      url.searchParams.set('_v', String(Date.now()));
+      w.location.replace(url.toString());
+      return;
+    } catch {}
+    // Fallback si algo de lo anterior falla.
+    try { w.location?.reload?.(); } catch {}
   };
 
   if (!show) return null;
