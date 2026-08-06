@@ -1719,15 +1719,23 @@ las manejara). Solo el usuario "máquinas sin asignar" se ve afectado por este c
 
 ---
 
-## 4.26. Mangueras hidráulicas (Fabricación / Taller)
+## 4.26. Fabricación (MRP): Mangueras hidráulicas + maestros de manufactura
 
-Primera fase de un módulo de **Fabricación (MRP)** más amplio. Lleva el control de cada
+**"Más → 🏭 Fabricación"** abre un panel con 4 tarjetas: **Mangueras hidráulicas** (Fase 1, ya en
+producción — ver abajo), **Centros de trabajo**, **Recetas (BoM)** y **Rutas de producción**
+(Fase 2, maestros de manufactura — ver 4.26b). Todas comparten el mismo permiso de módulo
+(`mangueras`, etiquetado "Fabricación" en la matriz de permisos) — no hace falta otorgar accesos
+por separado.
+
+### 4.26a. Mangueras hidráulicas (Taller)
+
+Primera fase del módulo de **Fabricación (MRP)**. Lleva el control de cada
 **manguera hidráulica** confeccionada o reparada en el taller para la flota: qué máquina la lleva,
 qué trabajo se hizo, cuánto costó, si ya está instalada y si su pago ya está autorizado y pagado.
 
 > **Acceso y permisos:** este módulo es **restringido por defecto** ("Sin acceso"), igual que
 > Compras o Uniformes — un administrador debe otorgarlo explícitamente desde **Usuarios →
-> permisos por módulo** (o en un rol dinámico). Se llega desde **"Más → 🔧 Mangueras
+> permisos por módulo** (o en un rol dinámico). Se llega desde **"Más → 🏭 Fabricación → Mangueras
 > hidráulicas"**. Los 3 niveles de permiso hacen exactamente esto:
 > - **Lectura:** solo puede ver el listado, los filtros y el total invertido. No ve el botón
 >   "+ Nueva manguera" ni los botones de acción de cada tarjeta.
@@ -1768,6 +1776,30 @@ Toca **"📄 Reporte de confección y pago"**: genera un PDF con el listado que 
 los filtros aplicados), el **total invertido**, el detalle de cada manguera (código, máquina,
 fecha, descripción, costo, proveedor, estado de instalación, estado de pago) y **quién la
 registró** y **quién aprobó el pago**.
+
+### 4.26b. Centros de trabajo · Recetas (BoM) · Rutas de producción (Fase 2)
+
+Datos maestros para planificar y costear fabricación — todavía sin Órdenes de Fabricación (esa es
+la Fase 3, pendiente). Se llega desde el panel **"Más → 🏭 Fabricación"**.
+
+**🏗️ Centros de trabajo:** el lugar donde se produce — una máquina, un área o una cuadrilla.
+"+ Nuevo centro de trabajo" pide código, nombre, tipo, la máquina asociada (si el tipo es
+"Máquina"), capacidad por hora y los costos de mano de obra y de máquina por hora (para costear
+después una orden de fabricación).
+
+**📋 Recetas (BoM):** elige un **producto terminado** del inventario (marcado como tal con
+`item_kind`) para ver o crear sus versiones de receta. Cada versión tiene una lista de
+**componentes** (producto que consume, cantidad por unidad de salida, unidad, % de merma esperada
+y sustitutos opcionales). Solo puede haber **una receta "🟢 Activa" por producto** — la base de
+datos lo garantiza: si intentas activar una segunda, sale el aviso "Ya hay una receta activa para
+este producto — desactívala primero".
+
+**🛣️ Rutas de producción:** elige un producto terminado para ver o crear sus rutas — la secuencia
+de **pasos** (cada uno en un centro de trabajo, con minutos estándar) que sigue la materia prima
+hasta terminar el producto. Cada paso puede marcarse como **punto de control de calidad**
+(📷 Foto / 📏 Medición / ✅ Aprobación) con una nota de especificación. Los pasos se reordenan con
+las flechas ⬆️⬇️. Igual que las recetas, solo puede haber **una ruta "🟢 Activa" por producto** a
+la vez.
 
 ---
 

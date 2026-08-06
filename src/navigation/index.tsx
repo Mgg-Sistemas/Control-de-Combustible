@@ -56,6 +56,10 @@ import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
+import FabricacionHubScreen from '../screens/FabricacionHubScreen';
+import WorkCentersScreen from '../screens/WorkCentersScreen';
+import BomScreen from '../screens/BomScreen';
+import RoutesScreen from '../screens/RoutesScreen';
 import {
   TanksScreen,
   IntakesScreen,
@@ -185,7 +189,11 @@ function MoreStack() {
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
-      <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Fabricación' }} />
+      <Stack.Screen name="FabricacionHub" component={FabricacionHubScreen} options={{ title: 'Fabricación' }} />
+      <Stack.Screen name="Mangueras" component={ManguerasScreen} options={{ title: 'Mangueras hidráulicas' }} />
+      <Stack.Screen name="WorkCenters" component={WorkCentersScreen} options={{ title: 'Centros de trabajo' }} />
+      <Stack.Screen name="Bom" component={BomScreen} options={{ title: 'Recetas (BoM)' }} />
+      <Stack.Screen name="Routes" component={RoutesScreen} options={{ title: 'Rutas de producción' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
@@ -402,7 +410,11 @@ const moreScreens = {
   Compras: 'compras',
   Inventario: 'inventario',
   InspeccionesMaq: 'inspecciones-maquinaria',
-  Mangueras: 'fabricacion',
+  FabricacionHub: 'fabricacion',
+  Mangueras: 'fabricacion/mangueras',
+  WorkCenters: 'fabricacion/centros-trabajo',
+  Bom: 'fabricacion/recetas',
+  Routes: 'fabricacion/rutas',
   ScanQr: 'escanear',
   MachineQuick: 'maquina',
   Transfers: 'traslados',
