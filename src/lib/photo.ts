@@ -214,16 +214,24 @@ export async function captureAndUploadEmployeePhoto(
   return uploadToMachinery(path, body);
 }
 
-/** Quita la foto de un registro (pone photo_url = null). Sirve para empleados,
- *  aliados y maquinaria. No borra el archivo del bucket (queda huérfano, sin costo). */
-export async function removePhoto(table: string, id: string): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.from(table).update({ photo_url: null }).eq('id', id);
+/** Quita una foto de un registro (pone la columna = null). Sirve para empleados,
+ *  aliados y maquinaria. `column` por defecto es 'photo_url' (la foto principal);
+ *  en maquinaria también existe 'photo_serial_url' (foto del serial/placa).
+ *  No borra el archivo del bucket (queda huérfano, sin costo). */
+export async function removePhoto(table: string, id: string, column: string = 'photo_url'): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from(table).update({ [column]: null }).eq('id', id);
   return { ok: !error, error: error?.message };
 }
 
-/** Selecciona una imagen, la sube al bucket 'machinery' y guarda la URL en la máquina. */
+/**
+ * Selecciona una imagen, la sube al bucket 'machinery' y guarda la URL en la máquina.
+ * `column` decide QUÉ foto se actualiza:
+ *  - 'photo_url'        → foto de la MAQUINARIA (por defecto).
+ *  - 'photo_serial_url' → foto del SERIAL / PLACA (se guarda en la subcarpeta serial/).
+ */
 export async function pickAndUploadPhoto(
-  machineryId: string
+  machineryId: string,
+  column: 'photo_url' | 'photo_serial_url' = 'photo_url'
 ): Promise<{ ok: boolean; url?: string; error?: string }> {
   const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (!perm.granted) return { ok: false, error: 'Permiso de galería denegado.' };
@@ -233,10 +241,11 @@ export async function pickAndUploadPhoto(
 
   const body = await assetToBody(res.assets[0]);
   if (!body) return { ok: false, error: 'No se pudo leer la imagen.' };
-  const path = `${machineryId}/${Date.now()}.jpg`;
+  const folder = column === 'photo_serial_url' ? 'serial/' : '';
+  const path = `${machineryId}/${folder}${Date.now()}.jpg`;
   const up = await uploadToMachinery(path, body);
   if (!up.ok) return up;
-  const { error } = await supabase.from('machinery').update({ photo_url: up.url }).eq('id', machineryId);
+  const { error } = await supabase.from('machinery').update({ [column]: up.url }).eq('id', machineryId);
   if (error) return { ok: false, error: error.message };
   return up;
 }
