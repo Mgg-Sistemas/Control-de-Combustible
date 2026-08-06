@@ -1196,8 +1196,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
 
   // 🟢 VOLVER A OPERATIVA: revierte una máquina PARADA. Registra una visita
-  // "trabajando" (Inspecciones) y RESUELVE la avería "MÁQUINA PARADA" pendiente
-  // (Mantenimiento), con lo que Control deja de mostrar "MÁQUINA PARADA".
+  // "trabajando" (Inspecciones) y RESUELVE tanto la "MÁQUINA PARADA" pendiente
+  // como cualquier avería REAL pendiente de esa máquina (Mantenimiento), con lo
+  // que Control deja de mostrar "MÁQUINA PARADA" NI avería.
+  //
+  // ⚠️ Antes solo se resolvía 'MÁQUINA PARADA': una avería real (material
+  // distinto, ej. "VÁLVULA") quedaba 'pendiente' PARA SIEMPRE aunque la máquina
+  // ya estuviera arreglada y trabajando con normalidad — nada más en la app la
+  // cerraba. Como avería pendiente ya NO decae con el tiempo (se arrastra
+  // adrede, ver el fix de hoy en InspectionsSummary/SupervisorScreen), esa
+  // avería vieja dejaba la máquina marcada 🔴 AVERIADA de forma permanente en
+  // "POR INSPECTOR" y en el propio teléfono, sin ninguna forma de quitarla
+  // salvo entrar a mano al módulo de Mantenimiento — causa real del reporte
+  // de Remberto Rojas (06/08/2026): máquinas ya operativas hace tiempo que
+  // seguían contando como averiadas por una avería vieja jamás cerrada aquí.
   const volverOperativa = async () => {
     if (!ci || ciSaving) return;
     setCiSaving(true); setNotice(null);
@@ -1206,11 +1218,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       .from('maintenance_requests')
       .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
       .eq('machinery_id', ci.id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
+    const { error: upErr2 } = await supabase
+      .from('maintenance_requests')
+      .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
+      .eq('machinery_id', ci.id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
     setCiSaving(false);
-    if (!vis && upErr) { setNotice('❌ No se pudo poner operativa.'); return; }
+    if (!vis && upErr && upErr2) { setNotice('❌ No se pudo poner operativa.'); return; }
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · vuelve a OPERATIVA`);
     await reloadEstados();
-    setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr ? ' · ⚠️ la avería no se pudo cerrar' : ' · avería cerrada en Mantenimiento'}.`);
+    setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr || upErr2 ? ' · ⚠️ una avería no se pudo cerrar' : ' · avería(s) cerrada(s) en Mantenimiento'}.`);
   };
 
   // Escanea el carnet del operador (QR ?empleado=<id>): valida que exista, que su
