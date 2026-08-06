@@ -265,6 +265,7 @@ function CoordinadorStack() {
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
@@ -282,6 +283,7 @@ function PatioStack() {
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
@@ -296,6 +298,7 @@ function FuelDriverStack() {
       {/* Pantalla RAÍZ: mismo criterio que PatioHome (sin flecha ni "Salir" propio). */}
       <Stack.Screen name="FuelDriverHome" component={FuelDriverScreen} options={{ title: 'Surtir combustible', headerLeft: () => null }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
@@ -334,6 +337,7 @@ function AsistenciaStack() {
       <Stack.Screen name="AsistenciaHome" component={AsistenciaScreen} options={{ title: 'Control de asistencia', headerLeft: () => null }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
@@ -367,6 +371,7 @@ function CombustibleStack() {
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="CombustibleHome" component={CombustibleScreen} options={{ title: 'Combustible' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }
@@ -390,6 +395,7 @@ function InventarioStack() {
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="InventarioHome" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
   );
 }

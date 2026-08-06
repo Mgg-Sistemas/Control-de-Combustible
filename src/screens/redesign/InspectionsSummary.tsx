@@ -503,9 +503,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // los reportes, no solo las que quedaron con la jornada todavía abierta).
     const isToday = selDay === caracasToday();
     const startedSet = new Set<string>();
+    // Jornadas TODAVÍA abiertas hoy (con jornada_start_at) — para separar las
+    // "cerradas" (iniciadas y ya finalizadas) de las que siguen en curso.
+    const openSet = new Set<string>();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
       if (roundStarted(r)) startedSet.add(r.machinery_id);
+      if (r.jornada_start_at) openSet.add(r.machinery_id);
     });
     // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche, termina a las 7am):
     // sin esto, al ver "hoy" recién pasada la medianoche esas máquinas parecían
@@ -514,7 +518,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     if (isToday) {
       const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
       const yesterdayIso = y.toISOString().slice(0, 10);
-      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) startedSet.add(r.machinery_id); });
+      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { startedSet.add(r.machinery_id); openSet.add(r.machinery_id); } });
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
@@ -544,14 +548,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (applies) paradaSet.add(m.machinery_id);
     });
     const assignedShift = new Set(assignments.filter((a) => a.shift === shift).map((a) => a.machinery_id));
-    return { startedSet, paradaSet, averSet, assignedShift };
+    // CERRADAS = iniciadas y ya finalizadas (con horas, sin jornada abierta). Una
+    // avería/parada del día no cuenta como "cerrada" (tiene su propia categoría).
+    const closedSet = new Set<string>();
+    startedSet.forEach((id) => { if (!openSet.has(id) && !averSet.has(id) && !paradaSet.has(id)) closedSet.add(id); });
+    return { startedSet, paradaSet, averSet, assignedShift, closedSet };
   }, [rounds, selDay, shift, maint, assignments]);
 
   // KPIs del día (totales).
   const top = useMemo(() => {
-    const { startedSet, paradaSet, averSet, assignedShift } = daySets;
+    const { startedSet, paradaSet, averSet, assignedShift, closedSet } = daySets;
     let pend = 0; assignedShift.forEach((id) => { if (!startedSet.has(id) && !paradaSet.has(id) && !averSet.has(id)) pend++; });
-    return { iniciadas: startedSet.size, pendientes: pend, paradas: paradaSet.size, averiadas: averSet.size };
+    return { iniciadas: startedSet.size, pendientes: pend, paradas: paradaSet.size, averiadas: averSet.size, cerradas: closedSet.size };
   }, [daySets]);
 
   // Código de máquina por id (de asignaciones, rondas o mantenimiento).
@@ -663,11 +671,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // IDs de máquina por estado (para la lista al tocar una KPI de arriba). Ordenados por código.
   const cmpId = useCallback((a: string, b: string) => cmpText(codeById.get(a) || '', codeById.get(b) || ''), [codeById]);
   const topIds = useMemo(() => {
-    const { startedSet, paradaSet, averSet, assignedShift } = daySets;
+    const { startedSet, paradaSet, averSet, assignedShift, closedSet } = daySets;
     const pendIds: string[] = [];
     assignedShift.forEach((id) => { if (!startedSet.has(id) && !paradaSet.has(id) && !averSet.has(id)) pendIds.push(id); });
     const s = (ids: Iterable<string>) => [...ids].sort(cmpId);
-    return { ini: s(startedSet), pend: s(pendIds), par: s(paradaSet), ave: s(averSet) };
+    return { ini: s(startedSet), pend: s(pendIds), par: s(paradaSet), ave: s(averSet), cer: s(closedSet) };
   }, [daySets, cmpId]);
 
   // Motivo (el "por qué") de la parada/avería por máquina, del más reciente PENDIENTE.
@@ -738,7 +746,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
-    const { startedSet, paradaSet, averSet } = daySets;
+    const { startedSet, paradaSet, averSet, closedSet } = daySets;
     const byName = new Map<string, { name: string; ids: Set<string>; code: Map<string, string> }>();
     assignments.filter((a) => a.shift === shift).forEach((a) => {
       const nm = a.inspector_name || '—';
@@ -778,7 +786,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // en las mismas máquinas visibles — acumulado de todas las rondas alguna vez
       // registradas, no limitado a los 14 días de `rounds`.
       const horasTotales = Math.round(visibleIds.reduce((sum, id) => sum + (allHoursByMachine[id] ?? 0), 0) * 10) / 10;
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
+      // CERRADAS del inspector: de sus iniciadas, las que ya finalizaron (en closedSet).
+      const cer = ini.filter((id) => closedSet.has(id));
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
 
@@ -923,6 +933,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
             <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
+            <KpiCard label="Cerradas (finalizadas)" value={top.cerradas} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.cer)} />
             <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topIds.pend)} />
             <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topIds.par)} />
             <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ave)} />
@@ -1233,12 +1244,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14, marginBottom: spacing.sm }}>👷 {sel.name} <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>· {sel.total} asignada(s)</Text></Text>
               <View style={{ flexDirection: 'row', gap: spacing.xs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                 <KpiCard label="Iniciadas" value={sel.ini.length} tone="brand" onPress={() => openList(`✅ Iniciadas · ${sel.name}`, sel.ini)} />
+                <KpiCard label="Cerradas" value={sel.cer.length} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${sel.name}`, sel.cer)} />
                 <KpiCard label="Pendientes" value={sel.pend.length} tone="muted" onPress={() => openList(`⏳ Pendientes · ${sel.name}`, sel.pend)} />
                 <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
                 <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
                 <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'dia')} />
-                <KpiCard label="Horas reales totales" value={`${sel.horasTotales.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'total')} />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
