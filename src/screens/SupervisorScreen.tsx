@@ -622,30 +622,29 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return set;
   }, [assignMap, uid]);
   const puedeCualquierTurno = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
-  // PARADAS que le aplican a ESTE inspector: solo las de SU turno (una parada marcada
-  // de noche no afecta al inspector de día y viceversa). Admin/coordinador (o sin
-  // asignación conocida) ven todas. Se deriva de las paradas crudas + sus turnos.
+  // PARADAS de la máquina. SINCRONIZADO CON EL SISTEMA (admin/InspectionsSummary):
+  // una parada pendiente cuenta para la máquina SIN importar el turno en que se marcó.
+  // ANTES se filtraba por el turno del inspector (una parada de noche no la veía el de
+  // día) → esas máquinas salían como "por iniciar" en el tlf aunque el admin las mostrara
+  // como PARADAS (caso REMBERTO: 3 paradas de noche que en el tlf aparecían por iniciar).
+  // Ahora teléfono y sistema coinciden: cualquier parada pendiente = 🟡 Parada.
   const paradaIds = useMemo(() => {
-    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
     const s = new Set<string>();
-    // La parada arrastrada (de días anteriores) aplica a la máquina completa (cualquier turno).
-    paradaRawList.forEach((p) => { if (verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) s.add(p.id); });
+    paradaRawList.forEach((p) => s.add(p.id));
     return s;
-  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
-  // Paradas marcadas HOY (no arrastradas) visibles para este inspector: estas GANAN
-  // sobre "trabajando". Las arrastradas (en paradaIds) pierden si la máquina trabaja hoy.
+  }, [paradaRawList]);
+  // Paradas marcadas HOY (no arrastradas): GANAN sobre "trabajando". Las arrastradas
+  // (en paradaIds) pierden si la máquina trabaja hoy. También sin filtro de turno.
   const paradaHoyIds = useMemo(() => {
-    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
     const s = new Set<string>();
-    paradaRawList.forEach((p) => { if (!p.arrastrada && (verTodos || myGlobalShifts.has(p.shift))) s.add(p.id); });
+    paradaRawList.forEach((p) => { if (!p.arrastrada) s.add(p.id); });
     return s;
-  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
+  }, [paradaRawList]);
   const paradaMotivos = useMemo(() => {
-    const verTodos = puedeCualquierTurno || myGlobalShifts.size === 0;
     const mot: Record<string, string> = {};
-    paradaRawList.forEach((p) => { if ((verTodos || p.arrastrada || myGlobalShifts.has(p.shift)) && !(p.id in mot)) mot[p.id] = p.motivo; });
+    paradaRawList.forEach((p) => { if (!(p.id in mot)) mot[p.id] = p.motivo; });
     return mot;
-  }, [paradaRawList, myGlobalShifts, puedeCualquierTurno]);
+  }, [paradaRawList]);
   // Segmento de estatus de una máquina. Prioridad: avería real pendiente > parada
   // (operativa o por avería, ambas dejan una fila MÁQUINA PARADA; incluye arrastrada
   // del día anterior) > jornada abierta hoy > pendiente por iniciar. Base común de los
@@ -1600,6 +1599,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
         {/* Fila 2: acciones (se acomodan en varias líneas si no caben). */}
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
+          {/* 🔄 ACTUALIZAR: recarga manual desde el teléfono. En web (navegador móvil)
+              el "jalar para refrescar" del Screen no funciona; este botón sí recarga
+              máquinas, asignaciones, jornadas, paradas y averías (llama a `load`). */}
+          <TouchableOpacity
+            onPress={() => { if (!loading) { setLoading(true); load(); } }}
+            disabled={loading}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: loading ? 0.6 : 1 }}
+          >
+            <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{loading ? '⏳ Actualizando…' : '🔄 Actualizar'}</Text>
+          </TouchableOpacity>
           {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
           {onSistema ? (
             <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>

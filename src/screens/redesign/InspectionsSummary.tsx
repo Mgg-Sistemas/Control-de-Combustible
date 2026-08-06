@@ -946,12 +946,22 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                   </Text>
                   {faltantesIds.map((id) => {
                     const code = codeById.get(id) ?? '—';
+                    const info = machineInfo.get(id);
+                    const ps = info?.plate || info?.serial || null;   // placa o, en su defecto, serial
+                    const emp = info?.company || null;
                     const pickerOpen = assignPickerFor === id;
                     const busy = assignBusy === id;
                     return (
                       <View key={id} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                          <Text style={{ flex: 1, color: colors.text, fontWeight: '700', fontSize: 13 }}>{code}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{code}</Text>
+                            {(ps || emp) ? (
+                              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 1 }} numberOfLines={1}>
+                                {[ps ? `🔖 ${ps}` : null, emp ? `🏢 ${emp}` : null].filter(Boolean).join('  ·  ')}
+                              </Text>
+                            ) : null}
+                          </View>
                           <TouchableOpacity
                             onPress={() => setAssignPickerFor(pickerOpen ? null : id)}
                             disabled={busy}
