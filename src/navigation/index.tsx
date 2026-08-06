@@ -185,7 +185,9 @@ function MoreStack() {
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
           Inspecciones (solo admin, con el botón "Ver vista de inspector"). Es el
           mismo SupervisorScreen: lista de máquinas, check-in, jornada, avería… */}
-      <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)' }} />
+      {/* headerShown: false — SupervisorScreen ya pinta su propio encabezado
+          (nombre + Salir); sin esto se veía duplicado con el header nativo del stack. */}
+      <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)', headerShown: false }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
@@ -336,7 +338,9 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
       }}
     >
-      <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
+      {/* "Revisar" ya pinta su propio encabezado (nombre + Salir) dentro de
+          SupervisorScreen; sin esto se veía duplicado con el header nativo del tab. */}
+      <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖'), headerShown: false }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
     </Tab.Navigator>

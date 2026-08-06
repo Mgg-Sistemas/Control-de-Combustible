@@ -15,6 +15,7 @@ import { caracasParts } from '../lib/jornada';
 import { useBcvRate, bsFromUsd, usdFromBs, fmtBs } from '../lib/bcv';
 import { Company, StaffPayPeriod, StaffPayItem, StaffPayPayment, StaffPayLine } from '../types/database';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { TabuladorCargos } from '../components/TabuladorCargos';
 import { PagoPorPersona } from '../components/PagoPorPersona';
 import { spacing, radius } from '../theme';
@@ -227,6 +228,9 @@ export default function PagoPersonalScreen() {
     setItemsLoading(false);
   };
   const openDetail = (p: StaffPayPeriod) => { setSel(p); setItems([]); setPays([]); setItemEmployeeStatus(new Map()); setCargoSel(new Set()); setCargoOpen(false); setItemSelIds(new Set()); loadDetail(p); };
+  // El detalle (renglones, abonos y estado de empleados) se carga aparte con
+  // supabase.from() directo (no useTable), así que se sincroniza en vivo aquí.
+  useRealtimeRefresh(['staff_pay_items', 'staff_pay_payments', 'employees'], () => { if (sel) loadDetail(sel); });
 
   const recomputeTotal = async (pid: string, list: StaffPayItem[], mode: Mode) => {
     const total = round2(list.reduce((s, it) => s + totalOf(it, mode), 0));

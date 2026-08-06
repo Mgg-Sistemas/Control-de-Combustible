@@ -15,6 +15,7 @@ import { caracasParts } from '../lib/jornada';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -143,6 +144,7 @@ export default function MantenimientoMaquinariaScreen() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  useRealtimeRefresh(['maintenance_requests', 'machinery_repairs', 'machinery', 'profiles'], () => { load(); });
 
   // Gasto por equipo = materiales que SALIERON del almacén para esa máquina × su costo.
   // El equipo se toma de machinery_id del movimiento; para salidas viejas (sin ese dato)
@@ -176,6 +178,8 @@ export default function MantenimientoMaquinariaScreen() {
     setReportLoading(false);
   };
   useEffect(() => { if (tab === 'reporte' && !reportLoaded && !loading) loadReportData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
+  // Solo refresca el reporte si ya se cargó (evita gastar la consulta cuando nadie visitó la pestaña).
+  useRealtimeRefresh(['inventory_movements', 'inventory_items', 'machine_inspections'], () => { if (reportLoaded) loadReportData(); });
 
   // Estadística por MÁQUINA: total de averías (todas), desglose por material y fechas.
   const machineStats = useMemo(() => {

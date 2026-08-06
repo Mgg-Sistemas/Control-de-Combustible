@@ -10,6 +10,7 @@ import {
   disableBiometric,
 } from '../lib/biometric';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { norm } from '../lib/text';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -51,42 +52,59 @@ export default function AjustesScreen() {
     })();
   }, []);
 
-  useEffect(() => {
+  const loadMaqToggle = async () => {
     if (role !== 'admin') return;
-    (async () => {
-      const { data } = await supabase
-        .from('feature_toggles')
-        .select('enabled, extra_user_ids')
-        .eq('key', MAQUINAS_TOGGLE_KEY)
-        .maybeSingle();
-      if (!data) {
-        setMaqConfigured(false);
-        setMaqEnabled(true);
-        setMaqExtraIds([]);
-        return;
-      }
-      setMaqConfigured(true);
-      setMaqEnabled(!!data.enabled);
-      setMaqExtraIds(Array.isArray(data.extra_user_ids) ? data.extra_user_ids : []);
-    })();
-    supabase
+    const { data } = await supabase
+      .from('feature_toggles')
+      .select('enabled, extra_user_ids')
+      .eq('key', MAQUINAS_TOGGLE_KEY)
+      .maybeSingle();
+    if (!data) {
+      setMaqConfigured(false);
+      setMaqEnabled(true);
+      setMaqExtraIds([]);
+      return;
+    }
+    setMaqConfigured(true);
+    setMaqEnabled(!!data.enabled);
+    setMaqExtraIds(Array.isArray(data.extra_user_ids) ? data.extra_user_ids : []);
+  };
+
+  const loadAllProfiles = async () => {
+    if (role !== 'admin') return;
+    const { data } = await supabase
       .from('profiles')
       .select('id, full_name, username, cedula')
-      .order('full_name')
-      .then(({ data }) => setAllProfiles((data as SearchProfile[]) ?? []));
-  }, [role]);
+      .order('full_name');
+    setAllProfiles((data as SearchProfile[]) ?? []);
+  };
 
   useEffect(() => {
+    loadMaqToggle();
+    loadAllProfiles();
+  }, [role]);
+
+  const loadExtraProfiles = async () => {
     if (role !== 'admin' || maqExtraIds.length === 0) {
       setMaqExtraProfiles([]);
       return;
     }
-    supabase
+    const { data } = await supabase
       .from('profiles')
       .select('id, full_name, username')
-      .in('id', maqExtraIds)
-      .then(({ data }) => setMaqExtraProfiles((data as ToggleProfile[]) ?? []));
-  }, [role, maqExtraIds]);
+      .in('id', maqExtraIds);
+    setMaqExtraProfiles((data as ToggleProfile[]) ?? []);
+  };
+
+  useEffect(() => { loadExtraProfiles(); }, [role, maqExtraIds]);
+
+  // Panel de admin: se sincroniza en vivo si otro admin cambia el toggle o la
+  // lista de accesos extra desde otro dispositivo.
+  useRealtimeRefresh(['feature_toggles', 'profiles'], () => {
+    loadMaqToggle();
+    loadAllProfiles();
+    loadExtraProfiles();
+  });
 
   const saveMaqToggle = async (patch: { enabled?: boolean; extra_user_ids?: string[] }) => {
     setMaqSaving(true);

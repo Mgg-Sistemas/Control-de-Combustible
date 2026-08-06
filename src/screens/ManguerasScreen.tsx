@@ -84,9 +84,9 @@ export default function ManguerasScreen() {
   // "Chelia": solo el nivel FULL puede aprobar y marcar como pagado.
   const canApprove = levelMeets(level, 'full');
 
-  const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false });
-  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id', orderBy: 'code' });
-  const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name' });
+  const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false, realtimeFrom: 'hose_services' });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id', orderBy: 'code', realtimeFrom: 'machinery' });
+  const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
   const { rate: bcvRate } = useBcvRate();
 
   const machineryMap = useMemo(() => {

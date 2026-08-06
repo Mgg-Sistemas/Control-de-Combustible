@@ -20,6 +20,7 @@ import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { onlyDecimal, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
@@ -184,6 +185,9 @@ export default function ManufacturingReportsScreen() {
     setOeeLoading(false);
   }, []);
   useEffect(() => { fetchOee(); }, [fetchOee]);
+  // `wo_oee` es una vista sobre work_orders/wo_time_logs: esas tablas (no la vista)
+  // disparan los eventos de Postgres, así que se escuchan directamente.
+  useRealtimeRefresh(['work_orders', 'wo_time_logs'], () => { fetchOee(); });
 
   const workCenterMap = useMemo(() => {
     const m: Record<string, WcRow> = {};

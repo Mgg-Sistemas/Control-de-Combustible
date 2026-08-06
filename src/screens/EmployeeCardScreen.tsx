@@ -8,6 +8,7 @@ import { carnetHtml, carnetCard, carnetStyles, CARNET_MM, fullName, ageFrom } fr
 import { fichaEmpleadoHtml } from '../lib/ficha';
 import { exportPdf, exportCardImage, urlToDataUri } from '../lib/pdf';
 import { logAudit } from '../lib/audit';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import QrInactive from '../components/QrInactive';
@@ -152,6 +153,8 @@ export default function EmployeeCardScreen(props: { employeeId?: string; onExit?
     setLoading(false);
   };
   useEffect(() => { load(); }, [employeeId]);
+  // isRefresh=true: no vuelve a registrar el escaneo en la bitácora al recargar por realtime.
+  useRealtimeRefresh(['employees', 'operator_assignments', 'uniform_deliveries', 'inventory_movements', 'inventory_items'], () => { load(true); });
 
   const onRefresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
 

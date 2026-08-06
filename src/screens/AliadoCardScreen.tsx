@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { Aliado } from '../types/database';
 import { qrPngDataUri, aliadoQrUrl } from '../lib/qr';
 import { carnetAliadoHtml, carnetAliadoFront, carnetAliadoStyles, CARNET_ALIADO_MM } from '../lib/carnet';
@@ -41,6 +42,7 @@ export default function AliadoCardScreen(props: { aliadoId?: string; onExit?: ()
     setLoading(false);
   };
   useEffect(() => { load(); }, [aliadoId]);
+  useRealtimeRefresh(['aliados'], () => { load(); });
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 

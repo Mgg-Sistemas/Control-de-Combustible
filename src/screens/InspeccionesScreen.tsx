@@ -4,6 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { norm, cmpText } from '../lib/text';
 import { equipCategory } from '../lib/equipos';
 import { exportPdf } from '../lib/pdf';
@@ -121,6 +122,11 @@ export default function InspeccionesScreen() {
       .limit(100);
     setHistory((data as MachineInspection[]) ?? []);
   }, []);
+
+  // Tiempo real: si otro usuario da de alta/edita un equipo, o registra/edita/borra
+  // una inspección, esta pantalla se refresca sola (lista y detalle abierto).
+  useRealtimeRefresh(['machinery'], () => { loadMachines(); });
+  useRealtimeRefresh(['machine_inspections'], () => { if (selected) loadHistory(selected.id); });
 
   const machineType = (m: Machine) => (m.tipo && m.tipo.trim()) || equipCategory(m.code) || m.code;
 

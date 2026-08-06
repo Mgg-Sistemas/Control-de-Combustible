@@ -11,6 +11,7 @@ import {
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase } from '../lib/supabase';
 import { norm } from '../lib/text';
 import { Profile, UserRole, AppRole } from '../types/database';
@@ -630,6 +631,16 @@ function EditUserForm({
   const confirm = useConfirm();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  // Carga (o recarga) SOLO los permisos por módulo del usuario en edición, sin
+  // tocar el resto del formulario (nombre, usuario, contraseña…) que el admin
+  // puede estar editando — así el refresco en vivo no le borra lo que escribió.
+  const loadPerms = async (userId: string) => {
+    const { data } = await supabase.from('module_permissions').select('module, level').eq('user_id', userId);
+    const m: Record<string, PermLevel> = {};
+    (data ?? []).forEach((r: any) => (m[r.module] = r.level));
+    setPerms(m);
+  };
+
   useEffect(() => {
     setFullName(user?.full_name ?? '');
     setCedula(user?.cedula ?? '');
@@ -639,18 +650,9 @@ function EditUserForm({
     setError(null);
     setPerms({});
     setSel(user?.app_role_id ? { kind: 'app', id: user.app_role_id } : { kind: 'base', role: (user?.role ?? 'conductor') });
-    if (user) {
-      supabase
-        .from('module_permissions')
-        .select('module, level')
-        .eq('user_id', user.id)
-        .then(({ data }) => {
-          const m: Record<string, PermLevel> = {};
-          (data ?? []).forEach((r: any) => (m[r.module] = r.level));
-          setPerms(m);
-        });
-    }
+    if (user) loadPerms(user.id);
   }, [user]);
+  useRealtimeRefresh(['module_permissions'], () => { if (user) loadPerms(user.id); });
 
   const setPerm = async (moduleKey: string, level: PermLevel) => {
     if (!user) return;

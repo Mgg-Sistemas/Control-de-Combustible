@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, TextInput, ScrollView, ActivityIndicator,
 import { Screen, Card, Loading } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { Machinery, MaintenanceMaterial, OperatorAssignment } from '../types/database';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { upsertMachineRound } from '../lib/machineRounds';
@@ -248,6 +249,21 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
       setLoading(false);
     })();
   }, [machineId, uid]);
+
+  // Tiempo real: solo refresca los datos "de solo lectura" del equipo (estado
+  // activo/bloqueado, ubicación, horómetro) y la lista de tanques. A propósito NO
+  // recarga la jornada/vista actual (eso reiniciaría el formulario que el operador
+  // está llenando en este momento), a diferencia del useEffect de arriba.
+  const refreshMachineAndTanks = React.useCallback(async () => {
+    if (!machineId) return;
+    const [{ data: m }, { data: tk }] = await Promise.all([
+      supabase.from('machinery').select('id, code, serial, tipo, referencia, active, qr_blocked, company_id, daily_consumption_l, entry_at, exit_at, entry_date, last_horometro, latitude, longitude, company:company_id(name)').eq('id', machineId).maybeSingle(),
+      supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
+    ]);
+    if (m) setMachine((prev) => (prev ? { ...prev, ...(m as any), companyName: (m as any).company?.name ?? prev.companyName } : ({ ...(m as any), companyName: (m as any).company?.name ?? 'Sin empresa' } as any)));
+    setTanks((tk ?? []) as { id: string; name: string; fuel: string }[]);
+  }, [machineId]);
+  useRealtimeRefresh(['machinery', 'tanks'], refreshMachineAndTanks);
 
   const registrarCombustible = async () => {
     if (!machine) return;

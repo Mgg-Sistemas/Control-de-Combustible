@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { BiometricToggle } from '../components/BiometricToggle';
@@ -14,6 +14,7 @@ import { SHIFT_OPTS, workedFromShifts } from './ControlMaquinariaScreen';
 import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { useTheme } from '../theme/ThemeContext';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { caracasParts } from '../lib/jornada';
@@ -62,28 +63,43 @@ export default function OperatorScreen() {
   const [fEnd, setFEnd] = useState('');
   const [savingFuel, setSavingFuel] = useState(false);
 
+  // Relee solo la LISTA de máquinas (sin tocar `sel` ni el formulario en curso):
+  // se reutiliza en la carga inicial y en el refresco en tiempo real.
+  const loadMachines = useCallback(async () => {
+    const mach = await selectAllRows('machinery', 'id, code, tipo, referencia, daily_consumption_l, operator_id, company:company_id(name)');
+    const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as (Machinery & { companyName?: string })[];
+    list.sort((a, b) => cmpText(a.code || '', b.code || ''));
+    setMachines(list);
+    return list;
+  }, []);
+  // Relee solo los tanques activos (tampoco toca el formulario en curso).
+  const loadTanks = useCallback(async () => {
+    const { data: tk } = await supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name');
+    setTanks((tk ?? []) as { id: string; name: string; fuel: string }[]);
+  }, []);
+
   // Carga inicial: perfil, máquinas (asignadas primero) y tanques.
   useEffect(() => {
     if (!uid) { setLoading(false); return; }
     (async () => {
-      const [{ data: prof }, mach, { data: tk }] = await Promise.all([
+      const [{ data: prof }, list] = await Promise.all([
         supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
-        selectAllRows('machinery', 'id, code, tipo, referencia, daily_consumption_l, operator_id, company:company_id(name)'),
-        supabase.from('tanks').select('id, name, fuel').eq('active', true).order('name'),
+        loadMachines(),
+        loadTanks(),
       ]);
       setFullName((prof as any)?.full_name ?? '');
-      const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as (Machinery & { companyName?: string })[];
-      list.sort((a, b) => cmpText(a.code || '', b.code || ''));
-      setMachines(list);
       const mine = list.filter((m) => m.operator_id === uid);
       setSel(mine[0] ?? null);
-      const tks = ((tk ?? []) as { id: string; name: string; fuel: string }[]);
-      setTanks(tks);
       // Por defecto sin tanque: combustible por litros (carga directa de la bomba).
       setFTank('');
       setLoading(false);
     })();
-  }, [uid]);
+  }, [uid, loadMachines, loadTanks]);
+
+  // Tiempo real: solo refresca las LISTAS de máquinas/tanques (datos de solo lectura),
+  // nunca `sel` ni los campos de jornada/combustible que el operador pueda estar
+  // llenando — así no se interrumpe un registro en curso.
+  useRealtimeRefresh(['machinery', 'tanks'], () => { loadMachines(); loadTanks(); });
 
   // Al cambiar de máquina o de fecha, precarga la jornada ya registrada de ese día.
   useEffect(() => {

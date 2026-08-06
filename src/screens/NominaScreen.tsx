@@ -14,6 +14,7 @@ import { onlyDecimal, cmpText, norm } from '../lib/text';
 import { PayrollPeriod, PayrollItem, PayrollLine, Company } from '../types/database';
 import { generalCompanies } from '../lib/companies';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
@@ -83,6 +84,9 @@ export default function NominaScreen({ navigation }: any) {
     setItemsLoading(false);
   };
   const openDetail = (p: PayrollPeriod) => { setSel(p); setItems([]); loadItems(p.id); };
+  // Los renglones (payroll_items) del período abierto no vienen de useTable, así
+  // que se refrescan aparte; solo mientras hay un período abierto en el modal.
+  useRealtimeRefresh(['payroll_items'], () => { if (sel) loadItems(sel.id); });
 
   const crearPeriodo = async () => {
     if (!cCompany) return toast.error('Elige la empresa.');

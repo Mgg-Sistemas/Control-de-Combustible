@@ -28,7 +28,7 @@ export default function MachineryScreen({ navigation }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
-  const { data, loading, refetch } = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
+  const { data, loading, refetch } = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true, realtimeFrom: 'machinery' });
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 

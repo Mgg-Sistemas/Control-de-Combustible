@@ -4,6 +4,7 @@ import { Screen, Card, Loading, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import QrScanner from '../components/QrScanner';
 import { parseEmployeeId } from './ScanQrScreen';
 import {
@@ -96,6 +97,10 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
 
   // Pull-to-refresh: recarga los datos de la empresa y las comidas de hoy.
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  // Tiempo real: si otro dispositivo (u otro miembro de cocina) registra una
+  // comida, cambia la empresa o sus máquinas, esta pantalla se refresca sola.
+  useRealtimeRefresh(['companies', 'machinery', 'food_company_meals'], () => { load(); });
 
   // ── Verificación del cocinero por su carnet/cédula ────────────────────────────
   const verifyByEmployee = (emp: any): boolean => {

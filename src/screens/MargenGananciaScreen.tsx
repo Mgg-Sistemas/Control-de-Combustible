@@ -7,6 +7,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -69,6 +70,7 @@ export default function MargenGananciaScreen() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  useRealtimeRefresh(['machinery'], () => { load(); });
 
   // Guarda un campo (costo o valor) de una máquina.
   const saveField = async (m: Mach, field: 'initial_cost' | 'useful_value', text: string) => {

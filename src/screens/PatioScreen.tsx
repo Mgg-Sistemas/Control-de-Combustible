@@ -9,6 +9,7 @@ import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -111,6 +112,9 @@ export default function PatioScreen({ navigation }: any) {
     })));
   };
   useEffect(() => { loadOpen(); }, []);
+  // Solo refresca la lista de fondo (camiones en jornada); no toca el estado local
+  // de los modales de inicio/fin de jornada, que se llenan aparte.
+  useRealtimeRefresh(['machine_rounds'], () => { loadOpen(); });
 
   // Al detectar un QR: busca la máquina y abre el flujo (camión, avería, gasoil o jornada).
   const onDetected = async (text: string) => {

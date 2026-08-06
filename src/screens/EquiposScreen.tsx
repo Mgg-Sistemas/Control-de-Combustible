@@ -6,6 +6,7 @@ import { useToast } from '../components/ToastProvider';
 import { RecordForm, Field } from '../components/RecordForm';
 import { DateField } from '../components/DateField';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { captureLocation, warmLocation } from '../lib/location';
 import { pickAndUploadPhoto } from '../lib/photo';
@@ -206,23 +207,23 @@ export default function EquiposScreen({ navigation, route }: any) {
   useEffect(() => { warmLocation(); }, []);
 
   // Carga el guardia/militar actual de cada máquina para mostrarlo en la ficha.
-  useEffect(() => {
+  const loadGuards = () => {
     const ids = machinery.data.map((m) => m.id);
     if (ids.length === 0) { setGuards({}); return; }
     fetchActiveGuards(ids).then(setGuards).catch(() => {});
-  }, [machinery.data]);
+  };
+  useEffect(() => { loadGuards(); }, [machinery.data]);
 
   // Inspector "asignado" = quien hizo el último check-in en cada máquina.
-  useEffect(() => { latestInspectorByMachine().then(setInspectors).catch(() => {}); }, [machinery.data]);
+  const loadInspectors = () => { latestInspectorByMachine().then(setInspectors).catch(() => {}); };
+  useEffect(() => { loadInspectors(); }, [machinery.data]);
 
   // Inspector ASIGNADO (CHECK MÁQUINA) por TURNO, día y noche por separado — para el
   // reporte de conteo de equipos (a diferencia de `inspectors`, que es solo el último
   // check-in sin distinguir turno). Se recarga junto con el catálogo.
   const [inspByShift, setInspByShift] = useState<Record<string, { day: string | null; night: string | null }>>({});
-  useEffect(() => {
-    let alive = true;
+  const loadInspByShift = () => {
     listInspectorAssignments().then(({ rows }) => {
-      if (!alive) return;
       const m: Record<string, { day: string | null; night: string | null }> = {};
       rows.forEach((r) => {
         const e = m[r.machinery_id] ?? { day: null, night: null };
@@ -231,8 +232,13 @@ export default function EquiposScreen({ navigation, route }: any) {
       });
       setInspByShift(m);
     }).catch(() => {});
-    return () => { alive = false; };
-  }, [machinery.data]);
+  };
+  useEffect(() => { loadInspByShift(); }, [machinery.data]);
+  // machinery/vehicles/companies ya se refrescan solos (useTable se suscribe a su propia
+  // tabla). Estas 3 fuentes auxiliares (custodia, inspector del check-in y asignación por
+  // turno) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
+  useRealtimeRefresh(['machine_guards'], loadGuards);
+  useRealtimeRefresh(['supervisor_visits', 'machine_inspectors'], () => { loadInspectors(); loadInspByShift(); });
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
     setGuards((p) => {
@@ -433,11 +439,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   const fuelLast = fuelTrace[0]?.date ?? null;
 
   // Tanques disponibles (para el selector al registrar un surtido).
-  useEffect(() => {
+  const loadTanks = () => {
     supabase.from('tanks').select('id, name, fuel').order('name').then(({ data }) => {
       setTanks((data ?? []) as { id: string; name: string; fuel: string }[]);
     });
-  }, []);
+  };
+  useEffect(() => { loadTanks(); }, []);
+  useRealtimeRefresh(['tanks'], loadTanks);
 
   // Fecha de hoy en Caracas (para el valor por defecto del calendario), independiente
   // de la zona horaria del dispositivo.

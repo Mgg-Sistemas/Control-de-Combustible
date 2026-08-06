@@ -4,6 +4,7 @@ import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { pdfDocument, exportPdf } from '../lib/pdf';
 import { norm, cmpText } from '../lib/text';
 import { useAuth } from '../context/AuthContext';
@@ -108,6 +109,7 @@ export default function AuditScreen() {
   const [detail, setDetail] = useState<AuditLog | null>(null);   // fila abierta en detalle
   const [targetName, setTargetName] = useState<string | null>(null);
   const [targetLoading, setTargetLoading] = useState(false);
+  const [rtNonce, setRtNonce] = useState(0); // se incrementa al llegar un cambio en tiempo real, para forzar la recarga de abajo
 
   // Al cambiar Desde por encima de Hasta (o viceversa), se emparejan para no invertir.
   const setFromSafe = (v: string) => { setFrom(v); if (v > to) setTo(v); };
@@ -175,7 +177,10 @@ export default function AuditScreen() {
     };
     const t = setTimeout(run, q ? 350 : 0);
     return () => { alive = false; clearTimeout(t); };
-  }, [from, to, q]);
+  }, [from, to, q, rtNonce]);
+
+  // Bitácora en vivo: si otro usuario/dispositivo genera una acción, se refresca sola.
+  useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1));
 
   const users = useMemo(() => {
     const s = new Set<string>();
