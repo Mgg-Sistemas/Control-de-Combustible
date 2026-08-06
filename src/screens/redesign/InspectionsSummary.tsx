@@ -36,6 +36,11 @@ function caracasToday(): string {
   return `${p.year}-${p.month}-${p.day}`;
 }
 const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
+// Hora (Caracas) "HH:MM am/pm" de un instante (ms epoch), o '—'.
+const horaCaracas = (ms: number): string => {
+  if (!ms || isNaN(ms)) return '—';
+  try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
+};
 // Token de pdfBusy para el reporte "por asignar / por iniciar" (no choca con '' ni con un nombre de inspector).
 const POR_ASIGNAR_KEY = '__por_asignar__';
 // Token de pdfBusy para el reporte de eficiencia (todos los inspectores).
@@ -104,6 +109,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [assignments, setAssignments] = useState<Assign[]>([]);
   const [machList, setMachList] = useState<MachRow[]>([]);       // ficha del catálogo por máquina
   const [fuelDay, setFuelDay] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en selDay
+  // Tramos trabajados del día (machine_work_segments) por máquina: hora de inicio
+  // (min started_at), hora final (max ended_at) y horas trabajadas (suma) — para
+  // mostrarlas en el detalle de cada máquina, igual que el reporte por empresa.
+  const [segDay, setSegDay] = useState<Record<string, { minStart: number; maxEnd: number; sum: number }>>({});
   const [loading, setLoading] = useState(true);
   // Inspectores REALES (para el desplegable de "Máquinas por asignar" del cajón
   // MAQUINAS FALTANTES) — mismos roles que puede elegir el CHECK MÁQUINA del teléfono.
@@ -223,6 +232,22 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
+    // Tramos trabajados del día (hora inicio/fin y horas por máquina).
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours', (q) => q.eq('round_date', selDay))
+      .then((rows) => {
+        const map: Record<string, { minStart: number; maxEnd: number; sum: number }> = {};
+        ((rows ?? []) as any[]).forEach((s) => {
+          const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
+          const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
+          const cur = map[s.machinery_id] ?? { minStart: Infinity, maxEnd: -Infinity, sum: 0 };
+          cur.sum += Number(s.hours) || 0;
+          if (!isNaN(st)) cur.minStart = Math.min(cur.minStart, st);
+          if (!isNaN(en)) cur.maxEnd = Math.max(cur.maxEnd, en);
+          map[s.machinery_id] = cur;
+        });
+        setSegDay(map);
+      })
+      .catch(() => setSegDay({}));
     setLoading(false);
   }, [fromDate, selDay]);
 
@@ -690,9 +715,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const fuel = fuelDay[id] ?? null;
       const worked = rd ? rd.dayH + rd.nightH : 0;
       const inspector = inspectorByMachine.get(id) ?? null;
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector };
+      // Hora de inicio / hora final del día (de los tramos trabajados). Si la jornada
+      // sigue abierta (hoy), el inicio cae al arranque de la jornada y el fin queda
+      // "En curso" (aún no cerró). Horas totales = lo trabajado (worked).
+      const seg = segDay[id] ?? null;
+      const openNow = selDay === caracasToday() && !!rd?.openStartAt;
+      const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
+        : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
+      const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin };
     });
-  }, [listModal, machineInfo, roundDetail, fuelDay, codeById, estadoOf, inspectorByMachine]);
+  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine]);
   const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
     if (!nq) return listRows;
@@ -1270,6 +1303,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
+                          {/* Hora de inicio → fin de la jornada del día (de los tramos trabajados). */}
+                          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                            🕐 {r.horaIni} → {r.horaFin}  ·  ⏱️ {r.worked} h trab.
+                          </Text>
                           {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
                           {info?.encargado ? (
                             <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>
@@ -1301,8 +1338,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Modelo', info?.tipo || '—')}
                           {detailRow('Clasificación', info?.clasificacion || info?.machinery_type || '—')}
                           {detailRow('Turno', turnoLbl)}
+                          {detailRow('Hora de inicio', r.horaIni)}
+                          {detailRow('Hora final', r.horaFin)}
                           {detailRow('Horas del día (día / noche)', r.rd ? `${r.rd.dayH} h / ${r.rd.nightH} h` : '—')}
-                          {detailRow('Total de horas', `${r.worked} h`)}
+                          {detailRow('Horas totales trabajadas', `${r.worked} h`)}
                           {detailRow('Combustible del día', litros + (lph != null ? ` · ${lph} L/h` : ''))}
                           {detailRow('Horómetro del día', r.rd ? `${r.rd.horoIni ?? '—'} → ${r.rd.horoFin ?? '—'}` : '—')}
                           {detailRow('Último horómetro', info?.lastHoro != null ? String(info.lastHoro) : '—')}
