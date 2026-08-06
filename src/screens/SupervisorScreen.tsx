@@ -1554,16 +1554,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 const shown = q ? all.filter((m) => matchQuery(m, q)) : all;
                 const n = all.length;
                 return (
-                  <View key={key} style={{ borderWidth: 1, borderColor: open ? color : colors.border, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' }}>
-                    {/* Fila tipo menú: ícono grande + título + subtítulo + CANTIDAD + chevron. Al tocar, despliega la lista de ese estado. */}
-                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.md }}>
-                      <Text style={{ fontSize: 24 }}>{icon}</Text>
+                  <View key={key} style={{ borderWidth: 1, borderColor: open ? color : colors.border, borderRadius: radius.md, backgroundColor: 'transparent', overflow: 'hidden' }}>
+                    {/* MISMA fila del MENÚ (ver MoreScreen): ícono + título + subtítulo + CANTIDAD + chevron. Al tocar despliega la lista de ese estado. */}
+                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, paddingLeft: spacing.md, paddingRight: spacing.md }}>
+                      <Text style={{ fontSize: 24, width: 30, textAlign: 'center' }}>{icon}</Text>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 15, letterSpacing: 0.3 }}>{label.toUpperCase()}</Text>
-                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{n} {n === 1 ? 'máquina' : 'máquinas'} · {desc}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '700', fontSize: 15.5 }}>{label}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>{n} {n === 1 ? 'máquina' : 'máquinas'} · {desc}</Text>
                       </View>
-                      <Text style={{ color, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any, minWidth: 22, textAlign: 'right' }}>{n}</Text>
-                      <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any, minWidth: 20, textAlign: 'right' }}>{n}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 20 }}>{open ? '⌄' : '›'}</Text>
                     </TouchableOpacity>
                     {open ? (
                       <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
