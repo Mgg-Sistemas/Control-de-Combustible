@@ -1165,13 +1165,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
 
   // Ubicación GPS del inspector para el camino "PARADA · no trabajó" (dirección aproximada).
-  const capturarUbicacionNoTrabajo = async () => {
+  // `silent`: no avisa si falla (uso automático al abrir la pestaña). La
+  // ubicación es OPCIONAL en "no trabajó" — se intenta capturar sola en cuanto
+  // se abre esa pestaña, sin obligar al inspector a tocar nada ni bloquear la
+  // confirmación si no hay señal GPS o el usuario nunca dio permiso.
+  const capturarUbicacionNoTrabajo = async (silent = false) => {
     setNtBusy(true);
     const r = await getCurrentCoords();
     setNtBusy(false);
-    if (!r.ok || r.lat == null || r.lng == null) { setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
+    if (!r.ok || r.lat == null || r.lng == null) { if (!silent) setNotice('❌ ' + (r.error ?? 'No se pudo obtener tu ubicación.')); return; }
     setNtCoords({ lat: r.lat, lng: r.lng });
   };
+  // Al abrir "Parada / No trabajó" intenta la ubicación sola, en segundo plano
+  // (best-effort): si el inspector confirma antes de que termine o falla, no
+  // pasa nada — la ubicación queda fuera de la nota, nunca bloquea el paso.
+  useEffect(() => {
+    if (paradaOpen && paradaTab === 'no_trabajo' && !ntCoords && !ntBusy) {
+      capturarUbicacionNoTrabajo(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paradaOpen, paradaTab]);
 
   // 🟡 PARADA (base común a los 2 caminos): registra la visita "parada" en
   // INSPECCIONES y, si hay una jornada ABIERTA, primero BANCA las horas ya
@@ -1259,13 +1272,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // 🟡 PARADA · NO TRABAJÓ: motivo fijo "NO TRABAJÓ LA MÁQUINA" + ubicación GPS y
   // dirección (edificio/referencia/sector) guardada en `notes`. NO crea ni afecta
   // nada en Mantenimiento de Maquinaria: solo se refleja en Inspecciones/Control.
+  // La ubicación GPS es OPCIONAL aquí (se intenta sola en segundo plano al abrir
+  // la pestaña, ver el useEffect de arriba): si no hay señal o el navegador
+  // nunca dio permiso, igual se puede confirmar — la nota queda sin ubicación
+  // en vez de bloquear al inspector.
   const marcarParadaNoTrabajo = async () => {
     if (!ci || ciSaving) return;
-    if (!ntCoords) { setNotice('⚠️ Captura la ubicación GPS antes de confirmar.'); return; }
     setCiSaving(true); setNotice(null);
     if (!isOnline()) {
-      const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
-      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'} · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}`;
+      const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia) : (ntReferencia.trim() || 'Sin ubicación');
+      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
       const hourBanking = jornadaStart
         ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
@@ -1288,8 +1304,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     const ok = await registrarParadaBase('parada_no_trabajo');
     if (!ok) { setCiSaving(false); return; }
-    const edificio = edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia);
-    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'} · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}`;
+    const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia) : (ntReferencia.trim() || 'Sin ubicación');
+    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null,
     });
@@ -2499,14 +2515,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   ) : (
                     <>
                       <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>Motivo: NO TRABAJÓ LA MÁQUINA</Text>
-                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm }}>Deja constancia de dónde estaba con tu ubicación GPS. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
-                      <TouchableOpacity onPress={capturarUbicacionNoTrabajo} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : '#F0C36D', borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
-                        <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Obteniendo ubicación…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Capturar mi ubicación GPS'}</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
+                      <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
+                        <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar (opcional)'}</Text>
                       </TouchableOpacity>
                       {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio/sector: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia)}</Text></Text> : null}
                       <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 2 }}>Referencia (opcional, ej. “cerca de…”)</Text>
                       <TextInput value={ntReferencia} onChangeText={setNtReferencia} placeholder="Ej: al lado de la cancha…" placeholderTextColor={colors.muted} style={input} />
-                      <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving || !ntCoords} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !ntCoords) ? 0.6 : 1 }}>
+                      <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA (no trabajó)'}</Text>
                       </TouchableOpacity>
                     </>
