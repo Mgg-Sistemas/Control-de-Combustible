@@ -15,10 +15,16 @@ import { listInspectorAssignments } from './machineInspectors';
  *  2) 🕓 Máquinas PENDIENTES por iniciar jornada: máquinas ASIGNADAS a un
  *     inspector (machine_inspectors) que HOY no tienen ronda con jornada iniciada
  *     ni jornada finalizada (sin horas de día/noche registradas hoy).
- *  3) 🔴 Máquinas AVERIADAS: máquinas con avería pendiente — `maintenance_requests`
- *     (material 'MÁQUINA PARADA', status 'pendiente') reportadas ese día, o visitas
- *     de supervisión (supervisor_visits) con estado 'parada' ese día. Muestra quién
- *     reportó y el motivo.
+ *  3) 🔴 Máquinas AVERIADAS/PARADAS: máquinas con avería o parada pendiente en
+ *     `maintenance_requests` (status 'pendiente') — tanto 'MÁQUINA PARADA' como
+ *     averías reales (material real) — o visitas de supervisión (supervisor_visits)
+ *     con estado 'parada' ese día. Muestra quién reportó y el motivo.
+ *
+ * PRIORIDAD (una sola categoría por máquina, IGUAL que teléfono/admin/reporte de
+ * inspector): avería/parada de HOY › jornada en curso (trabajando) › avería/parada
+ * ARRASTRADA › jornada finalizada › pendiente por iniciar. Una avería/parada de HOY
+ * saca a la máquina de "iniciadas"; una arrastrada NO (trabajando manda), pero sí
+ * saca de "finalizadas" y "pendientes".
  *  4) ✅ Máquinas con jornada FINALIZADA: rondas con horas (día o noche > 0) y
  *     `jornada_start_at` en null.
  *
@@ -71,7 +77,7 @@ const edificioOf = (ref: string | null | undefined): string => edificioCanonico(
 /** Placa o, en su defecto, serial de la máquina. */
 const psTxt = (r: { plate: string | null; serial: string | null }): string => r.plate || r.serial || '—';
 
-type MRow = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; inspector: string; hora: string; horas?: number };
+type MRow = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; inspector: string; hora: string; horas?: number; machinery_id?: string };
 type ARow = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; hora: string; reporto: string; motivo: string };
 
 /**
@@ -99,16 +105,17 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
   // 3) Asignaciones (CHECK) inspector ↔ máquina; visitas del día; averías pendientes.
   const { rows: assignments } = await listInspectorAssignments();
   const visits = await listVisits(date);
+  // Averías Y paradas pendientes (sin filtrar por material): 'MÁQUINA PARADA' = parada;
+  // material real = avería. Ambas cuentan (mismo criterio unificado que el resto).
   const { data: maint } = await supabase
     .from('maintenance_requests')
     .select('machinery_id, notes, requested_by, created_at, status, material, machine:machinery_id(code, serial, plate, sector, referencia, latitude, longitude, company:company_id(name))')
-    .eq('material', 'MÁQUINA PARADA')
     .eq('status', 'pendiente');
 
   // ── Secciones 1 (iniciadas) y 4 (finalizadas), a partir de las rondas ────────
   const startedIds = new Set<string>();     // máquinas con jornada EN CURSO hoy
   const finalizedIds = new Set<string>();   // máquinas con jornada FINALIZADA hoy
-  const iniciadas: MRow[] = [];
+  const iniciadasMap = new Map<string, MRow>();   // una fila por máquina en curso
   const finalizadasMap = new Map<string, MRow>();
 
   ((rounds ?? []) as any[]).forEach((r) => {
@@ -120,6 +127,7 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
     const dayH = Number(r.day_hours) || 0;
     const nightH = Number(r.night_hours) || 0;
     const base = {
+      machinery_id: r.machinery_id as string,
       code: mm.code ?? '—',
       plate: mm.plate ?? null,
       serial: mm.serial ?? null,
@@ -129,7 +137,7 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
     };
     if (r.jornada_start_at) {
       startedIds.add(r.machinery_id);
-      iniciadas.push({ ...base, hora: caracasClock(r.jornada_start_at) });
+      if (!iniciadasMap.has(r.machinery_id)) iniciadasMap.set(r.machinery_id, { ...base, hora: caracasClock(r.jornada_start_at) });
     } else if (dayH > 0 || nightH > 0) {
       finalizedIds.add(r.machinery_id);
       const cur = finalizadasMap.get(r.machinery_id) ?? { ...base, hora: '—', horas: 0 };
@@ -138,20 +146,27 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
     }
   });
 
-  // Finalizadas: excluye las que además tengan una jornada EN CURSO hoy.
-  const finalizadas: MRow[] = [];
-  finalizadasMap.forEach((v, mid) => { if (!startedIds.has(mid)) finalizadas.push(v); });
-
-  // ── Sección 3: averiadas (avería pendiente VIGENTE hasta ese día, o visita 'parada') ──
-  // Se calcula ANTES que las pendientes para excluir de "pendientes por iniciar"
-  // las máquinas que en realidad están AVERIADAS (si no, saldrían en ambas).
+  // ── Sección 3: averiadas/paradas ────────────────────────────────────────────
+  // PRIORIDAD unificada: la de HOY manda sobre "trabajando"; la ARRASTRADA no (una
+  // máquina con jornada en curso y avería vieja sigue "trabajando"). Tanto de HOY
+  // como arrastrada mandan sobre "finalizada" y "pendiente".
+  // Se calcula ANTES de armar iniciadas/finalizadas/pendientes para poder sacarlas.
   const averiadasMap = new Map<string, ARow>();
+  const averHoyIds = new Set<string>();     // avería/parada REPORTADA hoy
   ((maint ?? []) as any[]).forEach((m) => {
-    if (caracasDate(m.created_at) > date) return; // no contar averías reportadas DESPUÉS del día
+    const mid = m.machinery_id as string | null;
+    if (!mid) return; // solicitudes sin máquina (no aplican a este reporte)
+    const created = caracasDate(m.created_at);
+    if (created > date) return;            // reportada DESPUÉS del día → no cuenta aún
+    const hoy = created === date;          // HOY vs. arrastrada (vigente de días previos)
+    // Arrastrada + jornada EN CURSO hoy → "trabajando" manda: no la listamos como averiada.
+    if (!hoy && startedIds.has(mid)) return;
+    if (hoy) averHoyIds.add(mid);
+    if (averiadasMap.has(mid) && !hoy) return; // no pisar una de HOY con una arrastrada
     const mm = m.machine || {};
     const lat = mm.latitude != null ? Number(mm.latitude) : null;
     const lng = mm.longitude != null ? Number(mm.longitude) : null;
-    averiadasMap.set(m.machinery_id, {
+    averiadasMap.set(mid, {
       code: mm.code ?? '—',
       plate: mm.plate ?? null,
       serial: mm.serial ?? null,
@@ -162,8 +177,10 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
       motivo: (m.notes && String(m.notes).trim()) || '—',
     });
   });
+  // Visitas 'parada' del día = parada de HOY (mandan sobre trabajando).
   visits.filter((v) => v.status === 'parada').forEach((v) => {
-    if (averiadasMap.has(v.machinery_id)) return; // ya listada por avería de mantenimiento
+    averHoyIds.add(v.machinery_id);
+    if (averiadasMap.has(v.machinery_id)) return; // ya listada por avería/parada de mantenimiento
     averiadasMap.set(v.machinery_id, {
       code: v.machineCode ?? '—',
       plate: v.machinePlate ?? null,
@@ -176,6 +193,15 @@ export async function generateEstadoReport(opts: { date: string }): Promise<bool
     });
   });
   const averiadas = [...averiadasMap.values()];
+
+  // Iniciadas: en curso hoy, MENOS las que tengan avería/parada de HOY (esa manda).
+  const iniciadas: MRow[] = [];
+  iniciadasMap.forEach((v, mid) => { if (!averHoyIds.has(mid)) iniciadas.push(v); });
+
+  // Finalizadas: con horas, MENOS las que estén en curso hoy y MENOS las averiadas
+  // (avería/parada —de HOY o arrastrada— manda sobre "finalizada").
+  const finalizadas: MRow[] = [];
+  finalizadasMap.forEach((v, mid) => { if (!startedIds.has(mid) && !averiadasMap.has(mid)) finalizadas.push(v); });
 
   // ── Sección 2: pendientes por iniciar (asignadas y sin jornada NI avería hoy) ─
   type Asg = { code: string; plate: string | null; serial: string | null; lugar: string; edificio: string; inspectors: { shift: string; name: string }[] };
