@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Pressable, Alert } from 'react-native';
 import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -447,52 +447,71 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         }
         return selDay;
       };
-      // Antes esta función no revisaba el resultado de cada `upsert`/`insert` de
-      // Supabase: si algo fallaba (RLS, columna, red), el bucle seguía de largo
-      // en silencio y el usuario solo veía que "no pasó nada" al recargar, sin
-      // ningún error en pantalla. Ahora cada llamada se revisa y, si falla,
-      // se corta de inmediato con un toast claro (en vez de seguir marcando el
-      // resto como si nada, dejando cambios a medias).
-      let fallas = 0;
+      // ANTES: esta función hacía un `await` de red POR CADA máquina, uno detrás
+      // de otro (secuencial) — con una selección grande (100+ máquinas, el caso
+      // real de "marcar todas pendiente") eso son cientos de viajes de red uno
+      // tras otro, podía tardar más de un minuto y CUALQUIER error a mitad de
+      // camino cortaba el resto sin avisar nada claro. Ahora se arma UN solo
+      // `upsert` con todas las filas de golpe (igual que ya hacía "Iniciar") —
+      // mucho más rápido y con un solo punto de éxito/error para toda la tanda.
+      const nowIso = new Date().toISOString();
       if (action === 'start') {
-        const nowIso = new Date().toISOString();
         const rows = items.map((it) => ({ machinery_id: it.id, round_date: roundDateFor(it.id, it.shift), round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
         const { error } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
-        if (error) { toast.error(`No se pudo iniciar: ${error.message}`); fallas++; }
-        else {
-          await Promise.all(items.map((it) =>
-            logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
-          ));
+        if (error) {
+          Alert.alert('No se pudo iniciar', error.message);
+          return;
         }
+        await Promise.all(items.map((it) =>
+          logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
+        ));
+        Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.`);
       } else {
-        for (const it of items) {
+        // Para cada ítem: calcula su fecha de fila, sus horas previas (para
+        // respaldarlas en machine_work_segments) y si hay que soltar el
+        // jornada_start_at abierto (solo si pertenece a ESE turno puntual).
+        const plan = items.map((it) => {
           const rd = roundDateFor(it.id, it.shift);
           const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === rd);
           const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
-          const patch: Record<string, any> = it.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 };
-          if (existing?.jornada_start_at && roundShift(existing) === it.shift) patch.jornada_start_at = null;
-          const { error: upErr } = await supabase.from('machine_rounds').upsert(
-            { machinery_id: it.id, round_date: rd, round_no: 1, ...patch },
-            { onConflict: 'machinery_id,round_date,round_no' }
-          );
-          if (upErr) { toast.error(`${codeOf(it.id)}: no se pudo marcar Pendiente — ${upErr.message}`); fallas++; continue; }
-          // Si ya tenía horas trabajadas, quedan a salvo en machine_work_segments
-          // (no se pierden solo porque se pongan en 0 en machine_rounds).
-          if (prevHours > 0) {
+          const soltarInicio = !!(existing?.jornada_start_at && roundShift(existing) === it.shift);
+          return { ...it, rd, prevHours, soltarInicio };
+        });
+        const rows = plan.map((p) => ({
+          machinery_id: p.id,
+          round_date: p.rd,
+          round_no: 1,
+          ...(p.shift === 'day' ? { day_hours: 0 } : { night_hours: 0 }),
+          ...(p.soltarInicio ? { jornada_start_at: null } : {}),
+        }));
+        const { error: upErr } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
+        if (upErr) {
+          Alert.alert('No se pudo marcar Pendiente', upErr.message);
+          return;
+        }
+        // Respaldo de horas previas (no se pierden solo por ponerlas en 0), en
+        // un solo insert múltiple en vez de uno por máquina.
+        const segRows = plan
+          .filter((p) => p.prevHours > 0)
+          .map((p) => {
             const endedAt = new Date();
-            const startedAt = new Date(endedAt.getTime() - prevHours * 3600_000);
-            const { error: segErr } = await supabase.from('machine_work_segments').insert({
-              machinery_id: it.id, round_date: rd, shift: it.shift,
-              started_at: startedAt.toISOString(), ended_at: endedAt.toISOString(), hours: prevHours,
+            const startedAt = new Date(endedAt.getTime() - p.prevHours * 3600_000);
+            return {
+              machinery_id: p.id, round_date: p.rd, shift: p.shift,
+              started_at: startedAt.toISOString(), ended_at: endedAt.toISOString(), hours: p.prevHours,
               source: 'ajuste_manual', recorded_by: uid,
               notes: 'Marcado como Pendiente desde el panel de Inspecciones (admin) — horas previas conservadas aquí.',
-            });
-            if (segErr) toast.error(`${codeOf(it.id)}: se marcó Pendiente pero no se pudo respaldar el historial de horas — ${segErr.message}`);
-          }
-          logAudit('JORNADA_FIN', 'machinery', it.id, `${codeOf(it.id)} · marcado Pendiente (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}${prevHours > 0 ? ` · ${prevHours.toFixed(2)}h conservadas` : ''}`);
+            };
+          });
+        if (segRows.length > 0) {
+          const { error: segErr } = await supabase.from('machine_work_segments').insert(segRows);
+          if (segErr) Alert.alert('Aviso', `Se marcaron Pendiente, pero no se pudo respaldar el historial de horas de todas: ${segErr.message}`);
         }
+        await Promise.all(plan.map((p) =>
+          logAudit('JORNADA_FIN', 'machinery', p.id, `${codeOf(p.id)} · marcado Pendiente (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'}${p.prevHours > 0 ? ` · ${p.prevHours.toFixed(2)}h conservadas` : ''}`)
+        ));
+        Alert.alert('Listo', `${items.length} máquina(s) marcadas como pendientes.`);
       }
-      if (fallas === 0) toast.success(action === 'start' ? '✅ Marcadas como iniciadas.' : '⏳ Marcadas como pendientes.');
       setBulkSel(new Set());
       await load();
     } finally {
