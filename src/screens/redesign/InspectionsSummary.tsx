@@ -92,6 +92,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const toast = useToast();
   const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
   const [rounds, setRounds] = useState<Round[]>([]);
+  // Horas TOTALES (histórico completo, sin el límite de 14 días de `rounds`) por
+  // máquina — suma de day_hours+night_hours de TODAS sus rondas alguna vez
+  // registradas. Consulta aparte y liviana (2 columnas, sin joins) para no inflar
+  // el fetch principal. Se usa en "Horas reales totales" (perInspector).
+  const [allHoursByMachine, setAllHoursByMachine] = useState<Record<string, number>>({});
   const [maint, setMaint] = useState<Maint[]>([]);
   const [assignments, setAssignments] = useState<Assign[]>([]);
   const [machList, setMachList] = useState<MachRow[]>([]);       // ficha del catálogo por máquina
@@ -179,17 +184,24 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
-    const [roundsRows, maintRes, asg, machRows] = await Promise.all([
+    const [roundsRows, maintRes, asg, machRows, allHoursRows] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company:company_id(name)'),
+      // Histórico COMPLETO (todas las fechas) solo de horas, para "Horas reales totales".
+      selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours'),
     ]);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRes.data ?? []) as any);
     setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
     setMachList((machRows ?? []) as any);
+    const allHoursMap: Record<string, number> = {};
+    (allHoursRows ?? []).forEach((r: any) => {
+      allHoursMap[r.machinery_id] = (allHoursMap[r.machinery_id] ?? 0) + (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
+    });
+    setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
     setLoading(false);
@@ -690,9 +702,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
       const horas = Math.round(visibleIds.reduce((sum, id) => sum + liveHorasOf(id), 0) * 10) / 10;
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes, horas };
+      // Horas TOTALES (histórico completo, no solo selDay): suma de allHoursByMachine
+      // en las mismas máquinas visibles — acumulado de todas las rondas alguna vez
+      // registradas, no limitado a los 14 días de `rounds`.
+      const horasTotales = Math.round(visibleIds.reduce((sum, id) => sum + (allHoursByMachine[id] ?? 0), 0) * 10) / 10;
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet, liveHorasOf]);
+  }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
 
   const inspShown = useMemo(() => {
     const nq = norm(inspQ.trim());
@@ -1077,6 +1093,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
                 <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" />
+                <KpiCard label="Horas reales totales" value={`${sel.horasTotales.toFixed(1)}h`} tone="brand" />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
