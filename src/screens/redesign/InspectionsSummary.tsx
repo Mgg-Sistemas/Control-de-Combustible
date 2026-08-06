@@ -435,21 +435,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const daySets = useMemo(() => {
     // Iniciadas del día elegido, directo de las rondas (robusto aunque el día quede
     // fuera de la ventana de 14 días de la gráfica).
-    // INICIADA = jornada ABIERTA (jornada_start_at) o YA FINALIZADA con horas
-    // registradas (día/noche > 0). Una jornada finalizada hoy con horas es trabajo
-    // REAL — debe seguir contando como iniciada en las tarjetas y en los reportes,
-    // igual que un día pasado (ahí jornada_start_at siempre queda limpio al cerrar,
-    // así que las horas son el único indicio de que se trabajó).
+    // SINCRONIZAR con el TELÉFONO (fuente de verdad): "iniciada" NO depende del turno de
+    // la ronda. La separación día/noche la da la ASIGNACIÓN del inspector (assignedShift),
+    // no el jornada_shift de la ronda — antes el doble filtro (`&& roundShift===shift`)
+    // ESCONDÍA máquinas reales que sí arrancaron (p. ej. días de mayoría-noche vistos en
+    // turno "día"), y por eso "no se sincronizaba" con lo que ve el inspector.
+    //   HOY: INICIADA = jornada ABIERTA (jornada_start_at). Las horas de sistema (backfill
+    //   12/6) SIN jornada abierta NO cuentan (ficticio), igual que el teléfono.
+    //   DÍAS PASADOS: la jornada ya se cerró (jornada_start_at limpio) → el único indicio
+    //   de trabajo son las horas (roundStarted = arrancada o con horas).
+    const isToday = selDay === caracasToday();
     const startedSet = new Set<string>();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      if (startedForShift(r, shift)) startedSet.add(r.machinery_id);
+      const started = isToday ? !!r.jornada_start_at : roundStarted(r);
+      if (started) startedSet.add(r.machinery_id);
     });
     // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche, termina a las 7am):
     // sin esto, al ver "hoy" recién pasada la medianoche esas máquinas parecían
     // "pendientes" aunque siguen trabajando hasta las 7am. Mismo criterio que
     // SupervisorScreen.tsx (rescata la noche de ayer aún abierta).
-    if (shift === 'night') {
+    if (isToday) {
       const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
       const yesterdayIso = y.toISOString().slice(0, 10);
       rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) startedSet.add(r.machinery_id); });

@@ -1855,6 +1855,9 @@ begin
     -- máquina, jornada, flete, etc. se vea al instante sin refrescar a mano.
     'machinery', 'machine_rounds', 'fletes', 'companies', 'machine_guards',
     'company_payments', 'control_closures', 'maintenance_requests',
+    -- Asignaciones inspector↔máquina (CHECK): sin esto, al asignar/reasignar en un
+    -- dispositivo el resumen de Inspecciones de la PC no se refresca en tiempo real.
+    'machine_inspectors',
     -- Asistencia: para que las marcas (entrada/salida) se vean al instante en el
     -- calendario de otro dispositivo sin refrescar a mano.
     'attendance'
