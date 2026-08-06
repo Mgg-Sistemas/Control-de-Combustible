@@ -6,7 +6,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
-import { norm, onlyDecimal } from '../lib/text';
+import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { Machinery } from '../types/database';
 import { upsertMachineRound, getMachineRound } from '../lib/machineRounds';
 import { insertMachineDispatch } from '../lib/dispatches';
@@ -73,7 +73,7 @@ export default function OperatorScreen() {
       ]);
       setFullName((prof as any)?.full_name ?? '');
       const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as (Machinery & { companyName?: string })[];
-      list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+      list.sort((a, b) => cmpText(a.code || '', b.code || ''));
       setMachines(list);
       const mine = list.filter((m) => m.operator_id === uid);
       setSel(mine[0] ?? null);
@@ -191,8 +191,8 @@ export default function OperatorScreen() {
           <TouchableOpacity onPress={() => { setPickQuery(''); setPickerOpen(true); }} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🔁 Cambiar máquina</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 13 }}>📷 Escanear QR</Text>
+          <TouchableOpacity onPress={() => setScanOpen(true)} style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>📷 Escanear QR</Text>
           </TouchableOpacity>
         </View>
         {mine.length > 0 && sel && sel.operator_id !== uid ? (
@@ -217,8 +217,8 @@ export default function OperatorScreen() {
               {SHIFT_OPTS.map((o) => {
                 const on = dayH === o.hours;
                 return (
-                  <TouchableOpacity key={'d' + o.hours} onPress={() => setDayH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
+                  <TouchableOpacity key={'d' + o.hours} onPress={() => setDayH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -229,8 +229,8 @@ export default function OperatorScreen() {
               {SHIFT_OPTS.map((o) => {
                 const on = nightH === o.hours;
                 return (
-                  <TouchableOpacity key={'n' + o.hours} onPress={() => setNightH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
+                  <TouchableOpacity key={'n' + o.hours} onPress={() => setNightH(o.hours)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -248,11 +248,11 @@ export default function OperatorScreen() {
             </View>
 
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>
-              Horas trabajadas: <Text style={{ color: colors.text, fontWeight: '800' }}>{workedPreview} h</Text> (día + noche − paradas + extras)
+              Horas trabajadas: <Text style={{ color: colors.text, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{workedPreview} h</Text> (día + noche − paradas + extras)
             </Text>
 
-            <TouchableOpacity onPress={guardarJornada} disabled={savingRound} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{savingRound ? 'Guardando…' : '💾 Guardar mi jornada'}</Text>
+            <TouchableOpacity onPress={guardarJornada} disabled={savingRound} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{savingRound ? 'Guardando…' : '💾 Guardar mi jornada'}</Text>
             </TouchableOpacity>
           </Card>
 
@@ -271,14 +271,14 @@ export default function OperatorScreen() {
             <Text style={lbl}>Origen (opcional)</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
               {/* Por defecto DIRECTO DE BOMBA (sin tanque): solo se registran los litros. */}
-              <TouchableOpacity onPress={() => setFTank('')} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: fTank === '' ? colors.primary : colors.border, backgroundColor: fTank === '' ? colors.primary : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                <Text style={{ color: fTank === '' ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: fTank === '' ? '700' : '400' }}>⛽ Directo de bomba</Text>
+              <TouchableOpacity onPress={() => setFTank('')} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: fTank === '' ? colors.brand : colors.border, backgroundColor: fTank === '' ? colors.brand : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                <Text style={{ color: fTank === '' ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: fTank === '' ? '700' : '400' }}>⛽ Directo de bomba</Text>
               </TouchableOpacity>
               {tanks.map((t) => {
                 const on = fTank === t.id;
                 return (
-                  <TouchableOpacity key={t.id} onPress={() => setFTank(t.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                    <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13, fontWeight: on ? '700' : '400' }}>{t.name}</Text>
+                  <TouchableOpacity key={t.id} onPress={() => setFTank(t.id)} style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13, fontWeight: on ? '700' : '400' }}>{t.name}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -307,8 +307,8 @@ export default function OperatorScreen() {
               </View>
             </View>
 
-            <TouchableOpacity onPress={registrarCombustible} disabled={savingFuel} style={{ marginTop: spacing.md, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{savingFuel ? 'Registrando…' : '⛽ Registrar combustible'}</Text>
+            <TouchableOpacity onPress={registrarCombustible} disabled={savingFuel} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{savingFuel ? 'Registrando…' : '⛽ Registrar combustible'}</Text>
             </TouchableOpacity>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Solo se permite una carga por máquina al día.</Text>
           </Card>
@@ -342,7 +342,7 @@ export default function OperatorScreen() {
         <Screen>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
             <SectionTitle>Elegir máquina</SectionTitle>
-            <TouchableOpacity onPress={() => setPickerOpen(false)}><Text style={{ color: colors.primary, fontWeight: '800', fontSize: 15 }}>Cerrar</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => setPickerOpen(false)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>Cerrar</Text></TouchableOpacity>
           </View>
           <TextInput value={pickQuery} onChangeText={setPickQuery} placeholder="🔎 Buscar por nombre o empresa…" placeholderTextColor={colors.muted} style={input} />
           {mine.length > 0 ? (
@@ -353,9 +353,9 @@ export default function OperatorScreen() {
               const assigned = m.operator_id === uid;
               const on = sel?.id === m.id;
               return (
-                <TouchableOpacity key={m.id} onPress={() => { setSel(m); setPickerOpen(false); }} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface, marginBottom: spacing.xs }}>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800' }}>{m.code}{assigned ? ' ⭐' : ''}</Text>
-                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
+                <TouchableOpacity key={m.id} onPress={() => { setSel(m); setPickerOpen(false); }} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface, marginBottom: spacing.xs }}>
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800' }}>{m.code}{assigned ? ' ⭐' : ''}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 12 }}>{(m.tipo || 'Sin tipo')} · {m.companyName}</Text>
                 </TouchableOpacity>
               );
             })}

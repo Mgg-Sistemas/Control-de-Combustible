@@ -824,7 +824,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       <TouchableOpacity onPress={() => { setKind('maquinaria'); openEdit(m); }} activeOpacity={0.7}>
         {saved ? (
           <View style={{ alignSelf: 'flex-start', backgroundColor: colors.success, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, marginBottom: spacing.xs }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 11 }}>✓ Cambios guardados</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 11 }}>✓ Cambios guardados</Text>
           </View>
         ) : null}
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
@@ -842,7 +842,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
               </Text>
             </View>
-            {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+            {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
@@ -852,7 +852,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
               </Text>
             ) : null}
-            {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
+            {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
@@ -898,7 +898,7 @@ export default function EquiposScreen({ navigation, route }: any) {
 
       {/* SOLO supervisores: iniciar jornada de esta máquina sin escanear el QR. */}
       {isSupervisor ? (
-        <TouchableOpacity onPress={() => setJornadaFor(m)} style={{ marginTop: spacing.sm, backgroundColor: '#1E9E4A', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+        <TouchableOpacity onPress={() => setJornadaFor(m)} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
           <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>🕒 Iniciar jornada</Text>
         </TouchableOpacity>
       ) : null}
@@ -908,7 +908,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         {m.latitude != null ? (
           <BigBtn label="🗺️ Ver en mapa" onPress={() => navigation?.navigate('Map', { focus: { id: m.id, code: m.code } })} color="#0D9488" />
         ) : null}
-        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.primary} textColor={colors.primaryContrast} disabled={busy === m.id + '-photo'} />
+        <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
@@ -946,7 +946,7 @@ export default function EquiposScreen({ navigation, route }: any) {
 
       {notice ? (
         <TouchableOpacity onPress={() => setNotice(null)}>
-          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.primary, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
+          <View style={{ backgroundColor: colors.surfaceAlt, borderLeftWidth: 4, borderLeftColor: colors.brand, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm }}>
             <Text style={{ color: colors.text, fontSize: 13 }}>{notice}</Text>
             <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Toca para cerrar</Text>
           </View>
@@ -961,7 +961,7 @@ export default function EquiposScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria activa</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success }}>{machinery.loading ? '…' : activeMachines.length}</Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : activeMachines.length}</Text>
           </Card>
         </TouchableOpacity>
         <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('inactive')}>
@@ -970,7 +970,7 @@ export default function EquiposScreen({ navigation, route }: any) {
               <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria inactiva</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger }}>{machinery.loading ? '…' : inactiveMachines.length}</Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : inactiveMachines.length}</Text>
           </Card>
         </TouchableOpacity>
       </View>
@@ -978,10 +978,10 @@ export default function EquiposScreen({ navigation, route }: any) {
       {/* Alta unificada: + Agregar (elige vehículo o maquinaria) y Lote */}
       <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         <TouchableOpacity
-          style={{ flex: 2, backgroundColor: colors.primary, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
+          style={{ flex: 2, backgroundColor: colors.brand, paddingVertical: spacing.md, borderRadius: radius.md, alignItems: 'center' }}
           onPress={() => setKindChooser('add')}
         >
-          <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 15 }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 15 }}>
             🚗 / 🚜  + Agregar
           </Text>
         </TouchableOpacity>
@@ -1045,10 +1045,10 @@ export default function EquiposScreen({ navigation, route }: any) {
                 key={val}
                 onPress={() => setTypeFilter(val)}
                 activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
               >
-                <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
-                <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({count})</Text>
+                <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+                <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({count})</Text>
               </TouchableOpacity>
             );
           })}
@@ -1073,14 +1073,14 @@ export default function EquiposScreen({ navigation, route }: any) {
                 <TouchableOpacity
                   onPress={() => setExpanded((p) => ({ ...p, [g.key]: !open }))}
                   activeOpacity={0.7}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                    <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                    <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                    <Text style={{ color: open ? colors.brandContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                    <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
                   </View>
-                  <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                    <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                  <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                    <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
                   </View>
                 </TouchableOpacity>
                 {open ? <View style={{ marginTop: spacing.sm }}>{g.items.map(renderMachineCard)}</View> : null}
@@ -1097,14 +1097,14 @@ export default function EquiposScreen({ navigation, route }: any) {
                   <TouchableOpacity
                     onPress={() => setExpanded((p) => ({ ...p, __vehicles__: !open }))}
                     activeOpacity={0.7}
-                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                      <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                      <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🚗 Vehículos</Text>
+                      <Text style={{ color: open ? colors.brandContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🚗 Vehículos</Text>
                     </View>
-                    <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                      <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{vehicleList.length}</Text>
+                    <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                      <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{vehicleList.length}</Text>
                     </View>
                   </TouchableOpacity>
                   {open ? (
@@ -1136,7 +1136,7 @@ export default function EquiposScreen({ navigation, route }: any) {
           <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, alignItems: 'center', borderWidth: 1, borderColor: colors.border }}>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>{qrFor?.code}</Text>
             {qrFor?.serial || qrFor?.plate ? (
-              <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>{qrFor?.serial ? `Serial: ${qrFor.serial}` : `Placa: ${qrFor.plate}`}</Text>
+              <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '700' }}>{qrFor?.serial ? `Serial: ${qrFor.serial}` : `Placa: ${qrFor.plate}`}</Text>
             ) : null}
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.md }}>Código QR de la máquina</Text>
             {qrStr ? (
@@ -1155,7 +1155,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             <TouchableOpacity
               onPress={toggleQrBlock}
               disabled={qrBlockBusy}
-              style={{ alignSelf: 'stretch', marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: (qrFor as any)?.qr_blocked === true ? '#1E9E4A' : '#D22B2B', opacity: qrBlockBusy ? 0.7 : 1 }}
+              style={{ alignSelf: 'stretch', marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: (qrFor as any)?.qr_blocked === true ? colors.success : colors.danger, opacity: qrBlockBusy ? 0.7 : 1 }}
             >
               <Text style={{ color: '#fff', fontWeight: '800' }}>
                 {qrBlockBusy ? 'Guardando…' : (qrFor as any)?.qr_blocked === true ? '✅ Desbloquear QR' : '🚫 Bloquear QR (mostrar solo el logo)'}
@@ -1165,8 +1165,8 @@ export default function EquiposScreen({ navigation, route }: any) {
               <TouchableOpacity onPress={() => setQrFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={printQr} disabled={!qrStr} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>🖨️ Imprimir</Text>
+              <TouchableOpacity onPress={printQr} disabled={!qrStr} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>🖨️ Imprimir</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1203,8 +1203,8 @@ export default function EquiposScreen({ navigation, route }: any) {
               <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setBatchOpen(false)}>
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={saveBatch} disabled={batchBusy}>
-                <Text style={{ color: colors.primaryContrast, fontWeight: '700' }}>{batchBusy ? 'Guardando…' : 'Guardar lote'}</Text>
+              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={saveBatch} disabled={batchBusy}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>{batchBusy ? 'Guardando…' : 'Guardar lote'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1225,11 +1225,11 @@ export default function EquiposScreen({ navigation, route }: any) {
                     onPress={() => { setCompanyFilter(o.value); setCompanyPickerOpen(false); }}
                     style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: active ? colors.surfaceAlt : 'transparent', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}
                   >
-                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
-                    <View style={{ backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
-                      <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
+                    <Text style={{ color: active ? colors.brandText : colors.text, fontWeight: active ? '800' : '500', flex: 1 }}>{o.label}</Text>
+                    <View style={{ backgroundColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2, minWidth: 26, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{o.count}</Text>
                     </View>
-                    {active ? <Text style={{ color: colors.primary, fontWeight: '800' }}>✓</Text> : null}
+                    {active ? <Text style={{ color: colors.brandText, fontWeight: '800' }}>✓</Text> : null}
                   </TouchableOpacity>
                 );
               })}
@@ -1244,8 +1244,8 @@ export default function EquiposScreen({ navigation, route }: any) {
           {fuelFor ? (
             <>
               <TouchableOpacity onPress={() => setFuelFor(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-                <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+                <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
               </TouchableOpacity>
               <SectionTitle>⛽ Combustible · {fuelFor.code}</SectionTitle>
               {fuelLoading ? (
@@ -1259,11 +1259,11 @@ export default function EquiposScreen({ navigation, route }: any) {
                     </View>
                     <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Total surtido</Text>
-                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18 }}>{fuelSurtido.toLocaleString()} L</Text>
+                      <Text style={{ color: colors.success, fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{fuelSurtido.toLocaleString()} L</Text>
                     </View>
                     <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>Consumo estimado</Text>
-                      <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>{fuelConsumed != null ? `${fuelConsumed.toLocaleString()} L` : '—'}</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{fuelConsumed != null ? `${fuelConsumed.toLocaleString()} L` : '—'}</Text>
                     </View>
                   </View>
                   <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
@@ -1271,9 +1271,9 @@ export default function EquiposScreen({ navigation, route }: any) {
                   </Text>
 
                   {/* Consumo REAL por horómetro: litros ÷ horas operadas. */}
-                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+                  <View style={{ backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, marginTop: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.brand }}>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>Consumo por horómetro (real)</Text>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 18 }}>{fuelPerHour != null ? `${fuelPerHour.toLocaleString()} L/h` : '—'}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 18, fontVariant: ['tabular-nums'] as any }}>{fuelPerHour != null ? `${fuelPerHour.toLocaleString()} L/h` : '—'}</Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>
                       {fuelSurtido.toLocaleString()} L ÷ {fuelWorked.toLocaleString()} h operadas{fuelFor.last_horometro != null ? ` · Último horómetro: ${fuelFor.last_horometro}` : ''}
                     </Text>
@@ -1302,8 +1302,8 @@ export default function EquiposScreen({ navigation, route }: any) {
                   <TouchableOpacity style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success }} onPress={abrirRegistro}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>➕ Registrar surtido</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary }} onPress={downloadFuelPdf}>
-                    <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
+                  <TouchableOpacity style={{ marginTop: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={downloadFuelPdf}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar PDF</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -1339,8 +1339,8 @@ export default function EquiposScreen({ navigation, route }: any) {
                         const on = regTank === tk.id;
                         return (
                           <TouchableOpacity key={tk.id} onPress={() => setRegTank(tk.id)}
-                            style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surfaceAlt }}>
-                            <Text style={{ color: on ? colors.primaryContrast : colors.text, fontSize: 13 }}>{tk.name}</Text>
+                            style={{ paddingVertical: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                            <Text style={{ color: on ? colors.brandContrast : colors.text, fontSize: 13 }}>{tk.name}</Text>
                           </TouchableOpacity>
                         );
                       })}
@@ -1444,8 +1444,8 @@ export default function EquiposScreen({ navigation, route }: any) {
       <Modal visible={!!detailStatus} animationType="slide" onRequestClose={() => setDetailStatus(null)}>
         <Screen>
           <TouchableOpacity onPress={() => setDetailStatus(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>
             {detailTitle}{'  '}({detailList.length})
@@ -1460,13 +1460,13 @@ export default function EquiposScreen({ navigation, route }: any) {
                 const open = detailExpanded[g.key] ?? (detailStatus !== 'inactive');
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
-                  <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
+                  <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
-                      <Text style={{ color: open ? colors.primaryContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
-                      <Text style={{ color: open ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
+                      <Text style={{ color: open ? colors.brandContrast : colors.muted, fontSize: 16 }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color: open ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>🏢 {g.name}</Text>
                     </View>
-                    <View style={{ backgroundColor: open ? colors.primaryContrast : colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                      <Text style={{ color: open ? colors.primary : colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
+                    <View style={{ backgroundColor: open ? colors.brandContrast : colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                      <Text style={{ color: open ? colors.brand : colors.brandContrast, fontWeight: '800', fontSize: 13 }}>{g.items.length}</Text>
                     </View>
                   </TouchableOpacity>
                   {open ? (
@@ -1483,7 +1483,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
                         </Text>
                       </View>
-                      {m.identifier ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+                      {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                       {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -1492,7 +1492,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
                         </Text>
                       ) : null}
-                      {inspectors[m.id] ? <Text style={{ color: '#1E3A5F', fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                      {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                       {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                       {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                     </TouchableOpacity>
@@ -1536,8 +1536,8 @@ export default function EquiposScreen({ navigation, route }: any) {
       <Modal visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
         <Screen>
           <TouchableOpacity onPress={() => setReportOpen(false)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-            <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>←</Text>
-            <Text style={{ color: colors.primary, fontWeight: '700' }}>Volver</Text>
+            <Text style={{ color: colors.brandText, fontSize: 20, fontWeight: '800' }}>←</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>📄 Reportes de maquinaria</SectionTitle>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Elige el alcance del reporte</Text>
@@ -1550,10 +1550,10 @@ export default function EquiposScreen({ navigation, route }: any) {
                   <TouchableOpacity
                     key={o.value}
                     onPress={() => setReportCompany(o.value)}
-                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                    style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
                   >
-                    <Text style={{ color: active ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
-                    <Text style={{ color: active ? colors.primaryContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
+                    <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{o.label}</Text>
+                    <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({o.count})</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -1569,7 +1569,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>
                   🔎 Filtrar por clasificación{reportTypes.size > 0 ? ` (${reportTypes.size})` : ' (todas)'}
                 </Text>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>{reportFilterOpen ? '▲' : '▼'}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{reportFilterOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {reportFilterOpen ? (
                 <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
@@ -1582,7 +1582,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                   />
                   {reportTypes.size > 0 ? (
                     <TouchableOpacity onPress={() => setReportTypes(new Set())} style={{ alignSelf: 'flex-start', marginBottom: spacing.xs }}>
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>✕ Limpiar selección ({reportTypes.size})</Text>
+                      <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>✕ Limpiar selección ({reportTypes.size})</Text>
                     </TouchableOpacity>
                   ) : null}
                   {(() => {
@@ -1599,8 +1599,8 @@ export default function EquiposScreen({ navigation, route }: any) {
                               onPress={() => toggleReportType(o.key)}
                               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}
                             >
-                              <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                                {on ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                              <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                                {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
                               </View>
                               <Text style={{ color: colors.text, fontSize: 13, flex: 1 }} numberOfLines={1}>{o.tipo}</Text>
                               <Text style={{ color: colors.muted, fontSize: 13, fontWeight: '700' }}>{o.count}</Text>
@@ -1616,11 +1616,11 @@ export default function EquiposScreen({ navigation, route }: any) {
           ) : null}
 
           <TouchableOpacity
-            style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
+            style={{ padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: reportTotal === 0 ? 0.5 : 1, marginBottom: spacing.sm }}
             onPress={() => downloadReportPdf(reportCompany)}
             disabled={reportTotal === 0}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⬇️ Descargar PDF (conteo)</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⬇️ Descargar PDF (conteo)</Text>
           </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
@@ -1634,8 +1634,8 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : (
               <>
                 {/* 1) Total general */}
-                <View style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16, textAlign: 'right' }}>Total general de equipos: {reportTotal}</Text>
+                <View style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16, textAlign: 'right', fontVariant: ['tabular-nums'] as any }}>Total general de equipos: {reportTotal}</Text>
                 </View>
 
                 {/* 2) Por empresa (resumen) */}
@@ -1652,7 +1652,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, marginTop: spacing.md, marginBottom: 2 }}>Detalle por empresa</Text>
                 {reportData.empresas.map((c) => (
                   <View key={`det-${c.name}`} style={{ marginBottom: spacing.sm }}>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>🏢 {c.name} — {c.items.length}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13, textTransform: 'uppercase', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>🏢 {c.name} — {c.items.length}</Text>
                     {c.items.map((m, i) => {
                       const insp = inspByShift[m.id];
                       return (

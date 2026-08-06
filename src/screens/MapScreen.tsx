@@ -384,7 +384,7 @@ export default function MapScreen({ navigation, route }: any) {
       if (!g.has(k)) g.set(k, []);
       g.get(k)!.push(p);
     });
-    g.forEach((arr) => arr.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
+    g.forEach((arr) => arr.sort((a, b) => cmpText(a.name || '', b.name || '')));
     return g;
   }, [pins, pinCat]);
   // Tipos presentes (UNIÓN de los ubicados y de TODOS los del catálogo), en orden
@@ -393,11 +393,11 @@ export default function MapScreen({ navigation, route }: any) {
   const presentCats = useMemo(() => {
     const s = new Set<string>(groups.keys());
     allMachines.forEach((a) => s.add(equipCategory(a.code) || CAT_OTHER_KEY));
-    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+    return [...s].sort(cmpText);
   }, [groups, allMachines]);
   // Camionetas pick-up del catálogo (con su encargado), para listarlas como "asignadas".
   const camionetas = useMemo(
-    () => allMachines.filter((a) => (equipCategory(a.code) || CAT_OTHER_KEY) === CAMIONETA_CAT).sort((a, b) => a.code.localeCompare(b.code, 'es')),
+    () => allMachines.filter((a) => (equipCategory(a.code) || CAT_OTHER_KEY) === CAMIONETA_CAT).sort((a, b) => cmpText(a.code, b.code)),
     [allMachines]
   );
 
@@ -422,7 +422,7 @@ export default function MapScreen({ navigation, route }: any) {
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(a);
     });
-    m.forEach((arr) => arr.sort((a, b) => a.code.localeCompare(b.code, 'es')));
+    m.forEach((arr) => arr.sort((a, b) => cmpText(a.code, b.code)));
     return m;
   }, [allMachines]);
   // Máquinas para el selector de ubicación manual: primero las SIN ubicar.
@@ -430,7 +430,7 @@ export default function MapScreen({ navigation, route }: any) {
     const q = pickerQuery.trim().toLowerCase();
     return allMachines
       .filter((a) => !q || a.code.toLowerCase().includes(q))
-      .sort((a, b) => (a.located === b.located ? a.code.localeCompare(b.code, 'es') : a.located ? 1 : -1));
+      .sort((a, b) => (a.located === b.located ? cmpText(a.code, b.code) : a.located ? 1 : -1));
   }, [allMachines, pickerQuery]);
 
   const isMachineShown = (p: MapPin) => !hiddenCats.has(pinCat.get(p.id) ?? CAT_OTHER_KEY) && !hiddenIds.has(p.id);
@@ -450,9 +450,9 @@ export default function MapScreen({ navigation, route }: any) {
       {/* Banner de enfoque: viendo solo una máquina · volver a todas. */}
       {focus ? (
         <TouchableOpacity onPress={() => setFocus(null)} activeOpacity={0.8}>
-          <Card style={{ borderColor: colors.primary, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Card style={{ borderColor: colors.brand, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>🔎 Viendo solo: {focus.code}</Text>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>← Ver todas las ubicaciones</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>← Ver todas las ubicaciones</Text>
           </Card>
         </TouchableOpacity>
       ) : null}
@@ -476,7 +476,7 @@ export default function MapScreen({ navigation, route }: any) {
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Máquinas por sector (Este / Oeste)</Text>
             <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con el edificio/referencia que puso el inspector, el inspector y la empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
           </View>
-          <Text style={{ color: colors.primary, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
+          <Text style={{ color: colors.brandText, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
         </Card>
       </TouchableOpacity>
 
@@ -485,7 +485,7 @@ export default function MapScreen({ navigation, route }: any) {
         <Card>
           <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: colors.text, fontWeight: '800' }}>🗂️ Capas · mostrar / ocultar</Text>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
           </TouchableOpacity>
 
           {layersOpen ? (
@@ -543,7 +543,7 @@ export default function MapScreen({ navigation, route }: any) {
                         encargado y en constante movimiento (abarcan todas las zonas). */}
                     {expanded && isCam ? (
                       <View style={{ marginTop: 6, paddingLeft: 42 }}>
-                        <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '800', marginBottom: 3 }}>🚙 En constante movimiento · abarcan TODAS las zonas · se ubican por su encargado</Text>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>🚙 En constante movimiento · abarcan TODAS las zonas · se ubican por su encargado</Text>
                         {camionetas.map((a) => {
                           const ps = placaSerial(a.plate, a.serial);
                           return (
@@ -551,7 +551,7 @@ export default function MapScreen({ navigation, route }: any) {
                               <Text style={{ fontSize: 15 }}>🚙</Text>
                               <View style={{ flex: 1 }}>
                                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{a.code}</Text>
-                                <Text style={{ color: '#2563EB', fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
+                                <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
                                 {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
                               </View>
                               <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
@@ -616,14 +616,14 @@ export default function MapScreen({ navigation, route }: any) {
           <TouchableOpacity
             onPress={() => setFullscreen(true)}
             activeOpacity={0.85}
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
           >
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
           </TouchableOpacity>
 
           {/* Ubicación MANUAL — solo administradores pueden reubicar máquinas. */}
           {isAdmin && !focus ? (
-            <Card style={locateFor ? { borderColor: '#D97706', borderWidth: 1 } : undefined}>
+            <Card style={locateFor ? { borderColor: colors.accent, borderWidth: 1 } : undefined}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>📍 Ubicar manualmente (admin)</Text>
                 {locateFor ? (
@@ -640,19 +640,19 @@ export default function MapScreen({ navigation, route }: any) {
                 ) : null}
               </TouchableOpacity>
               {locateFor ? (
-                <Text style={{ color: '#D97706', fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
+                <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
               ) : null}
-              {notice ? <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 6 }}>{notice}</Text> : null}
+              {notice ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 6 }}>{notice}</Text> : null}
             </Card>
           ) : null}
 
           {/* Mover SECTORES — solo administradores pueden reubicar las zonas del mapa. */}
           {isAdmin && !focus ? (
-            <Card style={zoneEdit ? { borderColor: '#2563EB', borderWidth: 1 } : undefined}>
+            <Card style={zoneEdit ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Mover sectores (admin)</Text>
-                <TouchableOpacity onPress={() => setZoneEdit((v) => !v)} style={{ backgroundColor: zoneEdit ? '#2563EB' : colors.surfaceAlt, borderWidth: 1, borderColor: zoneEdit ? '#2563EB' : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                  <Text style={{ color: zoneEdit ? '#fff' : colors.text, fontWeight: '800', fontSize: 13 }}>{zoneEdit ? '✓ Activado' : 'Activar'}</Text>
+                <TouchableOpacity onPress={() => setZoneEdit((v) => !v)} style={{ backgroundColor: zoneEdit ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: zoneEdit ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: zoneEdit ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{zoneEdit ? '✓ Activado' : 'Activar'}</Text>
                 </TouchableOpacity>
               </View>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
@@ -666,9 +666,9 @@ export default function MapScreen({ navigation, route }: any) {
           {/* Rutas: mostrar/ocultar desde FUERA del mapa (por defecto OCULTAS). */}
           <TouchableOpacity
             onPress={() => setShowRoutes((v) => !v)}
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: showRoutes ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: showRoutes ? colors.primary : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: showRoutes ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: showRoutes ? colors.brand : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
           >
-            <Text style={{ color: showRoutes ? colors.primaryContrast : colors.text, fontWeight: '800' }}>
+            <Text style={{ color: showRoutes ? colors.brandContrast : colors.text, fontWeight: '800' }}>
               {showRoutes ? '🧭 Ocultar rutas' : '🧭 Mostrar rutas'}
             </Text>
           </TouchableOpacity>
@@ -680,7 +680,7 @@ export default function MapScreen({ navigation, route }: any) {
             <Card>
               <TouchableOpacity onPress={() => setLegendOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>🎨 Máquinas por empresa</Text>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>{selectedCompany ? selectedCompany : 'Todas'}  {legendOpen ? '▲' : '▼'}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{selectedCompany ? selectedCompany : 'Todas'}  {legendOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {legendOpen ? (
                 <View style={{ marginTop: spacing.sm }}>
@@ -690,7 +690,7 @@ export default function MapScreen({ navigation, route }: any) {
                     return (
                       <>
                         <TouchableOpacity onPress={() => setSelectedCompany(null)} style={rowStyle(selectedCompany === null)}>
-                          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary }} />
+                          <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: colors.brand }} />
                           <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>🌐 General (todas)</Text>
                           <Text style={{ color: colors.muted, fontWeight: '800' }}>{leg.total}</Text>
                         </TouchableOpacity>
@@ -714,7 +714,7 @@ export default function MapScreen({ navigation, route }: any) {
             <Card>
               <TouchableOpacity onPress={() => setZonesOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Sectores (zonas)</Text>
-                <Text style={{ color: colors.primary, fontWeight: '800' }}>{zonesOn.size}/{MAP_ZONES.length}  {zonesOpen ? '▲' : '▼'}</Text>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>{zonesOn.size}/{MAP_ZONES.length}  {zonesOpen ? '▲' : '▼'}</Text>
               </TouchableOpacity>
               {zonesOpen ? (
                 <View style={{ marginTop: spacing.sm }}>
@@ -748,7 +748,7 @@ export default function MapScreen({ navigation, route }: any) {
         <Card>
           <TouchableOpacity onPress={() => setMonitorOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <Text style={{ color: colors.text, fontWeight: '800' }}>🕵️ Monitoreo · quién ubica</Text>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>{monitorOpen ? 'Ocultar ▲' : `Ver ▼  (${trace.length})`}</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{monitorOpen ? 'Ocultar ▲' : `Ver ▼  (${trace.length})`}</Text>
           </TouchableOpacity>
           {monitorOpen ? (
             <View style={{ marginTop: spacing.sm }}>
@@ -763,7 +763,7 @@ export default function MapScreen({ navigation, route }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>📍 {t.code}</Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
                   </View>
-                  <Text style={{ color: t.note ? colors.danger : colors.primary, fontSize: 12, fontWeight: '700' }}>
+                  <Text style={{ color: t.note ? colors.danger : colors.brandText, fontSize: 12, fontWeight: '700' }}>
                     {t.note ? `🗑️ ${recorderName(t.recorded_by)} · ${t.note}` : `👤 ${recorderName(t.recorded_by)}`}
                   </Text>
                 </TouchableOpacity>
@@ -781,7 +781,7 @@ export default function MapScreen({ navigation, route }: any) {
           <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
             <TextInput value={traceQuery} onChangeText={setTraceQuery} placeholder="Buscar: máquina, placa, serial, empresa, encargado, referencia, inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
-            {traceQuery ? <TouchableOpacity onPress={() => setTraceQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+            {traceQuery ? <TouchableOpacity onPress={() => setTraceQuery('')}><Text style={{ color: colors.brandText, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
           </View>
           {filteredTrace.length === 0 ? (
             <EmptyState title="Sin resultados" subtitle="Ninguna ubicación coincide con la búsqueda." />
@@ -790,12 +790,12 @@ export default function MapScreen({ navigation, route }: any) {
           const focused = focus?.id === t.machinery_id;
           return (
             <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => focusMachine(t)}>
-              <Card style={focused ? { borderColor: colors.primary, borderWidth: 1 } : undefined}>
+              <Card style={focused ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>📍 {t.code}</Text>
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
                 </View>
-                <Text style={{ color: colors.primary, fontSize: 12, marginTop: 2 }}>🏢 {t.company}</Text>
+                <Text style={{ color: colors.brandText, fontSize: 12, marginTop: 2 }}>🏢 {t.company}</Text>
                 {t.plate || t.serial ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     🔖 {t.plate ? `Placa: ${t.plate}` : ''}{t.plate && t.serial ? ' · ' : ''}{t.serial ? `Serial: ${t.serial}` : ''}
@@ -810,7 +810,7 @@ export default function MapScreen({ navigation, route }: any) {
                 )}
                 {isAdmin ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 2 }}>👤 {recorderName(t.recorded_by)}</Text> : null}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '800' }}>{focused ? '✓ Viendo solo esta en el mapa' : 'Toca: ver solo esta en el mapa'}</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '800' }}>{focused ? '✓ Viendo solo esta en el mapa' : 'Toca: ver solo esta en el mapa'}</Text>
                   <TouchableOpacity onPress={() => openRoute(t)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>🧭 Ruta por fecha/hora</Text>
                   </TouchableOpacity>
@@ -825,8 +825,8 @@ export default function MapScreen({ navigation, route }: any) {
       {/* Mapa en PANTALLA COMPLETA (con ubicación del usuario). */}
       <Modal visible={fullscreen} animationType="slide" onRequestClose={() => setFullscreen(false)}>
         <View style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.primary }}>
-            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 16 }}>🗺️ Mapa {focus ? `· ${focus.code}` : ''}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.brand }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 16 }}>🗺️ Mapa {focus ? `· ${focus.code}` : ''}</Text>
             <TouchableOpacity onPress={() => setFullscreen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.25)' }}>
               <Text style={{ color: '#fff', fontWeight: '800' }}>✕ Cerrar</Text>
             </TouchableOpacity>
@@ -892,7 +892,7 @@ export default function MapScreen({ navigation, route }: any) {
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '85%' }}>
             <View style={{ padding: spacing.lg }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🧭 Ruta · {routeFor?.code}</Text>
-              <Text style={{ color: colors.primary, fontSize: 13 }}>🏢 {routeFor?.company}</Text>
+              <Text style={{ color: colors.brandText, fontSize: 13 }}>🏢 {routeFor?.company}</Text>
               {routeFor?.plate || routeFor?.serial ? (
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
                   🔖 {routeFor?.plate ? `Placa: ${routeFor.plate}` : ''}{routeFor?.plate && routeFor?.serial ? ' · ' : ''}{routeFor?.serial ? `Serial: ${routeFor.serial}` : ''}
@@ -907,7 +907,7 @@ export default function MapScreen({ navigation, route }: any) {
               ) : (
                 routePoints.map((p, i) => (
                   <View key={p.id} style={{ flexDirection: 'row', gap: spacing.sm, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                    <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12, width: 30 }}>{routePoints.length - i}</Text>
+                    <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12, width: 30 }}>{routePoints.length - i}</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{fmt(p.recorded_at)}</Text>
                       {p.note ? (
@@ -919,7 +919,7 @@ export default function MapScreen({ navigation, route }: any) {
                     {p.latitude != null && p.longitude != null ? (
                       <Text
                         onPress={() => { const w: any = globalThis; try { w.open?.(`https://www.google.com/maps?q=${p.latitude},${p.longitude}`, '_blank'); } catch {} }}
-                        style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}
+                        style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}
                       >
                         Mapa ↗
                       </Text>

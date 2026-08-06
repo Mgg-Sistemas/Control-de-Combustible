@@ -131,7 +131,7 @@ export default function ComidaScreen() {
   const rangeCompanies = useMemo(() => {
     const m = new Map<string, string>();
     rangeRows.forEach((r) => m.set(r.company_id ?? r.company_name, r.company_name));
-    return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(m, ([id, name]) => ({ id, name })).sort((a, b) => cmpText(a.name, b.name));
   }, [rangeRows]);
 
   const rangeFiltered = useMemo(
@@ -250,7 +250,7 @@ export default function ComidaScreen() {
       g.meals[cm.meal_type] = cm;
       g.total += Number(cm.delivered) || 0;
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(map.values()).sort((a, b) => cmpText(a.name, b.name));
   }, [companyMeals]);
   const companyTotal = companyMeals.reduce((a, c) => a + (Number(c.delivered) || 0), 0);
 
@@ -304,7 +304,7 @@ export default function ComidaScreen() {
 
   const kpi = (label: string, value: React.ReactNode, color: string) => (
     <View style={{ flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-      <Text style={{ color, fontSize: 22, fontWeight: '900' }}>{value}</Text>
+      <Text style={{ color, fontSize: 22, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{value}</Text>
       <Text style={{ color: colors.muted, fontSize: 11, textAlign: 'center' }}>{label}</Text>
     </View>
   );
@@ -312,9 +312,9 @@ export default function ComidaScreen() {
   const modeTab = (key: 'dia' | 'control', label: string) => (
     <TouchableOpacity
       onPress={() => setMode(key)}
-      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: mode === key ? colors.primary : colors.surface, borderWidth: 1, borderColor: mode === key ? colors.primary : colors.border }}
+      style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: mode === key ? colors.brand : colors.surface, borderWidth: 1, borderColor: mode === key ? colors.brand : colors.border }}
     >
-      <Text style={{ color: mode === key ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+      <Text style={{ color: mode === key ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
     </TouchableOpacity>
   );
 
@@ -334,7 +334,7 @@ export default function ComidaScreen() {
         <Card>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             <TouchableOpacity onPress={() => shiftRange(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
-              <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>◀</Text>
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Desde</Text>
@@ -345,7 +345,7 @@ export default function ComidaScreen() {
               <DateField value={to} onChange={setTo} maxISO={caracasToday()} />
             </View>
             <TouchableOpacity onPress={() => shiftRange(1)} disabled={to >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: to >= caracasToday() ? 0.4 : 1 }}>
-              <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>▶</Text>
             </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
@@ -359,8 +359,8 @@ export default function ComidaScreen() {
             ]).map((p) => {
               const active = from === p.f && to === p.t;
               return (
-                <TouchableOpacity key={p.lbl} onPress={() => { setFrom(p.f); setTo(p.t); }} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary : colors.surface }}>
-                  <Text style={{ color: active ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{p.lbl}</Text>
+                <TouchableOpacity key={p.lbl} onPress={() => { setFrom(p.f); setTo(p.t); }} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? colors.brand : colors.border, backgroundColor: active ? colors.brand : colors.surface }}>
+                  <Text style={{ color: active ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{p.lbl}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -371,12 +371,12 @@ export default function ComidaScreen() {
         <Card>
           <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Empresa</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-            <TouchableOpacity onPress={() => setCompanyFilter('all')} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === 'all' ? colors.primary : colors.border, backgroundColor: companyFilter === 'all' ? colors.primary : colors.surface }}>
-              <Text style={{ color: companyFilter === 'all' ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>Todas</Text>
+            <TouchableOpacity onPress={() => setCompanyFilter('all')} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === 'all' ? colors.brand : colors.border, backgroundColor: companyFilter === 'all' ? colors.brand : colors.surface }}>
+              <Text style={{ color: companyFilter === 'all' ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>Todas</Text>
             </TouchableOpacity>
             {rangeCompanies.map((c) => (
-              <TouchableOpacity key={c.id} onPress={() => setCompanyFilter(c.id)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === c.id ? colors.primary : colors.border, backgroundColor: companyFilter === c.id ? colors.primary : colors.surface }}>
-                <Text style={{ color: companyFilter === c.id ? colors.primaryContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.name}</Text>
+              <TouchableOpacity key={c.id} onPress={() => setCompanyFilter(c.id)} style={{ paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: companyFilter === c.id ? colors.brand : colors.border, backgroundColor: companyFilter === c.id ? colors.brand : colors.surface }}>
+                <Text style={{ color: companyFilter === c.id ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{c.name}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -391,7 +391,7 @@ export default function ComidaScreen() {
             {/* Totales generales del rango */}
             <Card>
               <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                {kpi('Por empresa', rangeTotals.total, colors.primary)}
+                {kpi('Por empresa', rangeTotals.total, colors.brandText)}
                 {kpi('Por persona', rangePersonsTotal, colors.text)}
                 {kpi('Total', rangeTotals.total + rangePersonsTotal, colors.success)}
               </View>
@@ -400,8 +400,8 @@ export default function ComidaScreen() {
               </View>
             </Card>
 
-            <TouchableOpacity onPress={downloadRangePdf} disabled={pdfBusy} style={{ backgroundColor: '#B91C1C', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Descargar reporte PDF'}</Text>
+            <TouchableOpacity onPress={downloadRangePdf} disabled={pdfBusy} style={{ backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: pdfBusy ? 0.6 : 1 }}>
+              <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{pdfBusy ? 'Generando…' : '📄 Descargar reporte PDF'}</Text>
             </TouchableOpacity>
 
             {/* Resumen por empresa */}
@@ -412,7 +412,7 @@ export default function ComidaScreen() {
                   <Card key={g.name}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
-                      <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{g.total} comida(s)</Text>
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
                       {MEALS.map((m) => (
@@ -433,7 +433,7 @@ export default function ComidaScreen() {
                   <Card key={(p.cedula || p.name) + p.total}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }} numberOfLines={1}>👤 {p.name}{p.cedula ? <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>  · C.I {p.cedula}</Text> : null}</Text>
-                      <Text style={{ color: colors.primary, fontWeight: '900' }}>{p.total} comida(s)</Text>
+                      <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{p.total} comida(s)</Text>
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
                       {MEALS.map((m) => (
@@ -456,7 +456,7 @@ export default function ComidaScreen() {
                     <Card key={h.date}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
                         <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14, textTransform: 'capitalize' }}>{niceDay(h.date)}</Text>
-                        <Text style={{ color: colors.primary, fontWeight: '900' }}>{dayTotal} comida(s)</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{dayTotal} comida(s)</Text>
                       </View>
                       {MEALS.map((m) => {
                         const cm = h.meals[m.key];
@@ -491,15 +491,15 @@ export default function ComidaScreen() {
       <Card>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <TouchableOpacity onPress={() => shiftDay(-1)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>◀</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>◀</Text>
           </TouchableOpacity>
           <View style={{ flex: 1 }}><DateField value={date} onChange={setDate} maxISO={caracasToday()} /></View>
           <TouchableOpacity onPress={() => shiftDay(1)} disabled={date >= caracasToday()} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, opacity: date >= caracasToday() ? 0.4 : 1 }}>
-            <Text style={{ color: colors.primary, fontWeight: '800' }}>▶</Text>
+            <Text style={{ color: colors.brandText, fontWeight: '800' }}>▶</Text>
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          {kpi('Por empresa', companyTotal, colors.primary)}
+          {kpi('Por empresa', companyTotal, colors.brandText)}
           {kpi('Por persona', totalMeals, colors.text)}
           {kpi('Empresas', companyGroups.length, colors.text)}
         </View>
@@ -507,9 +507,9 @@ export default function ComidaScreen() {
 
       <TouchableOpacity
         onPress={() => setQrOpen((v) => !v)}
-        style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
+        style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
       >
-        <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{qrOpen ? '▲ Ocultar QR por empresa' : '🖼️ QR por empresa (imágenes)'}</Text>
+        <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{qrOpen ? '▲ Ocultar QR por empresa' : '🖼️ QR por empresa (imágenes)'}</Text>
       </TouchableOpacity>
       {qrOpen ? (
         <Card>
@@ -525,9 +525,9 @@ export default function ComidaScreen() {
                 <TouchableOpacity
                   onPress={() => downloadCompanyQr(c)}
                   disabled={qrBusy === c.id}
-                  style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: qrBusy === c.id ? 0.6 : 1 }}
+                  style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: qrBusy === c.id ? 0.6 : 1 }}
                 >
-                  <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>{qrBusy === c.id ? 'Generando…' : '🖼️ Descargar QR'}</Text>
+                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{qrBusy === c.id ? 'Generando…' : '🖼️ Descargar QR'}</Text>
                 </TouchableOpacity>
               </View>
             ))
@@ -544,7 +544,7 @@ export default function ComidaScreen() {
           <Card key={g.name}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🏢 {g.name}</Text>
-              <Text style={{ color: colors.primary, fontWeight: '900' }}>{g.total} comida(s)</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{g.total} comida(s)</Text>
             </View>
             {MEALS.map((mt) => {
               const cm = g.meals[mt.key];
@@ -574,7 +574,7 @@ export default function ComidaScreen() {
           <Card key={p.name + p.total}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>👤 {p.name}</Text>
-              <Text style={{ color: colors.primary, fontWeight: '900' }}>{p.total} comida(s)</Text>
+              <Text style={{ color: colors.brandText, fontWeight: '900', fontVariant: ['tabular-nums'] as any }}>{p.total} comida(s)</Text>
             </View>
             {p.items.map((d) => (
               <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5, borderTopWidth: 1, borderTopColor: colors.border }}>
