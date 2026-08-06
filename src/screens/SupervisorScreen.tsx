@@ -1543,24 +1543,27 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
             <View style={{ marginTop: spacing.xs, gap: spacing.xs }}>
               {/* 4 grupos por ESTADO, COLAPSADOS por defecto, con contador y buscador propio. */}
               {([
-                { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success },
-                { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText },
-                { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning },
-                { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger },
-              ] as const).map(({ key, label, icon, color }) => {
+                { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success, desc: 'Jornada abierta ahora mismo' },
+                { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText, desc: 'Aún sin iniciar la jornada de hoy' },
+                { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning, desc: 'Paradas (arrastran el estado del día anterior)' },
+                { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger, desc: 'Con avería pendiente por resolver' },
+              ] as const).map(({ key, label, icon, color, desc }) => {
                 const all = grupos[key];
                 const open = !!grpOpen[key];
                 const q = norm((grpQuery[key] || '').trim());
                 const shown = q ? all.filter((m) => matchQuery(m, q)) : all;
+                const n = all.length;
                 return (
-                  <View key={key} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' }}>
-                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
-                      <Text style={{ fontSize: 16 }}>{icon}</Text>
-                      <Text style={{ flex: 1, color, fontWeight: '900', fontSize: 14 }}>{label}</Text>
-                      <View style={{ minWidth: 30, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
-                        <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{all.length}</Text>
+                  <View key={key} style={{ borderWidth: 1, borderColor: open ? color : colors.border, borderRadius: radius.md, backgroundColor: colors.surface, overflow: 'hidden' }}>
+                    {/* Fila tipo menú: ícono grande + título + subtítulo + CANTIDAD + chevron. Al tocar, despliega la lista de ese estado. */}
+                    <TouchableOpacity onPress={() => setGrpOpen((s) => ({ ...s, [key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.md }}>
+                      <Text style={{ fontSize: 24 }}>{icon}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 15, letterSpacing: 0.3 }}>{label.toUpperCase()}</Text>
+                        <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{n} {n === 1 ? 'máquina' : 'máquinas'} · {desc}</Text>
                       </View>
-                      <Text style={{ color: colors.muted, fontSize: 16, fontWeight: '900' }}>{open ? '▾' : '▸'}</Text>
+                      <Text style={{ color, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any, minWidth: 22, textAlign: 'right' }}>{n}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 18, fontWeight: '900' }}>{open ? '▾' : '▸'}</Text>
                     </TouchableOpacity>
                     {open ? (
                       <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
