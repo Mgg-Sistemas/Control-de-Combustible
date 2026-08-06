@@ -529,19 +529,36 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   // Horas + horómetro del DÍA elegido por máquina (de las rondas de selDay).
   const roundDetail = useMemo(() => {
-    const map = new Map<string, { dayH: number; nightH: number; horoIni: number | null; horoFin: number | null; shift: 'day' | 'night' }>();
+    const map = new Map<string, { dayH: number; nightH: number; horoIni: number | null; horoFin: number | null; shift: 'day' | 'night'; openStartAt: string | null }>();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      const cur = map.get(r.machinery_id) ?? { dayH: 0, nightH: 0, horoIni: null, horoFin: null, shift: roundShift(r) };
+      const cur = map.get(r.machinery_id) ?? { dayH: 0, nightH: 0, horoIni: null, horoFin: null, shift: roundShift(r), openStartAt: null };
       cur.dayH += Number(r.day_hours) || 0;
       cur.nightH += Number(r.night_hours) || 0;
       if (r.horometro_inicial != null) cur.horoIni = Number(r.horometro_inicial);
       if (r.horometro_final != null) cur.horoFin = Number(r.horometro_final);
       cur.shift = roundShift(r);
+      // Jornada TODAVÍA abierta (sin finalizar): sus horas reales de HOY no están
+      // bancadas aún en day_hours/night_hours — se suman aparte, en vivo, abajo.
+      if ((r as any).jornada_start_at) cur.openStartAt = (r as any).jornada_start_at;
       map.set(r.machinery_id, cur);
     });
     return map;
   }, [rounds, selDay]);
+
+  // Horas REALES trabajadas de una máquina en selDay: lo ya bancado (day_hours +
+  // night_hours) MÁS, si su jornada sigue abierta y selDay es HOY, lo transcurrido
+  // desde que arrancó (en vivo, hasta el momento de mirar el panel) — así una
+  // jornada que sigue en curso no cuenta como "0 horas" hasta que la finalicen.
+  const liveHorasOf = useCallback((id: string): number => {
+    const rd = roundDetail.get(id);
+    if (!rd) return 0;
+    let total = rd.dayH + rd.nightH;
+    if (selDay === caracasToday() && rd.openStartAt) {
+      total += Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
+    }
+    return total;
+  }, [roundDetail, selDay]);
 
   // Estado (iniciada/averiada/parada/pendiente) de una máquina en selDay+turno.
   // Misma prioridad que el teléfono (segmentoDe) y el desglose por inspector:
@@ -632,9 +649,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // averiada) contra las que dejó completamente sin tocar (pendientes). Misma
       // fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
       const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes };
+      // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
+      // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
+      // parada a mitad de jornada también dejó horas bancadas antes de parar.
+      const horas = Math.round(visibleIds.reduce((sum, id) => sum + liveHorasOf(id), 0) * 10) / 10;
+      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), total: visibleIds.length, eficiencia, isFaltantes, horas };
     }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet]);
+  }, [assignments, shift, daySets, machInactiveSet, liveHorasOf]);
 
   const inspShown = useMemo(() => {
     const nq = norm(inspQ.trim());
@@ -656,7 +677,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // Color de la eficiencia: verde 100%, ámbar 50-99%, rojo <50% (mismo criterio que el PDF).
   const efiColor = (e: number | null): string => (e === null ? colors.muted : e >= 100 ? colors.success : e >= 50 ? colors.warning : colors.danger);
 
-  const KpiCard = ({ label, value, tone, onPress }: { label: string; value: number; tone: 'brand' | 'muted' | 'warn' | 'crit'; onPress?: () => void }) => {
+  const KpiCard = ({ label, value, tone, onPress }: { label: string; value: number | string; tone: 'brand' | 'muted' | 'warn' | 'crit'; onPress?: () => void }) => {
     const map = {
       brand: { fg: colors.brandText, bg: colors.surface },
       muted: { fg: colors.muted, bg: colors.surfaceAlt },
@@ -970,6 +991,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
                 <KpiCard label="Averiadas" value={sel.ave.length} tone="crit" onPress={() => openList(`🔴 Averiadas · ${sel.name}`, sel.ave)} />
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
+                <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" />
               </View>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
