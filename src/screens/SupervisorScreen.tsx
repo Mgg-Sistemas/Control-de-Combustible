@@ -208,7 +208,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [assignForQuery, setAssignForQuery] = useState('');
   // Estado de la jornada por máquina (para el círculo 🟢/🟡/🔴):
   //   round del día (jornada abierta / horas) + máquinas con avería PARADA pendiente.
-  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number }>>({});
+  // Jornada por máquina, SEPARADA por turno: `open`/`worked` = global (compatibilidad
+  // con visibleParaInspector). `openDay/openNight` y `dayWorked/nightWorked` = por turno
+  // → así "iniciada/trabajando" NO se refleja del inspector de día al de noche (ni viceversa).
+  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
   const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean }[]>([]);
@@ -427,10 +430,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
     const [{ data: rs }, { data: rsNoche }, { data: par }, { data: avPend }] = await Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', today),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', today),
       // Jornadas de NOCHE de AYER aún ABIERTAS (cruzan la medianoche): sin esto el
       // círculo 🟢 se apagaba al pasar las 12 (parecía cierre a medianoche en el tlf).
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, day_hours, night_hours').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -441,18 +444,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
       supabase.from('maintenance_requests').select('machinery_id, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
-    const rmap: Record<string, { open: boolean; worked: number }> = {};
+    const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0 };
+    const rmap: Record<string, typeof empty> = {};
     ((rs ?? []) as any[]).forEach((r) => {
       // Una máquina puede tener VARIAS rondas hoy (día/noche, o correcciones). Acumula:
-      // abierta = si CUALQUIER ronda está abierta; horas = el MÁXIMO (no la última que
-      // llegó). Así una jornada finalizada con 12h no se pierde si otra ronda vino con 0.
-      const prev = rmap[r.machinery_id];
-      const worked = (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
-      rmap[r.machinery_id] = { open: (prev?.open || !!r.jornada_start_at), worked: Math.max(prev?.worked ?? 0, worked) };
+      // abierta = si CUALQUIER ronda está abierta; horas = el MÁXIMO. TODO separado por
+      // turno (día vs noche) para que el estado de un turno no se refleje en el otro.
+      const prev = rmap[r.machinery_id] ?? empty;
+      const dh = Number(r.day_hours) || 0;
+      const nh = Number(r.night_hours) || 0;
+      const isOpen = !!r.jornada_start_at;
+      const openSh = r.jornada_shift === 'night' ? 'night' : r.jornada_shift === 'day' ? 'day' : null;
+      rmap[r.machinery_id] = {
+        open: prev.open || isOpen,
+        worked: Math.max(prev.worked, dh + nh),
+        openDay: prev.openDay || (isOpen && openSh === 'day'),
+        openNight: prev.openNight || (isOpen && openSh === 'night'),
+        dayWorked: Math.max(prev.dayWorked, dh),
+        nightWorked: Math.max(prev.nightWorked, nh),
+      };
     });
-    // La noche de ayer aún abierta cuenta como 🟢 trabajando (a menos que hoy ya tenga algo).
+    // La noche de ayer aún abierta cuenta como 🟢 trabajando SOLO para el turno noche.
     ((rsNoche ?? []) as any[]).forEach((r) => {
-      if (!rmap[r.machinery_id]?.open) rmap[r.machinery_id] = { open: true, worked: rmap[r.machinery_id]?.worked ?? 0 };
+      const prev = rmap[r.machinery_id] ?? empty;
+      rmap[r.machinery_id] = { ...prev, open: true, openNight: true };
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -487,7 +502,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const seg = segmentoDe(id);
     if (seg === 'averia') return { color: '#B91C1C', icon: '🔴', label: 'Averiada' };
     if (seg === 'parada') return { color: '#D9A200', icon: '🟡', label: 'Parada' };
-    if (seg === 'iniciada' && roundsById[id]?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    if (seg === 'iniciada' && openMine(id)) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
     return null;
   };
 
@@ -685,6 +700,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (s.night?.id === uid) return 'night';
     return null;
   };
+  // ¿MI turno trabajó/abrió jornada en esta máquina? Coordinador (sin turno) = global.
+  // Así la jornada del inspector de día NO le sale "iniciada" al de noche (ni al revés).
+  const workedMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.dayWorked > 0 || r.openDay;
+    if (sh === 'night') return r.nightWorked > 0 || r.openNight;
+    return r.open || r.worked > 0;
+  };
+  const openMine = (id: string): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.openDay;
+    if (sh === 'night') return r.openNight;
+    return r.open;
+  };
   // Segmento de estatus de una máquina. REGLA POR-TURNO (confirmada 06-ago-2026): la
   // avería/parada pertenece al turno de la HORA en que se marcó; el OTRO turno la ve como
   // pendiente. Cada inspector ve SUS estados de SU turno, día independiente de noche.
@@ -698,7 +729,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (paradaRawList.some((p) => p.id === id && !p.arrastrada && ok(p.shift))) return 'parada';
     // 2) INICIADA = jornada ABIERTA ahora, o ya FINALIZADA con horas. Gana sobre
     //    avería/parada ARRASTRADA (la máquina se reactivó).
-    if (roundsById[id]?.open || (roundsById[id]?.worked ?? 0) > 0) return 'iniciada';
+    if (workedMine(id)) return 'iniciada';
     // 3) Avería/parada arrastrada de MI TURNO: solo si NO trabaja hoy.
     if (averiaRawList.some((a) => a.id === id && ok(a.shift))) return 'averia';
     if (paradaRawList.some((p) => p.id === id && ok(p.shift))) return 'parada';
