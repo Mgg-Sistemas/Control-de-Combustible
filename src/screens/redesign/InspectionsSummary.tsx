@@ -595,23 +595,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
-    // Averías pendientes vigentes (arrastran hasta resolver; misma lógica que el teléfono).
+    // Averías de ESTE turno. REGLA (confirmada 06-ago-2026): el estado avería/parada es
+    // POR TURNO — pertenece al turno de la HORA en que se marcó (paradaShiftOf). Solo ese
+    // turno la ve averiada; el OTRO turno ve la máquina como pendiente/iniciada. Arrastra
+    // dentro de SU mismo turno hasta resolverla (si es de un día anterior, cuenta salvo
+    // que la máquina haya trabajado ese turno).
     const averAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs) return;
+      if (t > dayEndMs || paradaShiftOf(m.created_at) !== shift) return;
       const arr = t < dayStartMs;
       if (arr ? !workedSet.has(m.machinery_id) : true) averAll.add(m.machinery_id);
     });
-    // Paradas de ESTE turno.
+    // Paradas de ESTE turno (misma regla por-turno que las averías).
     const paradaAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material !== 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs || averAll.has(m.machinery_id)) return;
+      if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shift) return;
       const arr = t < dayStartMs;
-      const applies = arr ? !workedSet.has(m.machinery_id) : paradaShiftOf(m.created_at) === shift;
+      const applies = arr ? !workedSet.has(m.machinery_id) : true;
       if (applies) paradaAll.add(m.machinery_id);
     });
     const assignedShift = new Set(assignments.filter((a) => a.shift === shift).map((a) => a.machinery_id));
