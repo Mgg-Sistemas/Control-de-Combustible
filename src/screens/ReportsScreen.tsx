@@ -1926,7 +1926,6 @@ export default function ReportsScreen({ route }: any) {
       </tr>`).join('')}
     `).join('');
     const body = `
-      <div class="muted">Tipos seleccionados: ${sel.map((t) => esc(t.name)).join(', ')} · Alcance: ${estadoLbl}</div>
       <div class="summary">
         <div><span class="k">Total de equipos</span><b>${total}</b></div>
         <div><span class="k">Tipos</span><b>${sel.length}</b></div>

@@ -848,6 +848,17 @@ export default function EquiposScreen({ navigation, route }: any) {
     const resumenRows = empresas
       .map((c) => `<tr><td>${esc(c.name)}</td><td style="text-align:right;font-weight:700">${c.items.length}</td></tr>`)
       .join('');
+    // Totales POR CLASIFICACIÓN (arriba del reporte): cuántos equipos hay de cada
+    // clasificación en el alcance impreso (ej. Excavadora 5, Volteo 12…), A→Z natural.
+    const porClasif = new Map<string, number>();
+    empresas.forEach((c) => c.items.forEach((m) => {
+      const k = repClasifLabel(m);
+      porClasif.set(k, (porClasif.get(k) ?? 0) + 1);
+    }));
+    const clasifRows = Array.from(porClasif.entries())
+      .sort((a, b) => cmpText(a[0], b[0]))
+      .map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`)
+      .join('');
     const detalle = empresas
       .map((c) => {
         const rows = c.items
@@ -888,7 +899,11 @@ export default function EquiposScreen({ navigation, route }: any) {
         .grand{margin:4px 0 8px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:15px;border-radius:6px;text-align:right}`,
       body:
         `<div class="grand">Total general de equipos: ${total}</div>` +
-        `<h2>Por empresa</h2>
+        `<h2>Totales por clasificación</h2>
+         <table><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+         <tbody>${clasifRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>` +
+        `<h2 style="margin-top:18px">Por empresa</h2>
          <table><thead><tr><th>Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
          <tbody>${resumenRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
          <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>

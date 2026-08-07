@@ -2693,9 +2693,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.dangerSoftText, fontWeight: '800', fontSize: 13 }}>🔒 Máquina de otro inspector</Text>
                   <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar su jornada.{duenoTxt ? ` Asignada a: ${duenoTxt}.` : ''}</Text>
                 </View>
-              ) : ci && paradaIds.has(ci.id) && !jornadaStart ? (
+              ) : ci && !jornadaStart && segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' ? (
                 // Máquina PARADA sin jornada abierta: no se puede iniciar jornada estando
                 // parada — primero hay que volver a ponerla OPERATIVA (botón de abajo).
+                // POR TURNO (día indep. de noche): una parada marcada de DÍA NO bloquea al
+                // inspector de NOCHE (antes usaba paradaIds, sin turno → el status de día
+                // le tapaba al de noche y no podía iniciar). Ahora usa el MISMO clasificador
+                // por-turno que la pantalla (segmentoConTurno) para el turno que va a iniciar.
                 <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                   <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 13 }}>🟡 Máquina parada</Text>
                   <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>No puedes iniciar jornada mientras esté parada. Vuélvela a OPERATIVA primero (abajo).</Text>
@@ -2789,8 +2793,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
               )}
 
-              {/* Si la máquina está PARADA, permite volver a ponerla OPERATIVA. */}
-              {ci && paradaIds.has(ci.id) ? (
+              {/* Si la máquina está PARADA EN ESTE TURNO, permite volver a ponerla OPERATIVA.
+                  POR TURNO (día indep. de noche): una parada de DÍA NO le sale al inspector
+                  de NOCHE (antes usaba paradaIds sin turno → el de noche veía la parada del
+                  día y no podía ni iniciar ni "volver operativa" lo suyo). Mismo clasificador
+                  por-turno que la pantalla, para el turno que va a iniciar. */}
+              {ci && segmentoConTurno(ci.id, fixedShift ?? iniShift) === 'parada' ? (
                 <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                   <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
                   {paradaMotivoDe(ci.id) ? <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivoDe(ci.id)}</Text> : null}
