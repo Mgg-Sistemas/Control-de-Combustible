@@ -480,16 +480,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // vuelve a estado NORMAL (sin marca): la pantalla queda "en 0", solo quedan las
   // paradas pendientes por inspector para reactivar al día siguiente.
   const estadoDe = (id: string): { color: string; icon: string; label: string } | null => {
-    const r = roundsById[id];
-    // Prioridad de estado:
-    //  1) Parada marcada HOY gana sobre "trabajando" (la marcó parada hoy → no trabaja).
-    //  2) Trabajando HOY gana sobre una parada ARRASTRADA (vieja): si iniciaron jornada,
-    //     la máquina se reactivó y está trabajando (no dejarla como parada vieja).
-    //  3) Parada arrastrada (vieja) solo si NO está trabajando hoy → 🟡 hasta operativa.
-    if (paradaHoyIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
-    if (r?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
-    if (paradaIds.has(id)) return { color: '#D9A200', icon: '🟡', label: 'Parada' };
-    return null; // finalizada → NORMAL (no se marca)
+    // Deriva del MISMO clasificador POR-TURNO que `segmentoDe`: cada inspector ve el
+    // estado de SU turno (día independiente de noche). Una parada/avería marcada de
+    // NOCHE NO se le muestra al inspector de DÍA (antes el badge global sí la mostraba
+    // con el motivo del otro turno → "se solapaban"). Finalizada → NORMAL (sin marca).
+    const seg = segmentoDe(id);
+    if (seg === 'averia') return { color: '#B91C1C', icon: '🔴', label: 'Averiada' };
+    if (seg === 'parada') return { color: '#D9A200', icon: '🟡', label: 'Parada' };
+    if (seg === 'iniciada' && roundsById[id]?.open) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    return null;
   };
 
   // Arma el mapa de asignaciones (quién es DÍA y NOCHE por máquina) y "mis
@@ -678,11 +677,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     paradaRawList.forEach((p) => { if (!p.arrastrada) s.add(p.id); });
     return s;
   }, [paradaRawList]);
-  const paradaMotivos = useMemo(() => {
-    const mot: Record<string, string> = {};
-    paradaRawList.forEach((p) => { if (!(p.id in mot)) mot[p.id] = p.motivo; });
-    return mot;
-  }, [paradaRawList]);
   // Turno del inspector LOGUEADO en esta máquina (día/noche), o null si no es suya
   // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
   const shiftOfMine = (id: string): 'day' | 'night' | null => {
@@ -709,6 +703,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (averiaRawList.some((a) => a.id === id && ok(a.shift))) return 'averia';
     if (paradaRawList.some((p) => p.id === id && ok(p.shift))) return 'parada';
     return 'pendiente';
+  };
+  // Motivo de la PARADA de MI turno (día indep. de noche): el inspector de día NO ve
+  // el motivo que dejó el de noche. null/coordinador (sin turno) → primer motivo.
+  const paradaMotivoDe = (id: string): string => {
+    const sh = shiftOfMine(id);
+    const p = paradaRawList.find((x) => x.id === id && (sh === null || x.shift === sh) && x.motivo);
+    return p?.motivo || '';
   };
   // Buscador sobre MIS máquinas asignadas (nombre/serial/placa/empresa/encargado/
   // edificio) + chip de segmento activo. `mine` ya excluye inactivas (TAREA 4).
@@ -1580,7 +1581,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
         {m.encargado ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>👤 Encargado: {m.encargado}</Text> : null}
         {/* Estado de la jornada (con su color) */}
-        {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivos[m.id] ? ` · ${paradaMotivos[m.id]}` : ''}</Text> : null}
+        {est ? <Text style={{ color: est.color, fontSize: 12, fontWeight: '800', marginTop: 2 }}>{est.icon} {est.label}{est.label === 'Parada' && paradaMotivoDe(m.id) ? ` · ${paradaMotivoDe(m.id)}` : ''}</Text> : null}
         {/* Inspectores asignados (día / noche) */}
         {(() => {
           const s = assignMap[m.id] || {};
@@ -2577,7 +2578,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {ci && paradaIds.has(ci.id) ? (
                 <View style={{ backgroundColor: colors.warningSoftBg, borderWidth: 1, borderColor: colors.warningSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
                   <Text style={{ color: colors.warningSoftText, fontWeight: '800', fontSize: 12 }}>🟡 Esta máquina está marcada PARADA.</Text>
-                  {paradaMotivos[ci.id] ? <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivos[ci.id]}</Text> : null}
+                  {paradaMotivoDe(ci.id) ? <Text style={{ color: colors.warningSoftText, fontSize: 12, marginTop: 2 }}>🔧 Motivo: {paradaMotivoDe(ci.id)}</Text> : null}
                   <TouchableOpacity onPress={volverOperativa} disabled={ciSaving} style={{ marginTop: spacing.xs, backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟢 Volver a OPERATIVA'}</Text>
                   </TouchableOpacity>
