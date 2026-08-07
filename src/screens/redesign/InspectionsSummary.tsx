@@ -209,6 +209,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const fromDate = days[0];
 
   const load = useCallback(async () => {
+    // Red de respaldo del cierre automático de jornadas: el disparador de
+    // Supabase (pg_cron, cada 10 min) puede quedar sin correr en silencio por
+    // un rato (pasó el 06/08/2026 — el cron estaba bien configurado pero su
+    // historial de ejecuciones reales quedó vacío toda la tarde/noche, sin
+    // ningún error visible). En vez de depender 100% de esa infraestructura
+    // externa, cada vez que se abre este panel se llama TAMBIÉN a la misma
+    // función de cierre (`auto_close_jornadas`, ya con todos sus candados:
+    // solo cierra a las 7am/7pm exactas, nunca jornadas de +2 días) — así el
+    // sistema se autocorrige solo con el uso normal, sin depender de que el
+    // cron dispare a tiempo. Best-effort: si falla (función no existe, sin
+    // permiso), no debe romper la carga del panel.
+    supabase.rpc('auto_close_jornadas').then(() => {}, () => {});
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
