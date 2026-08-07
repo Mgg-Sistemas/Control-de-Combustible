@@ -25,11 +25,9 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
   { label: 'Fabricación', route: 'FabricacionHub', desc: 'Taller: mangueras, centros de trabajo, recetas (BoM) y rutas de producción', icon: '🏭', module: 'mangueras' },
-  // Fila PROPIA para el Kiosco de planta (permiso `fabricacion_planta`), separada
-  // de "Fabricación" (permiso `mangueras`): un usuario "solo kiosco" del taller no
-  // tiene por qué tener acceso al resto de Fabricación, así que necesita su propia
-  // entrada de menú que navegue directo al Kiosco, no al hub.
-  { label: 'Kiosco de planta', route: 'PlantaKiosk', desc: 'Pantalla táctil para el operario: iniciar, pausar, registrar, reportar falla', icon: '🖥️', module: 'fabricacion_planta' },
+  // (Kiosco de planta se quitó del menú: salía duplicado con la tarjeta del hub de
+  //  Fabricación. Los roles "solo kiosco" entran directo al Kiosco por su panel, ver
+  //  navigation `fabricacionPlanta`. La pantalla/ruta PlantaKiosk sigue existiendo.)
 ];
 
 export default function MoreScreen({ navigation }: any) {
