@@ -12,6 +12,7 @@ import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
 import { generateEmpresaDiaReport } from '../../lib/porEmpresaReport';
+import { generateMachineHoursReport } from '../../lib/machineHoursReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
@@ -47,6 +48,7 @@ const POR_ASIGNAR_KEY = '__por_asignar__';
 const EFICIENCIA_KEY = '__eficiencia__';
 // Token de pdfBusy para el reporte del día POR EMPRESA.
 const EMPRESA_KEY = '__empresa_dia__';
+const HORAS_KEY = '__horas_mant__';
 // Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
 // el dashboard en el turno correcto (antes abría siempre en DÍA).
 function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
@@ -178,12 +180,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // y la avería/motivo. El reporte hace sus propias consultas (ver porEmpresaReport).
   const [empresaPickerOpen, setEmpresaPickerOpen] = useState(false);
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
+  // El mismo selector de empresas sirve para dos reportes: 'dia' (del día por
+  // empresa) y 'mant' (horas trabajadas totales · próximas a mantenimiento).
+  const [reportMode, setReportMode] = useState<'dia' | 'mant'>('dia');
   const makeEmpresaReport = async () => {
     if (empresaSel.size === 0) return;
     setEmpresaPickerOpen(false);
     setPdfBusy(EMPRESA_KEY);
     try {
       await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel] });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+  // Reporte de HORAS TRABAJADAS TOTALES + próximas a mantenimiento (regla 200/220/250
+  // sobre horómetro − base). No es por día: suma todo el histórico. Sin empresas
+  // seleccionadas = TODAS.
+  const makeHorasMantReport = async () => {
+    setEmpresaPickerOpen(false);
+    setPdfBusy(HORAS_KEY);
+    try {
+      await generateMachineHoursReport({ companyIds: [...empresaSel] });
     } finally {
       setPdfBusy(null);
     }
@@ -1131,8 +1148,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </View>
 
           {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
-          <TouchableOpacity onPress={() => setEmpresaPickerOpen(true)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+          <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
+          </TouchableOpacity>
+
+          {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
+              selector de empresas; sin selección = todas. Regla 200/220/250. */}
+          <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas trabajadas · mantenimiento (250 h)'}</Text>
           </TouchableOpacity>
 
           {/* Selector de EMPRESAS (tipo check) para el reporte del día. */}
@@ -1140,7 +1163,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <Pressable onPress={() => setEmpresaPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
               <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>📊 Reporte del día por empresa · {shortDate(selDay)}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{reportMode === 'mant' ? '🛠️ Horas trabajadas · próximas a mantenimiento' : `📊 Reporte del día por empresa · ${shortDate(selDay)}`}</Text>
                   <TouchableOpacity onPress={() => setEmpresaPickerOpen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
                   </TouchableOpacity>
@@ -1164,9 +1187,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     );
                   })}
                 </ScrollView>
-                <TouchableOpacity onPress={makeEmpresaReport} disabled={empresaSel.size === 0} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', opacity: empresaSel.size === 0 ? 0.5 : 1 }}>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar reporte ({empresaSel.size})</Text>
-                </TouchableOpacity>
+                {reportMode === 'mant' ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm, textAlign: 'center' }}>Sin selección = todas las empresas. Regla: 🟡 200 h · 🟠 220 h · 🔴 250 h (límite).</Text>
+                    <TouchableOpacity onPress={makeHorasMantReport} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar ({empresaSel.size === 0 ? 'todas' : empresaSel.size})</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity onPress={makeEmpresaReport} disabled={empresaSel.size === 0} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', opacity: empresaSel.size === 0 ? 0.5 : 1 }}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar reporte ({empresaSel.size})</Text>
+                  </TouchableOpacity>
+                )}
               </Pressable>
             </Pressable>
           </Modal>
