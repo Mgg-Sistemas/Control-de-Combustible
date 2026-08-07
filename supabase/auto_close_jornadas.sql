@@ -51,22 +51,24 @@ begin
     if now() - end_ts > interval '2 days' then
       continue;
     end if;
-    -- Cierra SOLO si el fin del turno YA pasó Y el inicio es ANTERIOR al fin (evita
-    -- sumar 0/negativo y cerrar la jornada sin acreditar sus horas).
-    if now() >= end_ts and r.jornada_start_at < end_ts then
+    -- Cierra si el fin del turno YA pasó.
+    if now() >= end_ts then
       if r.jornada_shift = 'night' then
-        -- NOCHE: horas REALES (inicio → 7am del día siguiente).
-        hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
-        update public.machine_rounds
-          set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
-          where id = r.id;
-        insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
-          values (r.machinery_id, r.round_date, 'night', r.jornada_start_at, end_ts, hrs, 'auto_close');
+        -- NOCHE: horas REALES (inicio → 7am del día siguiente). Requiere inicio ANTES
+        -- del fin (si no, sumaría 0/negativo) — se salta y se deja para cierre manual.
+        if r.jornada_start_at < end_ts then
+          hrs := round((extract(epoch from (end_ts - r.jornada_start_at)) / 3600.0)::numeric, 2);
+          update public.machine_rounds
+            set night_hours = coalesce(night_hours, 0) + hrs, jornada_start_at = null, status = 'operativa'
+            where id = r.id;
+          insert into public.machine_work_segments (machinery_id, round_date, shift, started_at, ended_at, hours, source)
+            values (r.machinery_id, r.round_date, 'night', r.jornada_start_at, end_ts, hrs, 'auto_close');
+        end if;
       else
-        -- DÍA: 12h FIJAS (regla del cliente; máquinas de permanencia). NO se usan las
-        -- horas reales porque el arranque registrado es cuando el inspector marcó, no
-        -- el inicio real de trabajo. La traza se guarda como 7am → 7pm (12h).
-        hrs := 12;
+        -- DÍA: 12h FIJAS (regla del cliente; máquinas de permanencia). NO importa la
+        -- hora de arranque — incluso si el inspector marcó DESPUÉS de las 7pm, la
+        -- jornada de día cierra igual con 12h (antes el candado `start < fin` la dejaba
+        -- abierta para siempre). La traza se guarda como 7am → 7pm (12h).
         update public.machine_rounds
           set day_hours = 12, jornada_start_at = null, status = 'operativa'
           where id = r.id;

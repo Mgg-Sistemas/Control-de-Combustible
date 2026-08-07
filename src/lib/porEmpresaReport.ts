@@ -101,7 +101,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     if (averBy.has(m.machinery_id)) return; // ya viene ordenado desc: la 1ª es la más reciente
     const notes = (m.notes && String(m.notes).trim()) || '';
     const esParada = m.material === 'MÁQUINA PARADA';
-    averBy.set(m.machinery_id, esParada ? (notes || 'Parada') : (notes || (m.material ? String(m.material) : 'Avería')));
+    // Parada = "NO TRABAJÓ · PARADA" (etiqueta corta y uniforme, sin el texto largo
+    // de lote/edificio/ubicación que confunde en el reporte). Avería = su motivo real.
+    averBy.set(m.machinery_id, esParada ? 'NO TRABAJÓ · PARADA' : (notes || (m.material ? String(m.material) : 'Avería')));
   });
 
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
