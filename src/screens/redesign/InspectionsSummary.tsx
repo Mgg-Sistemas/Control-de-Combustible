@@ -626,15 +626,6 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     assignedShift.forEach((id) => { if (visibleOk(id)) universe.add(id); });
     workedSet.forEach((id) => { if (visibleOk(id)) universe.add(id); });
     averAll.forEach((id) => { if ((assignedShift.has(id) || workedSet.has(id)) && visibleOk(id)) universe.add(id); });
-    // ¿YA terminó el turno seleccionado? (Caracas UTC-4). Una máquina solo cuenta como
-    // CERRADA/finalizada si el turno YA acabó: DÍA cierra a las 7pm del mismo día; NOCHE
-    // cierra a las 7am del día SIGUIENTE. Mientras el turno sigue en curso (p. ej. mirar
-    // la NOCHE a las 9pm), las que trabajaron salen INICIADAS, no cerradas (bug: "de noche
-    // salen cerradas y están trabajando"). Para días pasados el fin ya pasó → todas cierran.
-    const shiftEndMs = shift === 'day'
-      ? new Date(selDay + 'T19:00:00-04:00').getTime()
-      : new Date(selDay + 'T07:00:00-04:00').getTime() + 86400000; // 7am del día siguiente
-    const shiftEnded = Date.now() >= shiftEndMs;
     // Clasificación por prioridad (igual que el teléfono): avería > parada > iniciada > pendiente.
     const startedSet = new Set<string>();
     const paradaSet = new Set<string>();
@@ -648,6 +639,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // turno), esto es solo para la tarjeta "Activas ahora" de arriba, que debe caer
     // a 0 en cuanto el cierre automático de las 7am/7pm las cierra — así no se
     // queda pegada en el número del día entero y confunde con "hay que cerrarlas".
+    //
+    // IMPORTANTE: closedSet NO depende de `shiftEnded`. Antes (bug encontrado en
+    // auditoría) una máquina que ya trabajó y cerró TEMPRANO (ej. de noche antes de
+    // las 7am) no entraba ni en activeNowSet (no está abierta) ni en closedSet (el
+    // turno seleccionado técnicamente no había terminado) — quedaba sin clasificar
+    // en NINGUNA tarjeta de arriba, y `estadoOf` la mostraba "Pendiente" a pesar de
+    // ya tener horas trabajadas. openSet ya tiene prioridad (si sigue abierta, entra
+    // a activeNowSet primero), así que basta con "trabajó y no está abierta" para
+    // contarla como cerrada — sin esperar a que termine el reloj del turno.
     const activeNowSet = new Set<string>();
     universe.forEach((id) => {
       if (averAll.has(id)) { averSet.add(id); return; }
@@ -655,7 +655,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (workedSet.has(id)) {
         startedSet.add(id);
         if (openSet.has(id)) activeNowSet.add(id);
-        else if (shiftEnded) closedSet.add(id);
+        else closedSet.add(id);
         return;
       }
       pendSet.add(id);
