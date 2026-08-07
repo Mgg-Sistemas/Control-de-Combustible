@@ -6,7 +6,11 @@ import { listInspectorAssignments } from './machineInspectors';
 /**
  * Reporte del DÍA por EMPRESA (PDF). Para las empresas elegidas (tipo check) y un
  * día, lista por cada empresa sus máquinas con: Máquina, Serial/Placa, Inspector
- * asignado (día/noche), Horas trabajadas, Horas paradas/avería y la Avería/motivo.
+ * asignado (día/noche), Horas trabajadas, Horas paradas/avería, la Avería/motivo y
+ * una LÍNEA DE TIEMPO (pedida por el cliente: a qué hora inició, a qué hora paró y
+ * por qué, cuánto duró la parada, y a qué hora se reactivó — reconstruida cruzando
+ * TODOS los tramos de `machine_work_segments` con TODAS las paradas de
+ * `maintenance_requests` de ese día, no solo el resumen agregado).
  *
  * Incluye las máquinas de esas empresas que tuvieron ACTIVIDAD ese día (horas
  * trabajadas o paradas) o una avería/parada pendiente vigente — es un "resumen del
@@ -28,6 +32,7 @@ const horaCaracas = (iso: string | null): string => {
 type Fila = {
   code: string; serialPlaca: string; inspector: string;
   horaIni: string; horaFin: string; trabajadas: number; paradas: number; averia: string;
+  timeline: string;
 };
 
 /**
@@ -61,8 +66,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const roundBy = new Map<string, any>();
   ((rounds ?? []) as any[]).forEach((r) => roundBy.set(r.machinery_id, r));
 
-  // 2b) Tramos trabajados del día (machine_work_segments): para HORA de inicio/fin y
-  //     para calcular las HORAS PARADAS automáticamente = span total − trabajado (ej.:
+  // 2b) Tramos trabajados del día (machine_work_segments) — se guarda CADA fila (no
+  //     solo el agregado) para poder reconstruir la línea de tiempo completa: HORA de
+  //     inicio/fin de cada tramo, y las HORAS PARADAS = span total − trabajado (ej.:
   //     trabajó 7-11am y 3-7pm → span 12h, trabajado 8h → 4h paradas). Cero cambios al
   //     pago (no toca day_hours ni hours_stopped).
   const segs = await selectAllRows(
@@ -71,6 +77,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     (q) => q.eq('round_date', date).in('machinery_id', ids),
   );
   const segBy = new Map<string, { sum: number; minStart: number; maxEnd: number }>();
+  const segsByMachine = new Map<string, { start: number; end: number }[]>();
   ((segs ?? []) as any[]).forEach((s) => {
     const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
     const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -80,6 +87,11 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     if (!isNaN(st)) prev.minStart = Math.min(prev.minStart, st);
     if (!isNaN(en)) prev.maxEnd = Math.max(prev.maxEnd, en);
     segBy.set(s.machinery_id, prev);
+    if (!isNaN(st) && !isNaN(en)) {
+      const list = segsByMachine.get(s.machinery_id) ?? [];
+      list.push({ start: st, end: en });
+      segsByMachine.set(s.machinery_id, list);
+    }
   });
 
   // 3) Inspector asignado (CHECK) por turno.
@@ -96,12 +108,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   //    hay un registro de avería real (material distinto) se usa SU motivo/material;
   //    solo se usa el texto de "no trabajó" cuando de verdad no hubo avería, y en ese
   //    caso se limpia la nota (quita las coordenadas GPS, deja edificio/referencia).
+  // Trae PENDIENTES vigentes (arrastradas) + las que se RESOLVIERON justo este día
+  // (para poder mostrar la hora de reactivación en la línea de tiempo). Una parada
+  // resuelta otro día distinto no entra acá (no corresponde a la jornada de este día).
   const { data: mr } = await supabase
     .from('maintenance_requests')
-    .select('machinery_id, material, notes, created_at')
-    .eq('status', 'pendiente')
-    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .select('machinery_id, material, notes, created_at, status, resolved_at')
     .in('machinery_id', ids)
+    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .or(`status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${date}T23:59:59.999-04:00)`)
     .order('created_at', { ascending: false });
   const limpiarNoTrabajo = (notes: string): string => {
     const sinUbicacion = notes.replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '').trim();
@@ -113,7 +128,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     list.push(m);
     mrByMachine.set(m.machinery_id, list);
   });
-  const averBy = new Map<string, string>(); // motivo real por máquina
+  const averBy = new Map<string, string>(); // motivo real más reciente por máquina (etiqueta corta)
   mrByMachine.forEach((rows, machineryId) => {
     const real = rows.find((r) => r.material !== 'MÁQUINA PARADA');
     if (real) {
@@ -127,6 +142,58 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       averBy.set(machineryId, notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)');
     }
   });
+
+  // Línea de tiempo por máquina: cada fila 'MÁQUINA PARADA' es UN episodio de parada
+  // (created_at = cuándo paró, resolved_at = cuándo se reactivó, o sigue en curso si
+  // es null). El motivo real se toma de la fila de avería REAL creada casi al mismo
+  // instante (mismo flujo marcarParadaAveria — inserta ambas juntas), o si no existe
+  // (caso "no trabajó"), de la propia nota limpia.
+  const paradaRows = ((mr ?? []) as any[]).filter((m) => m.material === 'MÁQUINA PARADA');
+  const otrasByMachine = new Map<string, any[]>();
+  ((mr ?? []) as any[]).filter((m) => m.material !== 'MÁQUINA PARADA').forEach((m) => {
+    const list = otrasByMachine.get(m.machinery_id) ?? [];
+    list.push(m);
+    otrasByMachine.set(m.machinery_id, list);
+  });
+  const paradasByMachine = new Map<string, { start: number; end: number | null; motivo: string }[]>();
+  paradaRows.forEach((p) => {
+    const startMs = new Date(p.created_at).getTime();
+    const endMs = p.resolved_at ? new Date(p.resolved_at).getTime() : null;
+    const pareja = (otrasByMachine.get(p.machinery_id) || []).find(
+      (c) => Math.abs(new Date(c.created_at).getTime() - startMs) < 120000, // ±2 min = mismo evento
+    );
+    let motivo: string;
+    if (pareja) {
+      const notes = (pareja.notes && String(pareja.notes).trim()) || '';
+      motivo = notes || String(pareja.material || 'Avería');
+    } else {
+      const notes = (p.notes && String(p.notes).trim()) || '';
+      motivo = notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)';
+    }
+    const list = paradasByMachine.get(p.machinery_id) ?? [];
+    list.push({ start: startMs, end: endMs, motivo });
+    paradasByMachine.set(p.machinery_id, list);
+  });
+
+  const horasDuracion = (min: number): string => (min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}` : `${min}min`);
+  // Arma el texto de la línea de tiempo cruzando tramos trabajados + episodios de
+  // parada de esa máquina, en orden cronológico: "07:00am–11:15am trabajó · 11:15am
+  // 🟡 paró: manguera rota (47min) → 12:02pm reactivada · 12:02pm–07:00pm trabajó".
+  const buildTimeline = (id: string): string => {
+    const tramos = segsByMachine.get(id) || [];
+    const paradas = paradasByMachine.get(id) || [];
+    if (!tramos.length && !paradas.length) return '';
+    const evs: { t: number; label: string }[] = [];
+    tramos.forEach((s) => evs.push({ t: s.start, label: `${horaCaracas(new Date(s.start).toISOString())}–${horaCaracas(new Date(s.end).toISOString())} trabajó` }));
+    paradas.forEach((p) => {
+      const durMin = p.end != null ? Math.round((p.end - p.start) / 60000) : null;
+      const durTxt = durMin != null ? ` (${horasDuracion(durMin)})` : ' (sigue parada)';
+      const finTxt = p.end != null ? ` → ${horaCaracas(new Date(p.end).toISOString())} reactivada` : '';
+      evs.push({ t: p.start, label: `${horaCaracas(new Date(p.start).toISOString())} 🟡 paró: ${p.motivo}${durTxt}${finTxt}` });
+    });
+    evs.sort((a, b) => a.t - b.t);
+    return evs.map((e) => e.label).join(' · ');
+  };
 
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
   const inspTxt = (id: string): string => {
@@ -165,6 +232,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       inspector: inspTxt(id),
       horaIni, horaFin,
       trabajadas: trab, paradas: par, averia,
+      timeline: buildTimeline(id),
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
     porEmpresa.get(empresa)!.push(fila);
@@ -181,15 +249,16 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
         <td class="r">${f.paradas > 0 ? f.paradas : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
+        <td>${esc(dash(f.timeline))}</td>
       </tr>`).join('');
     const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
     const tPar = n2(filas.reduce((s, f) => s + f.paradas, 0));
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th>Hora inicio</th><th>Hora fin</th>
-      <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th>
+      <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th><th>Línea de tiempo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
