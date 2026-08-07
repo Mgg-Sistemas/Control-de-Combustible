@@ -354,6 +354,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // como "Pendiente" (no está iniciada) y se mezcla con las que de verdad faltan
   // por asignar/iniciar. Pedido del cliente para poder filtrarlas aparte.
   const [bulkHideStopped, setBulkHideStopped] = useState(false);
+  // Búsqueda propia del panel — por nombre de MÁQUINA (código) o de INSPECTOR
+  // (grupo). Sin esto, con muchos inspectores/máquinas hay que scrollear todo
+  // el panel para encontrar una fila puntual.
+  const [bulkQuery, setBulkQuery] = useState('');
+  // Motivo compartido para las acciones "Marcar Parada"/"Marcar Avería" en bloque
+  // (se aplica igual a TODAS las máquinas seleccionadas en esa pasada).
+  const [bulkMotivo, setBulkMotivo] = useState('');
   // Averiadas del día (no depende del turno — igual que `daySets`). Paradas SÍ
   // depende del turno de cada ítem, así se calcula por separado para día y noche.
   // SOLO cuenta como "avería" la reportada ESE día (igual que SupervisorScreen.tsx,
@@ -426,20 +433,25 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
   }, [assignments, startedTodayByShift, maint, bulkAverSet, selDay]);
-  // Grupos ya filtrados por turno/estado/paradas-averiadas (lo que realmente se ve y se selecciona).
+  // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
+    const q = norm(bulkQuery.trim());
     return bulkGroupsAll
-      .map((g) => ({
-        ...g,
-        items: g.items.filter(
-          (i) =>
-            (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
-            (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started)) &&
-            (!bulkHideStopped || !i.stopped)
-        ),
-      }))
+      .map((g) => {
+        const nameMatches = !q || norm(g.name).includes(q);
+        return {
+          ...g,
+          items: g.items.filter(
+            (i) =>
+              (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
+              (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started)) &&
+              (!bulkHideStopped || !i.stopped) &&
+              (nameMatches || norm(i.code).includes(q))
+          ),
+        };
+      })
       .filter((g) => g.items.length > 0);
-  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter, bulkHideStopped]);
+  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter, bulkHideStopped, bulkQuery]);
   const bulkAllKeys = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.key)), [bulkGroups]);
   const toggleBulkOne = (key: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const toggleBulkGroup = (keys: string[]) => setBulkSel((prev) => {
@@ -459,8 +471,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // deja registradas en `machine_work_segments` (source='ajuste_manual', igual que
   // cualquier otro cierre) y en la bitácora de Auditoría — nada desaparece sin
   // dejar rastro de quién lo hizo y cuánto había.
-  const applyBulk = async (action: 'start' | 'pending') => {
+  const applyBulk = async (action: 'start' | 'pending' | 'close' | 'parada' | 'averia') => {
     if (bulkSel.size === 0 || bulkBusy || !bulkIsToday) return;
+    if (action === 'averia' && !bulkMotivo.trim()) {
+      Alert.alert('Falta el motivo', 'Escribe el motivo de la avería antes de marcarla (queda como registro en Mantenimiento).');
+      return;
+    }
     setBulkBusy(true);
     try {
       const items = [...bulkSel].map((k) => { const [id, sh] = k.split('::'); return { id, shift: sh as 'day' | 'night' }; });
@@ -498,7 +514,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
         ));
         Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.`);
-      } else {
+      } else if (action === 'pending') {
         // Corrección del cliente: esto NO es "Parada" (eso es exclusivo de
         // avería/algo físico que le pasa a la máquina, con su propio botón y
         // flujo). Esto es volver la máquina a "⏳ Pendiente por iniciar" — como
@@ -549,8 +565,89 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           logAudit('JORNADA_FIN', 'machinery', p.id, `${codeOf(p.id)} · marcado Pendiente (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'}${p.prevHours > 0 ? ` · ${p.prevHours.toFixed(2)}h conservadas` : ''}`)
         ));
         Alert.alert('Listo', `${items.length} máquina(s) marcadas como pendientes.`);
+      } else if (action === 'close') {
+        // ✅ CERRAR AHORA: solo tiene efecto sobre las seleccionadas que SÍ tienen
+        // la jornada de ESE turno abierta ahora mismo — mismo cálculo que el botón
+        // "🏁 FINALIZAR JORNADA" del inspector (horas REALES inicio→ahora, no las
+        // 12h fijas del auto-cierre de las 7pm). Las que no estén abiertas se
+        // ignoran (no hay nada que cerrar) y se avisa cuántas se saltaron.
+        const plan = items.map((it) => {
+          const rd = roundDateFor(it.id, it.shift);
+          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === rd);
+          const isOpenHere = !!(existing?.jornada_start_at && roundShift(existing) === it.shift);
+          const horas = isOpenHere ? Math.max(0, Math.round(((Date.now() - new Date(existing!.jornada_start_at as string).getTime()) / 3600000) * 100) / 100) : 0;
+          const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
+          return { ...it, rd, existing, isOpenHere, horas, prevHours };
+        });
+        const toClose = plan.filter((p) => p.isOpenHere);
+        if (toClose.length === 0) {
+          Alert.alert('Nada que cerrar', 'Ninguna de las máquinas seleccionadas tiene una jornada abierta en ese turno ahora mismo.');
+          return;
+        }
+        const rows = toClose.map((p) => ({
+          machinery_id: p.id, round_date: p.rd, round_no: 1,
+          [p.shift === 'day' ? 'day_hours' : 'night_hours']: Math.round((p.prevHours + p.horas) * 100) / 100,
+          jornada_start_at: null, status: 'operativa',
+        }));
+        const { error: clErr } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
+        if (clErr) { Alert.alert('No se pudo cerrar', clErr.message); return; }
+        await supabase.from('machine_work_segments').insert(toClose.map((p) => ({
+          machinery_id: p.id, round_date: p.rd, shift: p.shift,
+          started_at: p.existing!.jornada_start_at, ended_at: nowIso, hours: p.horas,
+          source: 'ajuste_manual', recorded_by: uid,
+          notes: 'Cerrada desde el panel de Inspecciones (admin) — horas reales (inicio → ahora).',
+        })));
+        await Promise.all(toClose.map((p) =>
+          logAudit('JORNADA_FIN', 'machinery', p.id, `${codeOf(p.id)} · cerrada manualmente (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'} · ${p.horas.toFixed(2)}h`)
+        ));
+        const skipped = items.length - toClose.length;
+        Alert.alert('Listo', `${toClose.length} máquina(s) cerradas.${skipped ? ` (${skipped} no tenían jornada abierta y se ignoraron.)` : ''}`);
+      } else {
+        // 🟡 PARADA / 🔴 AVERÍA en bloque: mismo patrón que el teléfono del
+        // inspector (registrarParadaBase + marcarParadaAveria/marcarParadaNoTrabajo)
+        // pero para varias máquinas de una vez. Primero BANCA las horas de la
+        // jornada de ESE turno si estaba abierta (no se pierden), luego deja la
+        // solicitud en Mantenimiento de Maquinaria con el motivo compartido.
+        const plan = items.map((it) => {
+          const rd = roundDateFor(it.id, it.shift);
+          const existing = rounds.find((r) => r.machinery_id === it.id && r.round_date === rd);
+          const isOpenHere = !!(existing?.jornada_start_at && roundShift(existing) === it.shift);
+          const horas = isOpenHere ? Math.max(0, Math.round(((Date.now() - new Date(existing!.jornada_start_at as string).getTime()) / 3600000) * 100) / 100) : 0;
+          const prevHours = Number((it.shift === 'day' ? existing?.day_hours : existing?.night_hours) ?? 0);
+          return { ...it, rd, existing, isOpenHere, horas, prevHours };
+        });
+        const toBank = plan.filter((p) => p.isOpenHere);
+        if (toBank.length > 0) {
+          const rows = toBank.map((p) => ({
+            machinery_id: p.id, round_date: p.rd, round_no: 1,
+            [p.shift === 'day' ? 'day_hours' : 'night_hours']: Math.round((p.prevHours + p.horas) * 100) / 100,
+            jornada_start_at: null, status: 'operativa',
+          }));
+          const { error: bankErr } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
+          if (bankErr) { Alert.alert('No se pudo registrar', bankErr.message); return; }
+          await supabase.from('machine_work_segments').insert(toBank.map((p) => ({
+            machinery_id: p.id, round_date: p.rd, shift: p.shift,
+            started_at: p.existing!.jornada_start_at, ended_at: nowIso, hours: p.horas,
+            source: action === 'averia' ? 'parada_averia' : 'parada_no_trabajo', recorded_by: uid,
+            notes: `Horas conservadas antes de marcar ${action === 'averia' ? 'avería' : 'parada'} desde el panel de Inspecciones (admin).`,
+          })));
+        }
+        const motivo = bulkMotivo.trim() || (action === 'averia' ? 'Avería marcada desde el panel de Inspecciones (admin).' : 'NO TRABAJÓ LA MÁQUINA (marcado desde el panel de Inspecciones, admin).');
+        const maintRows = plan.flatMap((p) => action === 'averia'
+          ? [
+              { machinery_id: p.id, material: 'otro', notes: motivo, status: 'pendiente', requested_by: uid },
+              { machinery_id: p.id, material: 'MÁQUINA PARADA', notes: motivo, status: 'pendiente', requested_by: uid },
+            ]
+          : [{ machinery_id: p.id, material: 'MÁQUINA PARADA', notes: motivo, status: 'pendiente', requested_by: uid }]);
+        const { error: mErr } = await supabase.from('maintenance_requests').insert(maintRows);
+        if (mErr) { Alert.alert('Aviso', `Se conservaron las horas, pero no se pudo dejar la solicitud en Mantenimiento: ${mErr.message}`); return; }
+        await Promise.all(plan.map((p) =>
+          logAudit('PARADA', 'machinery', p.id, `${codeOf(p.id)} · ${action === 'averia' ? 'avería' : 'parada'} marcada (panel supervisor) · ${p.shift === 'day' ? 'día' : 'noche'} · ${motivo}`)
+        ));
+        Alert.alert('Listo', `${items.length} máquina(s) marcadas como ${action === 'averia' ? '🔴 averiadas' : '🟡 paradas'}.`);
       }
       setBulkSel(new Set());
+      setBulkMotivo('');
       await load();
     } finally {
       setBulkBusy(false);
@@ -1212,6 +1309,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       Solo se puede gestionar el día de HOY ({shortDate(caracasToday())}) — volvé al día actual con ▶ arriba para usar este panel.
                     </Text>
                   ) : null}
+                  {/* Búsqueda propia del panel: por nombre de MÁQUINA o de INSPECTOR. */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+                    <Text style={{ fontSize: 13 }}>🔎</Text>
+                    <TextInput value={bulkQuery} onChangeText={setBulkQuery} placeholder="Buscar máquina o inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 12.5, paddingVertical: 7 }} />
+                    {bulkQuery ? <TouchableOpacity onPress={() => setBulkQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
+                  </View>
                   {/* Filtro de TURNO — propio del panel, para no mezclar día y noche por
                       error al seleccionar/marcar en bloque. */}
                   <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.xs }}>
@@ -1292,14 +1395,37 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     </ScrollView>
                   )}
 
-                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                  {/* Motivo compartido — solo hace falta para Parada/Avería (obligatorio en
+                      Avería, opcional en Parada: sin texto usa "NO TRABAJÓ LA MÁQUINA"). */}
+                  <TextInput
+                    value={bulkMotivo}
+                    onChangeText={setBulkMotivo}
+                    placeholder="Motivo (para Parada / Avería en bloque)…"
+                    placeholderTextColor={colors.muted}
+                    style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 8, color: colors.text, fontSize: 12.5, marginTop: spacing.xs, marginBottom: spacing.sm }}
+                  />
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
                     <TouchableOpacity onPress={() => applyBulk('start')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟢 Marcar Iniciada (${bulkSel.size})`}</Text>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟢 Activar ahora (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
-                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Marcar Pendiente (${bulkSel.size})`}</Text>
+                    <TouchableOpacity onPress={() => applyBulk('close')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🏁 Cerrar / Finalizar (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                    <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.muted, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Pendiente (${bulkSel.size})`}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => applyBulk('parada')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.warning, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟡 Parada (${bulkSel.size})`}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => applyBulk('averia')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🔴 Avería (${bulkSel.size})`}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: spacing.xs }}>
+                    Activas ahora / Cerradas / Pendiente ya cubren esos 3 estados; Parada y Avería quedan también registradas en Mantenimiento de Maquinaria con el motivo de arriba.
+                  </Text>
                 </View>
               ) : null}
 
