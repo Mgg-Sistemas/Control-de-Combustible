@@ -284,7 +284,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   }, [fromDate, selDay]);
 
   useEffect(() => { load(); }, [load]);
-  useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors'], load);
+  // Incluye 'machinery': al inactivar/activar una máquina (operational/active) o cambiar
+  // su ficha, el panel se refresca en vivo y la máquina inactiva sale (o entra) de los
+  // conteos por inspector sin recargar a mano.
+  useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors', 'machinery'], load);
 
   // Lista de inspectores reales para el desplegable de asignación (una sola vez).
   useEffect(() => {
