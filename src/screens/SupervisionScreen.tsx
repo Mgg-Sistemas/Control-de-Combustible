@@ -104,7 +104,7 @@ export default function SupervisionScreen({ navigation }: any) {
   const isAdmin = role === 'admin';
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
-  const ALL_SECS = ['asg', 'camiones', 'machjor', 'opjor', 'traza'];
+  const ALL_SECS = ['reportes', 'guardias', 'camiones', 'opjor', 'traza'];
   const [secClosed, setSecClosed] = useState<Set<string>>(() => new Set(ALL_SECS));
   const toggleSec = (k: string) => setSecClosed((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Abre la ficha de ESA máquina. Si fue reportada AVERIADA (parada), va al módulo

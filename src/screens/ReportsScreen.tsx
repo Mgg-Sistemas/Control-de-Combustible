@@ -13,6 +13,7 @@ import {
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, dateRangeLabel } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME } from '../lib/company';
@@ -453,13 +454,15 @@ export default function ReportsScreen({ route }: any) {
   // Actualización EN VIVO del reporte abierto: guarda la función para regenerarlo con
   // los MISMOS parámetros cuando cambian las jornadas (realtime). Se limpia al cerrar.
   const liveRef = useRef<null | (() => void)>(null);
+  const rtId = useRef(0);
+  if (!rtId.current) rtId.current = nextRtInstanceId();
 
   // Realtime: si se agrega/edita una jornada (o flete/máquina) mientras el reporte de
   // jornada está abierto, se regenera solo con los mismos filtros (en vivo, sin tocar nada).
   useEffect(() => {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(() => liveRef.current?.(), 500); };
-    const ch = supabase.channel('rt-reportes-jornada');
+    const ch = supabase.channel(`rt-reportes-jornada-${rtId.current}`);
     ['machine_rounds', 'fletes', 'machinery'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
@@ -1215,7 +1218,7 @@ export default function ReportsScreen({ route }: any) {
     if (conteoZona === '__all__') {
       const su = new Map<string, number>();
       conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') su.set(r.tipo, (su.get(r.tipo) ?? 0) + 1); });
-      const sinUbic = conteo.total - conteo.ubicados;
+      const sinUbic = conteo.total - conteo.ubicadosGps;
       if (sinUbic) {
         const suRows = [...su.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([t, n]) => `<tr><td>${esc(t)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('');
         sinUbicHtml = `
@@ -1960,7 +1963,7 @@ export default function ReportsScreen({ route }: any) {
       const escompanies = await buildTruckCompanies(ESCOMBRO_RE);
       setCamData((prev) => (prev ? { ...prev, companies, escompanies } : prev));
     };
-    const ch = supabase.channel('rt-camiones-es');
+    const ch = supabase.channel(`rt-camiones-es-${rtId.current}`);
     ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: 'machinery' }, () => {
       clearTimeout(timer); timer = setTimeout(refresh, 300);
     });
@@ -2532,7 +2535,7 @@ export default function ReportsScreen({ route }: any) {
                 const m = new Map<string, number>();
                 conteo.activeRows.forEach((r) => { if (r.zona === 'Sin zona') m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1); });
                 const rows = [...m.entries()].sort((a, b) => cmpText(a[0], b[0]));
-                const sinUbic = conteo.total - conteo.ubicados;
+                const sinUbic = conteo.total - conteo.ubicadosGps;
                 if (!sinUbic) return null;
                 return (
                   <Card>

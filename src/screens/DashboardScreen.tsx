@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -6,8 +6,9 @@ import { TankLevel as TankGauge } from '../components/TankLevel'; // rediseño: 
 import { AsistenciaButton } from '../components/AsistenciaButton';
 import { useTable } from '../hooks/useTable';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { nextRtInstanceId } from '../hooks/useRealtime';
 import { TankLevel } from '../types/database';
-import { workedFromShifts, PERIODO_INICIO, PERIODO_CORTE } from './ControlMaquinariaScreen';
+import { workedFromShifts } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
@@ -164,11 +165,14 @@ export default function DashboardScreen({ navigation }: any) {
     setChartTotal(list.reduce((s, x) => s + x.value, 0));
   }, []);
 
+  const rtId = useRef(0);
+  if (!rtId.current) rtId.current = nextRtInstanceId();
+
   useEffect(() => {
     loadCounts();
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(loadCounts, 300); };
-    const ch = supabase.channel('rt-dashboard-counts');
+    const ch = supabase.channel(`rt-dashboard-counts-${rtId.current}`);
     ['machine_rounds', 'machinery', 'vehicles'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );

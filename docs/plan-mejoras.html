@@ -198,6 +198,53 @@
     <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> botón "📄 Descargar mi reporte de cierre" que aparece cuando el inspector ya no tiene ninguna máquina de su turno con jornada abierta; genera una imagen PNG con sus máquinas/horas/estado, usando <b>la misma función de cálculo</b> que el reporte oficial que imprime el jefe (para que nunca se desincronicen). También: Distribución de Uniformes ahora permite seleccionar varios empleados y sacar UNA nota de entrega consolidada con firma por persona (pedido del coordinador logístico).</p>
   </div>
 
+  <h2><span class="n">06</span> Optimización integral del sistema (front + back + móvil) — auditoría con ~20 agentes</h2>
+  <p class="sec-note">Pedido explícito: "optimización completa del sistema, todo — despliega múltiples agentes". Se auditó cada pantalla de <code>src/screens/</code> (una por una, agentes en paralelo), el backend/SQL completo, y código muerto/CSS duplicado. Los hallazgos de riesgo real y bajo esfuerzo se corrigieron ya; los que cambian reglas de negocio o cálculos financieros quedaron documentados para decisión del cliente, sin tocarlos (regla del pedido: "cero destrucción de lógica").</p>
+
+  <div class="card feat">
+    <h3>3 bugs de dinero corregidos (nómina/pagos) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">En <code>NominaScreen.tsx</code> y <code>PagoPersonalScreen.tsx</code>, la función que convierte el texto tecleado a número borraba TODOS los puntos antes de leerlos (pensado para separador de miles) — si alguien escribía el sueldo/bono con punto decimal (p. ej. "450.50"), quedaba guardado como 45050: el monto quedaba 100 veces inflado. En <code>ControlPagosScreen.tsx</code>, dejar vacío el campo de precio general del tabulador y guardar lo interpretaba como "cambió a $0" para ese modelo de máquina completo.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la conversión ahora solo cambia coma→punto (no borra puntos), igual que ya hacían otras pantallas del sistema; el campo de tabulador general vacío ahora se ignora en vez de guardarse como 0.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Crash real evitado + 5 canales de tiempo real con nombre fijo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why"><code>WorkCentersScreen.tsx</code> cortaba con un <code>return</code> antes de llamar a todos sus hooks de React cuando el permiso todavía no cargaba (justo después de iniciar sesión) — viola las Rules of Hooks y React puede romper la pantalla con "Rendered more hooks than during the previous render". Aparte, 5 pantallas (Control de Maquinaria, Control de Pagos, Dashboard, Mapa, Reportes ×2) abrían su canal de Supabase Realtime con un nombre fijo en vez de uno único por instancia — si la pantalla llegaba a montarse dos veces a la vez, Supabase rompe con "cannot add postgres_changes after subscribe()".</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> el chequeo de permiso se movió después de los hooks. Los 5 canales ahora usan un id único de instancia (mismo patrón que ya usaba <code>useRealtimeRefresh</code>), vía un helper nuevo <code>nextRtInstanceId()</code>.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Compras → Proveedores: un usuario de solo lectura podía crear/editar/borrar <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> la pestaña Proveedores ignoraba el permiso de escritura del módulo (a diferencia de Solicitudes/Órdenes, que sí lo respetan). Ahora usa el mismo <code>canWrite</code>.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Vista de Asistencia de camiones (chofer): 4 ajustes visuales <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> placeholder del buscador acortado (se cortaba a media palabra); el ícono junto a la placa ya no se confunde con el de avería/mantenimiento; "Avería" pasa de un ámbar casi idéntico al de "Jornada" a un azul distinto (Jornada/Avería/Gasoil ahora se distinguen a simple vista); el nombre de la empresa se separó a su propia línea (antes se cortaba compartiendo espacio con el código del camión).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>"Máquinas sin ubicación" del reporte de Conteo, que siempre daba 0 <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> restaba contra el campo equivocado (uno diseñado para dar siempre el total, no el conteo real por GPS) — ahora resta contra <code>ubicadosGps</code>, el campo correcto que ya existía.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Limpieza: 9 archivos huérfanos eliminados (~1430 líneas muertas) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-baja">Baja</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> verificados con grep/tsc que no los importa nadie: pantallas viejas ya reemplazadas (<code>LoginScreen.tsx</code>, <code>MachineryScreen.tsx</code>, <code>TanksPilot.tsx</code>) y 6 generadores de reporte de una versión anterior, ya sustituidos por los actuales.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Mecanismo "inspector maquinas faltantes" desactivado (pedido explícito) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Automatización confirmada el 04/08/2026: cada 15 min asignaba las máquinas sin inspector humano a un usuario virtual y le cargaba horas automáticas (12-24h/día) que entraban en nómina. El cliente pidió revertirlo: "que las máquinas sin asignar salgan sin asignar y ya".</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho (SQL corrido por el cliente):</b> <code>supabase/desactivar_maquinas_faltantes.sql</code> — respalda y quita las asignaciones activas de ese usuario (las máquinas pasan a verse como "Sin inspector / por asignar", igual que el resto de la UI ya maneja) y apaga los 3 cron jobs. No se tocó el usuario/perfil en sí, ni el historial de horas ya generado (integridad de nómina de días pasados intacta).</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Backend: índices + RLS más estricto (SQL preparado, pendiente de correr) <span class="meta"><span class="chip" style="background:var(--accent);color:#fff;border-color:transparent">⏳ Pendiente</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">Auditoría de Supabase: <code>attendance</code> y <code>uniform_deliveries</code> eran escribibles por cualquier usuario autenticado (no solo por quien tiene el módulo de asistencia, pese a que el propio esquema documentaba esa restricción); <code>supervisor_visits</code> (valida jornadas para el pago) y <code>control_closures</code> (dispara el cierre/pago semanal) también, sin exigir rol admin/supervisor. <code>stock_movements</code> no tenía índice para el borrado que hacen los triggers de combustible en cada edición.</p>
+    <p class="fix"><b>Preparado, no ejecutado:</b> <code>supabase/mejoras_seguridad_rendimiento.sql</code> — 100% aditivo (ningún DELETE de datos), pero endurece políticas RLS, así que se deja para que el cliente lo corra con respaldo previo, no se aplica solo.</p>
+  </div>
+
   </section>
 
   <section class="day-group" id="day-2026-08-06">

@@ -293,7 +293,7 @@ export default function AsistenciaCamionesScreen() {
     </View>
   );
   const palJornada: ActPal = { bg: colors.accentSoftBg, text: colors.accentSoftText, border: colors.accent };
-  const palAveria: ActPal = { bg: colors.warningSoftBg, text: colors.warningSoftText, border: colors.warningSoftBorder };
+  const palAveria: ActPal = { bg: colors.infoSoftBg, text: colors.infoSoftText, border: colors.infoSoftBorder };
   const palGasoil: ActPal = { bg: colors.successSoftBg, text: colors.successSoftText, border: colors.successSoftBorder };
   const noticeOk = !!notice && (notice.startsWith('✅') || notice.startsWith('🟢') || notice.startsWith('🏁'));
 
@@ -342,7 +342,7 @@ export default function AsistenciaCamionesScreen() {
       {/* Buscar camión */}
       <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
         <Text style={{ fontSize: 14 }}>🔎</Text>
-        <TextInput value={q} onChangeText={setQ} placeholder="Buscar camión: código, placa, serial, empresa…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
+        <TextInput value={q} onChangeText={setQ} placeholder="Buscar: código, placa, serial…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
         {q ? <TouchableOpacity onPress={() => setQ('')}><Text style={{ color: colors.brandText, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
       </View>
 
@@ -356,12 +356,13 @@ export default function AsistenciaCamionesScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: e.present ? colors.success : colors.danger }} />
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚚 {t.code} <Text style={{ color: colors.muted, fontWeight: '400', fontSize: 12 }}>· {t.companyName}</Text></Text>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }} numberOfLines={1}>🚚 {t.code}</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }} numberOfLines={1}>{t.companyName}</Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
                   {e.present ? '✅ Presente' : '❌ Ausente'}
                   {e.present && e.hora ? ` · ${e.shift === 'night' ? '🌙' : '☀️'} desde ${e.hora}` : ''}
                   {e.auto ? ' · auto (jornada)' : ' · manual'}
-                  {(t.plate || t.serial) ? ` · 🔖 ${t.serial || t.plate}` : ''}
+                  {(t.plate || t.serial) ? ` · 🔢 ${t.serial || t.plate}` : ''}
                 </Text>
               </View>
             </View>

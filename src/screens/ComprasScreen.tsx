@@ -176,13 +176,13 @@ function CategoryPicker({ value, onChange, colors }: { value: string; onChange: 
 }
 
 // ── Proveedores ──────────────────────────────────────────────────────────────
-function ProveedoresTab() {
+function ProveedoresTab({ canWrite }: { canWrite: boolean }) {
   return (
     <ListScreen<Supplier>
       title="Proveedores"
       table="suppliers"
       orderBy="name"
-      editable
+      editable={canWrite}
       emptyTitle="Sin proveedores"
       emptySubtitle="Registra a quién le compras."
       formTitle="Nuevo proveedor"
@@ -701,7 +701,7 @@ export default function ComprasScreen() {
         </ScrollView>
       </View>
       <View style={{ flex: 1 }}>
-        {active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab />}
+        {active === 'solicitudes' ? <SolicitudesTab canWrite={canWrite} /> : active === 'ordenes' ? <OrdenesTab canWrite={canWrite} /> : active === 'resumen' ? <ResumenTab /> : <ProveedoresTab canWrite={canWrite} />}
       </View>
     </View>
   );
