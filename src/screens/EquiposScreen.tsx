@@ -117,7 +117,14 @@ const MACHINERY_FIELDS: Field[] = [
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
   { key: 'expected_lph', label: 'Rendimiento (L/h)', type: 'number' },
   { key: 'daily_consumption_l', label: 'Consumo diario (L) — tope surtido 2×', type: 'number' },
+  { key: 'con_tapa', label: '¿Tiene tapa?', type: 'switch' },
+  { key: 'tapa_doble', label: '¿Doble tapa? (si no, es sencilla)', type: 'switch', showIf: (v) => v.con_tapa === 'true' },
 ];
+// Texto legible del estado de tapa de una máquina.
+export function tapaLabelOf(m: { con_tapa?: boolean | null; tapa_doble?: boolean | null }): string {
+  if (!m.con_tapa) return 'Sin tapa';
+  return m.tapa_doble ? 'Doble tapa' : 'Tapa sencilla';
+}
 // Campos de VIAJES: disponibles para TODAS las máquinas. El nº de viajes × precio
 // por viaje se suma al subtotal del informe por jornada de la empresa de la máquina,
 // y queda vinculado a la máquina para su próximo viaje.
@@ -138,6 +145,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('__all__'); // '__all__' | valor | '__none__'
+  const [tapaFilter, setTapaFilter] = useState<'__all__' | 'sencilla' | 'doble' | 'sin'>('__all__'); // filtro por tapa (sencilla / doble / sin)
   const [catDim, setCatDim] = useState<GroupDim>('clasificacion'); // agrupar el catálogo por Clasificación (por defecto; Modelo genera demasiados chips)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada (catálogo)
   const [detailExpanded, setDetailExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada (detalle activa/inactiva/espera)
@@ -296,8 +304,14 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
   // aparecen en la sección "⛔ Maquinaria inactiva". Al reactivarlas (Operativa)
   // vuelven al catálogo automáticamente. Sus horas pasadas no se tocan.
+  // Filtro por tapa: sencilla (con tapa, no doble) · doble (con tapa doble) · sin tapa.
+  const matchTapa = (m: Machinery) =>
+    tapaFilter === '__all__' ? true
+    : tapaFilter === 'sin' ? !m.con_tapa
+    : tapaFilter === 'doble' ? (!!m.con_tapa && !!m.tapa_doble)
+    : (!!m.con_tapa && !m.tapa_doble); // 'sencilla'
   const machineryList = machinery.data.filter(
-    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id)])
+    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id), tapaLabelOf(m)])
   );
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
@@ -932,6 +946,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             ) : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
+            <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {m.latitude != null ? (
@@ -1172,10 +1187,41 @@ export default function EquiposScreen({ navigation, route }: any) {
         </ScrollView>
       </View>
 
+      {/* Filtro por TAPA (chips): sencilla / doble / sin tapa */}
+      <View style={{ marginTop: spacing.sm }}>
+        <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tapa</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
+          {(() => {
+            const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m));
+            const counts = {
+              __all__: base.length,
+              sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
+              doble: base.filter((m) => !!m.con_tapa && !!m.tapa_doble).length,
+              sin: base.filter((m) => !m.con_tapa).length,
+            } as const;
+            const chips: [typeof tapaFilter, string][] = [['__all__', 'Todas'], ['sencilla', '🛡️ Tapa sencilla'], ['doble', '🛡️🛡️ Doble tapa'], ['sin', 'Sin tapa']];
+            return chips.map(([val, label]) => {
+              const active = tapaFilter === val;
+              return (
+                <TouchableOpacity
+                  key={val}
+                  onPress={() => setTapaFilter(val)}
+                  activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                >
+                  <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+                  <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12 }}>({counts[val]})</Text>
+                </TouchableOpacity>
+              );
+            });
+          })()}
+        </ScrollView>
+      </View>
+
       {firstLoad ? (
         <Loading />
-      ) : companyFilter === '__all__' && typeFilter === '__all__' && !q ? (
-        <EmptyState title="Elige una empresa o clasificación" subtitle="Selecciona una empresa en la lista desplegable 🏢 (o toca una clasificación / busca por código, placa o serial) para ver los equipos." />
+      ) : companyFilter === '__all__' && typeFilter === '__all__' && tapaFilter === '__all__' && !q ? (
+        <EmptyState title="Elige una empresa o clasificación" subtitle="Selecciona una empresa en la lista desplegable 🏢 (o toca una clasificación / tapa / busca por código, placa o serial) para ver los equipos." />
       ) : totalResults === 0 ? (
         <EmptyState title={q ? 'Sin resultados' : 'Sin equipos'} subtitle={q ? 'Prueba con otra búsqueda.' : 'Agrega tu primer equipo con el botón de arriba.'} />
       ) : (
