@@ -436,7 +436,7 @@ export default function ReportsScreen({ route }: any) {
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
-  type MachineDetail = { code: string; serial: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
+  type MachineDetail = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
@@ -541,15 +541,22 @@ export default function ReportsScreen({ route }: any) {
   // correspondiente: total (solo número) + cantidad por empresa, con PDF.
   const [tipoQ, setTipoQ] = useState('');
   const [tiposSel, setTiposSel] = useState<Set<string>>(new Set());
+  // Alcance por ESTADO del buscador por tipo: todas · solo activas · solo inactivas.
+  const [tipoEstado, setTipoEstado] = useState<'todas' | 'activas' | 'inactivas'>('todas');
   const toggleTipo = (key: string) =>
     setTiposSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
-  // Al reabrir el conteo se limpia la selección/búsqueda del buscador por tipo.
-  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); } }, [conteoPreview]);
+  // Al reabrir el conteo se limpia la selección/búsqueda/alcance del buscador por tipo.
+  useEffect(() => { if (conteoPreview) { setTiposSel(new Set()); setTipoQ(''); setTipoEstado('todas'); } }, [conteoPreview]);
+  // machinesAll acotado al ESTADO elegido (activas/inactivas/todas) para el buscador por tipo.
+  const machinesPorEstado = useMemo(() => {
+    const src = conteo?.machinesAll ?? [];
+    return tipoEstado === 'todas' ? src : src.filter((m) => (tipoEstado === 'activas' ? m.estado === 'activo' : m.estado === 'inactivo'));
+  }, [conteo, tipoEstado]);
   // Mapa de TIPOS unificados: la clave normaliza el código (mayúsculas, sin acentos y
   // con los espacios colapsados) para que "CAMION VOLTEO TORONTO" y "CAMION  VOLTEO
   // TORONTO " cuenten como UN solo tipo. El nombre visible se muestra limpio.
   const tipoMap = useMemo(() => {
-    const src = conteo?.machinesAll ?? [];
+    const src = machinesPorEstado;
     const m = new Map<string, { name: string; count: number; clas: string }>();
     src.forEach((it) => {
       const key = norm(it.code).replace(/\s+/g, ' ').trim();
@@ -569,18 +576,18 @@ export default function ReportsScreen({ route }: any) {
       .filter((o) => !nq || norm(`${o.name} ${o.clas}`).includes(nq))
       .sort((a, b) => cmpText(a.name, b.name));
   }, [tipoMap, tipoQ]);
-  // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z).
+  // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z) + LISTADO de los
+  // equipos seleccionados (código, empresa, serial/placa, estado), acotado al estado elegido.
   const tipoResultado = useMemo(() => {
     if (!tiposSel.size) return null;
-    const src = conteo?.machinesAll ?? [];
-    const match = src.filter((it) => tiposSel.has(tipoKey(it.code)));
-    const byCo = new Map<string, number>();
-    match.forEach((it) => byCo.set(it.company, (byCo.get(it.company) ?? 0) + 1));
+    const match = machinesPorEstado.filter((it) => tiposSel.has(tipoKey(it.code)));
+    const byCo = new Map<string, MachineDetail[]>();
+    match.forEach((it) => { const l = byCo.get(it.company) ?? []; l.push(it); byCo.set(it.company, l); });
     const empresas = [...byCo.entries()]
-      .map(([company, count]) => ({ company, count }))
+      .map(([company, items]) => ({ company, count: items.length, items: items.slice().sort((a, b) => cmpText(a.code, b.code) || cmpText(a.serial || a.plate || '', b.serial || b.plate || '')) }))
       .sort((a, b) => cmpText(a.company, b.company));
     return { total: match.length, empresas };
-  }, [tiposSel, conteo]);
+  }, [tiposSel, machinesPorEstado]);
 
   const all = rows ?? [];
   const total = all.reduce((s, r) => s + r.liters, 0);
@@ -1068,7 +1075,7 @@ export default function ReportsScreen({ route }: any) {
   const generateConteo = async () => {
     setLoading(true);
     liveRef.current = generateConteo; // se sincroniza solo cuando se cambia/actualiza una máquina
-    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
     const all = (mach ?? []) as any[];
     // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
     // (active/operational = false) y los que están en espera (stand by).
@@ -1112,7 +1119,7 @@ export default function ReportsScreen({ route }: any) {
     // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
-      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
+      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
@@ -1907,11 +1914,19 @@ export default function ReportsScreen({ route }: any) {
     const tipoRows = sel
       .map((t) => `<tr><td>${esc(t.name)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
       .join('');
-    const coRows = empresas
-      .map((e) => `<tr><td>${esc(e.company)}${companyRif[e.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[e.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${e.count}</td></tr>`)
-      .join('');
+    const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
+    // Listado AGRUPADO por empresa: nombre de la máquina, serial/placa y encargado.
+    const listRows = empresas.map((e) => `
+      <tr><td colspan="4" style="background:#eef2f7;font-weight:800;color:#1E3A5F">🏢 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
+      ${e.items.map((m, i) => `<tr>
+        <td style="width:26px;text-align:right;color:#888">${i + 1}</td>
+        <td>${esc(m.code)}</td>
+        <td>${esc(m.serial || m.plate || '—')}</td>
+        <td>${esc(m.encargado || '—')}</td>
+      </tr>`).join('')}
+    `).join('');
     const body = `
-      <div class="muted">Tipos seleccionados: ${sel.map((t) => esc(t.name)).join(', ')}</div>
+      <div class="muted">Tipos seleccionados: ${sel.map((t) => esc(t.name)).join(', ')} · Alcance: ${estadoLbl}</div>
       <div class="summary">
         <div><span class="k">Total de equipos</span><b>${total}</b></div>
         <div><span class="k">Tipos</span><b>${sel.length}</b></div>
@@ -1921,11 +1936,10 @@ export default function ReportsScreen({ route }: any) {
       <table><thead><tr><th style="text-align:left">Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
       <tbody>${tipoRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
-      <h2 style="margin-top:16px">Cantidad por empresa</h2>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${coRows || '<tr><td colspan="2" style="text-align:center">Sin coincidencias</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>`;
-    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `${sel.length} tipo(s) seleccionado(s)`, body), 'Reportes - Cantidad por tipo');
+      <h2 style="margin-top:16px">Listado por empresa</h2>
+      <table><thead><tr><th style="text-align:right">#</th><th style="text-align:left">Máquina</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Encargado</th></tr></thead>
+      <tbody>${listRows || '<tr><td colspan="4" style="text-align:center">Sin coincidencias</td></tr>'}</tbody></table>`;
+    await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `${sel.length} tipo(s) · ${estadoLbl}`, body), 'Reportes - Cantidad por tipo');
   };
 
   // Abrir automáticamente un reporte al llegar con parámetros (p. ej. desde
@@ -2396,6 +2410,17 @@ export default function ReportsScreen({ route }: any) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
                   Busca (ej. “volqueta toronto”) y TILDA los tipos para ver el total y la cantidad por empresa.
                 </Text>
+                {/* Alcance por ESTADO: todas / solo activas / solo inactivas. */}
+                <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
+                  {([['todas', 'Todas'], ['activas', '🟢 Solo activas'], ['inactivas', '🔴 Solo inactivas']] as const).map(([k, label]) => {
+                    const on = tipoEstado === k;
+                    return (
+                      <TouchableOpacity key={k} onPress={() => setTipoEstado(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.xs, borderRadius: radius.pill, borderWidth: 1.5, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surfaceAlt }}>
+                        <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
                 <TextInput
                   value={tipoQ}
                   onChangeText={setTipoQ}
@@ -2433,11 +2458,25 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
                       <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
                     </View>
-                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Cantidad por empresa</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Listado por empresa</Text>
                     {tipoResultado.empresas.map((e) => (
-                      <View key={e.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                        <Text style={{ color: colors.text, fontSize: 13 }}>{e.company}</Text>
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{e.count}</Text>
+                      <View key={e.company} style={{ marginBottom: spacing.xs }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800', flex: 1 }} numberOfLines={1}>🏢 {e.company}</Text>
+                          <Text style={{ color: colors.brandText, fontSize: 12.5, fontWeight: '800' }}>{e.count}</Text>
+                        </View>
+                        {e.items.map((m, i) => (
+                          <View key={`${m.code}-${m.serial ?? m.plate ?? i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, paddingHorizontal: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <Text style={{ color: colors.muted, fontSize: 11, width: 20 }}>{i + 1}.</Text>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>{m.code}</Text>
+                              <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
+                                🔖 {m.serial || m.plate || 'Sin serial/placa'}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
+                              </Text>
+                            </View>
+                            <Text style={{ color: m.estado === 'activo' ? colors.success : m.estado === 'inactivo' ? colors.danger : colors.warning, fontSize: 10, fontWeight: '800' }}>{m.estado === 'activo' ? 'ACTIVO' : m.estado === 'inactivo' ? 'INACTIVO' : 'STAND BY'}</Text>
+                          </View>
+                        ))}
                       </View>
                     ))}
                     <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
