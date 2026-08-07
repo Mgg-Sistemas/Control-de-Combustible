@@ -20,7 +20,7 @@ select id, full_name, role from public.profiles where full_name ilike '%sos%guai
 select count(*) as maquinas_de_esas_clasificaciones
 from public.machinery
 where active = true
-  and (clasificacion ilike '%manejo%carga%' or clasificacion ilike '%soporte%' or clasificacion ilike '%servicio%');
+  and (clasificacion ilike '%manejo%carga%' or clasificacion ilike '%soporte%servicio%');  -- MANEJO DE CARGA (24) + SOPORTE Y SERVICIO (49) = 73
 
 -- ── EJECUCIÓN ────────────────────────────────────────────────────────────────
 do $$
@@ -49,7 +49,7 @@ begin
   from public.machinery mch
   where mi.machinery_id = mch.id
     and mch.active = true
-    and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%' or mch.clasificacion ilike '%servicio%')
+    and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%servicio%')
     and (
       mi.inspector_name ilike '%faltant%'
       or mi.inspector_id in ('00000000-0000-0000-0000-00000000fa1a'::uuid,
@@ -63,7 +63,7 @@ begin
   from public.machinery mch
   cross join (values ('day'), ('night')) as shifts(sh)
   where mch.active = true
-    and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%' or mch.clasificacion ilike '%servicio%')
+    and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%servicio%')
     and not exists (
       select 1 from public.machine_inspectors mi
       where mi.machinery_id = mch.id and mi.shift = shifts.sh
@@ -80,6 +80,6 @@ from public.machine_inspectors mi
 join public.machinery mch on mch.id = mi.machinery_id
 where mi.active = true
   and mi.inspector_name ilike '%sos%guaira%'
-  and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%' or mch.clasificacion ilike '%servicio%')
+  and (mch.clasificacion ilike '%manejo%carga%' or mch.clasificacion ilike '%soporte%servicio%')
 group by mi.shift
 order by mi.shift;
