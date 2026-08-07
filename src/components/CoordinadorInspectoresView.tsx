@@ -21,16 +21,22 @@ export type InspectorRow = {
   buckets: { iniciadas: MachineLike[]; pendientes: MachineLike[]; paradas: MachineLike[]; averiadas: MachineLike[] };
 };
 
-// Buscador por TODAS las características de la máquina (mismo criterio amplio que el
-// Catálogo/Equipos): código, descripción, empresa, serial, placa, identificador,
-// grupo, encargado, tipo, clasificación, tipo de maquinaria, parroquia, sector,
-// edificio/referencia.
-const MATCH_FIELDS = [
-  'code', 'description', 'companyName', 'serial', 'plate', 'identifier', 'grupo',
-  'encargado', 'tipo', 'clasificacion', 'machinery_type', 'parroquia', 'sector', 'referencia',
-];
-const matchMachine = (m: MachineLike, q: string) =>
-  !q || MATCH_FIELDS.some((k) => norm(String(m[k] ?? '')).includes(q));
+// Buscador por TODAS las características posibles de la máquina: recorre CADA campo del
+// objeto (código, descripción, empresa, serial, placa, identificador, grupo, encargado,
+// tipo, clasificación, tipo de maquinaria, parroquia, sector, edificio/referencia,
+// estado, etc.) y compara los valores de texto/número. Solo salta campos TÉCNICOS que
+// no son características legibles (ids, coordenadas, fechas, fotos/URLs).
+const SKIP_KEY = /(^id$|_id$|_at$|^created|^updated|latitude|longitude|^lat$|^lng$|photo|url|uuid)/i;
+const matchMachine = (m: MachineLike, q: string): boolean => {
+  if (!q) return true;
+  for (const k in m) {
+    if (SKIP_KEY.test(k)) continue;
+    const v = (m as any)[k];
+    if (v == null) continue;
+    if ((typeof v === 'string' || typeof v === 'number') && norm(String(v)).includes(q)) return true;
+  }
+  return false;
+};
 
 export default function CoordinadorInspectoresView({
   rows, shiftLabel, query, onQueryChange, expanded, onToggle, onTapMachine,
