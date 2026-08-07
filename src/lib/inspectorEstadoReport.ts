@@ -2,7 +2,7 @@ import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
-import { edificioCanonico } from './edificios';
+import { edificioLabel } from './edificios';
 import { listVisits } from './supervisorVisits';
 import { listInspectorAssignments } from './machineInspectors';
 
@@ -71,8 +71,8 @@ function lugarOf(lat: number | null, lng: number | null, ref: string | null | un
   return r || '—';
 }
 
-/** Edificio canónico del catálogo a partir de la referencia (o '—'). */
-const edificioOf = (ref: string | null | undefined): string => edificioCanonico(ref) || '—';
+/** EDIFICIO unificado (canónico del catálogo, o el texto crudo si no coincide; '—' si vacío). */
+const edificioOf = (ref: string | null | undefined): string => edificioLabel(ref);
 
 /** Placa o, en su defecto, serial de la máquina. */
 const psTxt = (r: { plate: string | null; serial: string | null }): string => r.plate || r.serial || '—';

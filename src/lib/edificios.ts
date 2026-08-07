@@ -1,9 +1,12 @@
-import { norm } from './text';
+import { norm, cmpText } from './text';
+import { supabase } from './supabase';
 
 /**
- * Catálogo OFICIAL de edificios/puntos donde se ubican las máquinas. Es la lista
- * del desplegable que llena el coordinador/inspector en Supervisión (check-in) y
- * la base para COTEJAR/normalizar las referencias viejas escritas a mano.
+ * Catálogo SEMILLA de edificios/puntos donde se ubican las máquinas. Desde ago-2026
+ * el catálogo REAL vive en la tabla `public.edificios` (editable, compartida entre
+ * todos los teléfonos): `fetchEdificios()` la lee y `addEdificio()` agrega uno nuevo.
+ * Esta constante queda solo como RESPALDO si la tabla no responde, y como base de la
+ * normalización `edificioCanonico()` para cotejar referencias viejas escritas a mano.
  * Un solo lugar canónico → todo el sistema usa los mismos nombres.
  */
 export const EDIFICIOS: string[] = [
@@ -59,4 +62,57 @@ export function edificioCanonico(ref: string | null | undefined): string | null 
   if (!n) return null;
   for (const [re, name] of REGLAS) if (re.test(n)) return name;
   return null;
+}
+
+/**
+ * EDIFICIO unificado para MOSTRAR: el nombre canónico del catálogo si la referencia
+ * coincide, o el texto crudo tal cual si no (sin perder info); '—' si está vacío.
+ * Es la ÚNICA forma de presentar la ubicación en reportes y listas (ya no hay dos
+ * columnas Referencia + Edificio).
+ */
+export function edificioLabel(ref: string | null | undefined): string {
+  const raw = (ref ?? '').trim();
+  if (!raw) return '—';
+  return edificioCanonico(raw) || raw;
+}
+
+/**
+ * Lee el catálogo de edificios desde la tabla `public.edificios` (activos, A→Z).
+ * Si la tabla no responde, cae al respaldo estático `EDIFICIOS`.
+ */
+export async function fetchEdificios(): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('edificios')
+      .select('name')
+      .eq('active', true);
+    if (error || !data) return [...EDIFICIOS].sort(cmpText);
+    const names = data.map((r: any) => String(r.name).trim()).filter(Boolean);
+    return names.sort(cmpText);
+  } catch {
+    return [...EDIFICIOS].sort(cmpText);
+  }
+}
+
+/**
+ * Agrega un edificio nuevo al catálogo compartido (si no existe). Devuelve el nombre
+ * guardado (sin duplicar por mayúsculas/espacios) o null si falló. Es idempotente:
+ * si ya existe uno igual (ignorando may/min), devuelve el existente.
+ */
+export async function addEdificio(name: string): Promise<string | null> {
+  const clean = (name ?? '').trim();
+  if (!clean) return null;
+  try {
+    // ¿Ya existe (ignorando may/min)? — evita duplicados tipo "La Joya" / "la joya".
+    const { data: existing } = await supabase
+      .from('edificios')
+      .select('name')
+      .ilike('name', clean);
+    if (existing && existing.length) return String(existing[0].name);
+    const { error } = await supabase.from('edificios').insert({ name: clean });
+    if (error) return null;
+    return clean;
+  } catch {
+    return null;
+  }
 }

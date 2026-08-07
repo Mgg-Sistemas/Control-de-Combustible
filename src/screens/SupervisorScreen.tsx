@@ -7,7 +7,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
-import { EDIFICIOS } from '../lib/edificios';
+import EdificioPicker from '../components/EdificioPicker';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
@@ -312,11 +312,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [paPhotoUp, setPaPhotoUp] = useState(false);
   const [ntBusy, setNtBusy] = useState(false); // obteniendo la ubicación GPS (camino "no trabajó")
   const [ntCoords, setNtCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [ntReferencia, setNtReferencia] = useState('');
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
-  const [refOpen, setRefOpen] = useState(false);  // desplegable de edificios abierto
-  const [refOtro, setRefOtro] = useState(false);  // "Otro…" → escribir a mano
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
   const [avOpen, setAvOpen] = useState(false);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
@@ -356,8 +353,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useEffect(() => {
     const r = (ci as any)?.referencia ?? '';
     setCiRef(r);
-    setRefOtro(!!r && !EDIFICIOS.includes(r)); // valor viejo fuera del catálogo → editable a mano
-    setRefOpen(false);
   }, [ci?.id]);
   // Al abrir el modal, averigua si esta máquina ya tiene una jornada por tiempo ABIERTA hoy.
   useEffect(() => {
@@ -366,7 +361,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Limpia el formulario de PARADA (ambos caminos) al cambiar de máquina.
     setParadaTab('averia'); setCiMotivo('');
     setPaMaterial(null); setPaQty(''); setPaPhoto(null); setPaPhotoUp(false);
-    setNtCoords(null); setNtReferencia(''); setNtBusy(false);
+    setNtCoords(null); setNtBusy(false);
     // Turno por defecto según el momento; HORA de inicio = la hora REAL del sistema
     // (Caracas) al abrir — no un 7:00am/7:00pm fijo. El inspector la corrige si hace falta.
     const defShift = shiftOf(caracasParts(new Date()).hour).key;
@@ -1333,8 +1328,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!ci || ciSaving) return;
     setCiSaving(true); setNotice(null);
     if (!isOnline()) {
-      const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia) : (ntReferencia.trim() || 'Sin ubicación');
-      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+      const edifRef = ((ci as any)?.referencia ?? '').trim();
+      const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
+      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
       const hourBanking = jornadaStart
         ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
@@ -1351,14 +1347,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (jornadaStart) setJornadaStart(null);
       setCiSaving(false);
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
-      setNtCoords(null); setNtReferencia(''); setParadaOpen(false);
+      setNtCoords(null); setParadaOpen(false);
       setCi(null);
       return;
     }
     const ok = await registrarParadaBase('parada_no_trabajo');
     if (!ok) { setCiSaving(false); return; }
-    const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia) : (ntReferencia.trim() || 'Sin ubicación');
-    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio/sector: ${edificio} · Referencia: ${ntReferencia.trim() || '—'}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+    const edifRef = ((ci as any)?.referencia ?? '').trim();
+    const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
+    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null,
     });
@@ -1366,7 +1363,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     logAudit('PARADA', 'machinery', ci.id, `${ci.code} · no trabajó · ${edificio}`); // bitácora
     reloadEstados();
     setNotice(`🟡 ${ci.code} marcada PARADA · NO TRABAJÓ LA MÁQUINA${error ? ' · ⚠️ no se pudo guardar todo' : ''}. Aparece en Inspecciones.`);
-    setNtCoords(null); setNtReferencia(''); setParadaOpen(false);
+    setNtCoords(null); setParadaOpen(false);
     setCi(null);
   };
 
@@ -2461,37 +2458,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <TouchableOpacity onPress={recapture} disabled={gpsBusy} style={{ marginTop: 6 }}>
                   <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>↻ Volver a tomar ubicación</Text>
                 </TouchableOpacity>
-                {/* Edificio del catálogo: DESPLEGABLE. Se guarda con la ubicación y sale
-                    en el reporte "Máquinas por sector" del Mapa. "Otro…" permite escribir. */}
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 4 }}>Edificio</Text>
-                <TouchableOpacity
-                  onPress={() => setRefOpen((v) => !v)}
-                  activeOpacity={0.8}
-                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }}
-                >
-                  <Text style={{ color: ciRef ? colors.text : colors.muted, fontSize: 14, flex: 1 }} numberOfLines={1}>
-                    {ciRef || 'Selecciona el edificio…'}
-                  </Text>
-                  <Text style={{ color: colors.primary, fontWeight: '800' }}>{refOpen ? '▲' : '▼'}</Text>
-                </TouchableOpacity>
-                {refOpen ? (
-                  <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: 4, maxHeight: 240, overflow: 'hidden' }}>
-                    <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                      {EDIFICIOS.map((e) => (
-                        <TouchableOpacity key={e} onPress={() => { setCiRef(e); setRefOtro(false); setRefOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: ciRef === e ? colors.surfaceAlt : colors.surface }}>
-                          <Text style={{ color: colors.text, fontSize: 14 }}>{ciRef === e ? '✓ ' : ''}{e}</Text>
-                        </TouchableOpacity>
-                      ))}
-                      <TouchableOpacity onPress={() => { setRefOtro(true); setCiRef(''); setRefOpen(false); }} style={{ paddingVertical: 10, paddingHorizontal: spacing.md, backgroundColor: colors.surface }}>
-                        <Text style={{ color: colors.primary, fontSize: 14, fontWeight: '700' }}>✏️ Otro (escribir a mano)…</Text>
-                      </TouchableOpacity>
-                    </ScrollView>
-                  </View>
-                ) : null}
-                {refOtro ? (
-                  <TextInput value={ciRef} onChangeText={setCiRef} placeholder="Escribe el edificio / referencia" placeholderTextColor={colors.muted} style={[input, { marginTop: 6 }]} />
-                ) : null}
-                {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + la referencia. */}
+                {/* Edificio del catálogo COMPARTIDO (public.edificios): desplegable con
+                    buscar + ➕ agregar si no existe. Se guarda con la ubicación y sale
+                    en el reporte "Máquinas por sector" del Mapa. Campo único EDIFICIO. */}
+                <EdificioPicker value={ciRef} onChange={setCiRef} />
+                {/* Guardar TU posición como la ubicación de la máquina (queda en el mapa) + el edificio. */}
                 <TouchableOpacity onPress={guardarUbicacionMaquina} disabled={savingMachLoc || gpsBusy} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (savingMachLoc || gpsBusy) ? 0.6 : 1 }}>
                   <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>
                     {savingMachLoc ? 'Guardando…' : (ci && ci.latitude != null ? '📍 Actualizar ubicación + referencia' : '📍 Guardar ubicación + referencia')}
@@ -2679,9 +2650,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
                         <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>
-                      {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio/sector: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, ntReferencia)}</Text></Text> : null}
-                      <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 2 }}>Referencia (opcional, ej. “cerca de…”)</Text>
-                      <TextInput value={ntReferencia} onChangeText={setNtReferencia} placeholder="Ej: al lado de la cancha…" placeholderTextColor={colors.muted} style={input} />
+                      {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, (ci as any)?.referencia ?? '')}</Text></Text> : null}
                       <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA (no trabajó)'}</Text>
                       </TouchableOpacity>

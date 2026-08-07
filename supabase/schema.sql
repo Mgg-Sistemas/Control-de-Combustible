@@ -508,6 +508,23 @@ create policy price_tariffs_read on public.price_tariffs for select to authentic
 drop policy if exists price_tariffs_write on public.price_tariffs;
 create policy price_tariffs_write on public.price_tariffs for all to authenticated using (not public.is_anon()) with check (not public.is_anon());
 
+-- Catálogo ÚNICO de EDIFICIOS (ubicación de las máquinas). Reemplaza el par
+-- "referencia + edificio": ahora todo el sistema usa un solo campo EDIFICIO, que
+-- se elige de este catálogo (desplegable en el teléfono del inspector y de
+-- combustible) y se puede AGREGAR si no existe. `machinery.referencia` guarda el
+-- nombre elegido. Ver src/lib/edificios.ts y src/components/EdificioPicker.tsx.
+create table if not exists public.edificios (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.edificios enable row level security;
+drop policy if exists edificios_select on public.edificios;
+create policy edificios_select on public.edificios for select to authenticated using (true);
+drop policy if exists edificios_write on public.edificios;
+create policy edificios_write on public.edificios for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
 -- Tabulador POR EMPRESA: sobrescribe el precio general de un modelo para una
 -- empresa puntual (no todas cobran igual). Al sincronizar, cada máquina usa el
 -- precio de su empresa si existe; si no, cae al tabulador general (price_tariffs).
