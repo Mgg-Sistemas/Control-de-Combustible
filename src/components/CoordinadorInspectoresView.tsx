@@ -21,21 +21,28 @@ export type InspectorRow = {
   buckets: { iniciadas: MachineLike[]; pendientes: MachineLike[]; paradas: MachineLike[]; averiadas: MachineLike[] };
 };
 
-// Buscador por TODAS las características de la máquina (mismo criterio amplio que el
-// Catálogo/Equipos): código, descripción, empresa, serial, placa, identificador,
-// grupo, encargado, tipo, clasificación, tipo de maquinaria, parroquia, sector,
-// edificio/referencia.
-const MATCH_FIELDS = [
-  'code', 'description', 'companyName', 'serial', 'plate', 'identifier', 'grupo',
-  'encargado', 'tipo', 'clasificacion', 'machinery_type', 'parroquia', 'sector', 'referencia',
-];
-const matchMachine = (m: MachineLike, q: string) =>
-  !q || MATCH_FIELDS.some((k) => norm(String(m[k] ?? '')).includes(q));
+// Buscador por TODAS las características posibles de la máquina: recorre CADA campo del
+// objeto (código, descripción, empresa, serial, placa, identificador, grupo, encargado,
+// tipo, clasificación, tipo de maquinaria, parroquia, sector, edificio/referencia,
+// estado, etc.) y compara los valores de texto/número. Solo salta campos TÉCNICOS que
+// no son características legibles (ids, coordenadas, fechas, fotos/URLs).
+const SKIP_KEY = /(^id$|_id$|_at$|^created|^updated|latitude|longitude|^lat$|^lng$|photo|url|uuid)/i;
+const matchMachine = (m: MachineLike, q: string): boolean => {
+  if (!q) return true;
+  for (const k in m) {
+    if (SKIP_KEY.test(k)) continue;
+    const v = (m as any)[k];
+    if (v == null) continue;
+    if ((typeof v === 'string' || typeof v === 'number') && norm(String(v)).includes(q)) return true;
+  }
+  return false;
+};
 
 export default function CoordinadorInspectoresView({
-  rows, query, onQueryChange, expanded, onToggle, onTapMachine,
+  rows, shiftLabel, query, onQueryChange, expanded, onToggle, onTapMachine,
 }: {
   rows: InspectorRow[];
+  shiftLabel: string;
   query: string;
   onQueryChange: (t: string) => void;
   expanded: Set<string>;
@@ -94,6 +101,10 @@ export default function CoordinadorInspectoresView({
 
   return (
     <View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.brand + '18', borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: 6, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+        <Text style={{ fontSize: 14 }}>🕒</Text>
+        <Text style={{ flex: 1, color: colors.brandText, fontSize: 12, fontWeight: '800' }}>Turno actual: {shiftLabel} · solo se muestran los inspectores de este turno.</Text>
+      </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
         Toca una máquina para operarla (iniciar jornada · avería · parada · ubicación). Lo que hagas se le marca a su inspector.
       </Text>
