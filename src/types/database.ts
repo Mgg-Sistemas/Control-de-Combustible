@@ -319,6 +319,14 @@ export interface PriceTariff {
   updated_at: string;
 }
 
+/** Catálogo ÚNICO de edificios (ubicación de las máquinas). Ver src/lib/edificios.ts. */
+export interface Edificio {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
 /** Precio de un modelo para una EMPRESA puntual (sobrescribe el tabulador general). */
 export interface CompanyPriceTariff {
   id: string;

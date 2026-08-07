@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
-import { edificioCanonico } from './edificios';
+import { edificioLabel } from './edificios';
 import { listInspectorAssignments } from './machineInspectors';
 
 /**
@@ -43,8 +43,8 @@ function referenciaTxt(ref: string | null | undefined): string {
   const t = (ref ?? '').trim();
   return t && !/^[\d.,\s-]+$/.test(t) ? t : '—';
 }
-/** Edificio canónico del catálogo a partir de la referencia (o '—'). */
-const edificioOf = (ref: string | null | undefined): string => edificioCanonico(ref) || '—';
+/** EDIFICIO unificado (canónico del catálogo, o el texto crudo si no coincide; '—' si vacío). */
+const edificioOf = (ref: string | null | undefined): string => edificioLabel(ref);
 /** Placa o, en su defecto, serial de la máquina. */
 const psTxt = (plate: string | null, serial: string | null): string => plate || serial || '—';
 
@@ -196,12 +196,12 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
       return `<tr>
         <td>${i + 1}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.edificio)}</td>
         <td>${esc(modelo)}</td><td>${esc(psTxt(r.plate, r.serial))}</td>
-        <td>${esc(r.sector)}</td><td>${esc(r.referencia)}</td><td>${esc(r.companyName)}</td>
+        <td>${esc(r.sector)}</td><td>${esc(r.companyName)}</td>
       </tr>`;
     }).join('');
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Edificio</th><th>Modelo/Tipo</th>
-      <th>Serial/Placa</th><th>Sector</th><th>Referencia</th><th>Empresa</th>
+      <th>Serial/Placa</th><th>Sector</th><th>Empresa</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   };
 

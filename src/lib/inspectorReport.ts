@@ -3,7 +3,7 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
-import { edificioCanonico } from './edificios';
+import { edificioLabel } from './edificios';
 import { listInspectorAssignments } from './machineInspectors';
 
 /**
@@ -286,7 +286,7 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       company: base.company,
       sector: base.sector || 'Sin sector',
       referencia: base.referencia,
-      edificio: edificioCanonico(base.referencia) || '',
+      edificio: edificioLabel(base.referencia),
       lat: base.lat,
       lng: base.lng,
       dayH,
@@ -382,9 +382,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${(m.estado === 'parada' || m.estado === 'averia') && m.motivo ? `<div style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</div>` : ''}`;
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.referencia || '—')}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td><td>${esc(m.timeline || '—')}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td><td>${esc(m.timeline || '—')}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Referencia</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th><th>Línea de tiempo (este turno)</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td></td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th><th>Línea de tiempo (este turno)</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="7">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td></td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales.
     const bySec = new Map<string, { c: number; d: number; n: number }>();

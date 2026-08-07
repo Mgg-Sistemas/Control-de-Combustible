@@ -23,6 +23,7 @@ import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { insertMachineDispatch } from '../lib/dispatches';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
+import EdificioPicker from '../components/EdificioPicker';
 
 // Máquina cargada del catálogo (solo los campos que usamos aquí).
 type Machine = {
@@ -169,6 +170,17 @@ export default function FuelDriverScreen() {
     setPricePerLiter('');
     setPhotos([]);
     setResult(null);
+  };
+
+  // Guarda el EDIFICIO de la máquina (campo único machinery.referencia) desde el
+  // desplegable compartido. Optimista: actualiza en pantalla y persiste en la base.
+  const guardarEdificio = async (name: string) => {
+    if (!selected) return;
+    const clean = (name ?? '').trim();
+    const mid = selected.id;
+    setSelected((s) => (s ? { ...s, referencia: clean } : s));
+    setMachines((list) => list.map((m) => (m.id === mid ? { ...m, referencia: clean } : m)));
+    await supabase.from('machinery').update({ referencia: clean }).eq('id', mid);
   };
 
   const closeForm = () => {
@@ -419,6 +431,12 @@ export default function FuelDriverScreen() {
                       {showVal(selected.parroquia)}
                     </Text>
                   </View>
+                </Card>
+
+                {/* EDIFICIO — desplegable compartido (con ➕ agregar). Campo único de
+                    ubicación; se guarda al elegir/agregar. */}
+                <Card>
+                  <EdificioPicker value={selected.referencia ?? ''} onChange={guardarEdificio} />
                 </Card>
 
                 {/* Litros surtidos */}
