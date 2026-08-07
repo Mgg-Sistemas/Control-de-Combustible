@@ -29,7 +29,7 @@
 // esa sesión (ver `insertLog` e `requireSession` más abajo), en vez de
 // arrastrar siempre la identidad grabada en el INICIO de la WO.
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTable } from '../hooks/useTable';
 import { supabase } from '../lib/supabase';
@@ -638,7 +638,7 @@ export default function PlantaKioskScreen() {
 
       {/* ── Registrar cantidad ────────────────────────────────────────────── */}
       <Modal visible={qtyOpen} transparent animationType="fade" onRequestClose={() => setQtyOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🔢 Registrar cantidad</Text>
             <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm }}>
@@ -663,12 +663,12 @@ export default function PlantaKioskScreen() {
               </TouchableOpacity>
             </View>
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Reportar falla / parada ──────────────────────────────────────── */}
       <Modal visible={fallaOpen} transparent animationType="fade" onRequestClose={() => setFallaOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>⚠️ Reportar falla / parada</Text>
             <Text style={{ color: colors.muted, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm }}>La orden quedará pausada.</Text>
@@ -701,7 +701,7 @@ export default function PlantaKioskScreen() {
               </TouchableOpacity>
             </View>
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );

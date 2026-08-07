@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, TextInput, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, TextInput, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { BiometricToggle } from '../components/BiometricToggle';
@@ -321,7 +321,7 @@ export default function PatioScreen({ navigation }: any) {
 
       {/* INICIAR jornada del camión (pide el horómetro inicial). */}
       <Modal visible={!!pendingStart} transparent animationType="fade" onRequestClose={() => setPendingStart(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             {pendingStart ? (
               <>
@@ -341,12 +341,12 @@ export default function PatioScreen({ navigation }: any) {
               </>
             ) : null}
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Confirmar FINALIZAR jornada del camión (muestra el total de horas). */}
       <Modal visible={!!pendingFin} transparent animationType="fade" onRequestClose={() => setPendingFin(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             {pendingFin ? (
               <>
@@ -385,7 +385,7 @@ export default function PatioScreen({ navigation }: any) {
               </>
             ) : null}
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Surtir gasoil */}
@@ -413,7 +413,7 @@ export default function PatioScreen({ navigation }: any) {
 
       {/* Formulario de AVERÍA (modo avería, con máquina escaneada) */}
       <Modal visible={!!machine && avStarted} transparent animationType="fade" onRequestClose={() => { setMachine(null); setAvStarted(false); }}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             <ScrollView>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🛠️ Avería · {machine?.code}</Text>
@@ -446,7 +446,7 @@ export default function PatioScreen({ navigation }: any) {
               </TouchableOpacity>
             </ScrollView>
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );
