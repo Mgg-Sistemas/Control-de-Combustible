@@ -96,18 +96,19 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     .order('created_at', { ascending: false });
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   // Parada / avería pendiente por máquina (la más reciente; viene ordenado desc). Se
-  // guarda el instante para distinguir "marcada HOY" (gana sobre trabajando) de
-  // "arrastrada" (pierde si la máquina trabajó). SIN filtro de turno — igual que el
-  // teléfono (una parada pendiente cuenta para la máquina sin importar el turno).
-  const paradaByMachine = new Map<string, { createdMs: number }>();
-  const averiaByMachine = new Map<string, { motivo: string; createdMs: number }>();
+  // guarda el instante y el TURNO de la marca (por hora Caracas). REGLA por-turno: el
+  // estado avería/parada pertenece al turno en que se marcó; el otro turno ve la máquina
+  // como pendiente. `createdMs` distingue "marcada HOY" (gana sobre trabajando) de
+  // "arrastrada" (pierde si la máquina trabajó ese turno).
+  const paradaByMachine = new Map<string, { createdMs: number; shift: 'day' | 'night' }>();
+  const averiaByMachine = new Map<string, { motivo: string; createdMs: number; shift: 'day' | 'night' }>();
   ((mr ?? []) as any[]).forEach((m) => {
     if (m.material === 'MÁQUINA PARADA') {
-      if (!paradaByMachine.has(m.machinery_id)) paradaByMachine.set(m.machinery_id, { createdMs: new Date(m.created_at).getTime() });
+      if (!paradaByMachine.has(m.machinery_id)) paradaByMachine.set(m.machinery_id, { createdMs: new Date(m.created_at).getTime(), shift: paradaShiftOf(m.created_at) });
     } else if (!averiaByMachine.has(m.machinery_id)) {
       const notes = (m.notes && String(m.notes).trim()) || '';
       const motivo = notes || (m.material ? String(m.material) : 'Avería');
-      averiaByMachine.set(m.machinery_id, { motivo, createdMs: new Date(m.created_at).getTime() });
+      averiaByMachine.set(m.machinery_id, { motivo, createdMs: new Date(m.created_at).getTime(), shift: paradaShiftOf(m.created_at) });
     }
   });
 
@@ -126,40 +127,43 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     ((ms ?? []) as any[]).forEach((m) => extraById.set(m.id as string, { tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, active: m.active !== false, operational: m.operational !== false }));
   }
 
-  // 5) Estado real por inspector + máquina — IDÉNTICO a `segmentoDe` del teléfono
-  //    (SupervisorScreen). Prioridad y criterio EXACTOS:
-  //      1) avería marcada HOY  → averiada (gana sobre trabajando)
-  //      2) parada marcada HOY  → parada  (gana sobre trabajando)
-  //      3) jornada abierta O con horas (día+noche, TOTAL) → iniciada
-  //      4) avería arrastrada → averiada (solo si no trabajó)
-  //      5) parada arrastrada → parada
+  // 5) Estado real por inspector + máquina — POR TURNO (regla confirmada 06-ago-2026:
+  //    el estado avería/parada pertenece al turno de la HORA en que se marcó; el otro
+  //    turno ve la máquina como pendiente). Prioridad, igual que el panel:
+  //      1) avería de ESTE turno marcada HOY → averiada (gana sobre trabajando)
+  //      2) parada de ESTE turno marcada HOY → parada
+  //      3) trabajó ESTE turno (horas del turno o jornada abierta del turno) → iniciada
+  //      4) avería de ESTE turno arrastrada → averiada (solo si no trabajó el turno)
+  //      5) parada de ESTE turno arrastrada → parada
   //      6) resto → pendiente
-  //    Nota: se usa el estado POR MÁQUINA (horas totales, jornada abierta cualquiera,
-  //    parada/avería sin filtro de turno), no por turno — así el PDF coincide 1:1 con
-  //    lo que cada inspector ve en su teléfono.
   const byKey = new Map<string, Row>();
   assigns.forEach((a) => {
     const k = `${a.inspector_name || '—'}|${a.machinery_id}`;
     if (byKey.has(k)) return;
+    const shiftCtx: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
     const rd = roundByMachine.get(a.machinery_id);
     // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/averiada
     // solo cuenta si tiene jornada ABIERTA ahora; sin jornada abierta, no entra.
     const inactiva = extraById.get(a.machinery_id) ? !(extraById.get(a.machinery_id)!.active && extraById.get(a.machinery_id)!.operational) : false;
     if (inactiva && !rd?.startAt) return;
-    const worked = ((rd?.dayH ?? 0) + (rd?.nightH ?? 0)) > 0; // horas TOTALES (día+noche)
-    const open = !!rd?.startAt;                                // jornada abierta (cualquier turno)
+    // Trabajó ESTE turno: horas del turno, o jornada abierta cuyo turno (por marca o hora
+    // de inicio) es este turno.
+    const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : (rd?.dayH ?? 0);
+    const openShift = rd?.shift ?? (rd?.startAt ? paradaShiftOf(rd.startAt) : null);
+    const openForShift = !!rd?.startAt && openShift === shiftCtx;
+    const worked = hoursForShift > 0 || openForShift;
+    // Avería/parada SOLO si su turno de marca es este turno (por hora). Hoy gana sobre
+    // trabajando; arrastrada solo si no trabajó el turno.
     const av = averiaByMachine.get(a.machinery_id);
     const par = paradaByMachine.get(a.machinery_id);
-    const avHoy = !!av && av.createdMs >= dayStartMs;
-    const parHoy = !!par && par.createdMs >= dayStartMs;
+    const avApplies = !!av && av.shift === shiftCtx && (av.createdMs < dayStartMs ? !worked : true);
+    const parApplies = !!par && par.shift === shiftCtx && (par.createdMs < dayStartMs ? !worked : true);
     let averiada = false, parada = false, enCurso = false, pendiente = false;
-    if (avHoy) averiada = true;                    // 1) avería hoy
-    else if (parHoy) parada = true;                // 2) parada hoy
-    else if (open || worked) enCurso = true;       // 3) trabajando/finalizada
-    else if (av) averiada = true;                  // 4) avería arrastrada
-    else if (par) parada = true;                   // 5) parada arrastrada
-    else pendiente = true;                         // 6) pendiente
-    const finalizada = false; // el teléfono no separa en curso/finalizada; ambas = iniciada
+    if (avApplies) averiada = true;                // 1/4) avería de este turno
+    else if (parApplies) parada = true;            // 2/5) parada de este turno
+    else if (worked) enCurso = true;               // 3) trabajó este turno
+    else pendiente = true;                          // 6) pendiente por iniciar
+    const finalizada = false; // no se separa en curso/finalizada; ambas = iniciada
     const motivo = averiada && av ? av.motivo : '';
     const extra = extraById.get(a.machinery_id);
     byKey.set(k, {
