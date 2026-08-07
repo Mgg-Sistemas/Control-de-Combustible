@@ -283,6 +283,71 @@ export default function AsistenciaScreen() {
     }
   };
 
+  // Detalle del día seleccionado (dos tarjetas de turno + reporte + detalle del turno).
+  // Se muestra INLINE, justo bajo la fila de la semana del día tocado (no al fondo).
+  const renderDayDetail = () => {
+    if (!selectedDay) return null;
+    const dm = marksByDay.get(selectedDay) ?? [];
+    const dia = shiftMarks(dm, 'dia'), noche = shiftMarks(dm, 'noche');
+    const shiftCard = (sh: 'dia' | 'noche', marks: Mark[]) => {
+      const active = selectedShift === sh;
+      return (
+        <TouchableOpacity
+          onPress={() => setSelectedShift(active ? null : sh)}
+          activeOpacity={0.7}
+          style={{ flex: 1, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
+        >
+          <Text style={{ fontSize: 20 }}>{sh === 'dia' ? '☀️' : '🌙'}</Text>
+          <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 14, marginTop: 2 }}>{sh === 'dia' ? 'Día' : 'Noche'}</Text>
+          <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{distinctEmp(marks)} persona(s)</Text>
+          <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 11, fontVariant: ['tabular-nums'] as any }}>{marks.length} marca(s)</Text>
+        </TouchableOpacity>
+      );
+    };
+    return (
+      <View style={{ marginTop: spacing.sm, marginBottom: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, padding: spacing.sm }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>{dowLabel(selectedDay)} {fmtDMY(selectedDay)}</Text>
+          <TouchableOpacity onPress={() => generarReporte(selectedDay, selectedDay)} disabled={rBusy} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: rBusy ? 0.7 : 1 }}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📊 Reporte del día</Text>
+          </TouchableOpacity>
+        </View>
+        {dm.length === 0 ? (
+          <Text style={{ color: colors.muted, fontSize: 13 }}>Sin marcas este día.</Text>
+        ) : (
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {shiftCard('dia', dia)}
+            {shiftCard('noche', noche)}
+          </View>
+        )}
+        {selectedShift ? (
+          <View style={{ marginTop: spacing.md }}>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>{SHIFT_LABEL[selectedShift]} · detalle</Text>
+            {detail.length === 0 ? (
+              <Text style={{ color: colors.muted, fontSize: 13 }}>Nadie en este turno.</Text>
+            ) : detail.map((g, i) => (
+              <View key={i} style={{ paddingVertical: spacing.xs, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{fullName(g.emp) || 'Empleado'}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDuration(g.total)}</Text>
+                </View>
+                {g.emp?.cargo ? <Text style={{ color: colors.muted, fontSize: 11 }}>{g.emp.cargo}</Text> : null}
+                {g.pairs.map((p, j) => (
+                  <Text key={j} style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
+                    <Text style={{ color: colors.success }}>➡️ {fmtHora(p.in)}</Text>
+                    {'  →  '}
+                    {p.out ? <Text style={{ color: colors.danger }}>⬅️ {fmtHora(p.out)}</Text> : <Text style={{ color: colors.warning }}>abierta</Text>}
+                    {'   '}({fmtDuration(p.minutes)})
+                  </Text>
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
   return (
     <Screen>
       <ConfigBanner />
@@ -425,9 +490,12 @@ export default function AsistenciaScreen() {
           ))}
         </View>
         {/* Cuadrícula del mes (6 filas máx.) */}
-        {Array.from({ length: Math.ceil(monthGrid(month).length / 7) }).map((_, row) => (
-          <View key={row} style={{ flexDirection: 'row' }}>
-            {monthGrid(month).slice(row * 7, row * 7 + 7).map((iso, col) => {
+        {Array.from({ length: Math.ceil(monthGrid(month).length / 7) }).map((_, row) => {
+          const weekIsos = monthGrid(month).slice(row * 7, row * 7 + 7);
+          return (
+          <View key={row}>
+          <View style={{ flexDirection: 'row' }}>
+            {weekIsos.map((iso, col) => {
               if (!iso) return <View key={col} style={{ flex: 1, aspectRatio: 1 }} />;
               const dayMarks = marksByDay.get(iso) ?? [];
               const has = dayMarks.length > 0;
@@ -453,76 +521,14 @@ export default function AsistenciaScreen() {
               );
             })}
           </View>
-        ))}
+          {/* Detalle DÍA/NOCHE INLINE: justo bajo la fila de la semana del día tocado. */}
+          {selectedDay && weekIsos.includes(selectedDay) ? renderDayDetail() : null}
+          </View>
+          );
+        })}
         <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>El número en el globo = personas con marcas ese día. Toca un día para ver ☀️ Día / 🌙 Noche.</Text>
       </Card>
 
-      {/* Día seleccionado → dos tarjetas de turno + reporte del día */}
-      {selectedDay ? (() => {
-        const dm = marksByDay.get(selectedDay) ?? [];
-        const dia = shiftMarks(dm, 'dia'), noche = shiftMarks(dm, 'noche');
-        const shiftCard = (sh: 'dia' | 'noche', marks: Mark[]) => {
-          const active = selectedShift === sh;
-          return (
-            <TouchableOpacity
-              onPress={() => setSelectedShift(active ? null : sh)}
-              activeOpacity={0.7}
-              style={{ flex: 1, backgroundColor: active ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: active ? colors.brand : colors.border, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}
-            >
-              <Text style={{ fontSize: 20 }}>{sh === 'dia' ? '☀️' : '🌙'}</Text>
-              <Text style={{ color: active ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 14, marginTop: 2 }}>{sh === 'dia' ? 'Día' : 'Noche'}</Text>
-              <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 12, fontVariant: ['tabular-nums'] as any }}>{distinctEmp(marks)} persona(s)</Text>
-              <Text style={{ color: active ? colors.brandContrast : colors.muted, fontSize: 11, fontVariant: ['tabular-nums'] as any }}>{marks.length} marca(s)</Text>
-            </TouchableOpacity>
-          );
-        };
-        return (
-          <Card>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>{dowLabel(selectedDay)} {fmtDMY(selectedDay)}</Text>
-              <TouchableOpacity onPress={() => generarReporte(selectedDay, selectedDay)} disabled={rBusy} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill, opacity: rBusy ? 0.7 : 1 }}>
-                <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📊 Reporte del día</Text>
-              </TouchableOpacity>
-            </View>
-            {dm.length === 0 ? (
-              <Text style={{ color: colors.muted, fontSize: 13 }}>Sin marcas este día.</Text>
-            ) : (
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                {shiftCard('dia', dia)}
-                {shiftCard('noche', noche)}
-              </View>
-            )}
-
-            {/* Detalle del turno elegido */}
-            {selectedShift ? (
-              <View style={{ marginTop: spacing.md }}>
-                <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>{SHIFT_LABEL[selectedShift]} · detalle</Text>
-                {detail.length === 0 ? (
-                  <Text style={{ color: colors.muted, fontSize: 13 }}>Nadie en este turno.</Text>
-                ) : detail.map((g, i) => (
-                  <View key={i} style={{ paddingVertical: spacing.xs, borderTopWidth: i ? 1 : 0, borderTopColor: colors.border }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{fullName(g.emp) || 'Empleado'}</Text>
-                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{fmtDuration(g.total)}</Text>
-                    </View>
-                    {g.emp?.cargo ? <Text style={{ color: colors.muted, fontSize: 11 }}>{g.emp.cargo}</Text> : null}
-                    {g.pairs.map((p, j) => (
-                      <Text key={j} style={{ color: colors.muted, fontSize: 12, marginTop: 1 }}>
-                        <Text style={{ color: colors.success }}>➡️ {fmtHora(p.in)}</Text>
-                        {'  →  '}
-                        {p.out ? <Text style={{ color: colors.danger }}>⬅️ {fmtHora(p.out)}</Text> : <Text style={{ color: colors.warning }}>abierta</Text>}
-                        {'   '}({fmtDuration(p.minutes)})
-                      </Text>
-                    ))}
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </Card>
-        );
-      })() : (
-        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.sm }}>Toca un día del calendario para ver el detalle.</Text>
-      )}
       <View style={{ height: spacing.lg }} />
 
       {/* Escáner (pantalla completa) */}
