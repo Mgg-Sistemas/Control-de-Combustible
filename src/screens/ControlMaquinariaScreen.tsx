@@ -176,9 +176,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [encargadoOpen, setEncargadoOpen] = useState(false);
   const [encargadoQuery, setEncargadoQuery] = useState('');
   const SIN_ENCARGADO = '(sin encargado)';
-  const toggleEncargado = (name: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  // Clave CANÓNICA para unificar el mismo encargado escrito distinto (mayúsculas,
+  // acentos, ñ, espacios internos/dobles): "ALBERTO" / "Alberto" / "CARLOS  NUÑES"
+  // caen en la misma clave. Vacío → sentinela (sin encargado).
+  const encKey = (raw: any) => {
+    const t = String(raw ?? '').trim();
+    if (!t) return SIN_ENCARGADO;
+    return norm(t).replace(/\s+/g, ' ').trim();
+  };
+  const toggleEncargado = (key: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   // ¿La máquina pasa el filtro de encargado? (vacío = todos). Se usa en la lista y en los PDF.
-  const inEncargado = (m: Machinery) => encargadoSel.size === 0 || encargadoSel.has((m.encargado || '').trim() || SIN_ENCARGADO);
+  const inEncargado = (m: Machinery) => encargadoSel.size === 0 || encargadoSel.has(encKey(m.encargado));
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
@@ -1353,11 +1361,24 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // pasan el filtro de empresa. Buscable y multi-check.
   const encargadoOptions = (() => {
     const base = activasControl.filter((m) => matchCompany(m));
-    const counts = new Map<string, number>();
-    base.forEach((m) => { const k = (m.encargado || '').trim() || SIN_ENCARGADO; counts.set(k, (counts.get(k) || 0) + 1); });
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name === SIN_ENCARGADO ? 1 : b.name === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
+    // Agrupa por clave canónica (unifica variantes). Por clave: conteo total + qué
+    // etiqueta cruda se usó y cuántas veces, para mostrar la variante MÁS común.
+    const grp = new Map<string, { count: number; labels: Map<string, number> }>();
+    base.forEach((m) => {
+      const k = encKey(m.encargado);
+      const label = k === SIN_ENCARGADO ? SIN_ENCARGADO : String(m.encargado ?? '').trim().replace(/\s+/g, ' ');
+      const e = grp.get(k) ?? { count: 0, labels: new Map<string, number>() };
+      e.count += 1;
+      e.labels.set(label, (e.labels.get(label) || 0) + 1);
+      grp.set(k, e);
+    });
+    return Array.from(grp.entries())
+      .map(([key, e]) => {
+        // Display = variante más frecuente; empate → orden natural (cmpText).
+        const name = Array.from(e.labels.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]))[0][0];
+        return { key, name, count: e.count };
+      })
+      .sort((a, b) => a.key === SIN_ENCARGADO ? 1 : b.key === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
   })();
   const encargadoShown = encargadoOptions.filter((o) => !encargadoQuery.trim() || norm(o.name).includes(norm(encargadoQuery.trim())));
   // Empresa seleccionada para sincronizar el reporte (null = todas).
@@ -1594,9 +1615,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             </View>
             <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {encargadoShown.map((o) => {
-                const on = encargadoSel.has(o.name);
+                const on = encargadoSel.has(o.key);
                 return (
-                  <TouchableOpacity key={o.name} onPress={() => toggleEncargado(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand + '12' : 'transparent' }}>
+                  <TouchableOpacity key={o.key} onPress={() => toggleEncargado(o.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand + '12' : 'transparent' }}>
                     <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
                     <Text style={{ color: colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{o.count}</Text>
