@@ -10,50 +10,72 @@ import { supabase } from './supabase';
  * Un solo lugar canónico → todo el sistema usa los mismos nombres.
  */
 export const EDIFICIOS: string[] = [
+  'Colinas de Catia la Mar',
+  'Hospital de Catia la Mar',
+  'Santa Eduviges',
   'Residencias Militares',
-  'La Iguana',
-  'Hotel Litoral Palace',
-  'Residencias Las Palmas',
-  'Residencias Rita Mar',
+  'Punta Piedra',
+  'Litoral Palace',
+  'Las Palmas',
+  'Rita Mar',
   'Arichuna',
   'Mar de Leva',
+  'Coral Garden',
+  'Coral Park',
+  'Club Caribe',
+  'Roca Park',
+  'Residencia Tachiti',
+  'La Dolla',
+  'OPP 26',
+  'OPP 27',
+  'OPP 33',
+  'OPP 25',
+  'Escuela Naval',
+  // Quedaron del catálogo anterior — el cliente no los mencionó en la lista real
+  // del 07-ago-2026, se mantienen activos por si algún registro viejo los usa.
+  'La Iguana',
   'Puente Caraballeda (Debajo)',
-  'Residencia Tahiti',
-  'Residencia Club Caribe',
-  'Residencia La Joya',
-  'Opp 26',
-  'Opp 27',
   'Opp 22',
-  'Opp 33',
-  'Opp 25',
   'Hotel Albatro',
   'Playa escondida Tanaguarena',
-  'Santa Eduvigis',
 ];
 
 // Reglas para mapear una referencia escrita a mano → nombre canónico del catálogo.
 // El orden importa (más específico primero). Se evalúan sobre el texto normalizado
-// (minúsculas, sin acentos).
+// (minúsculas, sin acentos). Actualizado 07-ago-2026 con la lista REAL del cliente
+// (nombres/ortografía corregidos: Santa Eduviges, Litoral Palace, Las Palmas, Rita
+// Mar, Club Caribe, Residencia Tachiti, OPP en mayúsculas) — las reglas siguen
+// aceptando también la escritura VIEJA (ej. "Santa Eduvigis", "Hotel Litoral
+// Palace") para que texto histórico ya escrito por los inspectores se siga
+// normalizando bien al nombre canónico nuevo.
 const REGLAS: [RegExp, string][] = [
+  [/colinas/, 'Colinas de Catia la Mar'],
+  [/hospital/, 'Hospital de Catia la Mar'],
+  [/eduvig/, 'Santa Eduviges'],
   [/militar/, 'Residencias Militares'],
-  [/litoral|palace/, 'Hotel Litoral Palace'],
+  [/punta piedra/, 'Punta Piedra'],
+  [/litoral|palace/, 'Litoral Palace'],
   [/albatro/, 'Hotel Albatro'],
-  [/tahiti/, 'Residencia Tahiti'],
-  [/club caribe/, 'Residencia Club Caribe'],
+  [/tahiti|tachiti/, 'Residencia Tachiti'],
+  [/club caribe/, 'Club Caribe'],
   [/jolla|joya/, 'Residencia La Joya'],
-  [/palmas/, 'Residencias Las Palmas'],
-  [/rita/, 'Residencias Rita Mar'],
+  [/palmas/, 'Las Palmas'],
+  [/rita/, 'Rita Mar'],
   [/arichu|arichur/, 'Arichuna'],
   [/mar de leva/, 'Mar de Leva'],
+  [/coral garden/, 'Coral Garden'],
+  [/coral park/, 'Coral Park'],
+  [/roca park/, 'Roca Park'],
+  [/dolla/, 'La Dolla'],
+  [/escuela naval/, 'Escuela Naval'],
   [/puente carab/, 'Puente Caraballeda (Debajo)'],
   [/playa escondida|escondida/, 'Playa escondida Tanaguarena'],
-  [/eduvigis/, 'Santa Eduvigis'],
   [/iguan|igual/, 'La Iguana'],
-  [/0?pp\s*26/, 'Opp 26'],
-  [/0?pp\s*27/, 'Opp 27'],
+  [/0?pp\s*26/, 'OPP 26'],
+  [/0?pp\s*27/, 'OPP 27'],
   [/0?pp\s*22/, 'Opp 22'],
-  [/0?pp\s*33/, 'Opp 33'],
-  [/0?pp\s*25/, 'Opp 25'],
+  [/0?pp\s*33/, 'OPP 33'],
+  [/0?pp\s*25/, 'OPP 25'],
 ];
 
 /** Devuelve el nombre canónico del catálogo para una referencia libre, o null si no coincide. */

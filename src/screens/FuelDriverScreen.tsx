@@ -22,6 +22,7 @@ import QrScanner from '../components/QrScanner';
 import { parseMachineId } from './ScanQrScreen';
 import { captureAndUploadPhoto } from '../lib/photo';
 import { insertMachineDispatch } from '../lib/dispatches';
+import { insertMachineService, MachineServiceKind } from '../lib/machineServices';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import EdificioPicker from '../components/EdificioPicker';
 
@@ -41,6 +42,16 @@ type Machine = {
   last_horometro: number | null;
   companyName: string;
 };
+
+// Qué se le está surtiendo a la máquina — se elige al abrir el formulario
+// (por defecto Combustible, como era antes). Aceite/Aire NO tocan `dispatches`
+// (esa tabla tiene el tope de "1 carga de combustible por día" y descuenta un
+// tanque) — se guardan en `machine_services`, una tabla aparte.
+const SURTIDO_TIPOS: { key: 'combustible' | MachineServiceKind; label: string; icon: string }[] = [
+  { key: 'combustible', label: 'Combustible', icon: '⛽' },
+  { key: 'aceite', label: 'Aceite', icon: '🛢️' },
+  { key: 'aire', label: 'Aire', icon: '💨' },
+];
 
 // Tipos de avería (mismos que la vista rápida del operador). "otro" = falla libre.
 const AVERIA_MATERIALS: { key: string; label: string; icon: string }[] = [
@@ -86,8 +97,10 @@ export default function FuelDriverScreen() {
   const [selected, setSelected] = useState<Machine | null>(null);
 
   // Formulario de surtido.
+  const [surtidoTipo, setSurtidoTipo] = useState<'combustible' | MachineServiceKind>('combustible');
   const [liters, setLiters] = useState('');
   const [pricePerLiter, setPricePerLiter] = useState('');
+  const [serviceNote, setServiceNote] = useState(''); // nota libre para Aceite/Aire
   const [photos, setPhotos] = useState<string[]>([]);
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -183,8 +196,10 @@ export default function FuelDriverScreen() {
 
   const openMachine = (m: Machine) => {
     setSelected(m);
+    setSurtidoTipo('combustible');
     setLiters('');
     setPricePerLiter('');
+    setServiceNote('');
     setPhotos([]);
     setResult(null);
   };
@@ -202,8 +217,10 @@ export default function FuelDriverScreen() {
 
   const closeForm = () => {
     setSelected(null);
+    setSurtidoTipo('combustible');
     setLiters('');
     setPricePerLiter('');
+    setServiceNote('');
     setPhotos([]);
     setResult(null);
   };
@@ -270,6 +287,44 @@ export default function FuelDriverScreen() {
         // Limpia para el siguiente surtido (mantiene la máquina abierta).
         setLiters('');
         setPricePerLiter('');
+        setPhotos([]);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Registra ACEITE o AIRE (tabla `machine_services`, aparte de `dispatches`).
+  const submitService = async (kind: MachineServiceKind) => {
+    if (!selected || saving) return;
+    if (kind === 'aceite') {
+      const l = toNum(liters);
+      if (!isFinite(l) || l <= 0) {
+        setResult({ ok: false, msg: '❌ Ingresa los litros de aceite (mayor a 0).' });
+        return;
+      }
+    }
+    setSaving(true);
+    setResult(null);
+    try {
+      const { error } = await insertMachineService({
+        machineryId: selected.id,
+        serviceDate: today(),
+        kind,
+        liters: kind === 'aceite' ? toNum(liters) : null,
+        pricePerLiter: kind === 'aceite' ? toNum(pricePerLiter) : null,
+        operator: driverName || null,
+        notes: serviceNote,
+        photos,
+        createdBy: uid || null,
+      });
+      if (error) {
+        setResult({ ok: false, msg: `❌ ${error}` });
+      } else {
+        setResult({ ok: true, msg: kind === 'aceite' ? '✅ Aceite registrado' : '✅ Aire registrado' });
+        setLiters('');
+        setPricePerLiter('');
+        setServiceNote('');
         setPhotos([]);
       }
     } finally {
@@ -465,6 +520,26 @@ export default function FuelDriverScreen() {
                   </TouchableOpacity>
                 </View>
 
+                {/* Qué se le va a surtir a la máquina: Combustible / Aceite / Aire. */}
+                <View>
+                  <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>¿Qué vas a surtir?</Text>
+                  <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                    {SURTIDO_TIPOS.map((t) => {
+                      const on = surtidoTipo === t.key;
+                      return (
+                        <TouchableOpacity
+                          key={t.key}
+                          onPress={() => { setSurtidoTipo(t.key); setResult(null); }}
+                          style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
+                        >
+                          <Text style={{ fontSize: 22 }}>{t.icon}</Text>
+                          <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', marginTop: 2, fontSize: 12.5 }}>{t.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
                 {/* SECTOR y PARROQUIA — SOLO LECTURA */}
                 <Card>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -549,61 +624,105 @@ export default function FuelDriverScreen() {
                   ) : null}
                 </Card>
 
-                {/* Litros surtidos */}
-                <View>
-                  <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
-                    Litros surtidos
-                  </Text>
-                  <TextInput
-                    value={liters}
-                    onChangeText={(t) => setLiters(onlyDecimal(t))}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor={colors.muted}
-                    style={{
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: radius.md,
-                      paddingHorizontal: spacing.md,
-                      paddingVertical: spacing.sm,
-                      color: colors.text,
-                    }}
-                  />
-                </View>
+                {/* Litros (combustible o aceite) — el AIRE no lleva litros. */}
+                {surtidoTipo !== 'aire' ? (
+                  <>
+                    <View>
+                      <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
+                        {surtidoTipo === 'aceite' ? 'Litros de aceite' : 'Litros surtidos'}
+                      </Text>
+                      <TextInput
+                        value={liters}
+                        onChangeText={(t) => setLiters(onlyDecimal(t))}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor={colors.muted}
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.md,
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: spacing.sm,
+                          color: colors.text,
+                        }}
+                      />
+                    </View>
 
-                {/* Monto por litro */}
-                <View>
-                  <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
-                    Monto por litro
-                  </Text>
-                  <TextInput
-                    value={pricePerLiter}
-                    onChangeText={(t) => setPricePerLiter(onlyDecimal(t))}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor={colors.muted}
-                    style={{
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: radius.md,
-                      paddingHorizontal: spacing.md,
-                      paddingVertical: spacing.sm,
-                      color: colors.text,
-                    }}
-                  />
-                </View>
+                    {/* Monto por litro */}
+                    <View>
+                      <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>
+                        Monto por litro
+                      </Text>
+                      <TextInput
+                        value={pricePerLiter}
+                        onChangeText={(t) => setPricePerLiter(onlyDecimal(t))}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor={colors.muted}
+                        style={{
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: radius.md,
+                          paddingHorizontal: spacing.md,
+                          paddingVertical: spacing.sm,
+                          color: colors.text,
+                        }}
+                      />
+                    </View>
 
-                {/* Monto total — CALCULADO */}
-                <Card style={{ backgroundColor: colors.surfaceAlt }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: colors.muted, fontWeight: '700' }}>Monto total</Text>
-                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>
-                      {total != null ? total.toLocaleString() : '—'}
-                    </Text>
+                    {/* Monto total — CALCULADO */}
+                    <Card style={{ backgroundColor: colors.surfaceAlt }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: colors.muted, fontWeight: '700' }}>Monto total</Text>
+                        <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>
+                          {total != null ? total.toLocaleString() : '—'}
+                        </Text>
+                      </View>
+                    </Card>
+                  </>
+                ) : (
+                  /* AIRE: sin litros/monto — solo una nota opcional. */
+                  <View>
+                    <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>Nota (opcional)</Text>
+                    <TextInput
+                      value={serviceNote}
+                      onChangeText={setServiceNote}
+                      placeholder="Ej. se infló los 4 cauchos…"
+                      placeholderTextColor={colors.muted}
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                        color: colors.text,
+                      }}
+                    />
                   </View>
-                </Card>
+                )}
+                {surtidoTipo === 'aceite' ? (
+                  <View>
+                    <Text style={{ color: colors.text, marginBottom: spacing.xs, fontWeight: '700' }}>Nota (opcional)</Text>
+                    <TextInput
+                      value={serviceNote}
+                      onChangeText={setServiceNote}
+                      placeholder="Ej. aceite de motor, tipo 15W40…"
+                      placeholderTextColor={colors.muted}
+                      style={{
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: radius.md,
+                        paddingHorizontal: spacing.md,
+                        paddingVertical: spacing.sm,
+                        color: colors.text,
+                      }}
+                    />
+                  </View>
+                ) : null}
 
                 {/* Fotos */}
                 <View>
@@ -679,9 +798,9 @@ export default function FuelDriverScreen() {
                   </Text>
                 ) : null}
 
-                {/* Registrar surtido */}
+                {/* Registrar (combustible → dispatches; aceite/aire → machine_services) */}
                 <TouchableOpacity
-                  onPress={submit}
+                  onPress={surtidoTipo === 'combustible' ? submit : () => submitService(surtidoTipo)}
                   disabled={saving}
                   style={{
                     backgroundColor: colors.primary,
@@ -692,7 +811,7 @@ export default function FuelDriverScreen() {
                   }}
                 >
                   <Text style={{ color: colors.primaryContrast, fontSize: 18, fontWeight: '800' }}>
-                    {saving ? 'Guardando…' : 'Registrar surtido'}
+                    {saving ? 'Guardando…' : surtidoTipo === 'combustible' ? 'Registrar surtido' : surtidoTipo === 'aceite' ? 'Registrar aceite' : 'Registrar aire'}
                   </Text>
                 </TouchableOpacity>
               </>
