@@ -13,6 +13,7 @@ import { norm } from '../lib/text';
 type MachineLike = {
   id: string; code: string; companyName?: string; tipo?: string | null;
   serial?: string | null; plate?: string | null; encargado?: string | null;
+  [k: string]: any;
 };
 export type InspectorRow = {
   id: string; name: string; total: number;
@@ -26,12 +27,16 @@ const BUCKETS: { key: keyof InspectorRow['buckets']; label: string; icon: string
   { key: 'averiadas', label: 'Averiadas', icon: '🔴' },
 ];
 
-const matchMachine = (m: MachineLike, q: string) => !q
-  || norm(m.code).includes(q)
-  || norm(m.companyName || '').includes(q)
-  || norm(m.serial || '').includes(q)
-  || norm(m.plate || '').includes(q)
-  || norm(m.encargado || '').includes(q);
+// Buscador por TODAS las características de la máquina (mismo criterio amplio que el
+// Catálogo/Equipos): código, descripción, empresa, serial, placa, identificador,
+// grupo, encargado, tipo, clasificación, tipo de maquinaria, parroquia, sector,
+// edificio/referencia, en_espera…
+const MATCH_FIELDS = [
+  'code', 'description', 'companyName', 'serial', 'plate', 'identifier', 'grupo',
+  'encargado', 'tipo', 'clasificacion', 'machinery_type', 'parroquia', 'sector', 'referencia',
+];
+const matchMachine = (m: MachineLike, q: string) =>
+  !q || MATCH_FIELDS.some((k) => norm(String(m[k] ?? '')).includes(q));
 
 export default function CoordinadorInspectoresView({
   rows, query, onQueryChange, expanded, onToggle, onTapMachine,
