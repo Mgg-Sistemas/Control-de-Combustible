@@ -10,10 +10,6 @@ import { cmpText, norm } from '../lib/text';
 import { DateField } from './DateField';
 import ReportesHub, { ReportSection } from './ReportesHub';
 import { generateInspectorTrazaReport } from '../lib/inspectorTrazaReport';
-import { generateHorasOperadorReport } from '../lib/horasOperadorReport';
-import { generateJornadasPorSectorReport } from '../lib/jornadasPorSectorReport';
-import { generateCamionesPorEmpresaReport } from '../lib/camionesPorEmpresaReport';
-import { generateCamionesSinAsistenciaReport } from '../lib/camionesSinAsistenciaReport';
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -90,68 +86,6 @@ export default function ReportesSection(props: { navigation?: any }) {
           desc: 'Calendario con el conteo de camiones que entraron y salieron cada día.',
           fields: ['Vista mensual', 'Entradas', 'Salidas'],
           onPress: () => go('Camiones'),
-        },
-      ],
-    },
-    {
-      key: 'guardias', icon: '🗓️', title: 'Distribución de guardias',
-      cards: [
-        {
-          key: 'dist-guardias', icon: '🗓️', title: 'Distribución de guardias',
-          desc: 'Arma la rotación de inspectores por rango de fechas (manual o 14x7) y genera el PDF del ciclo.',
-          fields: ['Ciclo', 'Inspector', 'Grupos', '14x7'],
-          onPress: () => go('DistribucionGuardias'),
-        },
-      ],
-    },
-    {
-      key: 'camiones', icon: '🚚', title: 'Camiones (asistencia)',
-      cards: [
-        {
-          key: 'asis-diaria', icon: '📅', title: 'Asistencia diaria',
-          desc: 'Camiones presentes por jornada, con hora de llegada.',
-          fields: ['Día', 'Placa', 'Empresa'],
-          onPress: () => go('AsistenciaCamiones'),
-        },
-        {
-          key: 'asis-empresa', icon: '📊', title: 'Asistencia por empresa',
-          desc: 'Comparativo de cumplimiento entre empresas contratistas.',
-          fields: ['Rango de fechas', 'Empresa'],
-          onPress: () => openRunner({ title: 'Asistencia por empresa', mode: 'rango', run: ({ from, to }) => generateCamionesPorEmpresaReport({ from, to }) }),
-        },
-        {
-          key: 'sin-asis', icon: '🚚', title: 'Camiones sin asistencia',
-          desc: 'Unidades registradas que no se presentaron en el período.',
-          fields: ['Rango de fechas', 'Sector'],
-          onPress: () => openRunner({ title: 'Camiones sin asistencia', mode: 'rango', run: ({ from, to }) => generateCamionesSinAsistenciaReport({ from, to }) }),
-        },
-      ],
-    },
-    {
-      key: 'operadores', icon: '🚜', title: 'Jornadas de operadores',
-      cards: [
-        {
-          key: 'horas-op', icon: '⏱️', title: 'Horas por operador',
-          desc: 'Jornadas trabajadas y horas acumuladas por persona.',
-          fields: ['Rango de fechas', 'Operador', 'Máquina'],
-          onPress: () => openRunner({ title: 'Horas por operador', mode: 'rango', pick: 'operators', run: ({ from, to, names }) => generateHorasOperadorReport({ from, to, operators: names.length ? names : undefined }) }),
-        },
-        {
-          key: 'jor-sector', icon: '📊', title: 'Jornadas por sector',
-          desc: 'Distribución del trabajo entre los sectores de la operación.',
-          fields: ['Rango de fechas', 'Sector'],
-          onPress: () => openRunner({ title: 'Jornadas por sector', mode: 'rango', run: ({ from, to }) => generateJornadasPorSectorReport({ from, to }) }),
-        },
-      ],
-    },
-    {
-      key: 'traza', icon: '🧭', title: 'Traza por inspector',
-      cards: [
-        {
-          key: 'recorrido', icon: '🧭', title: 'Recorrido del inspector',
-          desc: 'Secuencia de revisiones con hora y ubicación a lo largo del día.',
-          fields: ['Día', 'Inspector', 'Sector'],
-          onPress: () => openRunner({ title: 'Recorrido del inspector', mode: 'dia', pick: 'inspectors', run: ({ date, names }) => generateInspectorTrazaReport({ date, inspectors: names.length ? names : undefined }) }),
         },
       ],
     },
