@@ -615,11 +615,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (applies) paradaAll.add(m.machinery_id);
     });
     const assignedShift = new Set(assignments.filter((a) => a.shift === shift).map((a) => a.machinery_id));
-    // Universo del turno: asignadas al turno (activas) + las que trabajaron el turno.
+    // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/averiada
+    // solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet). Sin jornada abierta,
+    // aunque tenga horas viejas, el teléfono la OCULTA → el admin no debe contarla (bug:
+    // "los inspectores tienen menos máquinas, aquí salen de más").
+    const visibleOk = (id: string) => !machInactiveSet.has(id) || anyOpenSet.has(id);
+    // Universo del turno: asignadas al turno + las que trabajaron el turno, ambas filtradas
+    // por el mismo criterio de visibilidad del teléfono.
     const universe = new Set<string>();
-    assignedShift.forEach((id) => { if (!machInactiveSet.has(id)) universe.add(id); });
-    workedSet.forEach((id) => universe.add(id));
-    averAll.forEach((id) => { if (assignedShift.has(id) || workedSet.has(id)) universe.add(id); });
+    assignedShift.forEach((id) => { if (visibleOk(id)) universe.add(id); });
+    workedSet.forEach((id) => { if (visibleOk(id)) universe.add(id); });
+    averAll.forEach((id) => { if ((assignedShift.has(id) || workedSet.has(id)) && visibleOk(id)) universe.add(id); });
     // ¿YA terminó el turno seleccionado? (Caracas UTC-4). Una máquina solo cuenta como
     // CERRADA/finalizada si el turno YA acabó: DÍA cierra a las 7pm del mismo día; NOCHE
     // cierra a las 7am del día SIGUIENTE. Mientras el turno sigue en curso (p. ej. mirar
@@ -641,7 +647,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (workedSet.has(id)) { startedSet.add(id); if (!openSet.has(id) && shiftEnded) closedSet.add(id); return; }
       pendSet.add(id);
     });
-    return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet };
+    return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet };
   }, [rounds, selDay, shift, maint, assignments, machInactiveSet]);
 
   // KPIs del día (totales).
@@ -826,7 +832,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
-    const { startedSet, paradaSet, averSet, closedSet } = daySets;
+    const { startedSet, paradaSet, averSet, closedSet, anyOpenSet } = daySets;
     const byName = new Map<string, { name: string; ids: Set<string>; code: Map<string, string> }>();
     assignments.filter((a) => a.shift === shift).forEach((a) => {
       const nm = a.inspector_name || '—';
@@ -841,7 +847,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
       // Excluye máquinas inactivas/no-operativas SIN jornada de hoy (machInactiveSet),
       // igual que el teléfono — si no, no cuenta en el total ("N asignada(s)").
-      const visibleIds = [...e.ids].filter((id) => !machInactiveSet.has(id) || startedSet.has(id));
+      const visibleIds = [...e.ids].filter((id) => !machInactiveSet.has(id) || anyOpenSet.has(id));
       visibleIds.forEach((id) => {
         if (averSet.has(id)) ave.push(id);
         else if (paradaSet.has(id)) par.push(id);
