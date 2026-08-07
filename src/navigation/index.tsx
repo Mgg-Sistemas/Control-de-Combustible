@@ -53,6 +53,7 @@ import PagoPersonalScreen from '../screens/PagoPersonalScreen';
 import UniformesScreen from '../screens/UniformesScreen';
 import AsistenciaScreen from '../screens/AsistenciaScreen';
 import AsistenciaCamionesScreen from '../screens/AsistenciaCamionesScreen';
+import DistribucionGuardiasScreen from '../screens/DistribucionGuardiasScreen';
 import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
@@ -218,6 +219,7 @@ function MoreStack() {
       <Stack.Screen name="Uniformes" component={UniformesScreen} options={{ title: 'Distribución de uniformes' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
+      <Stack.Screen name="DistribucionGuardias" component={DistribucionGuardiasScreen} options={{ title: 'Distribución de guardias' }} />
       <Stack.Screen name="Compras" component={ComprasScreen} options={{ title: 'Compras' }} />
       <Stack.Screen name="Inventario" component={InventarioScreen} options={{ title: 'Inventario' }} />
       <Stack.Screen name="InspeccionesMaq" component={InspeccionesScreen} options={{ title: 'Inspecciones de Maquinaria' }} />
@@ -264,6 +266,7 @@ function CoordinadorStack() {
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} options={{ title: 'Control de asistencia' }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
+      <Stack.Screen name="DistribucionGuardias" component={DistribucionGuardiasScreen} options={{ title: 'Distribución de guardias' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
       <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
@@ -336,6 +339,7 @@ function AsistenciaStack() {
       {/* Pantalla RAÍZ: sin flecha ni "Salir" propio (ya hay "Cerrar sesión" en el header). */}
       <Stack.Screen name="AsistenciaHome" component={AsistenciaScreen} options={{ title: 'Control de asistencia', headerLeft: () => null }} />
       <Stack.Screen name="AsistenciaCamiones" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia de camiones' }} />
+      <Stack.Screen name="DistribucionGuardias" component={DistribucionGuardiasScreen} options={{ title: 'Distribución de guardias' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
       <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
