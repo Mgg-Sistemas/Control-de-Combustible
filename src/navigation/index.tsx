@@ -715,7 +715,12 @@ function pickTree(ctx: {
   if (role === 'coordinador_inspectores') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
   // CONDUCTOR (chofer): rol fijo con su propio panel (surtir · camiones · asistencia
   // de camiones), igual que supervisor tiene el suyo — independiente de appRole.
-  if (role === 'conductor') return { key: 'conductor', node: <ConductorTabs /> };
+  // OJO: 'conductor' es también el rol BASE "neutro" que se le pone a CUALQUIER
+  // usuario con un rol personalizado (ver UsersScreen.tsx, comentario "rol base
+  // neutro (conductor)") — sin el `&& !appRole`, todo usuario con rol personalizado
+  // caía aquí (pantallas de Surtir/Camiones/Asistencia de CAMIONES) en vez de en
+  // su panel real, sin importar qué módulos tuviera de verdad asignados.
+  if (role === 'conductor' && !appRole) return { key: 'conductor', node: <ConductorTabs /> };
   if (appRole && role !== 'admin' && appRole.panel_type === 'coordinador_qr') return { key: 'coordinador', node: <CoordinadorStack /> };
   if (appRole && role !== 'admin' && esRolCombustible(appRole)) return { key: 'combustible', node: <CombustibleStack /> };
   // Rol por módulos cuyo único acceso es ASISTENCIA: directo a "Control de asistencia".
