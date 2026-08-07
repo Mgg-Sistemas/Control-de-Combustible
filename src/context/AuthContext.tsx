@@ -145,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // El ROL se carga con un query SIMPLE (nunca toca columnas de app_roles), para que
     // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
     // ni sus módulos. El rol especial (app_role) se trae aparte, con respaldo.
-    (async () => {
+    const loadRole = async () => {
       const { data } = await supabase.from('profiles').select('role, app_role_id, can_audit, full_name').eq('id', uid).single();
       if (!active) return;
       setRole((data?.role as UserRole) ?? null);
@@ -160,7 +160,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!active) return;
       setAppRole((ar.data as AppRole) ?? null);
       setRoleReady(true);
-    })();
+    };
+    loadRole();
 
     // Permisos por módulo del usuario.
     const loadPerms = () =>
@@ -199,6 +200,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('perms realtime no disponible:', e);
     }
 
+    // Realtime: si un admin cambia el ROL del usuario (o su app_role), se aplica EN
+    // VIVO — sin cerrar sesión. Antes solo se sincronizaban los permisos de módulo, así
+    // que asignar el rol "coordinador de inspectores" (u otro) no surtía efecto hasta
+    // re-loguear. Mismo blindaje anti-canal-duplicado que arriba.
+    const profileTopic = `profile-${uid}`;
+    supabase
+      .getChannels()
+      .filter((c) => c.topic === profileTopic || c.topic === `realtime:${profileTopic}`)
+      .forEach((c) => supabase.removeChannel(c));
+    let profileCh: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      profileCh = supabase
+        .channel(profileTopic)
+        .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${uid}` }, () => loadRole())
+        .subscribe();
+    } catch (e) {
+      console.warn('profile realtime no disponible:', e);
+    }
+
     // Realtime Presence: cada usuario logueado se anuncia en este canal.
     supabase
       .getChannels()
@@ -220,6 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
       if (permCh) supabase.removeChannel(permCh);
+      if (profileCh) supabase.removeChannel(profileCh);
       supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);

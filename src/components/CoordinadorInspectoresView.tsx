@@ -1,10 +1,11 @@
 // Sub-vista "👥 Inspectores" del coordinador de inspectores (dentro de SupervisorScreen).
-// Lista cada inspector real, colapsable y buscable, con SUS máquinas repartidas por
-// estado (iniciadas / pendientes / paradas / averiadas). Al tocar una máquina se abre
-// el MISMO check-in del inspector (iniciar jornada, avería, parada, ubicación): lo que
-// el coordinador haga se le marca al inspector dueño de la máquina. Es presentacional:
-// recibe las filas ya clasificadas y delega la acción en onTapMachine.
-import React from 'react';
+// Lista cada inspector real, colapsable y buscable. Dentro de cada inspector, las
+// máquinas van repartidas en grupos COLAPSABLES: 🟢 Iniciadas · ⏳ Pendientes ·
+// 🟡🔴 Paradas / averiadas. Al tocar una máquina se abre el MISMO check-in del
+// inspector (iniciar jornada, avería, parada, ubicación): lo que el coordinador haga
+// se le marca al inspector dueño de la máquina. Es presentacional: recibe las filas ya
+// clasificadas y delega la acción en onTapMachine.
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -20,17 +21,10 @@ export type InspectorRow = {
   buckets: { iniciadas: MachineLike[]; pendientes: MachineLike[]; paradas: MachineLike[]; averiadas: MachineLike[] };
 };
 
-const BUCKETS: { key: keyof InspectorRow['buckets']; label: string; icon: string }[] = [
-  { key: 'iniciadas', label: 'Iniciadas', icon: '🟢' },
-  { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳' },
-  { key: 'paradas', label: 'Paradas', icon: '🟡' },
-  { key: 'averiadas', label: 'Averiadas', icon: '🔴' },
-];
-
 // Buscador por TODAS las características de la máquina (mismo criterio amplio que el
 // Catálogo/Equipos): código, descripción, empresa, serial, placa, identificador,
 // grupo, encargado, tipo, clasificación, tipo de maquinaria, parroquia, sector,
-// edificio/referencia, en_espera…
+// edificio/referencia.
 const MATCH_FIELDS = [
   'code', 'description', 'companyName', 'serial', 'plate', 'identifier', 'grupo',
   'encargado', 'tipo', 'clasificacion', 'machinery_type', 'parroquia', 'sector', 'referencia',
@@ -50,6 +44,10 @@ export default function CoordinadorInspectoresView({
 }) {
   const { colors } = useTheme();
   const q = norm(query.trim());
+  // Grupos de estado COLAPSADOS por inspector (clave `${inspId}:${grupo}`). Con
+  // búsqueda activa se fuerzan abiertos para no esconder los resultados.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (k: string) => setOpenGroups((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   // Con búsqueda: si el texto coincide con el nombre del inspector, se muestran TODAS
   // sus máquinas; si no, solo las máquinas que coincidan (y se ocultan los inspectores
@@ -76,18 +74,18 @@ export default function CoordinadorInspectoresView({
     </View>
   );
 
-  const machineRow = (m: MachineLike, color: string) => (
+  const machineRow = (m: MachineLike, color: string, tag?: string) => (
     <TouchableOpacity
       key={m.id}
       onPress={() => onTapMachine(m)}
-      activeOpacity={0.7}
+      activeOpacity={0.6}
       style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}
     >
       <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{m.code}</Text>
         <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
-          {(m.tipo || 'Sin tipo')}{m.companyName ? ` · ${m.companyName}` : ''}
+          {(m.tipo || 'Sin tipo')}{m.companyName ? ` · ${m.companyName}` : ''}{tag ? ` · ${tag}` : ''}
         </Text>
       </View>
       <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 11 }}>Abrir ›</Text>
@@ -104,7 +102,7 @@ export default function CoordinadorInspectoresView({
         <TextInput
           value={query}
           onChangeText={onQueryChange}
-          placeholder="Buscar inspector o máquina…"
+          placeholder="Buscar inspector o máquina (todas las características)…"
           placeholderTextColor={colors.muted}
           style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 9 }}
         />
@@ -118,8 +116,17 @@ export default function CoordinadorInspectoresView({
           </Text>
         </View>
       ) : shown.map((r) => {
-        const open = expanded.has(r.id);
-        const c = { ini: colors.success, pend: colors.warning, par: colors.warning, ave: colors.danger };
+        const open = q ? true : expanded.has(r.id);
+        const parAve = [
+          ...r.buckets.paradas.map((m) => ({ m, color: colors.warning, tag: 'Parada' })),
+          ...r.buckets.averiadas.map((m) => ({ m, color: colors.danger, tag: 'Averiada' })),
+        ];
+        // 3 grupos colapsables dentro del inspector.
+        const groups = [
+          { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success, items: r.buckets.iniciadas.map((m) => ({ m, color: colors.success, tag: undefined as string | undefined })) },
+          { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText, items: r.buckets.pendientes.map((m) => ({ m, color: colors.brandText, tag: undefined as string | undefined })) },
+          { key: 'paradas_averias', label: 'Paradas / averiadas', icon: '🟡', color: colors.warning, items: parAve },
+        ];
         return (
           <View key={r.id} style={{ borderWidth: 1, borderColor: open ? colors.primary : colors.border, borderRadius: radius.md, backgroundColor: colors.surface, marginBottom: spacing.xs, overflow: 'hidden' }}>
             <TouchableOpacity onPress={() => onToggle(r.id)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md }}>
@@ -127,24 +134,33 @@ export default function CoordinadorInspectoresView({
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>{r.name}</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 3 }}>
-                  {pill('🟢', r.buckets.iniciadas.length, c.ini)}
+                  {pill('🟢', r.buckets.iniciadas.length, colors.success)}
                   {pill('⏳', r.buckets.pendientes.length, colors.brandText)}
-                  {pill('🟡', r.buckets.paradas.length, c.par)}
-                  {pill('🔴', r.buckets.averiadas.length, c.ave)}
+                  {pill('🟡🔴', r.buckets.paradas.length + r.buckets.averiadas.length, colors.warning)}
                 </View>
               </View>
               <Text style={{ color: colors.muted, fontSize: 20 }}>{open ? '⌄' : '›'}</Text>
             </TouchableOpacity>
             {open ? (
-              <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm }}>
-                {BUCKETS.map(({ key, label, icon }) => {
-                  const list = r.buckets[key];
-                  if (list.length === 0) return null;
-                  const color = key === 'averiadas' ? c.ave : key === 'paradas' ? c.par : key === 'iniciadas' ? c.ini : colors.brandText;
+              <View style={{ paddingHorizontal: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs }}>
+                {groups.map((g) => {
+                  const gk = `${r.id}:${g.key}`;
+                  const gopen = q ? true : openGroups.has(gk);
                   return (
-                    <View key={key} style={{ marginTop: spacing.xs }}>
-                      <Text style={{ color, fontWeight: '900', fontSize: 12, marginBottom: 2 }}>{icon} {label} ({list.length})</Text>
-                      {list.map((m) => machineRow(m, color))}
+                    <View key={g.key} style={{ borderWidth: 1, borderColor: gopen ? g.color : colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                      <TouchableOpacity onPress={() => toggleGroup(gk)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 10, paddingHorizontal: spacing.sm }}>
+                        <Text style={{ fontSize: 16 }}>{g.icon}</Text>
+                        <Text style={{ flex: 1, color: colors.text, fontWeight: '800', fontSize: 13 }}>{g.label}</Text>
+                        <Text style={{ color: g.color, fontWeight: '900', fontSize: 14, fontVariant: ['tabular-nums'] as any, minWidth: 18, textAlign: 'right' }}>{g.items.length}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 16 }}>{gopen ? '⌄' : '›'}</Text>
+                      </TouchableOpacity>
+                      {gopen ? (
+                        <View style={{ paddingHorizontal: spacing.xs }}>
+                          {g.items.length === 0
+                            ? <Text style={{ color: colors.muted, fontSize: 12, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }}>Sin máquinas {g.label.toLowerCase()}.</Text>
+                            : g.items.map(({ m, color, tag }) => machineRow(m, color, tag))}
+                        </View>
+                      ) : null}
                     </View>
                   );
                 })}
