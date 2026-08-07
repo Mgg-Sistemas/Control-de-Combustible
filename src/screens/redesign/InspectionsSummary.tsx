@@ -77,18 +77,11 @@ type MInfo = {
 };
 type Estado = 'iniciada' | 'cerrada' | 'pendiente' | 'parada' | 'averiada';
 
-// ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Aplica igual
-// para hoy y días pasados: jornada abierta ahora mismo, O ya finalizada con horas
-// (día/noche > 0) — al cerrar, jornada_start_at siempre queda limpio, así que las
-// horas son la evidencia de que se trabajó.
-const roundStarted = (r: Round) => !!r.jornada_start_at || (Number(r.day_hours) || 0) > 0 || (Number(r.night_hours) || 0) > 0;
 // Turno de la ronda (una ronda pertenece a UN turno). Igual que inspectorReport.
 const roundShift = (r: Round): 'day' | 'night' =>
   r.jornada_shift === 'night' ? 'night'
     : r.jornada_shift === 'day' ? 'day'
     : ((Number(r.night_hours) || 0) > 0 && (Number(r.day_hours) || 0) === 0 ? 'night' : 'day');
-const startedForShift = (r: Round, sh: 'day' | 'night') => roundStarted(r) && roundShift(r) === sh;
-
 // Cuentas con permiso para el panel de "Activar/desactivar máquinas por supervisor"
 // (herramienta delicada: cambia el estado operativo real de la máquina). Solo
 // Angélica (C.I./usuario 27514385) y Anthony (usuario sistemas2), a pedido directo
@@ -364,120 +357,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // Motivo compartido para las acciones "Marcar Parada"/"Marcar Avería" en bloque
   // (se aplica igual a TODAS las máquinas seleccionadas en esa pasada).
   const [bulkMotivo, setBulkMotivo] = useState('');
-  // Averiadas del día (no depende del turno — igual que `daySets`). Paradas SÍ
-  // depende del turno de cada ítem, así se calcula por separado para día y noche.
-  // SOLO cuenta como "avería" la reportada ESE día (igual que SupervisorScreen.tsx,
-  // que solo marca el segmento 🔴 avería el mismo día en que se reportó); una
-  // avería vieja sin resolver pasa a "parada" (arrastrada) — antes, sin este límite
-  // inferior, una avería de hace semanas se quedaba marcada "averiada" para
-  // siempre y nunca aparecía como "parada", desalineando este panel del que ve
-  // el inspector en su teléfono.
-  const bulkAverSet = useMemo(() => {
-    const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
-    const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
-    const s = new Set<string>();
-    maint.forEach((m) => {
-      const t = new Date(m.created_at).getTime();
-      if (m.material !== 'MÁQUINA PARADA' && t >= dayStartMs && t <= dayEndMs) s.add(m.machinery_id);
-    });
-    return s;
-  }, [maint, selDay]);
   // Solo se puede gestionar el día de HOY (no días pasados): "Iniciar" fabricaría
   // una jornada retroactiva sin sentido, y "Pendiente" borraría horas de un corte
   // que ya podría estar cerrado/pagado.
   const bulkIsToday = selDay === caracasToday();
-  // ¿Iniciada la máquina HOY, en ese turno puntual? Reusa la misma lógica que las
-  // tarjetas de arriba (`startedForShift`), pero para AMBOS turnos a la vez (acá no
-  // filtramos por el switch día/noche general).
-  const startedTodayByShift = useMemo(() => {
-    const day = new Set<string>(); const night = new Set<string>();
-    rounds.forEach((r) => {
-      if (r.round_date !== selDay) return;
-      if (startedForShift(r, 'day')) day.add(r.machinery_id);
-      if (startedForShift(r, 'night')) night.add(r.machinery_id);
-    });
-    // Jornada de NOCHE de AYER aún ABIERTA (cruza la medianoche) — mismo rescate
-    // que en `daySets`, para que el panel no la muestre como "Pendiente" ni deje
-    // marcarla como tal por error mientras sigue trabajando hasta las 7am.
-    const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
-    const yesterdayIso = y.toISOString().slice(0, 10);
-    rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) night.add(r.machinery_id); });
-    return { day, night };
-  }, [rounds, selDay]);
-  // ¿YA se cerró (finalizó) HOY ese turno puntual? = tiene horas de ESE turno
-  // registradas y NO está abierta ahora mismo — para distinguir "🏁 Cerrada" de
-  // "⏳ Pendiente" en el panel (antes una máquina ya finalizada, sin nada por
-  // hacer, se veía igual que una que nunca arrancó).
-  const closedTodayByShift = useMemo(() => {
-    const day = new Set<string>(); const night = new Set<string>();
-    rounds.forEach((r) => {
-      if (r.round_date !== selDay) return;
-      if (!startedTodayByShift.day.has(r.machinery_id) && (Number(r.day_hours) || 0) > 0) day.add(r.machinery_id);
-      if (!startedTodayByShift.night.has(r.machinery_id) && (Number(r.night_hours) || 0) > 0) night.add(r.machinery_id);
-    });
-    return { day, night };
-  }, [rounds, selDay, startedTodayByShift]);
-  // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
-  // su turno y si esa máquina está iniciada HOY en ese turno puntual. Si aparece
-  // asignada en ambos turnos, sale una fila en cada uno (cada una con su propia
-  // casilla — no se mezclan al marcar).
-  const bulkGroupsAll = useMemo(() => {
-    const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
-    const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
-    // ¿Está PARADA esa máquina en ESE turno puntual? Misma lógica que `daySets`,
-    // pero evaluada por turno propio de cada asignación (no el switch general).
-    const isParada = (machineryId: string, sh: 'day' | 'night', started: boolean) => {
-      if (bulkAverSet.has(machineryId)) return false; // avería tiene su propia categoría
-      return maint.some((m) => {
-        if (m.machinery_id !== machineryId || m.material !== 'MÁQUINA PARADA') return false;
-        const t = new Date(m.created_at).getTime();
-        if (t > dayEndMs) return false;
-        const arrastrada = t < dayStartMs;
-        return arrastrada ? !started : paradaShiftOf(m.created_at) === sh;
-      });
-    };
-    type BulkEstado = 'activa' | 'cerrada' | 'pendiente' | 'parada' | 'averia';
-    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night'; stopped: boolean; estado: BulkEstado }[] }>();
-    assignments.forEach((a) => {
-      const nm = a.inspector_name || '—';
-      const e = byName.get(nm) ?? { name: nm, items: [] };
-      const started = (a.shift === 'day' ? startedTodayByShift.day : startedTodayByShift.night).has(a.machinery_id);
-      // Prioridad (misma que antes tenía "started > stopped > pendiente", ahora
-      // con Parada/Avería/Cerrada separadas en vez de un solo "stopped" genérico):
-      // activa > avería > parada > cerrada (ya finalizada, con horas) > pendiente.
-      const isAveria = !started && bulkAverSet.has(a.machinery_id);
-      const isParadaFlag = !started && !isAveria && isParada(a.machinery_id, a.shift, started);
-      const closedSet = a.shift === 'day' ? closedTodayByShift.day : closedTodayByShift.night;
-      const isClosed = !started && !isAveria && !isParadaFlag && closedSet.has(a.machinery_id);
-      const estado: BulkEstado = started ? 'activa' : isAveria ? 'averia' : isParadaFlag ? 'parada' : isClosed ? 'cerrada' : 'pendiente';
-      const stopped = isAveria || isParadaFlag;
-      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift, stopped, estado });
-      byName.set(nm, e);
-    });
-    return [...byName.values()]
-      .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
-      .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, startedTodayByShift, closedTodayByShift, maint, bulkAverSet, selDay]);
-  // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
-  const bulkGroups = useMemo(() => {
-    const q = norm(bulkQuery.trim());
-    return bulkGroupsAll
-      .map((g) => {
-        const nameMatches = !q || norm(g.name).includes(q);
-        return {
-          ...g,
-          items: g.items.filter(
-            (i) =>
-              (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
-              (bulkStatusFilter === 'all' || i.estado === bulkStatusFilter) &&
-              (!bulkHideStopped || !i.stopped) &&
-              (nameMatches || norm(i.code).includes(q))
-          ),
-        };
-      })
-      .filter((g) => g.items.length > 0);
-  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter, bulkHideStopped, bulkQuery]);
-  const bulkAllKeys = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.key)), [bulkGroups]);
   const toggleBulkOne = (key: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const toggleBulkGroup = (keys: string[]) => setBulkSel((prev) => {
     const allIn = keys.every((k) => prev.has(k));
@@ -508,7 +391,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const uid = session?.user?.id ?? null;
       const codeOf = (id: string) => assignments.find((a) => a.machinery_id === id)?.code || '—';
       // Si es de turno NOCHE y la jornada abierta en realidad vive en la fila de
-      // AYER (cruzó la medianoche, ver `startedTodayByShift`), hay que operar sobre
+      // AYER (cruzó la medianoche), hay que operar sobre
       // ESA fila — si actuáramos siempre sobre "hoy" crearíamos una fila nueva
       // vacía y dejaríamos la jornada real de ayer abierta sin tocar.
       const yD = new Date(selDay + 'T12:00:00-04:00'); yD.setUTCDate(yD.getUTCDate() - 1);
@@ -695,7 +578,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   //  - El universo son las máquinas ASIGNADAS a ese turno (activas) + las que
   //    trabajaron ese turno. Las inactivas/averiadas de catálogo que no trabajaron NO
   //    cuentan (igual que el teléfono) — salvo las averiadas, que van a su categoría.
-  const daySets = useMemo(() => {
+  // Clasificación completa (avería/parada/activa-ahora/cerrada/pendiente) para UN
+  // turno dado — extraída a función para poder calcularla para DÍA y NOCHE a la vez
+  // (`daySetsByShift`, abajo) sin duplicar la lógica: el panel "Gestionar" necesita
+  // clasificar filas de AMBOS turnos al mismo tiempo, y debe dar EXACTAMENTE el
+  // mismo resultado que estas tarjetas de arriba — antes tenía su propio cálculo
+  // paralelo (bulkAverSet/isParada/startedTodayByShift) que se desincronizaba del
+  // real (ej.: no veía averías arrastradas de días anteriores, o nunca detectaba
+  // "cerrada" porque su propio `started` ya contaba las cerradas-con-horas).
+  const buildDaySets = useCallback((shiftArg: 'day' | 'night') => {
     const isToday = selDay === caracasToday();
     // Turno REAL de la ronda. Para una jornada ABIERTA con jornada_shift nulo, se
     // infiere por la HORA DE INICIO (Caracas: 7am–7pm día, resto noche) — así una
@@ -720,14 +611,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      if (workedInShift(r, shift)) workedSet.add(r.machinery_id);
+      if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
       if (r.jornada_start_at) {
         anyOpenSet.add(r.machinery_id);
-        if (openShiftOf(r) === shift) openSet.add(r.machinery_id);
+        if (openShiftOf(r) === shiftArg) openSet.add(r.machinery_id);
       }
     });
     // Rescate: jornada de NOCHE de AYER aún abierta (cruza medianoche) — solo turno NOCHE.
-    if (isToday && shift === 'night') {
+    if (isToday && shiftArg === 'night') {
       const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
       const yesterdayIso = y.toISOString().slice(0, 10);
       rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { workedSet.add(r.machinery_id); openSet.add(r.machinery_id); anyOpenSet.add(r.machinery_id); } });
@@ -743,7 +634,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs || paradaShiftOf(m.created_at) !== shift) return;
+      if (t > dayEndMs || paradaShiftOf(m.created_at) !== shiftArg) return;
       const arr = t < dayStartMs;
       if (arr ? !workedSet.has(m.machinery_id) : true) averAll.add(m.machinery_id);
     });
@@ -752,12 +643,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     maint.forEach((m) => {
       if (m.material !== 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shift) return;
+      if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shiftArg) return;
       const arr = t < dayStartMs;
       const applies = arr ? !workedSet.has(m.machinery_id) : true;
       if (applies) paradaAll.add(m.machinery_id);
     });
-    const assignedShift = new Set(assignments.filter((a) => a.shift === shift).map((a) => a.machinery_id));
+    const assignedShift = new Set(assignments.filter((a) => a.shift === shiftArg).map((a) => a.machinery_id));
     // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/averiada
     // solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet). Sin jornada abierta,
     // aunque tenga horas viejas, el teléfono la OCULTA → el admin no debe contarla (bug:
@@ -804,7 +695,75 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       pendSet.add(id);
     });
     return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
-  }, [rounds, selDay, shift, maint, assignments, machInactiveSet]);
+  }, [rounds, selDay, maint, assignments, machInactiveSet]);
+  // Ambos turnos calculados de una vez (misma fuente que `daySets`, sin drift) —
+  // lo usa el panel "Gestionar" para clasificar filas de día Y de noche a la vez.
+  const daySetsByShift = useMemo(
+    () => ({ day: buildDaySets('day'), night: buildDaySets('night') }),
+    [buildDaySets],
+  );
+  const daySets = useMemo(() => daySetsByShift[shift], [daySetsByShift, shift]);
+
+  // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
+  // su turno y su ESTADO real. Si aparece asignada en ambos turnos, sale una fila
+  // en cada uno (cada una con su propia casilla — no se mezclan al marcar).
+  //
+  // El estado de cada fila sale de `daySetsByShift[a.shift]` — LA MISMA fuente que
+  // las tarjetas ✅ Activas ahora / 🏁 Cerradas / ⏳ Pendientes / 🟡 Paradas / 🔴
+  // Averiadas de arriba y el desglose por inspector. Antes este panel tenía su
+  // propio cálculo paralelo (bulkAverSet/isParada/startedTodayByShift) que se
+  // desincronizaba del real: no veía averías arrastradas de días anteriores, y
+  // nunca detectaba "cerrada" porque su propio "iniciada" ya contaba también las
+  // cerradas-con-horas (roundStarted cuenta horas>0 como "iniciada"). Reusar
+  // daySetsByShift elimina esa clase de bug de raíz — un solo cálculo, dos vistas.
+  const bulkGroupsAll = useMemo(() => {
+    type BulkEstado = 'activa' | 'cerrada' | 'pendiente' | 'parada' | 'averia';
+    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night'; stopped: boolean; estado: BulkEstado }[] }>();
+    assignments.forEach((a) => {
+      const ds = daySetsByShift[a.shift];
+      // MISMO criterio de visibilidad que `buildDaySets` (visibleOk): una máquina
+      // INACTIVA/averiada de catálogo solo entra si tiene una jornada abierta ahora
+      // (anyOpenSet) — si no, el teléfono y el dashboard la ocultan, así que
+      // Gestionar tampoco debe mostrarla como si estuviera "Pendiente" (estaría
+      // mintiendo: puede seguir averiada/parada/cerrada, solo que oculta a propósito).
+      if (machInactiveSet.has(a.machinery_id) && !ds.anyOpenSet.has(a.machinery_id)) return;
+      const nm = a.inspector_name || '—';
+      const e = byName.get(nm) ?? { name: nm, items: [] };
+      const estado: BulkEstado =
+        ds.averSet.has(a.machinery_id) ? 'averia'
+        : ds.paradaSet.has(a.machinery_id) ? 'parada'
+        : ds.activeNowSet.has(a.machinery_id) ? 'activa'
+        : ds.closedSet.has(a.machinery_id) ? 'cerrada'
+        : 'pendiente';
+      const started = estado === 'activa';
+      const stopped = estado === 'averia' || estado === 'parada';
+      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift, stopped, estado });
+      byName.set(nm, e);
+    });
+    return [...byName.values()]
+      .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
+      .sort((a, b) => cmpText(a.name, b.name));
+  }, [assignments, daySetsByShift, machInactiveSet]);
+  // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
+  const bulkGroups = useMemo(() => {
+    const q = norm(bulkQuery.trim());
+    return bulkGroupsAll
+      .map((g) => {
+        const nameMatches = !q || norm(g.name).includes(q);
+        return {
+          ...g,
+          items: g.items.filter(
+            (i) =>
+              (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
+              (bulkStatusFilter === 'all' || i.estado === bulkStatusFilter) &&
+              (!bulkHideStopped || !i.stopped) &&
+              (nameMatches || norm(i.code).includes(q))
+          ),
+        };
+      })
+      .filter((g) => g.items.length > 0);
+  }, [bulkGroupsAll, bulkShiftFilter, bulkStatusFilter, bulkHideStopped, bulkQuery]);
+  const bulkAllKeys = useMemo(() => bulkGroups.flatMap((g) => g.items.map((i) => i.key)), [bulkGroups]);
 
   // KPIs del día (totales). "iniciadas" = ACTIVAS AHORA (jornada realmente abierta
   // en este momento), NO todas las que trabajaron hoy — eso ya lo cubre "cerradas".
