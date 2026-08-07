@@ -73,7 +73,7 @@ type MInfo = {
   sector: string | null; zona: string | null; tipo: string | null; clasificacion: string | null;
   machinery_type: string | null; lastHoro: number | null;
 };
-type Estado = 'iniciada' | 'pendiente' | 'parada' | 'averiada';
+type Estado = 'iniciada' | 'cerrada' | 'pendiente' | 'parada' | 'averiada';
 
 // ¿La ronda cuenta como jornada INICIADA? (arrancada o con horas). Aplica igual
 // para hoy y días pasados: jornada abierta ahora mismo, O ya finalizada con horas
@@ -752,13 +752,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return total;
   }, [roundDetail, selDay]);
 
-  // Estado (iniciada/averiada/parada/pendiente) de una máquina en selDay+turno.
+  // Estado (iniciada/cerrada/averiada/parada/pendiente) de una máquina en selDay+turno.
   // Misma prioridad que el teléfono (segmentoDe) y el desglose por inspector:
-  // avería > parada > iniciada > pendiente (una máquina averiada/parada no cuenta
-  // como iniciada aunque haya arrancado jornada).
+  // avería > parada > iniciada/cerrada > pendiente (una máquina averiada/parada no
+  // cuenta como iniciada aunque haya arrancado jornada). "Iniciada" = jornada
+  // TODAVÍA abierta ahora mismo; "cerrada" = ya trabajó y finalizó — antes ambas
+  // se mostraban como "Iniciada" en los detalles por máquina, lo que contradecía
+  // la tarjeta "Activas ahora" de arriba (que sí distingue) apenas cerraban.
   const estadoOf = useCallback((id: string): Estado => {
-    const { startedSet, averSet, paradaSet } = daySets;
-    return averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : startedSet.has(id) ? 'iniciada' : 'pendiente';
+    const { activeNowSet, closedSet, averSet, paradaSet } = daySets;
+    return averSet.has(id) ? 'averiada' : paradaSet.has(id) ? 'parada' : activeNowSet.has(id) ? 'iniciada' : closedSet.has(id) ? 'cerrada' : 'pendiente';
   }, [daySets]);
 
   // Inspector asignado a cada máquina en el turno elegido. El cajón "…FALTANTES"
@@ -900,10 +903,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     if (!horasModal) return [];
     const s = perInspector.find((i) => i.name === horasModal.inspector);
     if (!s) return [];
+    // s.ini trae TODAS las que trabajaron (abiertas + ya cerradas, ver perInspector);
+    // s.cer es el subconjunto que ya cerró. Acá sí se separan para que el detalle por
+    // máquina diga "Cerrada" y no "Iniciada" en cuanto termina — igual que la tarjeta
+    // "Activas ahora" de arriba.
+    const cerSet = new Set(s.cer);
     const withEstado: { id: string; estado: Estado }[] = [
       ...s.ave.map((id) => ({ id, estado: 'averiada' as Estado })),
       ...s.par.map((id) => ({ id, estado: 'parada' as Estado })),
-      ...s.ini.map((id) => ({ id, estado: 'iniciada' as Estado })),
+      ...s.cer.map((id) => ({ id, estado: 'cerrada' as Estado })),
+      ...s.ini.filter((id) => !cerSet.has(id)).map((id) => ({ id, estado: 'iniciada' as Estado })),
       ...s.pend.map((id) => ({ id, estado: 'pendiente' as Estado })),
     ];
     return withEstado.map(({ id, estado }) => {
@@ -982,6 +991,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const estadoMeta = (e: Estado): { label: string; fg: string; bg: string } => {
     switch (e) {
       case 'iniciada': return { label: '✅ Iniciada', fg: colors.brandText, bg: colors.surfaceAlt };
+      case 'cerrada': return { label: '🏁 Cerrada', fg: colors.text, bg: colors.surfaceAlt };
       case 'averiada': return { label: '🔴 Averiada', fg: colors.dangerSoftText, bg: colors.dangerSoftBg };
       case 'parada': return { label: '🟡 Parada', fg: colors.accentSoftText, bg: colors.accentSoftBg };
       default: return { label: '⏳ Pendiente', fg: colors.muted, bg: colors.surfaceAlt };
@@ -1493,7 +1503,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             </View>
             {/* Chips de estado — mismo patrón visual que los filtros de turno/estado del panel "Gestionar Iniciada/Pendiente". */}
             <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm, flexWrap: 'wrap' }}>
-              {([['all', 'Todas'], ['iniciada', '✅ Iniciadas'], ['parada', '🟡 Paradas'], ['averiada', '🔴 Averiadas'], ['pendiente', '⏳ Pendientes']] as const).map(([v, lbl]) => {
+              {([['all', 'Todas'], ['iniciada', '✅ Iniciadas'], ['cerrada', '🏁 Cerradas'], ['parada', '🟡 Paradas'], ['averiada', '🔴 Averiadas'], ['pendiente', '⏳ Pendientes']] as const).map(([v, lbl]) => {
                 const on = horasEstadoFilter === v;
                 return (
                   <TouchableOpacity key={v} onPress={() => setHorasEstadoFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
