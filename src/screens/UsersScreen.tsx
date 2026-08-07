@@ -21,7 +21,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 
-const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio'];
+const ROLES: UserRole[] = ['admin', 'supervisor', 'analista', 'operador', 'conductor', 'cocina', 'coordinador_patio', 'coordinador_inspectores'];
 
 // Devuelve un token de sesión VÁLIDO. Si `force` es true (o el token está por
 // vencer/ya venció) fuerza un refresh. Evita el 401 "No autenticado" cuando la
