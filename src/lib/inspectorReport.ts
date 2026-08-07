@@ -292,6 +292,18 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       const pEnd = Math.min(evParada.end ?? shiftEndMs, shiftEndMs);
       horasParada = Math.max(0, r2((pEnd - pStart) / 3600000));
     }
+    // Horas EN VIVO para una jornada que sigue "en curso" (estado === 'encurso'):
+    // day_hours/night_hours en la BD quedan en 0 hasta que la jornada CIERRA (al
+    // finalizar o por el auto-cierre de las 7am/7pm) — antes de eso, este reporte
+    // mostraba 0 en Trabajando/Jornada para cualquier máquina todavía activa, aunque
+    // llevara horas trabajando (bug: "no trae ningún dato" para el inspector con
+    // máquinas en curso). Se suma el tiempo transcurrido desde `jornada_start_at`
+    // hasta ahora, igual que ya hace el panel en vivo de Inspecciones (`liveHorasOf`).
+    const liveElapsedH = openForShift && rd?.jornada_start_at
+      ? Math.max(0, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000)
+      : 0;
+    const dayHDisp = turno === 'day' && openForShift ? r2(dayH + liveElapsedH) : dayH;
+    const nightHDisp = turno === 'night' && openForShift ? r2(nightH + liveElapsedH) : nightH;
     iMap.set(id, {
       id,
       code: base.code,
@@ -303,8 +315,8 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       edificio: edificioLabel(base.referencia),
       lat: base.lat,
       lng: base.lng,
-      dayH,
-      nightH,
+      dayH: dayHDisp,
+      nightH: nightHDisp,
       estado,
       motivo,
       horasParada,
