@@ -24,13 +24,18 @@ type MachInfo = {
  * último surtido × rendimiento L/h de la máquina).
  */
 export function SurtidoGasoilModal({
-  machineId, onClose, onSaved, authorName, authorId,
+  machineId, onClose, onSaved, authorName, authorId, skipDailyCap,
 }: {
   machineId: string | null;
   onClose: () => void;
   onSaved?: () => void;
   authorName?: string | null;
   authorId?: string | null;
+  /** true = sin tope de 2× el consumo diario (chofer de combustible: surtido
+   *  autoritativo, igual que FuelDriverScreen.tsx). Por defecto false — el resto
+   *  de roles que usan este modal (inspector, coordinador de patio, mantenimiento)
+   *  siguen con el tope, que ahí sí tiene sentido por ser un estimado. */
+  skipDailyCap?: boolean;
 }) {
   const { colors } = useTheme();
   const [info, setInfo] = useState<MachInfo | null>(null);
@@ -91,6 +96,7 @@ export function SurtidoGasoilModal({
       fuelEnd: horoNum,
       dailyConsumptionL: info.daily_consumption_l,
       createdBy: authorId ?? null,
+      skipDailyCap,
     });
     setBusy(false);
     if (error) { setNotice('❌ ' + error); return; }
