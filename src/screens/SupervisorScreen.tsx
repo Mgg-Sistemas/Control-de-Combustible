@@ -571,12 +571,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm((m as any).referencia || '').includes(q);
   // mineList/searchList (con el filtro de segmento) y `grupos` se definen más abajo,
   // después de paradaIds/paradaHoyIds (los usa segmentoDe).
-  // Listado del CHECK: todas las máquinas (buscable) para asignármelas/quitármelas.
-  // NO aplica visibleParaInspector: el CHECK debe poder ver/reasignar también las
-  // inactivas (es la herramienta de administración, no la ronda operativa).
+  // Listado del CHECK: solo máquinas OPERATIVAS (buscable) para asignármelas/quitármelas.
+  // Pedido del cliente (07-ago-2026): antes mostraba también las inactivas (No
+  // operativa en Catálogo) — no tiene sentido asignar/quitar inspector en algo
+  // que no está trabajando.
   const checkList = useMemo(() => {
     const q = norm(checkQuery.trim());
-    return machines.filter((m) => matchQuery(m, q));
+    return machines.filter((m) => m.operational !== false && matchQuery(m, q));
   }, [machines, checkQuery]);
   // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
   // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
