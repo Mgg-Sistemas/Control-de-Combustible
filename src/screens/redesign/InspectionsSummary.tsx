@@ -851,6 +851,44 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     });
   }, [listRows, listQ]);
 
+  // Inspector de DÍA y de NOCHE por máquina (de las asignaciones), para el buscador global.
+  const inspByShift = useMemo(() => {
+    const m = new Map<string, { day?: string; night?: string }>();
+    assignments.forEach((a) => {
+      const e = m.get(a.machinery_id) ?? {};
+      if (a.shift === 'day') e.day = a.inspector_name || undefined;
+      else if (a.shift === 'night') e.night = a.inspector_name || undefined;
+      m.set(a.machinery_id, e);
+    });
+    return m;
+  }, [assignments]);
+
+  // BUSCADOR GLOBAL de máquinas: busca en TODAS las máquinas del catálogo por CUALQUIER
+  // característica (código, placa, serial, identificador, empresa, encargado, ubicación,
+  // edificio, sector, zona, tipo, clasificación) + el nombre del inspector (día/noche).
+  // Devuelve la ficha con ESTADO, ambos INSPECTORES, HORAS y hora de inicio/fin.
+  const machineSearchShown = useMemo(() => {
+    const nq = norm(inspQ.trim());
+    if (!nq) return [] as any[];
+    const rows = Array.from(machineInfo.keys()).map((id) => {
+      const info = machineInfo.get(id) ?? null;
+      const rd = roundDetail.get(id) ?? null;
+      const worked = rd ? rd.dayH + rd.nightH : 0;
+      const seg = segDay[id] ?? null;
+      const openNow = selDay === caracasToday() && !!rd?.openStartAt;
+      const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
+        : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
+      const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
+      const dn = inspByShift.get(id) ?? {};
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow };
+    });
+    return rows.filter((r) => {
+      const i = r.info;
+      return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
+        .some((v) => norm(v).includes(nq));
+    }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift]);
+
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
     const { startedSet, paradaSet, averSet, closedSet, anyOpenSet } = daySets;
@@ -1239,9 +1277,58 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
-            <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
+            <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar: inspector, máquina, placa, serial, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
             {inspQ ? <TouchableOpacity onPress={() => setInspQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
+
+          {/* BUSCADOR GLOBAL: al escribir, muestra las máquinas que coinciden (por CUALQUIER
+              característica) con su ESTADO, ambos INSPECTORES (día/noche) y las HORAS. */}
+          {inspQ.trim() ? (
+            <View style={{ marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5, padding: spacing.sm, backgroundColor: colors.background }}>
+                🔎 {machineSearchShown.length} máquina(s) encontrada(s)
+              </Text>
+              {machineSearchShown.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12.5, padding: spacing.sm, textAlign: 'center' }}>Sin coincidencias.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {machineSearchShown.map((r, i) => {
+                    const em = estadoMeta(r.estado);
+                    const motivo = r.estado === 'averiada' ? (motivoByMachine.aver.get(r.id)?.m || '') : r.estado === 'parada' ? (motivoByMachine.par.get(r.id)?.m || '') : '';
+                    const info = r.info;
+                    const ubic = info?.referencia || info?.location || info?.sector || null;
+                    return (
+                      <View key={r.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, padding: spacing.sm, gap: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>{r.code}</Text>
+                          <View style={{ backgroundColor: em.bg, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ color: em.fg, fontSize: 10, fontWeight: '900' }}>{em.label}</Text>
+                          </View>
+                        </View>
+                        {motivo ? (
+                          <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
+                            {r.estado === 'averiada' ? '🔧 ' : '🟡 '}{motivo}
+                          </Text>
+                        ) : null}
+                        <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                          {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
+                        </Text>
+                        <Text style={{ fontSize: 11 }} numberOfLines={1}>
+                          <Text style={{ color: colors.muted }}>☀️ </Text><Text style={{ color: r.dayInsp ? colors.text : colors.muted, fontWeight: r.dayInsp ? '700' : '400' }}>{r.dayInsp || 'sin inspector'}</Text>
+                          <Text style={{ color: colors.muted }}>    🌙 </Text><Text style={{ color: r.nightInsp ? colors.text : colors.muted, fontWeight: r.nightInsp ? '700' : '400' }}>{r.nightInsp || 'sin inspector'}</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                          <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                          <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
+                          <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+          ) : null}
 
           {/* Reporte (PDF) de eficiencia de TODOS los inspectores del turno/día. */}
           <TouchableOpacity onPress={makeEficienciaReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginBottom: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
@@ -1249,7 +1336,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </TouchableOpacity>
 
           {inspShown.length === 0 ? (
-            <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
+            inspQ.trim() ? null : <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {

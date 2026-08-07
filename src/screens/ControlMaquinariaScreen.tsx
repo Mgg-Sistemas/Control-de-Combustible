@@ -139,12 +139,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const confirm = useConfirm();
   const toast = useToast();
   const { session, role } = useAuth();
-  // Las ANALISTAS pueden PONER y QUITAR horas libremente (día/noche/parada/extra),
-  // incluso las ya cargadas; lo único que NO pueden tocar es el PRECIO de la jornada.
+  // Regla del cliente (07-ago-2026): la ANALISTA SOLO puede CARGAR horas a máquinas que
+  // NO tienen horas ese día; NO puede borrar/reducir ni agregar más a las que ya tienen.
+  // Tampoco puede tocar el PRECIO de la jornada.
   const esAnalista = role === 'analista';
   const puedeEditarPrecio = !esAnalista;
-  // Las horas ya NO se bloquean para el analista (queda por trazabilidad `ajuste_manual`).
-  const bloqueadoAnalista = (_valorActual: number) => false;
+  // Bloqueo POR CAMPO: la analista no puede modificar/borrar un campo que ya tiene valor.
+  const bloqueadoAnalista = (valorActual: number) => esAnalista && Number(valorActual) > 0;
+  // Bloqueo POR MÁQUINA+DÍA: si la máquina YA tiene horas de trabajo (día o noche), la
+  // analista no puede tocar nada de esa máquina ese día (ni agregar el otro turno, ni
+  // parada/extra, ni borrar). Solo un administrador puede corregir.
+  const analistaMaqConHoras = (ex?: { day_hours?: any; night_hours?: any } | null) =>
+    esAnalista && ((Number(ex?.day_hours ?? 0) > 0) || (Number(ex?.night_hours ?? 0) > 0));
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
@@ -526,9 +532,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const setShift = async (m: Machinery, dISO: string, which: 'day' | 'night', hoursVal: number) => {
     const ik = `${m.id}|${dISO}`;
     const ex = rounds[rkey(m.id, dISO)];
-    // Analista: solo puede INGRESAR el turno si aún no tiene horas; no modificarlas.
+    // Analista: SOLO puede cargar horas a máquinas SIN horas ese día. Si la máquina ya
+    // tiene día u noche, no puede agregar el otro turno, ni modificar, ni borrar.
     const curTurno = which === 'day' ? Number(ex?.day_hours ?? 0) : Number(ex?.night_hours ?? 0);
-    if (bloqueadoAnalista(curTurno)) { toast.error('Como analista puedes cargar horas nuevas, pero no modificar las que ya están cargadas. Pide a un administrador que corrija.'); return; }
+    if (analistaMaqConHoras(ex)) { toast.error('Esta máquina ya tiene horas ese día. Como analista solo puedes cargar horas a máquinas SIN horas; para modificar o borrar, pide a un administrador.'); return; }
     const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
     // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
     // (si tocó el turno sin salir del campo), para no perder esas horas.
@@ -553,12 +560,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   const setHours = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { toast.error('Como analista puedes cargar horas de parada nuevas, pero no modificar las ya cargadas.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (analistaMaqConHoras(ex) || bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { toast.error('Como analista no puedes modificar/borrar horas ya cargadas (parada). Pide a un administrador.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { hours_stopped: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
   const setOvertime = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista puedes cargar horas extra nuevas, pero no modificar las ya cargadas.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (analistaMaqConHoras(ex) || bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista no puedes modificar/borrar horas ya cargadas (extra). Pide a un administrador.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { overtime_hours: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
 
@@ -1897,7 +1904,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
-                        const lockTurno = bloqueadoAnalista(cur); // analista: ya cargado → no se modifica
+                        const lockTurno = analistaMaqConHoras(b); // analista: máquina con horas → bloqueada (no agregar/modificar/borrar)
                         const opName = which === 'day' ? b?.day_operator : b?.night_operator;
                         const opCi = which === 'day' ? b?.day_operator_ci : b?.night_operator_ci;
                         return (
@@ -1932,27 +1939,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       })}
                       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {bloqueadoAnalista(stopped) ? '🔒' : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {(analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
-                            editable={!bloqueadoAnalista(stopped)}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(stopped))}
                             onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(stopped) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? 0.5 : 1 }}
                           />
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {bloqueadoAnalista(ot) ? '🔒' : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {(analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
-                            editable={!bloqueadoAnalista(ot)}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(ot))}
                             onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>
