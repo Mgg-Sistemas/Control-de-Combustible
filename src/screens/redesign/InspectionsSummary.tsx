@@ -195,7 +195,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const makeEficienciaReport = async () => {
     setPdfBusy(EFICIENCIA_KEY);
     try {
-      await generateSummaryReport({ date: selDay });
+      // Antes no se pasaba el turno: el reporte mezclaba DÍA y NOCHE aunque el
+      // switch ☀️/🌙 de arriba estuviera en uno solo — ahora respeta el turno
+      // elegido, igual que el resto del panel.
+      await generateSummaryReport({ date: selDay, shift });
     } finally {
       setPdfBusy(null);
     }
