@@ -352,7 +352,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // sin perder de vista cuál es cuál — cada fila muestra su turno — y sin
   // arriesgarse a marcar por error una máquina del turno que no se está mirando.
   const [bulkShiftFilter, setBulkShiftFilter] = useState<'all' | 'day' | 'night'>('all');
-  const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'started' | 'pending'>('all');
+  const [bulkStatusFilter, setBulkStatusFilter] = useState<'all' | 'activa' | 'cerrada' | 'pendiente' | 'parada' | 'averia'>('all');
   // Excluir paradas/averiadas: sin esto, una máquina "parada" o "averiada" cuenta
   // como "Pendiente" (no está iniciada) y se mezcla con las que de verdad faltan
   // por asignar/iniciar. Pedido del cliente para poder filtrarlas aparte.
@@ -404,6 +404,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) night.add(r.machinery_id); });
     return { day, night };
   }, [rounds, selDay]);
+  // ¿YA se cerró (finalizó) HOY ese turno puntual? = tiene horas de ESE turno
+  // registradas y NO está abierta ahora mismo — para distinguir "🏁 Cerrada" de
+  // "⏳ Pendiente" en el panel (antes una máquina ya finalizada, sin nada por
+  // hacer, se veía igual que una que nunca arrancó).
+  const closedTodayByShift = useMemo(() => {
+    const day = new Set<string>(); const night = new Set<string>();
+    rounds.forEach((r) => {
+      if (r.round_date !== selDay) return;
+      if (!startedTodayByShift.day.has(r.machinery_id) && (Number(r.day_hours) || 0) > 0) day.add(r.machinery_id);
+      if (!startedTodayByShift.night.has(r.machinery_id) && (Number(r.night_hours) || 0) > 0) night.add(r.machinery_id);
+    });
+    return { day, night };
+  }, [rounds, selDay, startedTodayByShift]);
   // TODAS las asignaciones (día + noche), agrupadas por inspector/supervisor, con
   // su turno y si esa máquina está iniciada HOY en ese turno puntual. Si aparece
   // asignada en ambos turnos, sale una fila en cada uno (cada una con su propia
@@ -423,19 +436,28 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         return arrastrada ? !started : paradaShiftOf(m.created_at) === sh;
       });
     };
-    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night'; stopped: boolean }[] }>();
+    type BulkEstado = 'activa' | 'cerrada' | 'pendiente' | 'parada' | 'averia';
+    const byName = new Map<string, { name: string; items: { id: string; key: string; code: string; started: boolean; shift: 'day' | 'night'; stopped: boolean; estado: BulkEstado }[] }>();
     assignments.forEach((a) => {
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
       const started = (a.shift === 'day' ? startedTodayByShift.day : startedTodayByShift.night).has(a.machinery_id);
-      const stopped = !started && (bulkAverSet.has(a.machinery_id) || isParada(a.machinery_id, a.shift, started));
-      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift, stopped });
+      // Prioridad (misma que antes tenía "started > stopped > pendiente", ahora
+      // con Parada/Avería/Cerrada separadas en vez de un solo "stopped" genérico):
+      // activa > avería > parada > cerrada (ya finalizada, con horas) > pendiente.
+      const isAveria = !started && bulkAverSet.has(a.machinery_id);
+      const isParadaFlag = !started && !isAveria && isParada(a.machinery_id, a.shift, started);
+      const closedSet = a.shift === 'day' ? closedTodayByShift.day : closedTodayByShift.night;
+      const isClosed = !started && !isAveria && !isParadaFlag && closedSet.has(a.machinery_id);
+      const estado: BulkEstado = started ? 'activa' : isAveria ? 'averia' : isParadaFlag ? 'parada' : isClosed ? 'cerrada' : 'pendiente';
+      const stopped = isAveria || isParadaFlag;
+      e.items.push({ id: a.machinery_id, key: `${a.machinery_id}::${a.shift}`, code: a.code || '—', started, shift: a.shift, stopped, estado });
       byName.set(nm, e);
     });
     return [...byName.values()]
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, startedTodayByShift, maint, bulkAverSet, selDay]);
+  }, [assignments, startedTodayByShift, closedTodayByShift, maint, bulkAverSet, selDay]);
   // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
     const q = norm(bulkQuery.trim());
@@ -447,7 +469,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           items: g.items.filter(
             (i) =>
               (bulkShiftFilter === 'all' || i.shift === bulkShiftFilter) &&
-              (bulkStatusFilter === 'all' || (bulkStatusFilter === 'started' ? i.started : !i.started)) &&
+              (bulkStatusFilter === 'all' || i.estado === bulkStatusFilter) &&
               (!bulkHideStopped || !i.stopped) &&
               (nameMatches || norm(i.code).includes(q))
           ),
@@ -1330,9 +1352,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                       );
                     })}
                   </View>
-                  {/* Filtro de ESTADO (iniciada / pendiente por iniciar). */}
-                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: spacing.sm }}>
-                    {([['all', 'Todas'], ['started', '✅ Iniciadas'], ['pending', '⏳ Pendientes']] as const).map(([v, lbl]) => {
+                  {/* Filtro de ESTADO — los 5 estados reales de la máquina hoy en ese turno. */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: spacing.sm }}>
+                    {([['all', 'Todas'], ['activa', '✅ Activas'], ['cerrada', '🏁 Cerradas'], ['pendiente', '⏳ Pendientes'], ['parada', '🟡 Paradas'], ['averia', '🔴 Averiadas']] as const).map(([v, lbl]) => {
                       const on = bulkStatusFilter === v;
                       return (
                         <TouchableOpacity key={v} onPress={() => setBulkStatusFilter(v)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent' }}>
@@ -1388,7 +1410,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                   </View>
                                   <Text style={{ fontSize: 12 }}>{it.shift === 'day' ? '☀️' : '🌙'}</Text>
                                   <Text style={{ color: colors.text, fontSize: 12.5, flex: 1 }}>{it.code}</Text>
-                                  <Text style={{ color: it.started ? colors.brandText : it.stopped ? colors.dangerSoftText : colors.muted, fontWeight: '700', fontSize: 11 }}>{it.started ? '✅ Iniciada' : it.stopped ? '🚫 Parada/Averiada' : '⏳ Pendiente'}</Text>
+                                  <Text style={{ color: it.estado === 'activa' ? colors.success : it.estado === 'cerrada' ? colors.brandText : it.estado === 'averia' ? colors.danger : it.estado === 'parada' ? colors.warning : colors.muted, fontWeight: '700', fontSize: 11 }}>
+                                    {it.estado === 'activa' ? '✅ Activa' : it.estado === 'cerrada' ? '🏁 Cerrada' : it.estado === 'averia' ? '🔴 Avería' : it.estado === 'parada' ? '🟡 Parada' : '⏳ Pendiente'}
+                                  </Text>
                                 </TouchableOpacity>
                               );
                             })}
