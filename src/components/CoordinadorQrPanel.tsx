@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle } from './ui';
 import { ConfigBanner } from './ConfigBanner';
 import { BiometricToggle } from './BiometricToggle';
@@ -171,7 +171,7 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
 
       {/* Registrar AVERÍA */}
       <Modal visible={action === 'averia' && !!machine} transparent animationType="fade" onRequestClose={() => { setMachine(null); setAction(null); }}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <Card>
             <ScrollView>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🛠️ Avería · {machine?.code}</Text>
@@ -204,7 +204,7 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
               </TouchableOpacity>
             </ScrollView>
           </Card>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );

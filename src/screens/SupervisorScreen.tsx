@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BiometricToggle } from '../components/BiometricToggle';
@@ -2641,7 +2641,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
       {/* Modal de check-in: GPS + estado + nota. */}
       <Modal visible={!!ci} transparent animationType="fade" onRequestClose={() => setCi(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg }}>
           <View style={{ backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
             <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>✅ Revisé la máquina</Text>
@@ -2983,7 +2983,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Escáner del carnet del operador (QR ?empleado=<id>) → coteja e inicia jornada. */}
