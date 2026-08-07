@@ -94,6 +94,17 @@ export default function ReportesSection(props: { navigation?: any }) {
       ],
     },
     {
+      key: 'guardias', icon: '🗓️', title: 'Distribución de guardias',
+      cards: [
+        {
+          key: 'dist-guardias', icon: '🗓️', title: 'Distribución de guardias',
+          desc: 'Arma la rotación de inspectores por rango de fechas (manual o 14x7) y genera el PDF del ciclo.',
+          fields: ['Ciclo', 'Inspector', 'Grupos', '14x7'],
+          onPress: () => go('DistribucionGuardias'),
+        },
+      ],
+    },
+    {
       key: 'camiones', icon: '🚚', title: 'Camiones (asistencia)',
       cards: [
         {
