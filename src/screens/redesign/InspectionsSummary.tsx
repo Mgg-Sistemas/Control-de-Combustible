@@ -562,22 +562,29 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // infiere por la HORA DE INICIO (Caracas: 7am–7pm día, resto noche) — así una
     // jornada de noche recién abierta no cae por defecto en "día" (bug: "aparece una
     // de día") ni se cuenta como "cerrada". Cerrada: por las horas registradas.
-    const shiftOfRound = (r: Round): 'day' | 'night' => {
-      if (r.jornada_shift === 'night') return 'night';
-      if (r.jornada_shift === 'day') return 'day';
-      if (r.jornada_start_at) return paradaShiftOf(r.jornada_start_at);
-      return ((Number(r.night_hours) || 0) > 0 && (Number(r.day_hours) || 0) === 0) ? 'night' : 'day';
+    // Turno de una jornada ABIERTA (jornada_shift nulo → se infiere por la hora inicio).
+    const openShiftOf = (r: Round): 'day' | 'night' =>
+      r.jornada_shift === 'night' ? 'night'
+        : r.jornada_shift === 'day' ? 'day'
+        : paradaShiftOf(r.jornada_start_at as string);
+    // ¿La ronda tuvo actividad en ESTE turno? Una máquina "corrido" (12h día + N noche)
+    // cuenta en AMBOS turnos: en DÍA por sus day_hours, en NOCHE por sus night_hours.
+    // Por eso NO se clasifica la ronda en un único turno (bug: al ponerle 12h de día a
+    // las corrido, desaparecían de NOCHE).
+    const workedInShift = (r: Round, sh: 'day' | 'night'): boolean => {
+      if (sh === 'day' && (Number(r.day_hours) || 0) > 0) return true;
+      if (sh === 'night' && (Number(r.night_hours) || 0) > 0) return true;
+      return !!r.jornada_start_at && openShiftOf(r) === sh; // jornada abierta de ese turno
     };
     const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
     const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
     const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      const sh = shiftOfRound(r);
-      if (roundStarted(r) && sh === shift) workedSet.add(r.machinery_id);
+      if (workedInShift(r, shift)) workedSet.add(r.machinery_id);
       if (r.jornada_start_at) {
         anyOpenSet.add(r.machinery_id);
-        if (sh === shift) openSet.add(r.machinery_id);
+        if (openShiftOf(r) === shift) openSet.add(r.machinery_id);
       }
     });
     // Rescate: jornada de NOCHE de AYER aún abierta (cruza medianoche) — solo turno NOCHE.
