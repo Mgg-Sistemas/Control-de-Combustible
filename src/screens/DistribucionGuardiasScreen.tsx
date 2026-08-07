@@ -3,10 +3,11 @@
 // grupos (nunca descansan a la vez dos coordinadores ni dos nocturnos). Muestra el
 // calendario inspector×día (T/D) y genera el PDF (ver src/lib/guardiasReport.ts).
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView, TextInput, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { useConfirm } from '../components/ConfirmProvider';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { cmpText } from '../lib/text';
@@ -41,6 +42,7 @@ type Prof = { id: string; full_name: string; cedula: string | null };
 
 export default function DistribucionGuardiasScreen() {
   const { colors } = useTheme();
+  const confirm = useConfirm();
   const { session } = useAuth();
   const uid = session?.user?.id ?? null;
 
@@ -113,15 +115,12 @@ export default function DistribucionGuardiasScreen() {
     setMetas((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...patch } : x))); // optimista
     await supabase.from('guard_inspector_meta').update({ ...patch, updated_by: uid, updated_at: new Date().toISOString() }).eq('id', m.id);
   };
-  const quitarInspector = (m: Meta) => {
-    Alert.alert('Quitar inspector', `¿Quitar a ${m.inspector_name} de la distribución? (se borran también sus guardias)`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Quitar', style: 'destructive', onPress: async () => {
-        await supabase.from('guard_shifts').delete().eq('inspector_name', m.inspector_name);
-        await supabase.from('guard_inspector_meta').delete().eq('id', m.id);
-        load();
-      } },
-    ]);
+  const quitarInspector = async (m: Meta) => {
+    const ok = await confirm({ title: 'Quitar inspector', message: `¿Quitar a ${m.inspector_name} de la distribución? (se borran también sus guardias)`, confirmText: 'Quitar', danger: true });
+    if (!ok) return;
+    await supabase.from('guard_shifts').delete().eq('inspector_name', m.inspector_name);
+    await supabase.from('guard_inspector_meta').delete().eq('id', m.id);
+    load();
   };
   const agregarDescanso = async () => {
     if (!descansoFor) return;
@@ -143,11 +142,11 @@ export default function DistribucionGuardiasScreen() {
   // AUTOGENERAR 14x7: 3 grupos, cada grupo descansa una semana (7 días). Reparte los
   // cargos por grupo para que NO coincidan dos coordinadores (ni dos nocturnos) en la
   // misma semana de descanso. Borra las guardias previas y crea las nuevas.
-  const autogenerar = () => {
+  const autogenerar = async () => {
     if (metas.length === 0) { setNotice('❌ Primero agrega inspectores.'); return; }
-    Alert.alert('Autogenerar 14x7', `Se armará una rotación de 3 grupos (ciclo de 21 días desde ${dmy(from)}), repartiendo cargos para que no descansen juntos dos coordinadores ni dos nocturnos. Reemplaza las guardias actuales. ¿Continuar?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Autogenerar', onPress: async () => {
+    const ok = await confirm({ title: 'Autogenerar 14x7', message: `Se armará una rotación de 3 grupos (ciclo de 21 días desde ${dmy(from)}), repartiendo cargos para que no descansen juntos dos coordinadores ni dos nocturnos. Reemplaza las guardias actuales. ¿Continuar?`, confirmText: 'Autogenerar' });
+    if (!ok) return;
+    {
         setBusy(true); setNotice(null);
         const nGroups = 3;
         // Orden: coordinadores, nocturnos, resto → round-robin por categoría reparte
@@ -173,8 +172,7 @@ export default function DistribucionGuardiasScreen() {
         setTo(addDaysISO(cycleStart, 20));
         setBusy(false); load();
         setNotice('✅ Rotación 14x7 generada.');
-      } },
-    ]);
+    }
   };
 
   const generarPDF = async () => {
