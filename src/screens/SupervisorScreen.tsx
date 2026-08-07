@@ -663,6 +663,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (myShift === 'day') return h >= 19;               // día cierra a las 7:00pm
     return h >= 7 && h < 19;                              // noche cierra a las 7:00am (cerrada hasta las 7:00pm)
   }, [myShift, nowTick]);
+  // Turno ACTUAL según la hora del sistema (Caracas): 7am–7pm = ☀️ día · 7pm–7am = 🌙
+  // noche. Es el turno con el que el COORDINADOR inicia la jornada (no lo elige a mano)
+  // y por el que se filtran los inspectores que se muestran en la sub-vista "👥 Inspectores".
+  const nowShift = useMemo<Shift>(() => {
+    const h = caracasParts(new Date()).hour;
+    return h >= 7 && h < 19 ? 'day' : 'night';
+  }, [nowTick]);
   // CIERRE DE JORNADA: el inspector puede FINALIZAR manualmente en cualquier momento.
   // Las máquinas que queden abiertas las cierra el auto-cierre del servidor (pg_cron)
   // a las 7:00pm (día) / 7:00am (noche), hora Caracas. Ya NO hay bloqueo por hora.
@@ -737,6 +744,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (sh === 'night') return r.openNight;
     return r.open;
   };
+  // Variante por TURNO EXPLÍCITO (la usa la vista del coordinador, que agrupa por el
+  // turno ACTUAL del sistema): igual que workedMine pero con el turno dado.
+  const workedEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? (r.dayWorked > 0 || r.openDay) : (r.nightWorked > 0 || r.openNight);
+  };
   // Segmento de estatus de una máquina. REGLA POR-TURNO (confirmada 06-ago-2026): la
   // avería/parada pertenece al turno de la HORA en que se marcó; el OTRO turno la ve como
   // pendiente. Cada inspector ve SUS estados de SU turno, día independiente de noche.
@@ -752,6 +765,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     //    avería/parada ARRASTRADA (la máquina se reactivó).
     if (workedMine(id)) return 'iniciada';
     // 3) Avería/parada arrastrada de MI TURNO: solo si NO trabaja hoy.
+    if (averiaRawList.some((a) => a.id === id && ok(a.shift))) return 'averia';
+    if (paradaRawList.some((p) => p.id === id && ok(p.shift))) return 'parada';
+    return 'pendiente';
+  };
+  // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
+  // turno actual): día independiente de noche, misma prioridad.
+  const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
+    const ok = (s: 'day' | 'night') => s === sh;
+    if (averiaRawList.some((a) => a.id === id && !a.arrastrada && ok(a.shift))) return 'averia';
+    if (paradaRawList.some((p) => p.id === id && !p.arrastrada && ok(p.shift))) return 'parada';
+    if (workedEn(id, sh)) return 'iniciada';
     if (averiaRawList.some((a) => a.id === id && ok(a.shift))) return 'averia';
     if (paradaRawList.some((p) => p.id === id && ok(p.shift))) return 'parada';
     return 'pendiente';
@@ -808,10 +832,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (!g) { g = { id, name, ids: new Set<string>() }; byId.set(id, g); }
       return g;
     };
+    // Solo el turno ACTUAL: de día se muestran los inspectores (y máquinas) del turno
+    // ☀️ día; de noche, los del 🌙 noche. Así el coordinador ve/opera lo que toca ahora.
     machines.forEach((m) => {
       const s = assignMap[m.id] || {};
-      if (s.day?.id && !esVirtual(s.day.id)) ensure(s.day.id, s.day.name).ids.add(m.id);
-      if (s.night?.id && !esVirtual(s.night.id)) ensure(s.night.id, s.night.name).ids.add(m.id);
+      const slot = s[nowShift];
+      if (slot?.id && !esVirtual(slot.id)) ensure(slot.id, slot.name).ids.add(m.id);
     });
     const machById = new Map(machines.map((m) => [m.id, m] as const));
     const rows = Array.from(byId.values()).map((g) => {
@@ -819,7 +845,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       g.ids.forEach((id) => {
         const m = machById.get(id);
         if (!m || !visibleParaInspector(m)) return;
-        const seg = segmentoDe(id);
+        const seg = segmentoConTurno(id, nowShift);
         buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
       });
       (Object.keys(buckets) as (keyof InspBuckets)[]).forEach((k) => buckets[k].sort((a, b) => cmpText(a.code, b.code)));
@@ -827,15 +853,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       return { id: g.id, name: g.name, buckets, total };
     }).filter((r) => r.total > 0).sort((a, b) => cmpText(a.name, b.name));
     return rows;
-  }, [machines, assignMap, roundsById, averiaRawList, paradaRawList]);
+  }, [machines, assignMap, roundsById, averiaRawList, paradaRawList, nowShift]);
 
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
-  // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
+  // global cuando es único. Para el COORDINADOR (que opera por otros) el turno lo DICTA
+  // la hora del sistema (7am–7pm día / 7pm–7am noche): no lo elige a mano. null = puede
+  // elegir (admin, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {
     if (myShift) return myShift;
+    if (esCoordinador) return nowShift;
     if (!puedeCualquierTurno && myGlobalShifts.size === 1) return Array.from(myGlobalShifts)[0];
     return null;
-  }, [myShift, myGlobalShifts, puedeCualquierTurno]);
+  }, [myShift, myGlobalShifts, puedeCualquierTurno, esCoordinador, nowShift]);
   // Fuerza el turno declarado al turno del inspector (no puede elegir el otro).
   useEffect(() => {
     if (fixedShift) { setIniShift(fixedShift); setIniTime(nowHHMM()); }
@@ -1996,6 +2025,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         // Tocar una máquina abre el MISMO check-in (openCheckin) → operar por el inspector.
         <CoordinadorInspectoresView
           rows={inspectoresView}
+          shiftLabel={nowShift === 'day' ? '☀️ Día (7am–7pm)' : '🌙 Noche (7pm–7am)'}
           query={coordQuery}
           onQueryChange={setCoordQuery}
           expanded={coordExpanded}
