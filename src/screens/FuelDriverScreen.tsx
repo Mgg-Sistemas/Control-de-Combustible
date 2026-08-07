@@ -202,6 +202,13 @@ export default function FuelDriverScreen() {
     setServiceNote('');
     setPhotos([]);
     setResult(null);
+    // Limpia también la sección de avería: sin esto, el material/nota/fotos que
+    // quedaron cargados de una máquina ANTERIOR (si se cerró sin enviar) se podían
+    // mandar pegados a esta máquina nueva al tocar "Reportar avería".
+    setAveriaOpen(false);
+    setAveriaMaterial(null);
+    setAveriaNote('');
+    setAveriaPhotos([]);
   };
 
   // Guarda el EDIFICIO de la máquina (campo único machinery.referencia) desde el
@@ -223,6 +230,10 @@ export default function FuelDriverScreen() {
     setServiceNote('');
     setPhotos([]);
     setResult(null);
+    setAveriaOpen(false);
+    setAveriaMaterial(null);
+    setAveriaNote('');
+    setAveriaPhotos([]);
   };
 
   // Escáner: al detectar, resuelve el id y busca la máquina en la lista cargada.
@@ -301,6 +312,10 @@ export default function FuelDriverScreen() {
       const l = toNum(liters);
       if (!isFinite(l) || l <= 0) {
         setResult({ ok: false, msg: '❌ Ingresa los litros de aceite (mayor a 0).' });
+        return;
+      }
+      if (pricePerLiter.trim() !== '' && toNum(pricePerLiter) < 0) {
+        setResult({ ok: false, msg: '❌ El monto por litro no puede ser negativo.' });
         return;
       }
     }
@@ -529,7 +544,16 @@ export default function FuelDriverScreen() {
                       return (
                         <TouchableOpacity
                           key={t.key}
-                          onPress={() => { setSurtidoTipo(t.key); setResult(null); }}
+                          onPress={() => {
+                            // Limpia litros/monto/nota al cambiar de tipo — si no, un valor
+                            // escrito para Combustible podía quedar pegado y enviarse sin
+                            // querer bajo Aceite (o viceversa).
+                            setSurtidoTipo(t.key);
+                            setLiters('');
+                            setPricePerLiter('');
+                            setServiceNote('');
+                            setResult(null);
+                          }}
                           style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}
                         >
                           <Text style={{ fontSize: 22 }}>{t.icon}</Text>

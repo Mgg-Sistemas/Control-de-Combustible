@@ -55,7 +55,7 @@ type PickFor = 'jornada' | 'averia' | 'gasoil';
  */
 export default function AsistenciaCamionesScreen() {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
   const uid = session?.user?.id ?? '';
 
   const [fullName, setFullName] = useState('');
@@ -235,6 +235,9 @@ export default function AsistenciaCamionesScreen() {
     if (!jorTruck || !jorRound?.startAt || jorBusy) return;
     const hf = Number((horoFin || '').replace(',', '.'));
     if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
+    if (jorRound.iniHoro != null && hf < jorRound.iniHoro) {
+      setNotice(`❌ El horómetro final (${hf}) no puede ser menor al inicial (${jorRound.iniHoro}).`); return;
+    }
     setJorBusy(true);
     const horas = Math.max(0, Math.round((Date.now() - new Date(jorRound.startAt).getTime()) / 3600000 * 100) / 100);
     const prev = await getMachineRound(jorTruck.id, date);
@@ -491,7 +494,7 @@ export default function AsistenciaCamionesScreen() {
       </Modal>
 
       {/* Surtir gasoil */}
-      <SurtidoGasoilModal machineId={gasoilId} onClose={() => setGasoilId(null)} authorName={fullName} authorId={uid || null} />
+      <SurtidoGasoilModal machineId={gasoilId} onClose={() => setGasoilId(null)} authorName={fullName} authorId={uid || null} skipDailyCap={role === 'conductor'} />
     </Screen>
   );
 }
