@@ -142,6 +142,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     setRoleReady(false); // nueva sesión: vuelve a esperar role + appRole juntos.
 
+    // Canal de realtime del ROL DINÁMICO actual (se recrea solo si cambia de rol).
+    let roleCh: ReturnType<typeof supabase.channel> | null = null;
+    let roleChId: string | null = null;
+
     // El ROL se carga con un query SIMPLE (nunca toca columnas de app_roles), para que
     // aunque falte una columna (p. ej. panel_type sin migrar) el admin no pierda su rol
     // ni sus módulos. El rol especial (app_role) se trae aparte, con respaldo.
@@ -153,13 +157,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCanAudit((data?.role as UserRole) === 'admin' || !!(data as any)?.can_audit);
       setFullName((data as any)?.full_name ?? null);
       const arId = (data as any)?.app_role_id ?? null;
-      if (!arId) { setAppRole(null); setRoleReady(true); return; }
+      if (!arId) {
+        setAppRole(null);
+        if (roleCh) { supabase.removeChannel(roleCh); roleCh = null; roleChId = null; }
+        setRoleReady(true);
+        return;
+      }
       // Intenta con panel_type; si la columna no existe todavía, cae al query sin ella.
       let ar = await supabase.from('app_roles').select('id, name, modules, panel_type, created_at').eq('id', arId).single();
       if (ar.error) ar = await supabase.from('app_roles').select('id, name, modules, created_at').eq('id', arId).single();
       if (!active) return;
       setAppRole((ar.data as AppRole) ?? null);
       setRoleReady(true);
+
+      // Realtime: si un admin edita el ROL DINÁMICO en sí (p. ej. le agrega acceso a
+      // "Combustible" al rol "Almacenista"), se aplica EN VIVO. Antes solo se escuchaba
+      // la fila de `profiles` del usuario — editar el rol compartido (sin tocar profiles)
+      // no llegaba a nadie hasta cerrar sesión y volver a entrar.
+      if (roleChId !== arId) {
+        if (roleCh) supabase.removeChannel(roleCh);
+        const roleTopic = `approle-${arId}`;
+        supabase
+          .getChannels()
+          .filter((c) => c.topic === roleTopic || c.topic === `realtime:${roleTopic}`)
+          .forEach((c) => supabase.removeChannel(c));
+        roleCh = supabase
+          .channel(roleTopic)
+          .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'app_roles', filter: `id=eq.${arId}` }, () => loadRole())
+          .subscribe();
+        roleChId = arId;
+      }
     };
     loadRole();
 
@@ -241,6 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       active = false;
       if (permCh) supabase.removeChannel(permCh);
       if (profileCh) supabase.removeChannel(profileCh);
+      if (roleCh) supabase.removeChannel(roleCh);
       supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
