@@ -620,6 +620,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     assignedShift.forEach((id) => { if (!machInactiveSet.has(id)) universe.add(id); });
     workedSet.forEach((id) => universe.add(id));
     averAll.forEach((id) => { if (assignedShift.has(id) || workedSet.has(id)) universe.add(id); });
+    // ¿YA terminó el turno seleccionado? (Caracas UTC-4). Una máquina solo cuenta como
+    // CERRADA/finalizada si el turno YA acabó: DÍA cierra a las 7pm del mismo día; NOCHE
+    // cierra a las 7am del día SIGUIENTE. Mientras el turno sigue en curso (p. ej. mirar
+    // la NOCHE a las 9pm), las que trabajaron salen INICIADAS, no cerradas (bug: "de noche
+    // salen cerradas y están trabajando"). Para días pasados el fin ya pasó → todas cierran.
+    const shiftEndMs = shift === 'day'
+      ? new Date(selDay + 'T19:00:00-04:00').getTime()
+      : new Date(selDay + 'T07:00:00-04:00').getTime() + 86400000; // 7am del día siguiente
+    const shiftEnded = Date.now() >= shiftEndMs;
     // Clasificación por prioridad (igual que el teléfono): avería > parada > iniciada > pendiente.
     const startedSet = new Set<string>();
     const paradaSet = new Set<string>();
@@ -629,7 +638,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     universe.forEach((id) => {
       if (averAll.has(id)) { averSet.add(id); return; }
       if (paradaAll.has(id)) { paradaSet.add(id); return; }
-      if (workedSet.has(id)) { startedSet.add(id); if (!openSet.has(id)) closedSet.add(id); return; }
+      if (workedSet.has(id)) { startedSet.add(id); if (!openSet.has(id) && shiftEnded) closedSet.add(id); return; }
       pendSet.add(id);
     });
     return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet };
