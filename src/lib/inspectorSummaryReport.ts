@@ -107,10 +107,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
 
   // 4) Modelo/tipo de máquina (no viene en listInspectorAssignments): 1 sola consulta.
   const ids = Array.from(new Set(assigns.map((a) => a.machinery_id)));
-  const extraById = new Map<string, { tipo: string | null; clasificacion: string | null }>();
+  const extraById = new Map<string, { tipo: string | null; clasificacion: string | null; active: boolean; operational: boolean }>();
   if (ids.length) {
-    const { data: ms } = await supabase.from('machinery').select('id, tipo, clasificacion').in('id', ids);
-    ((ms ?? []) as any[]).forEach((m) => extraById.set(m.id as string, { tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null }));
+    const { data: ms } = await supabase.from('machinery').select('id, tipo, clasificacion, active, operational').in('id', ids);
+    ((ms ?? []) as any[]).forEach((m) => extraById.set(m.id as string, { tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, active: m.active !== false, operational: m.operational !== false }));
   }
 
   // 5) Estado real por inspector + máquina (mismo criterio que "Jornadas de
@@ -122,6 +122,12 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     if (byKey.has(k)) return;
     const shiftCtx: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
     const rd = roundByMachine.get(a.machinery_id);
+    // MISMO criterio que la pantalla (visibleOk) y el teléfono (visibleParaInspector):
+    // una máquina INACTIVA/averiada solo cuenta si tiene jornada ABIERTA ahora. Sin
+    // jornada abierta, aunque tenga horas viejas, NO entra al reporte (así el PDF
+    // coincide con el conteo por inspector del panel).
+    const inactiva = extraById.get(a.machinery_id) ? !(extraById.get(a.machinery_id)!.active && extraById.get(a.machinery_id)!.operational) : false;
+    if (inactiva && !rd?.startAt) return;
     const parShift = paradaByMachine.get(a.machinery_id);
     const parada = !!parShift && parShift === shiftCtx;
     const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : (rd?.dayH ?? 0);
