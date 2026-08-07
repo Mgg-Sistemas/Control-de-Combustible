@@ -154,6 +154,71 @@ export async function exportCardImage(opts: {
   });
 }
 
+/**
+ * Exporta un bloque de HTML de ALTO VARIABLE (un "recibo") como imagen PNG,
+ * lista para descargar/compartir por WhatsApp. A diferencia de exportCardImage
+ * (medidas físicas FIJAS en mm, para carnets), aquí el alto se MIDE renderizando
+ * el contenido real fuera de pantalla — sirve para reportes cuyo tamaño depende
+ * de cuántas filas tengan (p. ej. el reporte personal de cierre de jornada de
+ * un inspector). Web: mide + rasteriza con <foreignObject> + canvas. Nativo: cae
+ * al PDF (htmlForFallback).
+ */
+export async function exportReceiptImage(opts: {
+  styles: string; card: string; widthPx?: number; fileName?: string; htmlForFallback?: string;
+}): Promise<void> {
+  const { styles, card, widthPx = 420, fileName, htmlForFallback } = opts;
+  const name = sanitizeFileName(fileName) || 'reporte';
+  if (Platform.OS !== 'web') {
+    if (htmlForFallback) await exportPdf(htmlForFallback, fileName);
+    return;
+  }
+  const d: any = (globalThis as any).document;
+  if (!d || !d.body) {
+    if (htmlForFallback) await previewHtmlWeb(htmlForFallback, fileName);
+    return;
+  }
+  // Mide el alto real renderizando el contenido oculto fuera de pantalla.
+  const measure: any = d.createElement('div');
+  measure.setAttribute('style', `position:fixed;left:-99999px;top:0;width:${widthPx}px;`);
+  measure.innerHTML = `<style>${styles}</style>${card}`;
+  d.body.appendChild(measure);
+  const heightPx = Math.ceil(measure.scrollHeight) || 200;
+  d.body.removeChild(measure);
+
+  const scale = 2; // nitidez tipo retina
+  const pxW = widthPx * scale;
+  const pxH = heightPx * scale;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${pxH}">` +
+    `<foreignObject width="100%" height="100%">` +
+    `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${pxW}px;height:${pxH}px;background:#fff">` +
+    `<div style="transform:scale(${scale});transform-origin:top left;width:${widthPx}px">` +
+    `<style>${styles}</style>${card}` +
+    `</div></div></foreignObject></svg>`;
+
+  await new Promise<void>((resolve) => {
+    const img: any = new (globalThis as any).Image();
+    img.onload = () => {
+      try {
+        const canvas: any = d.createElement('canvas');
+        canvas.width = pxW; canvas.height = pxH;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, pxW, pxH);
+        ctx.drawImage(img, 0, 0, pxW, pxH);
+        const url = canvas.toDataURL('image/png');
+        const a: any = d.createElement('a');
+        a.href = url; a.download = `${name}.png`;
+        d.body.appendChild(a); a.click(); a.remove();
+      } catch (e) {
+        if (htmlForFallback) previewHtmlWeb(htmlForFallback, fileName);
+      }
+      resolve();
+    };
+    img.onerror = () => { if (htmlForFallback) previewHtmlWeb(htmlForFallback, fileName); resolve(); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+
 /** Convierte un Blob a data-URI con FileReader. */
 function blobToDataUri(blob: Blob): Promise<string | null> {
   return new Promise((resolve) => {

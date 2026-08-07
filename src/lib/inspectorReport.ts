@@ -1,5 +1,5 @@
 import { supabase, selectAllRows } from './supabase';
-import { pdfDocument, exportPdf } from './pdf';
+import { pdfDocument, exportPdf, exportReceiptImage, nowStamp } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
@@ -98,7 +98,7 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
  * @param date día ISO "AAAA-MM-DD"
  * @param companies (opcional) filtra por nombre de empresa (vacío/null = todas)
  */
-async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
+export async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
   const cos = companies && companies.length ? companies : null;
 
   // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
@@ -532,4 +532,81 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     extraCss,
   });
   return await exportPdf(html, `Reporte - Inspectores ${dmy(date)}`);
+}
+
+/**
+ * Imagen PNG "recibo" del cierre de jornada de UN inspector — descargable desde
+ * su propio teléfono al terminar el turno (todas sus máquinas ya finalizadas),
+ * como respaldo personal. Usa la MISMA agregación (`computeInspectorData`) que
+ * el reporte de inspectores que imprime el jefe, así que los números SIEMPRE
+ * coinciden entre ambos documentos.
+ */
+export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' | 'night'; inspectorName: string }): Promise<void> {
+  const { date, shift, inspectorName } = opts;
+  const { data } = await computeInspectorData(date, null);
+  const machMap = data.get(shift)?.get(inspectorName);
+  const list = machMap ? [...machMap.values()].sort((a, b) => cmpText(a.code, b.code)) : [];
+
+  let tD = 0, tN = 0, tPar = 0, tJor = 0;
+  const rows = list.map((m) => {
+    const trabajando = r2(m.dayH + m.nightH);
+    const jornada = r2(Math.max(0, trabajando - m.horasParada));
+    tD += m.dayH; tN += m.nightH; tPar += m.horasParada; tJor += jornada;
+    const em = ESTADO_META[m.estado];
+    const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
+      ? `<div class="mot">${esc(m.motivo)}</div>` : '';
+    return `<div class="row">
+      <div class="rtop"><span class="code">${esc(m.code)}</span><span class="est" style="color:${em.color}">${esc(em.txt)}</span></div>
+      ${motivo}
+      <div class="rnums">Día ${r2(m.dayH)}h · Noche ${r2(m.nightH)}h · Parada ${r2(m.horasParada)}h · <b>Jornada ${jornada}h</b></div>
+    </div>`;
+  }).join('');
+
+  const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche';
+  const card = `
+    <div class="rcpt">
+      <div class="hd">
+        <div class="brand">SOS LA GUAIRA</div>
+        <div class="ttl">Cierre de jornada — reporte del inspector</div>
+      </div>
+      <div class="meta">
+        <div class="iname">👷 ${esc(inspectorName)}</div>
+        <div>${dmy(date)} · ${turnoTxt}</div>
+        <div class="stamp">Generado ${esc(nowStamp())}</div>
+      </div>
+      <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>
+      <div class="tot">
+        <div>Total máquinas: <b>${list.length}</b></div>
+        <div>Horas día: <b>${r2(tD)}h</b> · Horas noche: <b>${r2(tN)}h</b></div>
+        <div>Parada: <b>${r2(tPar)}h</b> · Jornada total: <b>${r2(tJor)}h</b></div>
+      </div>
+    </div>`;
+
+  const styles = `
+    *{box-sizing:border-box;font-family:Tahoma,Geneva,Verdana,sans-serif}
+    body{margin:0}
+    .rcpt{background:#fff;padding:18px}
+    .hd{text-align:center;border-bottom:3px solid #1E3A5F;padding-bottom:10px;margin-bottom:10px}
+    .brand{color:#1E3A5F;font-weight:800;font-size:15px;letter-spacing:.5px}
+    .ttl{color:#374151;font-size:11.5px;margin-top:2px}
+    .meta{font-size:12px;color:#111;margin-bottom:10px}
+    .meta .iname{font-weight:800;font-size:13px}
+    .meta .stamp{color:#9CA3AF;font-size:10px;margin-top:2px}
+    .row{border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+    .rtop{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+    .rtop .code{font-weight:800;color:#111}
+    .rtop .est{font-weight:700;font-size:11px;white-space:nowrap}
+    .mot{font-size:10.5px;color:#B45309;margin-top:2px}
+    .rnums{font-size:10.5px;color:#374151;margin-top:3px}
+    .none{color:#6B7280;font-size:12px;text-align:center;padding:10px 0}
+    .tot{margin-top:8px;background:#EEF2F7;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#1E3A5F}
+    .tot div{margin:1px 0}
+  `;
+
+  await exportReceiptImage({
+    styles,
+    card,
+    widthPx: 420,
+    fileName: `Cierre de jornada - ${inspectorName} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`,
+  });
 }

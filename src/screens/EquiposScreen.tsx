@@ -234,11 +234,32 @@ export default function EquiposScreen({ navigation, route }: any) {
     }).catch(() => {});
   };
   useEffect(() => { loadInspByShift(); }, [machinery.data]);
+
+  // Avería/parada reportada por un inspector (Mantenimiento de Maquinaria) — el Catálogo
+  // no la mostraba: `operational` solo lo cambia el admin a mano con "⛔ Inactiva", así
+  // que una máquina averiada en el teléfono del inspector seguía viéndose "● Operativa"
+  // aquí. Se lee de maintenance_requests (mismo criterio que SupervisorScreen/Inspecciones,
+  // NO se toca `operational`) y se refresca en vivo.
+  const [averiaCat, setAveriaCat] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null }>>({});
+  const loadAveriaCat = () => {
+    Promise.all([
+      supabase.from('maintenance_requests').select('machinery_id, material, notes').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, notes').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+    ]).then(([averias, paradas]) => {
+      const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null }> = {};
+      (paradas.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'parada', motivo: r.notes }; });
+      // Avería real tiene prioridad sobre el marcador genérico "MÁQUINA PARADA" (mismo orden que en SupervisorScreen).
+      (averias.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material }; });
+      setAveriaCat(m);
+    }).catch(() => {});
+  };
+  useEffect(() => { loadAveriaCat(); }, [machinery.data]);
   // machinery/vehicles/companies ya se refrescan solos (useTable se suscribe a su propia
-  // tabla). Estas 3 fuentes auxiliares (custodia, inspector del check-in y asignación por
-  // turno) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
+  // tabla). Estas fuentes auxiliares (custodia, inspector del check-in, asignación por
+  // turno y avería/parada) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
   useRealtimeRefresh(['machine_guards'], loadGuards);
   useRealtimeRefresh(['supervisor_visits', 'machine_inspectors'], () => { loadInspectors(); loadInspByShift(); });
+  useRealtimeRefresh(['maintenance_requests'], loadAveriaCat);
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
     setGuards((p) => {
@@ -773,6 +794,20 @@ export default function EquiposScreen({ navigation, route }: any) {
   const reportTitle = titleForScope(reportCompany);
   const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
   const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
+  // Insignia de avería/parada (independiente de Operativa/No operativa) — sincronizada
+  // con lo que marcó el inspector desde su teléfono.
+  const AveriaBadge = ({ id }: { id: string }) => {
+    const a = averiaCat[id];
+    if (!a) return null;
+    const isAveria = a.tipo === 'averia';
+    return (
+      <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+        <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={1}>
+          {isAveria ? '🔴 Averiada' : '🟡 Parada'}{a.motivo ? ` · ${a.motivo}` : ''}
+        </Text>
+      </View>
+    );
+  };
 
   // PDF: Total general → Por empresa (resumen) → Detalle por empresa (Equipo · Serial · Estado).
   // Edificio (derivado del catálogo oficial) o, si no matchea ninguno, la referencia
@@ -874,6 +909,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
               </Text>
             </View>
+            <AveriaBadge id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
@@ -1554,6 +1590,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
                         </Text>
                       </View>
+                      <AveriaBadge id={m.id} />
                       {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                       {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                       {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
