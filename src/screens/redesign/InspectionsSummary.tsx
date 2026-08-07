@@ -1313,6 +1313,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
                           {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
                         </Text>
+                        {info?.encargado ? (
+                          <Text style={{ fontSize: 11 }} numberOfLines={1}>
+                            <Text style={{ color: colors.muted }}>👤 Encargado </Text><Text style={{ color: colors.text, fontWeight: '700' }}>{info.encargado}</Text>
+                          </Text>
+                        ) : null}
                         <Text style={{ fontSize: 11 }} numberOfLines={1}>
                           <Text style={{ color: colors.muted }}>☀️ </Text><Text style={{ color: r.dayInsp ? colors.text : colors.muted, fontWeight: r.dayInsp ? '700' : '400' }}>{r.dayInsp || 'sin inspector'}</Text>
                           <Text style={{ color: colors.muted }}>    🌙 </Text><Text style={{ color: r.nightInsp ? colors.text : colors.muted, fontWeight: r.nightInsp ? '700' : '400' }}>{r.nightInsp || 'sin inspector'}</Text>
