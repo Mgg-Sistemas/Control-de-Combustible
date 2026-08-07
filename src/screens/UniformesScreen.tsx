@@ -69,6 +69,15 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   const [q, setQ] = useState('');
   const [onlyActive, setOnlyActive] = useState(true);
 
+  // Selección múltiple: para la nota de entrega CONSOLIDADA (un coordinador logístico
+  // recoge la dotación de TODO su grupo, ej. "Operadores", en una sola hoja con firma
+  // por persona) en vez de tener que imprimir uno por uno. Buscá/filtrá arriba (por
+  // nombre, cédula o CARGO — así "operador" en el buscador ya agrupa el departamento)
+  // y marcá con el check quiénes van en esta nota.
+  const [selMode, setSelMode] = useState(false);
+  const [selIds, setSelIds] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
   // Editor de tallas de una persona.
   const [sel, setSel] = useState<Employee | null>(null);
   const [camisa, setCamisa] = useState('');
@@ -174,9 +183,13 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   );
 
   // ── Imprimir el listado con tallas y firma (Recibido / Entregado) ────────────
+  // Si hay selección activa (selMode + al menos 1 marcado), la nota de entrega sale
+  // SOLO con esos empleados (nota consolidada para un coordinador logístico); si no
+  // hay nada marcado, sale con todo el listado filtrado (comportamiento de siempre).
   const imprimir = async () => {
-    if (filtered.length === 0) return toast.error('No hay empleados para imprimir.');
-    const rows = filtered.map((e, i) =>
+    const scope = selMode && selIds.size > 0 ? filtered.filter((e) => selIds.has(e.id)) : filtered;
+    if (scope.length === 0) return toast.error('No hay empleados para imprimir.');
+    const rows = scope.map((e, i) =>
       `<tr>
         <td class="c">${i + 1}</td>
         <td>${esc(fullName(e))}</td>
@@ -188,12 +201,17 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         <td class="c b">${esc(e.talla_zapatos ?? '—')}</td>
         <td class="firma"></td>
       </tr>`).join('');
-    // Resumen por tallas: "tantas camisas M, tantas S…", igual para pantalón y botas.
+    // Resumen por tallas del ALCANCE impreso (scope): "tantas camisas M, tantas S…".
+    const scopeResumen = {
+      camisa: tallyBy(scope, (e) => e.talla_camisa),
+      pantalon: tallyBy(scope, (e) => e.talla_pantalon),
+      zapatos: tallyBy(scope, (e) => e.talla_zapatos),
+    };
     const resumenCard = (titulo: string, t: { rows: SizeCount[]; total: number }) => {
       const items = t.rows.length
         ? t.rows.map((r) => `<span class="pill"><b>${esc(r.size)}</b> ${r.count}</span>`).join('')
         : '<span class="none">Sin tallas cargadas</span>';
-      const sinTalla = filtered.length - t.total;
+      const sinTalla = scope.length - t.total;
       return `<div class="rbox">
         <div class="rh">${titulo}</div>
         <div class="pills">${items}</div>
@@ -201,15 +219,15 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       </div>`;
     };
     const resumenHtml = `
-      <h3 class="rtitle">Resumen por tallas (${filtered.length} persona(s))</h3>
+      <h3 class="rtitle">Resumen por tallas (${scope.length} persona(s))</h3>
       <div class="rgrid">
-        ${resumenCard('👕 Camisas', resumen.camisa)}
-        ${resumenCard('👖 Pantalones', resumen.pantalon)}
-        ${resumenCard('👟 Botas de seguridad', resumen.zapatos)}
+        ${resumenCard('👕 Camisas', scopeResumen.camisa)}
+        ${resumenCard('👖 Pantalones', scopeResumen.pantalon)}
+        ${resumenCard('👟 Botas de seguridad', scopeResumen.zapatos)}
       </div>`;
     const html = pdfDocument({
-      title: 'Distribución de uniformes',
-      subtitle: `Listado de empleados con tallas · ${filtered.length} persona(s) · ${todayDMY()}`,
+      title: selMode && selIds.size > 0 ? 'Nota de entrega de dotación' : 'Distribución de uniformes',
+      subtitle: `${selMode && selIds.size > 0 ? 'Nota de entrega consolidada' : 'Listado de empleados con tallas'} · ${scope.length} persona(s) · ${todayDMY()}`,
       extraCss: `
         table{width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5pt}
         th,td{border:1px solid #c9d2dc;padding:6px 8px;text-align:left}
@@ -239,7 +257,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         <div class="foot">Cada firma confirma la ENTREGA y el RECIBO del uniforme por parte del empleado.</div>
         ${resumenHtml}`,
     });
-    await exportPdf(html, `Distribucion de uniformes - ${todayDMY()}`);
+    await exportPdf(html, `${selMode && selIds.size > 0 ? 'Nota de entrega de dotacion' : 'Distribucion de uniformes'} - ${todayDMY()}`);
   };
 
   // ── Reporte de ENTREGAS: por persona, cada entrega con su fecha y hora + totales ──
@@ -277,17 +295,25 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       <ConfigBanner />
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <SectionTitle>Distribución de uniformes</SectionTitle>
-        <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+        <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <TouchableOpacity onPress={reporteEntregas} style={{ backgroundColor: colors.accent, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12 }}>📦 Reporte de entregas</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => { setSelMode((v) => !v); setSelIds(new Set()); }}
+            style={{ backgroundColor: selMode ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}
+          >
+            <Text style={{ color: selMode ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 12 }}>☑️ {selMode ? 'Cancelar selección' : 'Seleccionar'}</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={imprimir} style={{ backgroundColor: colors.brand, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.pill }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>⬇️ Listado (tallas)</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>
+              {selMode && selIds.size > 0 ? `⬇️ Nota de entrega (${selIds.size})` : '⬇️ Listado (tallas)'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Toca un empleado para cargar sus tallas y para 📦 registrar cuántas camisas, pantalones y zapatos se le entregan (con fecha y hora). "📦 Reporte de entregas" saca el PDF de lo entregado; "Listado (tallas)" imprime el listado con firma.
+        Toca un empleado para cargar sus tallas y para 📦 registrar cuántas camisas, pantalones y zapatos se le entregan (con fecha y hora). "📦 Reporte de entregas" saca el PDF de lo entregado. "☑️ Seleccionar" te deja marcar solo a un grupo (ej. busca "operador" en el cargo y marca a todos) para sacar UNA nota de entrega consolidada con espacio de firma por persona — sin marcar nada, "Listado (tallas)" imprime todos los que se ven.
       </Text>
 
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -303,6 +329,19 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
 
       <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por nombre, cédula o cargo…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
 
+      {selMode ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+          <TouchableOpacity onPress={() => setSelIds(new Set(filtered.map((e) => e.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12.5 }}>✓ Seleccionar todos los visibles ({filtered.length})</Text>
+          </TouchableOpacity>
+          {selIds.size > 0 ? (
+            <TouchableOpacity onPress={() => setSelIds(new Set())}>
+              <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12.5 }}>✕ Quitar selección ({selIds.size})</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
       {loading && employees.length === 0 ? (
         <Loading />
       ) : filtered.length === 0 ? (
@@ -311,15 +350,22 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         byCompany.map((g) => (
           <View key={g.key} style={{ marginBottom: spacing.sm }}>
             <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 {g.name} <Text style={{ color: colors.muted, fontSize: 12 }}>({g.items.length})</Text></Text>
-            {g.items.map((e) => (
-              <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => openEmp(e)}>
-                <Card>
+            {g.items.map((e) => {
+              const checked = selIds.has(e.id);
+              return (
+              <TouchableOpacity key={e.id} activeOpacity={0.7} onPress={() => (selMode ? toggleSel(e.id) : openEmp(e))}>
+                <Card style={selMode && checked ? { borderColor: colors.brand, borderWidth: 2 } : undefined}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    {selMode ? (
+                      <View style={{ width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: checked ? colors.brand : colors.border, backgroundColor: checked ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center', marginRight: spacing.sm }}>
+                        {checked ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13 }}>✓</Text> : null}
+                      </View>
+                    ) : null}
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fullName(e)}</Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{[e.cargo, e.cedula ? `C.I ${e.cedula}` : ''].filter(Boolean).join(' · ')}</Text>
                     </View>
-                    <Text style={{ color: colors.brandText, fontWeight: '800' }}>✎</Text>
+                    {!selMode ? <Text style={{ color: colors.brandText, fontWeight: '800' }}>✎</Text> : null}
                   </View>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.xs }}>
                     {sizeChip('👕 Camisa', e.talla_camisa)}
@@ -334,7 +380,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                   ) : null; })()}
                 </Card>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </View>
         ))
       )}
