@@ -168,6 +168,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // máquina de otro y cualquier turno. La atribución sigue siendo del inspector dueño
   // de la máquina (así se le "marca" a él); queda traza de que lo registró el coordinador.
   const esCoordInsp = role === 'coordinador_inspectores';
+  // Coordinador de inspectores por ROL fijo O por PERMISO de módulo (sin contar admin).
+  // Se usa para la TRAZA "registrado por coordinador" y, vía puedeCoordinar, para
+  // desbloquear las acciones sobre máquina ajena (antes solo el rol las desbloqueaba,
+  // así que un coordinador-por-permiso veía la vista pero al tocar una máquina le
+  // salía 🔒 y "no hacía nada").
+  const esCoordinador = esCoordInsp || canSee('coordinador_inspectores');
   // COORDINAR INSPECTORES (CHECK máquina, pendientes por asignar, asignar/reasignar
   // inspector, ver "Todas las máquinas"): el admin SIEMPRE puede (isAdmin va en el OR,
   // no se le quita nada) y, ADEMÁS, cualquiera con el módulo 'coordinador_inspectores'
@@ -663,7 +669,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // iniciarle jornada. Excepción: admin y coordinador (pueden con cualquiera).
   const maquinaDeOtro = useMemo(() => {
     if (!ci) return false;
-    if (isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
+    if (puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
     const s = assignMap[ci.id] || {};
     const mia = s.day?.id === uid || s.night?.id === uid;
     const deOtro = (!!s.day?.id && s.day.id !== uid) || (!!s.night?.id && s.night.id !== uid);
@@ -687,7 +693,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     return set;
   }, [assignMap, uid]);
-  const puedeCualquierTurno = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+  const puedeCualquierTurno = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
   // PARADAS de la máquina. SINCRONIZADO CON EL SISTEMA (admin/InspectionsSummary):
   // una parada pendiente cuenta para la máquina SIN importar el turno en que se marcó.
   // ANTES se filtraba por el turno del inspector (una parada de noche no la veía el de
@@ -994,7 +1000,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // tocar máquinas asignadas a ÉL (día o noche) o SIN asignar; NO las de otro inspector.
   // Admin y coordinadores (patio / QR), cualquiera.
   const puedeMarcar = (m: Mach): boolean => {
-    const puedeCualquiera = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
     if (puedeCualquiera) return true;
     const slots = assignMap[m.id] || {};
     const mia = slots.day?.id === uid || slots.night?.id === uid;
@@ -1091,7 +1097,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // pero dejamos constancia visible de quién la registró de verdad. Devuelve '' si no
   // aplica (no es coordinador, o la máquina es suya / sin dueño).
   const coordActuando = (id: string): boolean => {
-    if (!esCoordInsp) return false;
+    if (!esCoordinador) return false;
     const s = assignMap[id] || {};
     const mia = s.day?.id === uid || s.night?.id === uid;
     return !mia && (!!s.day?.id || !!s.night?.id);
@@ -1177,7 +1183,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!isOnline()) { setNotice('📶 Sin conexión: para iniciar jornada hace falta señal (valida datos contra el servidor). El check-in de parada/avería sí funciona sin conexión.'); return; }
     // Regla: NO puedes iniciar la jornada de una máquina asignada a OTRO inspector.
     // Excepción: admin y coordinador (pueden iniciar cualquier máquina).
-    const puedeCualquiera = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
     if (!puedeCualquiera) {
       const slots = assignMap[ci.id] || {};
       const mia = slots.day?.id === uid || slots.night?.id === uid;
