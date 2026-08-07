@@ -25,7 +25,8 @@ const ITEMS: { label: string; desc: string; icon: string; route: string; module:
   { label: 'Rutas de producción', desc: 'Pasos por centro de trabajo, con puntos de control de calidad', icon: '🛤️', route: 'Routes', module: 'mangueras' },
   { label: 'Órdenes de fabricación', desc: 'Planifica producción, revisa disponibilidad de insumos y cierra la orden', icon: '📦', route: 'ManufacturingOrders', module: 'mangueras' },
   { label: 'Órdenes de trabajo', desc: 'Gestiona el avance por centro de trabajo: operario, tiempo, calidad', icon: '🧰', route: 'WorkOrders', module: 'mangueras' },
-  { label: 'Kiosco de planta', desc: 'Pantalla táctil para el operario: iniciar, pausar, registrar, reportar falla', icon: '🖥️', route: 'PlantaKiosk', module: 'fabricacion_planta' },
+  // (Kiosco de planta se quitó del hub y del menú "Más": salía duplicado. La ruta
+  //  PlantaKiosk sigue existiendo para el rol "solo kiosco" que entra directo.)
   { label: 'Reportes de Fabricación', desc: 'OEE (disponibilidad · rendimiento · calidad) y costeo por orden', icon: '📊', route: 'ManufacturingReports', module: 'mangueras' },
 ];
 
