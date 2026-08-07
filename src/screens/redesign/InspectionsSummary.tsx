@@ -641,19 +641,33 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const averSet = new Set<string>();
     const closedSet = new Set<string>();
     const pendSet = new Set<string>();
+    // activeNowSet: subconjunto de startedSet que SIGUE con la jornada abierta ahora
+    // mismo (jornada_start_at no nulo) — a diferencia de startedSet (que también
+    // incluye las ya cerradas con horas, usado por el desglose por inspector y la
+    // eficiencia, donde SÍ debe seguir contando una máquina que ya terminó su
+    // turno), esto es solo para la tarjeta "Activas ahora" de arriba, que debe caer
+    // a 0 en cuanto el cierre automático de las 7am/7pm las cierra — así no se
+    // queda pegada en el número del día entero y confunde con "hay que cerrarlas".
+    const activeNowSet = new Set<string>();
     universe.forEach((id) => {
       if (averAll.has(id)) { averSet.add(id); return; }
       if (paradaAll.has(id)) { paradaSet.add(id); return; }
-      if (workedSet.has(id)) { startedSet.add(id); if (!openSet.has(id) && shiftEnded) closedSet.add(id); return; }
+      if (workedSet.has(id)) {
+        startedSet.add(id);
+        if (openSet.has(id)) activeNowSet.add(id);
+        else if (shiftEnded) closedSet.add(id);
+        return;
+      }
       pendSet.add(id);
     });
-    return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet };
+    return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
   }, [rounds, selDay, shift, maint, assignments, machInactiveSet]);
 
-  // KPIs del día (totales).
+  // KPIs del día (totales). "iniciadas" = ACTIVAS AHORA (jornada realmente abierta
+  // en este momento), NO todas las que trabajaron hoy — eso ya lo cubre "cerradas".
   const top = useMemo(() => {
-    const { startedSet, paradaSet, averSet, closedSet, pendSet } = daySets;
-    return { iniciadas: startedSet.size, pendientes: pendSet.size, paradas: paradaSet.size, averiadas: averSet.size, cerradas: closedSet.size };
+    const { activeNowSet, paradaSet, averSet, closedSet, pendSet } = daySets;
+    return { iniciadas: activeNowSet.size, pendientes: pendSet.size, paradas: paradaSet.size, averiadas: averSet.size, cerradas: closedSet.size };
   }, [daySets]);
 
   // Código de máquina por id (de asignaciones, rondas o mantenimiento).
@@ -759,9 +773,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // IDs de máquina por estado (para la lista al tocar una KPI de arriba). Ordenados por código.
   const cmpId = useCallback((a: string, b: string) => cmpText(codeById.get(a) || '', codeById.get(b) || ''), [codeById]);
   const topIds = useMemo(() => {
-    const { startedSet, paradaSet, averSet, closedSet, pendSet } = daySets;
+    const { activeNowSet, paradaSet, averSet, closedSet, pendSet } = daySets;
     const s = (ids: Iterable<string>) => [...ids].sort(cmpId);
-    return { ini: s(startedSet), pend: s(pendSet), par: s(paradaSet), ave: s(averSet), cer: s(closedSet) };
+    return { ini: s(activeNowSet), pend: s(pendSet), par: s(paradaSet), ave: s(averSet), cer: s(closedSet) };
   }, [daySets, cmpId]);
 
   // Motivo (el "por qué") de la parada/avería por máquina, del más reciente PENDIENTE.
@@ -1018,7 +1032,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            <KpiCard label={`Iniciadas ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
+            <KpiCard label={`Activas ahora ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Activas ahora (jornada abierta) · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
             <KpiCard label="Cerradas (finalizadas)" value={top.cerradas} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.cer)} />
             <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topIds.pend)} />
             <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topIds.par)} />
@@ -1032,7 +1046,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </Text>
           <View style={{ gap: 8 }}>
             {[
-              { label: '✅ Iniciadas', value: top.iniciadas, color: colors.tankFill, ids: topIds.ini, title: `✅ Iniciadas · ${shortDate(selDay)} ${shiftIcon}` },
+              { label: '✅ Activas ahora', value: top.iniciadas, color: colors.tankFill, ids: topIds.ini, title: `✅ Activas ahora (jornada abierta) · ${shortDate(selDay)} ${shiftIcon}` },
               { label: '⏳ Pendientes por iniciar', value: top.pendientes, color: colors.muted, ids: topIds.pend, title: `⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}` },
               { label: '🟡 Paradas / no trabajó', value: top.paradas, color: colors.accent, ids: topIds.par, title: `🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}` },
               { label: '🔴 Averiadas', value: top.averiadas, color: colors.danger, ids: topIds.ave, title: `🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}` },
