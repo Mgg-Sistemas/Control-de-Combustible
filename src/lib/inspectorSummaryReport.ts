@@ -58,10 +58,16 @@ type Row = {
 /**
  * Genera y exporta el PDF del reporte resumen por inspector para un día.
  * @param date día ISO "AAAA-MM-DD".
+ * @param shift turno a incluir ('day' | 'night'). Antes el reporte no filtraba
+ *   por turno y mezclaba las asignaciones de DÍA y de NOCHE en un solo reporte
+ *   (ej. al pedir el reporte con el switch en ☀️ DÍA, igual traía inspectores/
+ *   máquinas del turno 🌙 NOCHE) — ahora respeta el turno que esté elegido en
+ *   el dashboard, igual que el resto del panel. Si no se pasa, incluye AMBOS
+ *   turnos (comportamiento explícito, no el default implícito de antes).
  * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateSummaryReport(opts: { date: string }): Promise<boolean> {
-  const { date } = opts;
+export async function generateSummaryReport(opts: { date: string; shift?: 'day' | 'night' }): Promise<boolean> {
+  const { date, shift } = opts;
   const fecha = dmy(date);
 
   // 1) Rondas (jornadas) del día — estado por máquina (en curso / finalizada / turno).
@@ -94,7 +100,10 @@ export async function generateSummaryReport(opts: { date: string }): Promise<boo
 
   // 3) Asignaciones (CHECK) inspector ↔ máquina: la columna vertebral — TODAS las
   //    máquinas de cada inspector, para saber cuáles le faltaron por iniciar.
-  const { rows: assigns } = await listInspectorAssignments();
+  //    Filtradas por turno si se pidió uno concreto (ver comentario de `shift`
+  //    arriba) — así el reporte de DÍA no arrastra inspectores/máquinas de NOCHE.
+  const { rows: assignsAll } = await listInspectorAssignments();
+  const assigns = shift ? assignsAll.filter((a) => a.shift === shift) : assignsAll;
 
   // 4) Modelo/tipo de máquina (no viene en listInspectorAssignments): 1 sola consulta.
   const ids = Array.from(new Set(assigns.map((a) => a.machinery_id)));
@@ -228,7 +237,8 @@ export async function generateSummaryReport(opts: { date: string }): Promise<boo
     table.efi th{background:#1E3A5F;color:#fff}
   `;
 
-  const subtitle = `${fecha} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔴 ${totalAver} averiadas · ⏳ ${totalPend} sin iniciar${eficienciaProm !== null ? ` · ⚡ eficiencia promedio ${eficienciaProm}%` : ''}`;
+  const turnoTxt = shift === 'night' ? ' · Turno 🌙 NOCHE' : shift === 'day' ? ' · Turno ☀️ DÍA' : '';
+  const subtitle = `${fecha}${turnoTxt} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔴 ${totalAver} averiadas · ⏳ ${totalPend} sin iniciar${eficienciaProm !== null ? ` · ⚡ eficiencia promedio ${eficienciaProm}%` : ''}`;
 
   const html = pdfDocument({
     title: 'REPORTE RESUMEN POR INSPECTOR',
