@@ -2458,6 +2458,10 @@ export default function ReportsScreen({ route }: any) {
                       <Text style={{ color: colors.brandText, fontSize: 40, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{tipoResultado.total}</Text>
                       <Text style={{ color: colors.muted, fontSize: 13 }}>equipo(s) · {tipoResultado.empresas.length} empresa(s)</Text>
                     </View>
+                    {/* Botón ARRIBA (antes del listado) para no tener que bajar toda la lista. */}
+                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.sm, marginBottom: spacing.xs }]} onPress={downloadTipoCountPdf}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
+                    </TouchableOpacity>
                     <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.xs, marginBottom: 2 }}>Listado por empresa</Text>
                     {tipoResultado.empresas.map((e) => (
                       <View key={e.company} style={{ marginBottom: spacing.xs }}>
@@ -2479,9 +2483,6 @@ export default function ReportsScreen({ route }: any) {
                         ))}
                       </View>
                     ))}
-                    <TouchableOpacity style={[styles.btn, { backgroundColor: colors.brand, marginTop: spacing.sm }]} onPress={downloadTipoCountPdf}>
-                      <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>⬇️ PDF de este conteo</Text>
-                    </TouchableOpacity>
                   </View>
                 ) : (
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Tilda al menos un tipo para ver el reporte.</Text>
