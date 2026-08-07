@@ -89,6 +89,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
 
   // 4) Avería/parada PENDIENTE vigente hasta ese día (se arrastra hasta resolver).
+  //    CORREGIDO: antes, apenas veía el registro paralelo "MÁQUINA PARADA" (que se
+  //    crea SIEMPRE junto al de avería real, ver SupervisorScreen.marcarParadaAveria),
+  //    pisaba el motivo real que escribió el inspector con el texto genérico
+  //    "NO TRABAJÓ · PARADA" — el reporte nunca mostraba POR QUÉ se paró. Ahora: si
+  //    hay un registro de avería real (material distinto) se usa SU motivo/material;
+  //    solo se usa el texto de "no trabajó" cuando de verdad no hubo avería, y en ese
+  //    caso se limpia la nota (quita las coordenadas GPS, deja edificio/referencia).
   const { data: mr } = await supabase
     .from('maintenance_requests')
     .select('machinery_id, material, notes, created_at')
@@ -96,14 +103,29 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .lte('created_at', `${date}T23:59:59.999-04:00`)
     .in('machinery_id', ids)
     .order('created_at', { ascending: false });
-  const averBy = new Map<string, string>(); // motivo más reciente por máquina
+  const limpiarNoTrabajo = (notes: string): string => {
+    const sinUbicacion = notes.replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '').trim();
+    return sinUbicacion.replace(/^NO TRABAJ[ÓO] LA M[ÁA]QUINA\s*·\s*/i, 'No trabajó · ') || 'No trabajó';
+  };
+  const mrByMachine = new Map<string, any[]>();
   ((mr ?? []) as any[]).forEach((m) => {
-    if (averBy.has(m.machinery_id)) return; // ya viene ordenado desc: la 1ª es la más reciente
-    const notes = (m.notes && String(m.notes).trim()) || '';
-    const esParada = m.material === 'MÁQUINA PARADA';
-    // Parada = "NO TRABAJÓ · PARADA" (etiqueta corta y uniforme, sin el texto largo
-    // de lote/edificio/ubicación que confunde en el reporte). Avería = su motivo real.
-    averBy.set(m.machinery_id, esParada ? 'NO TRABAJÓ · PARADA' : (notes || (m.material ? String(m.material) : 'Avería')));
+    const list = mrByMachine.get(m.machinery_id) ?? [];
+    list.push(m);
+    mrByMachine.set(m.machinery_id, list);
+  });
+  const averBy = new Map<string, string>(); // motivo real por máquina
+  mrByMachine.forEach((rows, machineryId) => {
+    const real = rows.find((r) => r.material !== 'MÁQUINA PARADA');
+    if (real) {
+      const notes = (real.notes && String(real.notes).trim()) || '';
+      averBy.set(machineryId, notes || String(real.material || 'Avería'));
+      return;
+    }
+    const parada = rows.find((r) => r.material === 'MÁQUINA PARADA');
+    if (parada) {
+      const notes = (parada.notes && String(parada.notes).trim()) || '';
+      averBy.set(machineryId, notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)');
+    }
   });
 
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
