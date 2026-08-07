@@ -47,7 +47,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
   return s && s !== 'Sin zona' ? s : ((referencia || '').trim() || 'Sin zona');
 };
 
-type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
+type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean; last_horometro: number | null; horometro_base: number | null };
 
@@ -130,7 +130,7 @@ export default function MantenimientoMaquinariaScreen() {
       // 'MÁQUINA PARADA' es el marcador interno de "parada" (Inspecciones/Control):
       // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
-      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
+      supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
@@ -138,7 +138,7 @@ export default function MantenimientoMaquinariaScreen() {
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
-    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
+    setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
     setLoading(false);
@@ -814,12 +814,20 @@ export default function MantenimientoMaquinariaScreen() {
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Reportada: {fmtDT(detailReq.created_at)}</Text>
                 </View>
 
-                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>📷 Foto de referencia</Text>
-                {detailReq.photo_url ? (
-                  <Image source={{ uri: detailReq.photo_url }} style={{ width: '100%', height: 240, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
-                ) : (
-                  <Text style={{ color: colors.muted, fontSize: 12 }}>Sin foto de referencia.</Text>
-                )}
+                {(() => {
+                  // Galería: usa `photos` (varias) si existe; si no, cae a la única `photo_url`.
+                  const gal = (detailReq.photos && detailReq.photos.length ? detailReq.photos : (detailReq.photo_url ? [detailReq.photo_url] : []));
+                  return (
+                    <>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>📷 Foto(s) de referencia{gal.length > 1 ? ` · ${gal.length}` : ''}</Text>
+                      {gal.length ? gal.map((uri, i) => (
+                        <Image key={`${uri}-${i}`} source={{ uri }} style={{ width: '100%', height: 240, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm }} resizeMode="cover" />
+                      )) : (
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>Sin foto de referencia.</Text>
+                      )}
+                    </>
+                  );
+                })()}
 
                 <TouchableOpacity onPress={() => setDetailReq(null)} style={{ marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                   <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
