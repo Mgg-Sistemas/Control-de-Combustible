@@ -163,36 +163,36 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
   // máquina (ambos turnos), PERO solo si NO trabaja hoy: si iniciaron jornada la
   // máquina se reactivó y está EN CURSO (la vieja pierde).
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
-  const paradaArr = new Map<string, EventoParada>();
+  const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
     const end = m.resolved_at ? new Date(m.resolved_at).getTime() : null;
     const motivo = String(m.notes ?? '').trim();
-    if (start < dayStartMs) {
-      if (!paradaArr.has(id)) paradaArr.set(id, { motivo, start, end });
-    } else {
-      const sh = paradaShiftOf(m.created_at);
-      const mm = paradaHoyByShift.get(id) ?? new Map<Turno, EventoParada>();
-      if (!mm.has(sh)) mm.set(sh, { motivo, start, end });
-      paradaHoyByShift.set(id, mm);
-    }
+    // TODO por TURNO (por la hora de la marca): así una parada/avería de NOCHE NO
+    // aparece en el inspector de DÍA (ej. "no trabaja de noche"). Aplica tanto a la
+    // de HOY como a la ARRASTRADA (día anterior): cada una pertenece a su turno.
+    const sh = paradaShiftOf(m.created_at);
+    const target = start < dayStartMs ? paradaArrByShift : paradaHoyByShift;
+    const mm = target.get(id) ?? new Map<Turno, EventoParada>();
+    if (!mm.has(sh)) mm.set(sh, { motivo, start, end });
+    target.set(id, mm);
   });
   // Avería HOY (marcada en el día del reporte) vs ARRASTRADA (antes). El motivo es el
   // material/nota de la avería.
-  const averiaHoy = new Map<string, EventoParada>();
-  const averiaArr = new Map<string, EventoParada>();
+  const averiaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
+  const averiaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   ((maintAver ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
     const end = m.resolved_at ? new Date(m.resolved_at).getTime() : null;
     const motivo = String(m.notes ?? '').trim() || String(m.material ?? '') || 'Avería';
-    if (start < dayStartMs) {
-      if (!averiaArr.has(id)) averiaArr.set(id, { motivo, start, end });
-    } else if (!averiaHoy.has(id)) {
-      averiaHoy.set(id, { motivo, start, end });
-    }
+    const sh = paradaShiftOf(m.created_at); // avería por TURNO (igual que la parada)
+    const target = start < dayStartMs ? averiaArrByShift : averiaHoyByShift;
+    const mm = target.get(id) ?? new Map<Turno, EventoParada>();
+    if (!mm.has(sh)) mm.set(sh, { motivo, start, end });
+    target.set(id, mm);
   });
 
   // 4) Ubicaciones por máquina (todos los check-in del día, ubicaciones distintas).
@@ -247,9 +247,9 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
     //  finalizada (con horas) > por iniciar. Lo de HOY gana sobre "trabajando"; lo
     //  arrastrado pierde si la máquina inició jornada (se reactivó).
     const parHoy = paradaHoyByShift.get(id)?.get(turno);
-    const averHoyMot = averiaHoy.get(id);
-    const averArrMot = !openForShift ? averiaArr.get(id) : undefined;
-    const parArrMot = !openForShift ? paradaArr.get(id) : undefined;
+    const averHoyMot = averiaHoyByShift.get(id)?.get(turno);
+    const averArrMot = !openForShift ? averiaArrByShift.get(id)?.get(turno) : undefined;
+    const parArrMot = !openForShift ? paradaArrByShift.get(id)?.get(turno) : undefined;
     const estado: EstadoKey =
       averHoyMot != null ? 'averia'
       : parHoy != null ? 'parada'
@@ -396,10 +396,14 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       tD += m.dayH; tN += m.nightH; tPar += m.horasParada; tJor += jornada;
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
-      const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${(m.estado === 'parada' || m.estado === 'averia') && m.motivo ? `<div style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</div>` : ''}`;
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${trabajando}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
+      const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>`;
+      // MOTIVO en su PROPIA columna (ya no debajo del estado). Solo para avería/parada.
+      const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
+        ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
+        : '—';
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${trabajando}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Trabajando</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="7">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td class="r">${r2(tPar)}</td><td class="r b">${r2(tJor)}</td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Trabajando</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td class="r">${r2(tPar)}</td><td class="r b">${r2(tJor)}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales.
     const bySec = new Map<string, { c: number; d: number; n: number }>();

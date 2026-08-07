@@ -249,16 +249,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
         <td class="r">${f.paradas > 0 ? f.paradas : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
-        <td>${esc(dash(f.timeline))}</td>
       </tr>`).join('');
     const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
     const tPar = n2(filas.reduce((s, f) => s + f.paradas, 0));
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th>Hora inicio</th><th>Hora fin</th>
-      <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th><th>Línea de tiempo</th>
+      <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
