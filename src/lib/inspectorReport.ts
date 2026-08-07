@@ -1,5 +1,5 @@
 import { supabase, selectAllRows } from './supabase';
-import { pdfDocument, exportPdf, exportReceiptImage, nowStamp } from './pdf';
+import { pdfDocument, exportPdf, nowStamp } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
@@ -563,50 +563,36 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
   }).join('');
 
   const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche';
-  const card = `
-    <div class="rcpt">
-      <div class="hd">
-        <div class="brand">SOS LA GUAIRA</div>
-        <div class="ttl">Cierre de jornada — reporte del inspector</div>
-      </div>
-      <div class="meta">
-        <div class="iname">👷 ${esc(inspectorName)}</div>
-        <div>${dmy(date)} · ${turnoTxt}</div>
-        <div class="stamp">Generado ${esc(nowStamp())}</div>
-      </div>
-      <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>
-      <div class="tot">
-        <div>Total máquinas: <b>${list.length}</b></div>
-        <div>Horas día: <b>${r2(tD)}h</b> · Horas noche: <b>${r2(tN)}h</b></div>
-        <div>Parada: <b>${r2(tPar)}h</b> · Jornada total: <b>${r2(tJor)}h</b></div>
-      </div>
+  // Antes se descargaba como IMAGEN PNG (exportReceiptImage) y en algunos teléfonos se
+  // veía cortada/borrosa. Ahora es un PDF con el mismo formato que el resto del sistema.
+  const body = `
+    <div class="stamp">Generado ${esc(nowStamp())}</div>
+    <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>
+    <div class="tot">
+      <div>Total máquinas: <b>${list.length}</b></div>
+      <div>Horas día: <b>${r2(tD)}h</b> · Horas noche: <b>${r2(tN)}h</b></div>
+      <div>Parada: <b>${r2(tPar)}h</b> · Jornada total: <b>${r2(tJor)}h</b></div>
     </div>`;
 
-  const styles = `
-    *{box-sizing:border-box;font-family:Tahoma,Geneva,Verdana,sans-serif}
-    body{margin:0}
-    .rcpt{background:#fff;padding:18px}
-    .hd{text-align:center;border-bottom:3px solid #1E3A5F;padding-bottom:10px;margin-bottom:10px}
-    .brand{color:#1E3A5F;font-weight:800;font-size:15px;letter-spacing:.5px}
-    .ttl{color:#374151;font-size:11.5px;margin-top:2px}
-    .meta{font-size:12px;color:#111;margin-bottom:10px}
-    .meta .iname{font-weight:800;font-size:13px}
-    .meta .stamp{color:#9CA3AF;font-size:10px;margin-top:2px}
-    .row{border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+  const extraCss = `
+    .stamp{color:#9CA3AF;font-size:10px;margin-bottom:8px}
+    .rows{max-width:520px}
+    .row{border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px;margin-bottom:6px;page-break-inside:avoid}
     .rtop{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
     .rtop .code{font-weight:800;color:#111}
     .rtop .est{font-weight:700;font-size:11px;white-space:nowrap}
     .mot{font-size:10.5px;color:#B45309;margin-top:2px}
     .rnums{font-size:10.5px;color:#374151;margin-top:3px}
     .none{color:#6B7280;font-size:12px;text-align:center;padding:10px 0}
-    .tot{margin-top:8px;background:#EEF2F7;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#1E3A5F}
+    .tot{margin-top:8px;background:#EEF2F7;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#1E3A5F;max-width:520px}
     .tot div{margin:1px 0}
   `;
 
-  await exportReceiptImage({
-    styles,
-    card,
-    widthPx: 420,
-    fileName: `Cierre de jornada - ${inspectorName} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`,
+  const html = pdfDocument({
+    title: 'CIERRE DE JORNADA — INSPECTOR',
+    subtitle: `👷 ${inspectorName} · ${dmy(date)} · ${turnoTxt}`,
+    body,
+    extraCss,
   });
+  await exportPdf(html, `Cierre de jornada - ${inspectorName} - ${dmy(date)} ${shift === 'day' ? 'dia' : 'noche'}`);
 }

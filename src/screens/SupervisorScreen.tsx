@@ -961,7 +961,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     try {
       await generateMyShiftReceipt({ date: today, shift: fixedShift, inspectorName: fullName || 'Inspector' });
     } catch {
-      setNotice('❌ No se pudo generar la imagen del reporte.');
+      setNotice('❌ No se pudo generar el PDF del reporte.');
     } finally {
       setReceiptBusy(false);
     }
@@ -1956,13 +1956,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </>
       )}
 
-      {/* 📄 Cierre de jornada: imagen descargable con el resumen de MIS máquinas de
+      {/* 📄 Cierre de jornada: PDF descargable con el resumen de MIS máquinas de
           este turno, para tener respaldo propio (misma data que el reporte que
           imprime el jefe). Solo sale cuando ya no queda ninguna en curso. */}
       {puedeDescargarCierre ? (
         <TouchableOpacity onPress={descargarCierreJornada} disabled={receiptBusy} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, backgroundColor: '#1E3A5F', borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, opacity: receiptBusy ? 0.6 : 1 }}>
           <Text style={{ fontSize: 16 }}>📄</Text>
-          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{receiptBusy ? 'Generando…' : 'Descargar mi reporte de cierre'}</Text>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{receiptBusy ? 'Generando…' : 'Descargar mi reporte de cierre (PDF)'}</Text>
         </TouchableOpacity>
       ) : null}
 
