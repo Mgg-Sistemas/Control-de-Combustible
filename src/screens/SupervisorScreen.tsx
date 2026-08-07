@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Platform, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, ActivityIndicator, Image, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, Loading, EmptyState, Badge, SkeletonList } from '../components/ui';
 import { useConfirm } from '../components/ConfirmProvider';
 import { BiometricToggle } from '../components/BiometricToggle';
@@ -262,15 +262,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const poll = setInterval(tryFlush, 30000);
     return () => { unsub(); unsubConn(); clearInterval(poll); };
   }, []);
-  // ── PREVIEW del rediseño (header/hero/KPIs/buscador): SOLO se activa con
-  //    ?ui=v2 en la URL — nadie más lo ve, cero riesgo para el sistema real.
-  //    Toda la lógica/datos siguen siendo EXACTAMENTE los mismos de siempre;
-  //    esto únicamente cambia qué JSX se pinta arriba. Quitar el parámetro (o
-  //    no ponerlo) deja la vista actual intacta.
-  const [uiV2] = useState(() => {
-    try { return Platform.OS === 'web' && new URLSearchParams((globalThis as any).location.search).get('ui') === 'v2'; }
-    catch { return false; }
-  });
+  // Rediseño de header/hero/KPIs/buscador — antes era una PREVIEW detrás de
+  // ?ui=v2 en la URL (así nunca se veía en el teléfono real, solo en web con
+  // ese parámetro). Ya validado, pasa a ser lo que ve todo el mundo. La rama
+  // vieja (más abajo, `!uiV2`) se deja intacta como respaldo por ahora — se
+  // puede quitar en una limpieza aparte una vez confirmado en producción.
+  const [uiV2] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   // Buscador único de "Mis máquinas" (preview v2): al escribir, filtra las 4
   // categorías a la vez (antes cada una tenía su propio buscador) y las abre
@@ -432,9 +429,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as Mach[];
     list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
     setMachines(list);
-    await reloadAssigns();
-    setVisits(await myVisitsToday(uid, today));
-    await reloadEstados();
+    // Estas 3 llamadas son independientes entre sí (ninguna usa el resultado de
+    // la otra) — antes iban una detrás de otra (3 idas y vueltas de red en
+    // serie); en paralelo la carga inicial es notablemente más rápida.
+    const [, visitsData] = await Promise.all([reloadAssigns(), myVisitsToday(uid, today), reloadEstados()]);
+    setVisits(visitsData);
     // Solo quien puede COORDINAR (admin o permiso 'coordinador_inspectores') necesita
     // la lista de inspectores para asignarles máquinas. Solo se ofrecen usuarios con
     // rol INSPECTOR (interno 'supervisor') o COORDINADOR DE PATIO ('coordinador_patio');
@@ -1829,13 +1828,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Sistema</Text>
                   </TouchableOpacity>
                 ) : null}
+                {/* Sin "Cerrar sesión" aquí a propósito: el header nativo de arriba
+                    (mismo en toda la app) ya lo tiene — repetirlo era redundante. */}
                 <View style={{ borderTopWidth: 1, borderTopColor: colors.border, padding: spacing.md }}>
                   <ChangePasswordButton variant="row" />
                 </View>
-                <TouchableOpacity onPress={() => { setMenuOpen(false); signOut(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-                  <Text style={{ fontSize: 16 }}>🚪</Text>
-                  <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>Cerrar sesión</Text>
-                </TouchableOpacity>
               </Pressable>
             </Pressable>
           </Modal>

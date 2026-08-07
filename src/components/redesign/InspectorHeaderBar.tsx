@@ -62,37 +62,39 @@ export default function InspectorHeaderBar({
       </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm + 4 }}>
-        <View style={{ position: 'relative' }}>
-          <TouchableOpacity
-            onPress={onNotifPress}
-            disabled={!onNotifPress}
-            activeOpacity={onNotifPress ? 0.7 : 1}
-            style={{ opacity: onNotifPress ? 1 : 0.4 }}
-            accessibilityLabel="Notificaciones"
-          >
-            <Text style={{ fontSize: 20 }}>🔔</Text>
-          </TouchableOpacity>
-          {hasBadge ? (
-            <View
-              style={{
-                position: 'absolute',
-                top: -4,
-                right: -6,
-                minWidth: 16,
-                height: 16,
-                borderRadius: 8,
-                backgroundColor: colors.danger,
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingHorizontal: 3,
-              }}
+        {/* Sin `onNotifPress` no hay a dónde llevar al usuario — mejor no mostrar
+            una campana apagada que parece un botón roto. */}
+        {onNotifPress ? (
+          <View style={{ position: 'relative' }}>
+            <TouchableOpacity
+              onPress={onNotifPress}
+              activeOpacity={0.7}
+              accessibilityLabel="Notificaciones"
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700' }}>
-                {badgeLabel}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+              <Text style={{ fontSize: 20 }}>🔔</Text>
+            </TouchableOpacity>
+            {hasBadge ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: -4,
+                  right: -6,
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  backgroundColor: colors.danger,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 3,
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700' }}>
+                  {badgeLabel}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         <TouchableOpacity
           onPress={onMenuPress}

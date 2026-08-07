@@ -147,6 +147,59 @@
     </div>
   </div>
 
+  <section class="day-group" id="day-2026-08-07">
+    <h2 class="day-heading">📅 07/08/2026</h2>
+
+  <h2><span class="n">00</span> Rediseño del inspector (header/hero/KPIs/buscador) — pasa de preview a producción</h2>
+  <p class="sec-note">Pedido: "corrige esas vistas, revisa bien todas las vistas y funcionalidades... despliega múltiples agentes". El rediseño ya existía en el código desde antes, pero detrás de un parámetro <code>?ui=v2</code> que solo se activaba en <b>web</b> — en el teléfono real nadie lo veía nunca, así que el problema reportado (header con "SALIR"/"CERRAR SESIÓN" encimados, KPIs en cápsulas chicas) en realidad era la vista VIEJA, no la nueva.</p>
+
+  <div class="card feat">
+    <h3>uiV2 pasa a ser el default (header limpio, hero con QR grande, KPIs 2×2, buscador + pestañas) <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="why">2 agentes en paralelo confirmaron: <code>InspectorHeaderBar</code>, <code>InspectorHeroCard</code> (CTA "ESCANEAR QR" + grid 2 columnas) y <code>InspectorKpiGrid</code> (2×2, mismos disparadores de filtro de siempre) ya estaban construidos y conectados en <code>SupervisorScreen.tsx</code> — solo bloqueados por <code>Platform.OS==='web' && ?ui=v2</code>. De paso encontraron un botón "Cerrar sesión" duplicado (el header nativo de toda la app ya trae uno) y una campana 🔔 de notificaciones sin acción asignada, siempre atenuada/inactiva.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>uiV2</code> ahora es <code>true</code> siempre (nativo y web, sin parámetro). Se quitó el "Cerrar sesión" repetido del menú del avatar (queda solo el del header). <code>InspectorHeaderBar</code> ya no pinta la campana si no recibe una acción real (antes se veía siempre, apagada, como un botón roto). La rama vieja se deja intacta en el archivo como respaldo instantáneo (revertir es una sola línea) — pendiente quitarla del todo en una limpieza aparte una vez confirmado en producción por unos días.</p>
+  </div>
+
+  <div class="card feat">
+    <h3>Carga inicial del inspector: 3 consultas independientes en paralelo <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ XS</span></span></h3>
+    <p class="why">Auditoría de rendimiento: <code>load()</code> encadenaba <code>reloadAssigns()</code>, <code>myVisitsToday()</code> y <code>reloadEstados()</code> una detrás de otra aunque ninguna depende del resultado de la anterior — 3 idas y vueltas de red en serie en cada apertura/refresco de la pantalla.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> las 3 corren con <code>Promise.all</code>. Mismo resultado final, carga inicial más rápida. <b>Sin tocar</b> (riesgo/beneficio no lo justificaba hoy): el doble fetch de datos de máquina entre <code>listInspectorAssignments()</code> y el <code>selectAllRows('machinery')</code> de <code>load()</code> — tiene 8 consumidores más que revisar antes de tocarlo; y la re-evaluación de <code>segmentoDe()</code> en 5 <code>useMemo</code> distintos — es la función de clasificación más delicada del sistema (ya causó varios bugs reales esta sesión), no se toca sin motivo concreto.</p>
+  </div>
+
+  <h2><span class="n">01</span> Auditoría de Surtir combustible / Asistencia de camiones (rol conductor)</h2>
+  <p class="sec-note">3 agentes en paralelo, uno por pantalla + uno comparando contra la guía/manual del Chofer de Combustible.</p>
+
+  <div class="card feat">
+    <h3>5 hallazgos corregidos <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> (1) la sección "Reportar avería" en <code>FuelDriverScreen.tsx</code> no se limpiaba al cambiar de máquina — podía mandar fotos/notas de una máquina pegadas a otra. (2) Litros/monto no se limpiaban al cambiar entre Combustible/Aceite/Aire. (3) El mismo chofer tenía el tope de "2× consumo diario" activo en "Asistencia → Gasoil" pero desactivado en "Surtir" — mismo rol, misma acción real, resultado distinto; ahora <code>SurtidoGasoilModal</code> acepta <code>skipDailyCap</code> y se activa solo para <code>role==='conductor'</code> (los demás roles que usan ese modal no cambian). (4) <code>finalizarJornada</code> de un camión en Asistencia no validaba horómetro final ≥ inicial (un typo se guardaba y se arrastraba al día siguiente). (5) Guía PDF del Chofer de Combustible actualizada — describía solo el flujo viejo, sin el selector Combustible/Aceite/Aire ni el reporte de avería.</p>
+  </div>
+
+  <h2><span class="n">02</span> Combustible: además de surtir, ahora se puede registrar Aceite y Aire</h2>
+  <div class="card feat">
+    <h3>Selector "¿Qué vas a surtir?" en el teléfono del chofer <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> tabla nueva <code>machine_services</code> (aparte de <code>dispatches</code>, que tiene el tope de "1 carga de combustible por máquina/día" y descuenta un tanque — ni Aceite ni Aire deben chocar con eso). Aceite pide litros + monto opcional; Aire no lleva cantidad, solo una nota libre.</p>
+  </div>
+
+  <h2><span class="n">03</span> Panel "Gestionar iniciada/pendiente" (Inspecciones, admin): una sola fuente de verdad</h2>
+  <div class="card feat">
+    <h3>El panel tenía su propio cálculo de estado, desincronizado del dashboard <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-alta">Alta</span><span class="chip eff">◷ M</span></span></h3>
+    <p class="why">El panel mostraba estados que no coincidían con las tarjetas ✅ Activas ahora / 🏁 Cerradas / ⏳ Pendientes / 🟡 Paradas / 🔴 Averiadas de arriba: no veía averías arrastradas de días anteriores, nunca detectaba "Cerrada" (su propio "iniciada" ya contaba también las cerradas-con-horas), y una parada arrastrada no respetaba el turno en que se marcó.</p>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> se extrajo el cálculo del dashboard (<code>daySets</code>) a <code>buildDaySets(turno)</code> reusable para día y noche a la vez (<code>daySetsByShift</code>); el panel Gestionar ahora lee literalmente esa misma fuente — ya no puede haber drift porque no hay dos cálculos. Verificado con 2 agentes (auditoría del refactor + trazado manual de 5 escenarios reales). De paso: buscador propio por máquina/inspector dentro del panel, y 3 acciones nuevas (Cerrar/Finalizar, Parada, Avería en bloque) además de Activar/Pendiente — cubre los 5 estados reales.</p>
+  </div>
+
+  <h2><span class="n">04</span> Catálogo de edificios actualizado a la lista real + mejoras en Catálogo (Equipos)</h2>
+  <div class="card feat">
+    <h3>Nombres reales de los 21 edificios/puntos + avería visible + fotos en inactivas <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> <code>public.edificios</code> actualizado (SQL corrido en producción) con la lista confirmada por el cliente — nombres corregidos (Santa Eduviges, Litoral Palace, Las Palmas, Rita Mar, Club Caribe, Residencia Tachiti, OPP en mayúsculas) y 8 nuevos agregados; las reglas de <code>edificioCanonico()</code> siguen aceptando la ortografía vieja para no perder texto histórico. En el Catálogo: insignia 🔴 Averiada / 🟡 Parada visible por máquina (antes solo en Inspecciones), miniatura tocable + botones de foto en máquinas <b>inactivas</b> (antes solo en activas), y la lista del CHECK MÁQUINA ya no muestra inactivas.</p>
+  </div>
+
+  <h2><span class="n">05</span> Reporte de inspectores: imagen descargable de cierre de jornada</h2>
+  <div class="card feat">
+    <h3>Cada inspector puede descargar su propio respaldo al terminar el turno <span class="meta"><span class="chip" style="background:var(--done);color:#fff;border-color:transparent">✓ Hecho</span><span class="chip p-media">Media</span><span class="chip eff">◷ S</span></span></h3>
+    <p class="fix" style="color:var(--done)"><b>✓ Hecho:</b> botón "📄 Descargar mi reporte de cierre" que aparece cuando el inspector ya no tiene ninguna máquina de su turno con jornada abierta; genera una imagen PNG con sus máquinas/horas/estado, usando <b>la misma función de cálculo</b> que el reporte oficial que imprime el jefe (para que nunca se desincronicen). También: Distribución de Uniformes ahora permite seleccionar varios empleados y sacar UNA nota de entrega consolidada con firma por persona (pedido del coordinador logístico).</p>
+  </div>
+
+  </section>
+
   <section class="day-group" id="day-2026-08-06">
     <h2 class="day-heading">📅 06/08/2026</h2>
 
