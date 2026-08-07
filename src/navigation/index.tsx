@@ -709,6 +709,10 @@ function pickTree(ctx: {
   if (phone && isJesusLozada && sistemaMode) return { key: 'tabs', node: <Tabs /> };
   if (phone && isJesusLozada) return { key: 'supervisorTabs', node: <SupervisorTabs onSistema={goSistema} /> };
   if (role === 'supervisor') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
+  // COORDINADOR DE INSPECTORES: usa la MISMA vista del inspector (SupervisorScreen),
+  // con sus propias máquinas + la sub-vista "👥 Inspectores" para operar por cada
+  // inspector. El propio SupervisorScreen le desbloquea los superpoderes por su rol.
+  if (role === 'coordinador_inspectores') return { key: 'supervisorTabs', node: <SupervisorTabs /> };
   // CONDUCTOR (chofer): rol fijo con su propio panel (surtir · camiones · asistencia
   // de camiones), igual que supervisor tiene el suyo — independiente de appRole.
   if (role === 'conductor') return { key: 'conductor', node: <ConductorTabs /> };

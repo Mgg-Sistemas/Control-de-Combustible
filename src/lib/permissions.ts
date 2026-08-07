@@ -9,6 +9,7 @@ export const ROLE_LABEL: Record<string, string> = {
   admin: 'admin', supervisor: 'inspector', analista: 'analista',
   operador: 'operador', conductor: 'conductor', cocina: 'cocina',
   coordinador_patio: 'coordinador de patio',
+  coordinador_inspectores: 'coordinador de inspectores',
 };
 export const roleLabel = (r?: string | null) => (r ? (ROLE_LABEL[r] ?? r) : '');
 

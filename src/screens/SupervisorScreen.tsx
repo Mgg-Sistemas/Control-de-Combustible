@@ -35,6 +35,7 @@ import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
 import InspectorSearchBar from '../components/redesign/InspectorSearchBar';
+import CoordinadorInspectoresView from '../components/CoordinadorInspectoresView';
 
 const CARACAS_TZ = 'America/Caracas';
 /** Día ISO (AAAA-MM-DD) de hoy en horario de Caracas. */
@@ -141,6 +142,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // (cerrado por defecto) y con su propio buscador.
   const [grpOpen, setGrpOpen] = useState<Record<string, boolean>>({});
   const [grpQuery, setGrpQuery] = useState<Record<string, string>>({});
+  // ── COORDINADOR DE INSPECTORES: conmutador de la pantalla entre "🚜 Máquinas" (la
+  //    vista de siempre, con SUS máquinas) e "👥 Inspectores" (operar por cada
+  //    inspector). Buscador + acordeón por inspector propios de esa sub-vista.
+  const [coordTab, setCoordTab] = useState<'maquinas' | 'inspectores'>('maquinas');
+  const [coordQuery, setCoordQuery] = useState('');
+  const [coordExpanded, setCoordExpanded] = useState<Set<string>>(new Set());
   const [scanOpen, setScanOpen] = useState(false);
   // ── CHECK MÁQUINA: asignar/desasignar máquinas al inspector logueado. Cada
   //    inspector solo ve las que tiene asignadas (se casa persona ↔ máquina).
@@ -155,12 +162,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // cuando entró por el QR de una máquina (donde no se inyecta onSistema), y ningún
   // otro rol puede asignar nunca. onSistema queda solo para el botón "SISTEMA".
   const isAdmin = role === 'admin'; // puede ver todas las máquinas y asignarlas
+  // COORDINADOR DE INSPECTORES (rol fijo): además de sus propias máquinas, opera por
+  // cualquier inspector (iniciar jornada / avería / parada / ubicación) desde la
+  // sub-vista "👥 Inspectores". Es como un inspector con superpoderes: puede tocar
+  // máquina de otro y cualquier turno. La atribución sigue siendo del inspector dueño
+  // de la máquina (así se le "marca" a él); queda traza de que lo registró el coordinador.
+  const esCoordInsp = role === 'coordinador_inspectores';
   // COORDINAR INSPECTORES (CHECK máquina, pendientes por asignar, asignar/reasignar
   // inspector, ver "Todas las máquinas"): el admin SIEMPRE puede (isAdmin va en el OR,
   // no se le quita nada) y, ADEMÁS, cualquiera con el módulo 'coordinador_inspectores'
   // (permiso nuevo, por defecto 'none') también puede. Es ADITIVO: no toca ninguna otra
   // acción del inspector normal (marcar máquina parada, iniciar/finalizar jornada, etc.).
-  const puedeCoordinar = isAdmin || canSee('coordinador_inspectores');
+  const puedeCoordinar = isAdmin || esCoordInsp || canSee('coordinador_inspectores');
   // ADMIN/COORDINADOR EN EL TELÉFONO: arranca viendo TODAS las máquinas (con buscador),
   // no la lista vacía "Mis máquinas". Se activa UNA sola vez al detectarse el permiso
   // (puede llegar async); luego puede tocar "Solo las mías" sin que se vuelva a forzar.
@@ -650,7 +663,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // iniciarle jornada. Excepción: admin y coordinador (pueden con cualquiera).
   const maquinaDeOtro = useMemo(() => {
     if (!ci) return false;
-    if (isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
+    if (isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
     const s = assignMap[ci.id] || {};
     const mia = s.day?.id === uid || s.night?.id === uid;
     const deOtro = (!!s.day?.id && s.day.id !== uid) || (!!s.night?.id && s.night.id !== uid);
@@ -674,7 +687,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     return set;
   }, [assignMap, uid]);
-  const puedeCualquierTurno = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+  const puedeCualquierTurno = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
   // PARADAS de la máquina. SINCRONIZADO CON EL SISTEMA (admin/InspectionsSummary):
   // una parada pendiente cuenta para la máquina SIN importar el turno en que se marcó.
   // ANTES se filtraba por el turno del inspector (una parada de noche no la veía el de
@@ -775,6 +788,40 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     return g;
   }, [mine, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById, averiaRawList, paradaRawList, assignMap, uid]);
+  // 👥 VISTA POR INSPECTOR (coordinador): cada inspector real con SUS máquinas
+  // repartidas por estado (iniciadas / pendientes / paradas / averiadas), usando el
+  // MISMO segmentoDe del resto de la pantalla. El inspector de sistema "MAQUINAS
+  // FALTANTES" (placeholder) no cuenta. Sirve para que el coordinador vea a cada
+  // inspector "como una vista de inspector" y opere sus máquinas.
+  type InspBuckets = { iniciadas: Mach[]; pendientes: Mach[]; paradas: Mach[]; averiadas: Mach[] };
+  const inspectoresView = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string; ids: Set<string> }>();
+    const ensure = (id: string, name: string) => {
+      let g = byId.get(id);
+      if (!g) { g = { id, name, ids: new Set<string>() }; byId.set(id, g); }
+      return g;
+    };
+    machines.forEach((m) => {
+      const s = assignMap[m.id] || {};
+      if (s.day?.id && !esVirtual(s.day.id)) ensure(s.day.id, s.day.name).ids.add(m.id);
+      if (s.night?.id && !esVirtual(s.night.id)) ensure(s.night.id, s.night.name).ids.add(m.id);
+    });
+    const machById = new Map(machines.map((m) => [m.id, m] as const));
+    const rows = Array.from(byId.values()).map((g) => {
+      const buckets: InspBuckets = { iniciadas: [], pendientes: [], paradas: [], averiadas: [] };
+      g.ids.forEach((id) => {
+        const m = machById.get(id);
+        if (!m || !visibleParaInspector(m)) return;
+        const seg = segmentoDe(id);
+        buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
+      });
+      (Object.keys(buckets) as (keyof InspBuckets)[]).forEach((k) => buckets[k].sort((a, b) => cmpText(a.code, b.code)));
+      const total = buckets.iniciadas.length + buckets.pendientes.length + buckets.paradas.length + buckets.averiadas.length;
+      return { id: g.id, name: g.name, buckets, total };
+    }).filter((r) => r.total > 0).sort((a, b) => cmpText(a.name, b.name));
+    return rows;
+  }, [machines, assignMap, roundsById, averiaRawList, paradaRawList]);
+
   // Turno FIJO para iniciar: el de ESTA máquina si está asignado; si no, su turno
   // global cuando es único. null = puede elegir (admin/coordinador, o sin asignaciones).
   const fixedShift = useMemo<Shift | null>(() => {
@@ -947,7 +994,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // tocar máquinas asignadas a ÉL (día o noche) o SIN asignar; NO las de otro inspector.
   // Admin y coordinadores (patio / QR), cualquiera.
   const puedeMarcar = (m: Mach): boolean => {
-    const puedeCualquiera = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
     if (puedeCualquiera) return true;
     const slots = assignMap[m.id] || {};
     const mia = slots.day?.id === uid || slots.night?.id === uid;
@@ -1039,6 +1086,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   // Reporta una AVERÍA de la máquina (misma función que el operador): cae en el
   // módulo de Mantenimiento de Maquinaria como solicitud pendiente.
+  // TRAZA DE COORDINADOR: cuando un coordinador de inspectores actúa sobre la máquina
+  // de OTRO inspector, la acción cuenta para el inspector dueño (la máquina es suya),
+  // pero dejamos constancia visible de quién la registró de verdad. Devuelve '' si no
+  // aplica (no es coordinador, o la máquina es suya / sin dueño).
+  const coordActuando = (id: string): boolean => {
+    if (!esCoordInsp) return false;
+    const s = assignMap[id] || {};
+    const mia = s.day?.id === uid || s.night?.id === uid;
+    return !mia && (!!s.day?.id || !!s.night?.id);
+  };
+  const conTraza = (id: string, nota?: string | null): string | null => {
+    const base = (nota ?? '').trim();
+    const traza = coordActuando(id) ? `registrado por ${fullName || 'coordinador'} (coordinador)` : '';
+    return [base, traza].filter(Boolean).join(' · ') || null;
+  };
+
   const registrarAveria = async () => {
     if (!ci || !avMaterial) return;
     setAvSaving(true);
@@ -1046,7 +1109,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       machinery_id: ci.id,
       material: avMaterial,
       quantity: avNumOrNull(avQty),
-      notes: avNote.trim() || null,
+      notes: conTraza(ci.id, avNote),
       status: 'pendiente',
       requested_by: uid || null,
       photo_url: avPhoto,
@@ -1094,7 +1157,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       status,
       lat: gps?.lat ?? null,
       lng: gps?.lng ?? null,
-      note: ciNote,
+      note: conTraza(ci.id, ciNote) ?? '',
       machineLat: ci.latitude ?? null,
       machineLng: ci.longitude ?? null,
     });
@@ -1114,7 +1177,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!isOnline()) { setNotice('📶 Sin conexión: para iniciar jornada hace falta señal (valida datos contra el servidor). El check-in de parada/avería sí funciona sin conexión.'); return; }
     // Regla: NO puedes iniciar la jornada de una máquina asignada a OTRO inspector.
     // Excepción: admin y coordinador (pueden iniciar cualquier máquina).
-    const puedeCualquiera = isAdmin || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = isAdmin || esCoordInsp || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
     if (!puedeCualquiera) {
       const slots = assignMap[ci.id] || {};
       const mia = slots.day?.id === uid || slots.night?.id === uid;
@@ -1876,7 +1939,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {uiV2 ? (
+      {/* CONMUTADOR del coordinador: "🚜 Máquinas" (su ronda de siempre) vs
+          "👥 Inspectores" (operar por cada inspector). Solo lo ve el coordinador/admin. */}
+      {puedeCoordinar ? (
+        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+          {([['maquinas', '🚜 Máquinas'], ['inspectores', '👥 Inspectores']] as const).map(([k, label]) => {
+            const on = coordTab === k;
+            return (
+              <TouchableOpacity key={k} onPress={() => setCoordTab(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {uiV2 && coordTab === 'maquinas' ? (
         <View style={{ marginBottom: spacing.sm }}>
           <InspectorSearchBar
             value={showAll ? query : mineQuery}
@@ -1906,7 +1984,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         </View>
       ) : null}
 
-      {puedeCoordinar && showAll ? (
+      {coordTab === 'inspectores' ? (
+        // 👥 Sub-vista del coordinador: cada inspector con sus máquinas por estado.
+        // Tocar una máquina abre el MISMO check-in (openCheckin) → operar por el inspector.
+        <CoordinadorInspectoresView
+          rows={inspectoresView}
+          query={coordQuery}
+          onQueryChange={setCoordQuery}
+          expanded={coordExpanded}
+          onToggle={(id) => setCoordExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; })}
+          onTapMachine={(m) => openCheckin(m as Mach)}
+        />
+      ) : puedeCoordinar && showAll ? (
         // Admin o coordinador de inspectores: ver TODAS las máquinas. El inspector normal no ve esto.
         <>
           {!uiV2 ? (
