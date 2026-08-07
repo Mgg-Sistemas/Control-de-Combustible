@@ -46,15 +46,6 @@ export default function WorkCentersScreen() {
   const { colors } = useTheme();
   const { moduleLevel } = useAuth();
   const level = moduleLevel('mangueras');
-
-  if (level === 'none') {
-    return (
-      <Screen>
-        <SectionTitle>Centros de trabajo</SectionTitle>
-        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
-      </Screen>
-    );
-  }
   const canWrite = levelMeets(level, 'escritura');
 
   const { data: centers, loading, refetch } = useTable<WorkCenter>('work_centers', { orderBy: 'code', realtimeFrom: ['work_centers'] });
@@ -72,6 +63,22 @@ export default function WorkCentersScreen() {
   const shown = useMemo(() => {
     return centers.filter((c) => !q || norm(`${c.code} ${c.name}`).includes(q));
   }, [centers, q]);
+
+  // El chequeo de permiso va DESPUÉS de todos los hooks (useTable/useMemo/
+  // useState de arriba): un `return` temprano antes de ellos viola las Rules
+  // of Hooks — en el primer render tras loguearse, `moduleLevel` todavía
+  // devuelve 'none' (el rol carga async) así que este `if` se cumplía, se
+  // saltaban los hooks siguientes, y en el próximo render (rol ya cargado) sí
+  // se llamaban → React tira "Rendered more hooks than during the previous
+  // render" y la pantalla se rompe justo después de iniciar sesión.
+  if (level === 'none') {
+    return (
+      <Screen>
+        <SectionTitle>Centros de trabajo</SectionTitle>
+        <EmptyState title="Sin acceso" subtitle="No tienes permiso para ver este módulo. Pídeselo a un administrador." />
+      </Screen>
+    );
+  }
 
   // ── Formulario (crear / editar) ────────────────────────────────────────
   const [formOpen, setFormOpen] = useState(false);

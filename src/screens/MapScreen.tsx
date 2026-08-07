@@ -5,6 +5,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useToast } from '../components/ToastProvider';
 import { VenezuelaMap, MapPin, companyLegend, MAP_ZONES } from '../components/VenezuelaMap';
 import { supabase } from '../lib/supabase';
+import { nextRtInstanceId } from '../hooks/useRealtime';
 import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { equipCategory } from '../lib/equipos';
@@ -60,6 +61,8 @@ export default function MapScreen({ navigation, route }: any) {
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();
+  const rtId = useRef(0);
+  if (!rtId.current) rtId.current = nextRtInstanceId();
   const { role } = useAuth();
   const isAdmin = role === 'admin';
   const [pins, setPins] = useState<MapPin[] | null>(null);
@@ -255,7 +258,7 @@ export default function MapScreen({ navigation, route }: any) {
     // Sincronización multiusuario: refresca los pines al cambiar ubicaciones/máquinas.
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
-    const ch = supabase.channel('rt-map');
+    const ch = supabase.channel(`rt-map-${rtId.current}`);
     ['machinery', 'machinery_locations'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );

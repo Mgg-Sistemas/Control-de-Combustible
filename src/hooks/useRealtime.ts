@@ -5,6 +5,16 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 // colisione con otro (dos canales con el mismo nombre rompen realtime).
 let rtxSeq = 0;
 
+/** Id único de instancia para canales de Supabase creados a mano fuera de este
+ *  hook (pantallas con su propio `supabase.channel('nombre-fijo')`): evita el
+ *  error "cannot add postgres_changes after subscribe()" si la pantalla llega
+ *  a montarse dos veces a la vez. Úsalo con `useRef` para que el id sea estable
+ *  durante toda la vida del componente: `const id = useRef(0); if (!id.current) id.current = nextRtInstanceId();`
+ */
+export function nextRtInstanceId(): number {
+  return ++rtxSeq;
+}
+
 /**
  * Refresca en TIEMPO REAL pantallas que tienen su propia carga (no usan useTable):
  * ejecuta `onChange` (con un pequeño debounce) cada vez que cambia (INSERT/UPDATE/

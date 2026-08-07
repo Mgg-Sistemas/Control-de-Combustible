@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading, Badge } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -21,7 +21,11 @@ import { caracasParts } from '../lib/jornada';
 import { PAGO_STATUS_META, PAGO_STATUS_LABEL } from '../lib/statusMeta';
 
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-function parseNum(t: string): number { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
+// `onlyDecimal` (lib/text.ts) ya deja como mucho UN separador decimal (. o ,,
+// el primero que se tipeó) — acá solo hace falta pasar la coma a punto, NUNCA
+// borrar puntos (si no, "450.50" se leía como 45050: el sueldo quedaba 100x
+// inflado).
+function parseNum(t: string): number { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; }
 function todayISO(): string { return caracasParts(new Date()).iso; }
 const sumLines = (l: PayrollLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const netOf = (base: number, add: PayrollLine[], ded: PayrollLine[]) => Math.round((base + sumLines(add) - sumLines(ded)) * 100) / 100;
@@ -263,7 +267,7 @@ export default function NominaScreen({ navigation }: any) {
       {lines.map((l, i) => (
         <View key={i} style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 4, alignItems: 'center' }}>
           <TextInput value={l.label} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, label: t } : x)))} placeholder="Concepto" placeholderTextColor={colors.muted} style={{ ...input, flex: 2 }} />
-          <TextInput value={l.amount ? String(l.amount) : ''} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: parseNum(t) } : x)))} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, flex: 1, textAlign: 'right' }} />
+          <TextInput value={l.amount ? String(l.amount) : ''} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: parseNum(onlyDecimal(t)) } : x)))} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, flex: 1, textAlign: 'right' }} />
           <TouchableOpacity onPress={() => setLines(lines.filter((_, j) => j !== i))} style={{ padding: spacing.xs }}>
             <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 16 }}>✕</Text>
           </TouchableOpacity>

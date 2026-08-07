@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
 import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
@@ -135,6 +136,8 @@ function fmtDMY(iso: string): string {
 }
 
 export default function ControlMaquinariaScreen({ navigation, route }: any) {
+  const rtId = useRef(0);
+  if (!rtId.current) rtId.current = nextRtInstanceId();
   const { colors } = useTheme();
   const confirm = useConfirm();
   const toast = useToast();

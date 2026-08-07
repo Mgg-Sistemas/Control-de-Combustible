@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, TextInput, ScrollView, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { nextRtInstanceId } from '../hooks/useRealtime';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { useAuth } from '../context/AuthContext';
@@ -176,6 +177,10 @@ export default function ControlPagosScreen({ navigation }: any) {
   const { colors } = useTheme();
   const { canSee, role, session } = useAuth();
   const confirm = useConfirm();
+  // Id único de instancia para el canal de realtime (evita colisión si la
+  // pantalla llega a montarse dos veces a la vez).
+  const rtId = useRef(0);
+  if (!rtId.current) rtId.current = nextRtInstanceId();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<Group[]>([]);
   const [payments, setPayments] = useState<CompanyPayment[]>([]);
@@ -441,7 +446,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     // Sincronización multiusuario en vivo.
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
-    const ch = supabase.channel('rt-control-pagos');
+    const ch = supabase.channel(`rt-control-pagos-${rtId.current}`);
     ['machine_rounds', 'company_payments', 'machinery', 'fletes'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
@@ -513,8 +518,12 @@ export default function ControlPagosScreen({ navigation }: any) {
   // Persiste los precios del ámbito actual (sin diálogo). Devuelve nº de cambios.
   const persistCurrentScope = async (): Promise<number> => {
     if (tarScope === 'general') {
+      // Un campo vacío no es "cambió a $0" — se ignora (evita poner el precio
+      // general en 0 para TODAS las máquinas de ese modelo por borrar sin querer).
       const changed = tariffs.filter((t) => {
-        const v = Number(tarEdits[t.modelo]);
+        const raw = (tarEdits[t.modelo] ?? '').trim();
+        if (raw === '') return false;
+        const v = Number(raw);
         return Number.isFinite(v) && v !== Number(t.price_jornada);
       });
       for (const t of changed) {

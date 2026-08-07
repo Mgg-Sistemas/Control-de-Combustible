@@ -25,7 +25,11 @@ import { PAGO_STATUS_META } from '../lib/statusMeta';
 // ── Formato / utilidades ──────────────────────────────────────────────────────
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const usd = (n: number) => `$${round2(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
+// `onlyDecimal` (lib/text.ts) ya deja como mucho UN separador decimal (. o ,,
+// el primero que se tipeó) — acá solo hace falta pasar la coma a punto, NUNCA
+// borrar puntos (si no, "150.50" se leía como 15050: el monto quedaba 100x
+// inflado).
+const parseNum = (t: string): number => { const n = Number(String(t ?? '').replace(',', '.').replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : 0; };
 const sumLines = (l: StaffPayLine[]) => (l || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 const fmtDMY = (iso?: string | null) => { const [y, m, d] = String(iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : (iso || '—'); };
 
@@ -635,7 +639,7 @@ export default function PagoPersonalScreen() {
       {lines.map((l, i) => (
         <View key={i} style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: 4, alignItems: 'center' }}>
           <TextInput value={l.label} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, label: t } : x)))} editable={!readOnly} placeholder="Concepto" placeholderTextColor={colors.muted} style={{ ...input, flex: 2 }} />
-          <TextInput value={l.amount ? String(l.amount) : ''} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: parseNum(t) } : x)))} editable={!readOnly} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, flex: 1, textAlign: 'right' }} />
+          <TextInput value={l.amount ? String(l.amount) : ''} onChangeText={(t) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: parseNum(onlyDecimal(t)) } : x)))} editable={!readOnly} keyboardType="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, flex: 1, textAlign: 'right' }} />
           <TouchableOpacity onPress={() => setLines(lines.filter((_, j) => j !== i))} disabled={readOnly} style={{ padding: spacing.xs }}>
             <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 16 }}>✕</Text>
           </TouchableOpacity>
