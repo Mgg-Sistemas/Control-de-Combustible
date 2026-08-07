@@ -52,7 +52,7 @@ type Row = {
   machinery_id: string; inspector: string; code: string; companyName: string;
   serial: string | null; plate: string | null; sector: string; referencia: string; edificio: string;
   tipo: string; clasificacion: string;
-  enCurso: boolean; parada: boolean; pendiente: boolean; finalizada: boolean;
+  enCurso: boolean; parada: boolean; pendiente: boolean; finalizada: boolean; averiada: boolean; motivo: string;
 };
 
 /**
@@ -90,13 +90,24 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   //    igual que en el teléfono, hasta que el inspector las reactive). Por TURNO.
   const { data: mr } = await supabase
     .from('maintenance_requests')
-    .select('machinery_id, created_at')
-    .eq('material', 'MÁQUINA PARADA')
+    .select('machinery_id, material, notes, created_at')
     .eq('status', 'pendiente')
     .lte('created_at', `${date}T23:59:59.999-04:00`)
     .order('created_at', { ascending: false });
+  const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   const paradaByMachine = new Map<string, 'day' | 'night'>();
-  ((mr ?? []) as any[]).forEach((p) => { if (!paradaByMachine.has(p.machinery_id)) paradaByMachine.set(p.machinery_id, paradaShiftOf(p.created_at)); });
+  // Avería (mantenimiento pendiente que NO es "MÁQUINA PARADA") → motivo real (la nota,
+  // o el material si no hay nota). La más reciente por máquina (viene ordenado desc).
+  const averiaByMachine = new Map<string, { motivo: string; createdMs: number }>();
+  ((mr ?? []) as any[]).forEach((m) => {
+    if (m.material === 'MÁQUINA PARADA') {
+      if (!paradaByMachine.has(m.machinery_id)) paradaByMachine.set(m.machinery_id, paradaShiftOf(m.created_at));
+    } else if (!averiaByMachine.has(m.machinery_id)) {
+      const notes = (m.notes && String(m.notes).trim()) || '';
+      const motivo = notes || (m.material ? String(m.material) : 'Avería');
+      averiaByMachine.set(m.machinery_id, { motivo, createdMs: new Date(m.created_at).getTime() });
+    }
+  });
 
   // 3) Asignaciones (CHECK) inspector ↔ máquina: la columna vertebral — TODAS las
   //    máquinas de cada inspector, para saber cuáles le faltaron por iniciar.
@@ -128,13 +139,19 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     // coincide con el conteo por inspector del panel).
     const inactiva = extraById.get(a.machinery_id) ? !(extraById.get(a.machinery_id)!.active && extraById.get(a.machinery_id)!.operational) : false;
     if (inactiva && !rd?.startAt) return;
-    const parShift = paradaByMachine.get(a.machinery_id);
-    const parada = !!parShift && parShift === shiftCtx;
     const hoursForShift = shiftCtx === 'night' ? (rd?.nightH ?? 0) : (rd?.dayH ?? 0);
     const openForShift = !!rd?.startAt && rd?.shift === shiftCtx;
-    const enCurso = !parada && openForShift;
-    const finalizada = !parada && !enCurso && hoursForShift > 0;
-    const pendiente = !parada && !enCurso && !finalizada;
+    const worked = hoursForShift > 0 || openForShift;
+    // MISMA prioridad que la pantalla: avería > parada > iniciada > pendiente. La avería
+    // pendiente se arrastra; si es de un día anterior, solo cuenta si NO trabajó ese turno.
+    const av = averiaByMachine.get(a.machinery_id);
+    const averiada = !!av && (av.createdMs < dayStartMs ? !worked : true);
+    const motivo = averiada && av ? av.motivo : '';
+    const parShift = paradaByMachine.get(a.machinery_id);
+    const parada = !averiada && !!parShift && parShift === shiftCtx;
+    const enCurso = !averiada && !parada && openForShift;
+    const finalizada = !averiada && !parada && !enCurso && hoursForShift > 0;
+    const pendiente = !averiada && !parada && !enCurso && !finalizada;
     const extra = extraById.get(a.machinery_id);
     byKey.set(k, {
       machinery_id: a.machinery_id,
@@ -148,7 +165,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
       edificio: edificioOf(a.referencia),
       tipo: (extra?.tipo && String(extra.tipo).trim()) || '—',
       clasificacion: (extra?.clasificacion && String(extra.clasificacion).trim()) || '—',
-      enCurso, parada, pendiente, finalizada,
+      enCurso, parada, pendiente, finalizada, averiada, motivo,
     });
   });
 
@@ -175,32 +192,48 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     </tr></thead><tbody>${rows}</tbody></table>`;
   };
 
+  // Tabla de máquinas AVERIADAS del inspector, indicando el MOTIVO de la avería.
+  const tableAveriadas = (list: Row[]): string => {
+    const rows = list.slice().sort((a, b) => cmpText(a.code, b.code)).map((r, i) =>
+      `<tr>
+        <td>${i + 1}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.motivo || 'Avería')}</td>
+        <td>${esc(psTxt(r.plate, r.serial))}</td><td>${esc(r.edificio)}</td><td>${esc(r.companyName)}</td>
+      </tr>`).join('');
+    return `<table class="ir"><thead><tr>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Motivo de la avería</th>
+      <th>Serial/Placa</th><th>Edificio</th><th>Empresa</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  };
+
   // Color según el % de eficiencia: verde 100%, ámbar 50-99%, rojo <50%.
   const efiColor = (e: number): string => (e >= 100 ? '#1E9E4A' : e >= 50 ? '#D9A200' : '#D22B2B');
 
   const inspectoresConEficiencia = inspectores.map(([name, list]) => {
     const iniciadas = list.filter((r) => r.enCurso || r.finalizada).length;
-    const averiadas = list.filter((r) => r.parada).length;
+    const averiadas = list.filter((r) => r.averiada);
+    const paradas = list.filter((r) => r.parada).length;
     const pendientes = list.filter((r) => r.pendiente);
     const chequeadas = list.length - pendientes.length;
     const eficiencia = list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
-    return { name, list, iniciadas, averiadas, pendientes, chequeadas, eficiencia };
+    return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, eficiencia };
   });
 
-  const secciones = inspectoresConEficiencia.map(({ name, list, iniciadas, averiadas, pendientes, eficiencia }) => {
+  const secciones = inspectoresConEficiencia.map(({ name, list, iniciadas, averiadas, paradas, pendientes, eficiencia }) => {
     const efiTxt = eficiencia === null ? '—' : `${eficiencia}%`;
     const efiColorTxt = eficiencia === null ? '#6B7280' : efiColor(eficiencia);
     const resumen = `<p class="sum">
       <b>${list.length}</b> máquina(s) asignada(s) ·
       <b style="color:#1E9E4A">🟢 ${iniciadas} iniciada(s)</b> ·
-      <b style="color:#D22B2B">🔴 ${averiadas} averiada(s)/parada(s)</b> ·
+      <b style="color:#D22B2B">🔧 ${averiadas.length} averiada(s)</b> ·
+      <b style="color:#D9A200">🟡 ${paradas} parada(s)</b> ·
       <b style="color:#D9A200">⏳ ${pendientes.length} sin iniciar</b> ·
       <b style="color:${efiColorTxt}">⚡ Eficiencia: ${efiTxt}</b>
     </p>`;
-    const detalle = pendientes.length
+    const detAver = averiadas.length ? `<h4>🔧 Máquinas averiadas · motivo</h4>${tableAveriadas(averiadas)}` : '';
+    const detPend = pendientes.length
       ? `<h4>⏳ Máquinas que faltaron por iniciar jornada</h4>${tablePendientes(pendientes)}`
-      : `<p class="ok">✓ Todas sus máquinas asignadas iniciaron jornada.</p>`;
-    return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>${resumen}${detalle}`;
+      : (averiadas.length ? '' : `<p class="ok">✓ Todas sus máquinas asignadas iniciaron jornada.</p>`);
+    return `<h3>👮 ${esc(name)} · ${list.length} máquina(s)</h3>${resumen}${detAver}${detPend}`;
   }).join('');
 
   // Tabla-resumen de eficiencia por inspector, ordenada de menor a mayor eficiencia
@@ -224,7 +257,8 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   `;
 
   const totalIni = all.filter((r) => r.enCurso || r.finalizada).length;
-  const totalAver = all.filter((r) => r.parada).length;
+  const totalAver = all.filter((r) => r.averiada).length;
+  const totalPar = all.filter((r) => r.parada).length;
   const totalPend = all.filter((r) => r.pendiente).length;
   const eficienciasValidas = inspectoresConEficiencia.map((e) => e.eficiencia).filter((e): e is number => e !== null);
   const eficienciaProm = eficienciasValidas.length ? Math.round(eficienciasValidas.reduce((a, b) => a + b, 0) / eficienciasValidas.length) : null;
@@ -244,7 +278,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   `;
 
   const turnoTxt = shift === 'night' ? ' · Turno 🌙 NOCHE' : shift === 'day' ? ' · Turno ☀️ DÍA' : '';
-  const subtitle = `${fecha}${turnoTxt} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔴 ${totalAver} averiadas · ⏳ ${totalPend} sin iniciar${eficienciaProm !== null ? ` · ⚡ eficiencia promedio ${eficienciaProm}%` : ''}`;
+  const subtitle = `${fecha}${turnoTxt} · ${inspectores.length} inspector(es) · ${all.length} máquina(s) asignada(s) · 🟢 ${totalIni} iniciadas · 🔧 ${totalAver} averiadas · 🟡 ${totalPar} paradas · ⏳ ${totalPend} sin iniciar${eficienciaProm !== null ? ` · ⚡ eficiencia promedio ${eficienciaProm}%` : ''}`;
 
   const html = pdfDocument({
     title: 'REPORTE RESUMEN POR INSPECTOR',
