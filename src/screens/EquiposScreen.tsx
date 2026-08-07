@@ -338,6 +338,8 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
   const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive' | 'espera'>(null);
+  const [detailQuery, setDetailQuery] = useState(''); // buscador del detalle (por todas las características)
+  useEffect(() => { setDetailQuery(''); }, [detailStatus]); // limpia el buscador al abrir/cerrar el detalle
 
   // Al llegar desde el Dashboard con ?status, abre el detalle de ese estado (maquinaria).
   useEffect(() => {
@@ -358,6 +360,14 @@ export default function EquiposScreen({ navigation, route }: any) {
   }, [route?.params?.q]);
   const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'inactive' ? inactiveMachines : detailStatus === 'espera' ? esperaMachines : [];
   const detailTitle = detailStatus === 'inactive' ? '⛔ Maquinaria inactiva' : detailStatus === 'espera' ? '🕓 Maquinaria en espera' : '✅ Maquinaria activa';
+  // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
+  // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
+  // referencia y nombre de empresa). Vacío = toda la lista.
+  const detailNq = norm(detailQuery.trim());
+  const detailFiltered = detailNq
+    ? detailList.filter((m) => [m.code, (m as any).description, m.plate, m.serial, m.identifier, (m as any).grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, companyName(m.company_id)]
+        .filter(Boolean).some((v: any) => norm(v).includes(detailNq)))
+    : detailList;
 
   // Reporte de CONTEO de equipos (por empresa o general) con vista previa. Solo conteo
   // + detalle: agrupa por TIPO de equipo (= código, lo que se lee "CAMION VOLTEO
@@ -1555,16 +1565,26 @@ export default function EquiposScreen({ navigation, route }: any) {
             <Text style={{ color: colors.brandText, fontWeight: '700' }}>Volver</Text>
           </TouchableOpacity>
           <SectionTitle>
-            {detailTitle}{'  '}({detailList.length})
+            {detailTitle}{'  '}({detailNq ? `${detailFiltered.length}/${detailList.length}` : detailList.length})
           </SectionTitle>
+          {/* Buscador por TODAS las características (código, placa, serial, encargado,
+              empresa, edificio, tipo, clasificación, parroquia, sector…). */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+            <Text style={{ fontSize: 14 }}>🔎</Text>
+            <TextInput value={detailQuery} onChangeText={setDetailQuery} placeholder="Buscar: código, placa, serial, encargado, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
+            {detailQuery ? <TouchableOpacity onPress={() => setDetailQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
+          </View>
           {detailList.length === 0 ? (
             <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'espera' ? 'No hay maquinaria en espera.' : 'No hay maquinaria inactiva.'} />
+          ) : detailFiltered.length === 0 ? (
+            <EmptyState title="Sin coincidencias" subtitle={`No hay máquinas que coincidan con "${detailQuery.trim()}".`} />
           ) : (
             <ScrollView>
-              {groupByCompany(detailList).map((g) => {
+              {groupByCompany(detailFiltered).map((g) => {
                 // Las INACTIVAS arrancan COLAPSADAS (solo se abren si el usuario toca);
-                // activas y en espera siguen abiertas por defecto.
-                const open = detailExpanded[g.key] ?? (detailStatus !== 'inactive');
+                // activas y en espera siguen abiertas por defecto. Al BUSCAR, todos los
+                // grupos se abren para que se vean los resultados.
+                const open = detailNq ? true : (detailExpanded[g.key] ?? (detailStatus !== 'inactive'));
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>

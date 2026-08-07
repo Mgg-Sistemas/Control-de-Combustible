@@ -1162,6 +1162,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
+    // HORÓMETRO (solo mantenimiento · NO toca pagos): refleja el horómetro inicial como
+    // horómetro VIVO de la máquina, y —la PRIMERA vez— fija la base de mantenimiento en
+    // ese inicial para empezar a contar desde 0 (horas acum. = last_horometro − base,
+    // regla 200/220/250 de Mantenimiento de Maquinaria). Best-effort: no bloquea nada.
+    supabase.from('machinery').update({ last_horometro: hi }).eq('id', ci.id).then(() => {}, () => {});
+    supabase.from('machinery').update({ horometro_base: hi }).eq('id', ci.id).is('horometro_base', null).then(() => {}, () => {});
     // ¿La máquina venía AVERIADA? Si estuvo PARADA hoy (pendiente o reactivada hoy),
     // el inicio tardío es NORMAL (arrancó tarde porque estaba parada) → NO es tardanza
     // y NO genera alerta. Se detecta por la parada vigente o una avería resuelta hoy.
@@ -1242,6 +1248,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const res = await upsertMachineRound(ci.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
+    // HORÓMETRO (solo mantenimiento · NO toca pagos): si se registró horómetro final,
+    // pasa a ser el horómetro VIVO de la máquina. Así las horas acumuladas de
+    // mantenimiento (last_horometro − horometro_base = final − inicial) crecen y
+    // disparan las alertas 200/220/250 en Mantenimiento de Maquinaria / Supervisión.
+    // Best-effort: no bloquea el cierre de la jornada.
+    if (hfValid) supabase.from('machinery').update({ last_horometro: hfNum }).eq('id', ci.id).then(() => {}, () => {});
     setJornadaStart(null);
     setFinConfirm(false);
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
@@ -2576,9 +2588,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
-                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (opcional){horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (opcional · para mantenimiento){horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
-                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Este horómetro final será el inicial de la próxima jornada.</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el inicial de la próxima jornada. Las horas de mantenimiento se cuentan final − inicial (no afecta el pago).</Text>
                       {(() => {
                         const hf = Number((horoFin || '').replace(',', '.'));
                         const hi = Number((horoIni || '').replace(',', '.'));

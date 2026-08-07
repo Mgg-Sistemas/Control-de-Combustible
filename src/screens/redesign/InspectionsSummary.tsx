@@ -1252,7 +1252,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
               selector de empresas; sin selección = todas. Regla 200/220/250. */}
           <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas trabajadas · mantenimiento (250 h)'}</Text>
+            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas de horómetro · mantenimiento (250 h)'}</Text>
           </TouchableOpacity>
 
           {/* Selector de EMPRESAS (tipo check) para el reporte del día. */}
@@ -1260,7 +1260,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <Pressable onPress={() => setEmpresaPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
               <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{reportMode === 'mant' ? '🛠️ Horas trabajadas · próximas a mantenimiento' : `📊 Reporte del día por empresa · ${shortDate(selDay)}`}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{reportMode === 'mant' ? '🛠️ Horas de horómetro · próximas a mantenimiento' : `📊 Reporte del día por empresa · ${shortDate(selDay)}`}</Text>
                   <TouchableOpacity onPress={() => setEmpresaPickerOpen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
                   </TouchableOpacity>
