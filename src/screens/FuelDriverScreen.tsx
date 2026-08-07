@@ -42,6 +42,15 @@ type Machine = {
   companyName: string;
 };
 
+// Tipos de avería (mismos que la vista rápida del operador). "otro" = falla libre.
+const AVERIA_MATERIALS: { key: string; label: string; icon: string }[] = [
+  { key: 'caucho', label: 'Caucho', icon: '🛞' },
+  { key: 'aceite', label: 'Aceite', icon: '🛢️' },
+  { key: 'filtro', label: 'Filtro', icon: '🧴' },
+  { key: 'repuesto', label: 'Repuesto', icon: '🔩' },
+  { key: 'otro', label: 'Otro', icon: '✏️' },
+];
+
 /** Fecha de hoy en formato AAAA-MM-DD (hora local). */
 function today(): string {
   const d = new Date();
@@ -83,6 +92,14 @@ export default function FuelDriverScreen() {
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // Reporte de AVERÍA (se vincula al módulo de Mantenimiento vía maintenance_requests).
+  const [averiaOpen, setAveriaOpen] = useState(false);
+  const [averiaMaterial, setAveriaMaterial] = useState<string | null>(null);
+  const [averiaNote, setAveriaNote] = useState('');
+  const [averiaPhotos, setAveriaPhotos] = useState<string[]>([]);
+  const [averiaAddingPhoto, setAveriaAddingPhoto] = useState(false);
+  const [savingAveria, setSavingAveria] = useState(false);
 
   // Nombre del chofer (profiles.full_name por uid).
   useEffect(() => {
@@ -257,6 +274,43 @@ export default function FuelDriverScreen() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── AVERÍA: adjunta foto(s) y reporta al módulo de Mantenimiento ──────────────
+  const addAveriaPhoto = async () => {
+    if (!selected || averiaAddingPhoto) return;
+    setAveriaAddingPhoto(true);
+    try {
+      const r = await captureAndUploadPhoto(selected.id, 'averias');
+      if (r.ok && r.url) setAveriaPhotos((prev) => [...prev, r.url as string]);
+      else if (r.error) setResult({ ok: false, msg: `❌ ${r.error}` });
+    } finally {
+      setAveriaAddingPhoto(false);
+    }
+  };
+  const removeAveriaPhotoAt = (idx: number) => setAveriaPhotos((prev) => prev.filter((_, i) => i !== idx));
+  const marcarAveria = async () => {
+    if (!selected || savingAveria) return;
+    if (!averiaMaterial) { setResult({ ok: false, msg: '❌ Elige el tipo de avería.' }); return; }
+    if (averiaMaterial === 'otro' && !averiaNote.trim()) { setResult({ ok: false, msg: '❌ Describe la falla para "Otro".' }); return; }
+    setSavingAveria(true);
+    setResult(null);
+    try {
+      const { error } = await supabase.from('maintenance_requests').insert({
+        machinery_id: selected.id,
+        material: averiaMaterial,
+        notes: averiaNote.trim() || null,
+        status: 'pendiente',
+        requested_by: uid || null,
+        photo_url: averiaPhotos[0] ?? null,
+        photos: averiaPhotos.length ? averiaPhotos : null,
+      });
+      if (error) { setResult({ ok: false, msg: `❌ ${error.message}` }); return; }
+      setResult({ ok: true, msg: '✅ Avería reportada a Mantenimiento.' });
+      setAveriaMaterial(null); setAveriaNote(''); setAveriaPhotos([]); setAveriaOpen(false);
+    } finally {
+      setSavingAveria(false);
     }
   };
 
@@ -437,6 +491,62 @@ export default function FuelDriverScreen() {
                     ubicación; se guarda al elegir/agregar. */}
                 <Card>
                   <EdificioPicker value={selected.referencia ?? ''} onChange={guardarEdificio} />
+                </Card>
+
+                {/* AVERÍA — reporta al módulo de Mantenimiento (maintenance_requests),
+                    con foto(s). Colapsable para no estorbar el surtido. */}
+                <Card>
+                  <TouchableOpacity onPress={() => setAveriaOpen((v) => !v)} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: colors.text, fontWeight: '800' }}>🔧 Reportar avería</Text>
+                    <Text style={{ color: colors.brandText, fontSize: 16 }}>{averiaOpen ? '▴' : '▾'}</Text>
+                  </TouchableOpacity>
+                  {averiaOpen ? (
+                    <View style={{ marginTop: spacing.sm, gap: spacing.sm }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo de avería / material a cambiar:</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                        {AVERIA_MATERIALS.map((mt) => {
+                          const on = averiaMaterial === mt.key;
+                          return (
+                            <TouchableOpacity key={mt.key} onPress={() => setAveriaMaterial(mt.key)} style={{ width: '47%', alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 2, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                              <Text style={{ fontSize: 28 }}>{mt.icon}</Text>
+                              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', marginTop: 2 }}>{mt.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      {averiaMaterial ? (
+                        <>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>{averiaMaterial === 'otro' ? '¿Qué falla presenta? (describe la avería)' : 'Nota (opcional)'}</Text>
+                          <TextInput
+                            value={averiaNote}
+                            onChangeText={setAveriaNote}
+                            placeholder={averiaMaterial === 'otro' ? 'Ej. no arranca, fuga de aceite…' : 'Detalle…'}
+                            placeholderTextColor={colors.muted}
+                            multiline={averiaMaterial === 'otro'}
+                            style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, minHeight: averiaMaterial === 'otro' ? 60 : undefined }}
+                          />
+                          <TouchableOpacity onPress={addAveriaPhoto} disabled={averiaAddingPhoto} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: averiaAddingPhoto ? 0.6 : 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700' }}>{averiaAddingPhoto ? 'Subiendo…' : '📷 Agregar foto de la avería'}</Text>
+                          </TouchableOpacity>
+                          {averiaPhotos.length > 0 ? (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
+                              {averiaPhotos.map((uri, idx) => (
+                                <View key={`${uri}-${idx}`} style={{ position: 'relative' }}>
+                                  <Image source={{ uri }} style={{ width: 84, height: 84, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border }} />
+                                  <TouchableOpacity onPress={() => removeAveriaPhotoAt(idx)} style={{ position: 'absolute', top: -6, right: -6, backgroundColor: colors.danger, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }}>
+                                    <Text style={{ color: '#fff', fontWeight: '800' }}>×</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null}
+                          <TouchableOpacity onPress={marcarAveria} disabled={savingAveria} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: savingAveria ? 0.6 : 1 }}>
+                            <Text style={{ color: '#fff', fontWeight: '800' }}>{savingAveria ? 'Guardando…' : '🔧 Reportar avería a Mantenimiento'}</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </Card>
 
                 {/* Litros surtidos */}
