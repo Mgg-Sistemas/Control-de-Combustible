@@ -1604,25 +1604,45 @@ export default function EquiposScreen({ navigation, route }: any) {
                       activeOpacity={0.7}
                       onPress={() => { setDetailStatus(null); setKind('maquinaria'); openEdit(m); }}
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
-                        <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                          {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
-                        </Text>
+                      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+                        {/* Miniatura → abre el visor con AMBAS fotos (máquina + serial/placa),
+                            igual que en las máquinas activas — antes solo se veía entrando a la ficha. */}
+                        <TouchableOpacity onPress={() => setViewerId(m.id)} activeOpacity={0.7} style={{ width: 64, height: 64 }}>
+                          {m.photo_url ? (
+                            <Thumb uri={m.photo_url} size={64} radius={radius.md} />
+                          ) : (
+                            <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                              <Text style={{ fontSize: 28 }}>🚜</Text>
+                            </View>
+                          )}
+                          {m.photo_serial_url ? (
+                            <View style={{ position: 'absolute', right: -4, bottom: -4, backgroundColor: colors.brand, borderRadius: radius.pill, width: 22, height: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface }}>
+                              <Text style={{ fontSize: 11 }}>🔖</Text>
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
+                            <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                              {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
+                            </Text>
+                          </View>
+                          <AveriaBadge id={m.id} />
+                          {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+                          {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
+                          {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
+                          {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
+                          {(m as any).referencia ? (
+                            <Text style={{ color: colors.muted, fontSize: 12 }}>
+                              🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
+                            </Text>
+                          ) : null}
+                          {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                          {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
+                          {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
+                        </View>
                       </View>
-                      <AveriaBadge id={m.id} />
-                      {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-                      {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
-                      {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
-                      {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
-                      {(m as any).referencia ? (
-                        <Text style={{ color: colors.muted, fontSize: 12 }}>
-                          🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
-                        </Text>
-                      ) : null}
-                      {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
-                      {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
-                      {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                     </TouchableOpacity>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                       <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
