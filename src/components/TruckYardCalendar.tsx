@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { TruckYardLog } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 const CARACAS_TZ = 'America/Caracas';
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -39,29 +40,36 @@ export default function TruckYardCalendar() {
   const [month, setMonth] = useState(t.m); // 1..12
   const [logs, setLogs] = useState<TruckYardLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selDay, setSelDay] = useState<string | null>(null); // YYYY-MM-DD
 
-  // Carga los registros del mes visible (con margen para zona horaria).
-  useEffect(() => {
-    let active = true;
+  // Carga los registros del mes visible (con margen para zona horaria). Se
+  // reutiliza tal cual desde el useEffect de abajo y desde el realtime, así
+  // entradas/salidas registradas en otro dispositivo (o desde "Asistencia de
+  // camiones") aparecen sin tener que cambiar de mes y volver.
+  const reload = React.useCallback(() => {
     setLoading(true);
+    setLoadError(false);
     const from = `${year}-${String(month).padStart(2, '0')}-01T00:00:00-04:00`;
     const nextM = month === 12 ? 1 : month + 1;
     const nextY = month === 12 ? year + 1 : year;
     const to = `${nextY}-${String(nextM).padStart(2, '0')}-01T00:00:00-04:00`;
-    supabase
+    return supabase
       .from('truck_yard_logs')
       .select('*')
       .gte('created_at', from)
       .lt('created_at', to)
       .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        if (!active) return;
+      .then(({ data, error }) => {
+        if (error) { setLoadError(true); setLoading(false); return; }
         setLogs((data as TruckYardLog[]) ?? []);
         setLoading(false);
       });
-    return () => { active = false; };
   }, [year, month]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  useRealtimeRefresh(['truck_yard_logs'], () => { reload(); });
 
   // Conteo por día: { 'YYYY-MM-DD': { entrada, salida } }.
   const byDay = useMemo(() => {
@@ -106,9 +114,15 @@ export default function TruckYardCalendar() {
           </TouchableOpacity>
         </View>
 
-        <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.xs }}>
-          Este mes: <Text style={{ color: '#15803D', fontWeight: '800' }}>{totMes.e} entradas</Text> · <Text style={{ color: '#B45309', fontWeight: '800' }}>{totMes.s} salidas</Text>
-        </Text>
+        {loadError ? (
+          <Text style={{ color: colors.danger, fontSize: 12, textAlign: 'center', marginTop: spacing.xs, fontWeight: '700' }}>
+            ⚠️ No se pudo cargar el calendario. Desliza hacia abajo o cambia de mes para reintentar.
+          </Text>
+        ) : (
+          <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: spacing.xs }}>
+            Este mes: <Text style={{ color: '#15803D', fontWeight: '800' }}>{totMes.e} entradas</Text> · <Text style={{ color: '#B45309', fontWeight: '800' }}>{totMes.s} salidas</Text>
+          </Text>
+        )}
 
         {/* Cabecera de días */}
         <View style={{ flexDirection: 'row', marginTop: spacing.sm }}>

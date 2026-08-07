@@ -435,10 +435,23 @@ function FabricacionPlantaStack() {
  *  desde la lista o escaneando su QR; sin escanear el QR físico ya no depende. */
 function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
   const { colors } = useTheme();
+  const { appRole } = useAuth();
   const screenHeader = useScreenHeader();
   // Pestaña "Revisar" (Inspectores). Si es admin en teléfono, se le inyecta el
   // botón SISTEMA para saltar a la app completa.
   const RevisarScreen = React.useCallback(() => <SupervisorScreen onSistema={onSistema} />, [onSistema]);
+  // Un supervisor puede ADEMÁS tener un rol dinámico (ej. "Coordinador de
+  // Mantenimiento Preventivo") que le da módulos extra (mantenimiento,
+  // asistencia_camiones…). Antes esos módulos quedaban sin ninguna pantalla
+  // alcanzable desde el teléfono (SupervisorTabs solo tenía Revisar/Mapa/
+  // Catálogo) — el usuario tenía el permiso pero nunca podía usarlo. 'equipos'
+  // ya se cubre con la pestaña Catálogo y 'coordinador_inspectores' se resuelve
+  // DENTRO de SupervisorScreen (desbloquea "👥 Inspectores"), así que ninguno
+  // de los dos necesita pantalla propia acá.
+  const modulosExtra = React.useMemo(() => {
+    const mods = appRole?.modules ?? {};
+    return Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none' && k !== 'equipos' && k !== 'coordinador_inspectores');
+  }, [appRole]);
   return (
     <Tab.Navigator
       screenOptions={{
@@ -446,6 +459,7 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
         // Sin headerLeft propio: "Cerrar sesión" ya está en el header compartido
         // (screenHeader.headerRight) — mostrar también "Salir" aquí era redundante
         // y, en pantallas angostas, chocaba con el resto de los elementos.
+        lazy: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
@@ -454,6 +468,19 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
       <Tab.Screen name="Revisar" component={RevisarScreen} options={{ title: 'Revisar', tabBarIcon: tabIcon('🪖') }} />
       <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
       <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
+      {modulosExtra.length ? (
+        <Tab.Screen
+          name="More"
+          component={MoreStack}
+          options={{ title: 'Más', headerShown: false, tabBarIcon: tabIcon('☰') }}
+          listeners={({ navigation }) => ({
+            tabPress: (e) => {
+              e.preventDefault();
+              navigation.navigate('More', { screen: 'MoreMenu' });
+            },
+          })}
+        />
+      ) : null}
     </Tab.Navigator>
   );
 }
@@ -584,6 +611,7 @@ const moreScreens = {
   Uniformes: 'uniformes',
   Asistencia: 'asistencia',
   AsistenciaCamiones: 'asistencia-camiones',
+  DistribucionGuardias: 'distribucion-guardias',
   Compras: 'compras',
   Inventario: 'inventario',
   InspeccionesMaq: 'inspecciones-maquinaria',
@@ -638,8 +666,8 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
     Equipos: 'catalogo',
     More: { screens: moreScreens },
   },
-  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo' },
-  patio: { PatioHome: 'patio', Camiones: 'camiones', Asistencia: 'asistencia', Manual: 'manual' },
+  supervisorTabs: { Revisar: 'revisar', Map: 'mapa', Equipos: 'catalogo', More: { screens: moreScreens } },
+  patio: { PatioHome: 'patio', Camiones: 'camiones', Asistencia: 'asistencia', Manual: 'manual', Ajustes: 'ajustes' },
   coordinador: {
     RoleHome: 'panel',
     MantenimientoMaquinaria: 'mantenimiento',
@@ -656,14 +684,16 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
     EmployeeCard: 'ficha-empleado',
     Asistencia: 'asistencia',
     AsistenciaCamiones: 'asistencia-camiones',
+    DistribucionGuardias: 'distribucion-guardias',
     Manual: 'manual',
+    Ajustes: 'ajustes',
   },
-  fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual' },
-  combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual' },
-  inventario: { InventarioHome: 'inventario-directo', Manual: 'manual' },
+  fuelDriver: { FuelDriverHome: 'surtir', Manual: 'manual', Ajustes: 'ajustes' },
+  combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual', Ajustes: 'ajustes' },
+  inventario: { InventarioHome: 'inventario-directo', Manual: 'manual', Ajustes: 'ajustes' },
   fabricacionPlanta: { PlantaKioskHome: 'kiosco-directo', Manual: 'manual' },
   conductor: { ConductorSurtir: 'surtir', ConductorCamiones: 'camiones', ConductorAsistencia: 'asistencia-camiones' },
-  asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', Manual: 'manual' },
+  asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', DistribucionGuardias: 'distribucion-guardias', Manual: 'manual', Ajustes: 'ajustes' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -697,6 +727,12 @@ function pickTree(ctx: {
 }): { key: TreeKey; node: React.ReactNode } {
   const { phone, role, appRole, isJesusLozada, sistemaMode, goSistema } = ctx;
   if (appRole && role !== 'admin' && appRole.panel_type === 'chofer_combustible') return { key: 'fuelDriver', node: <FuelDriverStack /> };
+  // Rol personalizado con panel_type 'conductor': mismo panel de 3 pestañas del
+  // conductor fijo (Surtir · Camiones · Asistencia), pero para un rol que además
+  // necesita módulos extra (ej. "Chofer camión de combustible" con tanques/consumos
+  // en escritura para sus reportes). Va ANTES del catch-all `esRolCombustible` de
+  // abajo porque ese solo mira los módulos, no el panel_type.
+  if (appRole && role !== 'admin' && appRole.panel_type === 'conductor') return { key: 'conductor', node: <ConductorTabs /> };
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la
