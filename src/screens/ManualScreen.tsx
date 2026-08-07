@@ -124,6 +124,7 @@ const SECTIONS: Sec[] = [
         '🕓 En espera — llegó pero todavía no se ha recibido en el control.',
       ] },
       { t: 'p', text: 'En cada máquina también puedes: 📍 guardar su ubicación, 📷 subirle una foto y 🔳 generar su código QR.' },
+      { t: 'note', text: '🛡️ Tapa: al crear/editar una máquina marcas con un check si "¿Tiene tapa?"; si la tiene, aparece un 2º check "¿Doble tapa?" (si no lo marcas, es sencilla). En la ficha se muestra "🛡️ Tapa: Sin tapa / Tapa sencilla / Doble tapa", y arriba del catálogo hay un filtro de tapa (Tapa sencilla · Doble tapa · Sin tapa) — también puedes escribir "doble tapa" o "sencilla" en el buscador.' },
       { t: 'note', text: 'La hoja del QR muestra el NOMBRE de la máquina y su SERIAL (o placa) — no la empresa.' },
       { t: 'note', text: 'QR sellado con el serial: el QR queda amarrado al serial de la máquina. Si cambias el serial, el QR impreso con el serial anterior DEJA DE FUNCIONAR (al escanearlo solo sale el logo). Reimprime el QR para activarlo con el nuevo serial. Los QR impresos antes de esta versión no llevan sello y siguen funcionando hasta que los reimprimas.' },
       { t: 'note', text: 'Bloquear QR: dentro del 🔳 QR de cada máquina hay un botón "🚫 Bloquear QR". Al bloquearlo, cualquiera que escanee ese QR solo verá el logo (no puede registrar nada). Sirve para matar un QR viejo o robado sin tocar el serial. Con "✅ Desbloquear QR" vuelve a funcionar.' },

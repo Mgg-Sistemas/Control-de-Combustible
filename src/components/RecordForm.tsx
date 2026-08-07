@@ -23,6 +23,7 @@ type ShowIf = (values: Record<string, string>) => boolean;
 export type Field =
   | { key: string; label: string; type: 'section'; showIf?: ShowIf } // encabezado de sección (no es un campo)
   | { key: string; label: string; type: 'text' | 'number' | 'date'; required?: boolean; placeholder?: string; showIf?: ShowIf; defaultValue?: string }
+  | { key: string; label: string; type: 'switch'; required?: boolean; showIf?: ShowIf; defaultValue?: boolean } // check Sí/No (booleano)
   | { key: string; label: string; type: 'select'; options: { label: string; value: string }[]; required?: boolean; showIf?: ShowIf; dropdown?: boolean; placeholder?: string }
   | {
       key: string;
@@ -125,7 +126,8 @@ export function RecordForm({
     const o: Record<string, string> = {};
     fields.forEach((f) => {
       if (f.type === 'date') o[f.key] = todayISO();
-      if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue;
+      else if (f.type === 'switch') o[f.key] = f.defaultValue ? 'true' : 'false';
+      else if ('defaultValue' in f && f.defaultValue) o[f.key] = f.defaultValue as string;
     });
     return o;
   }, [fields]);
@@ -205,7 +207,7 @@ export function RecordForm({
       // correos/URLs/cuentas (se dañarían); ahí se guarda tal cual.
       const noFix = /serial|plate|placa|code|identif|mail|correo|url|http|account|cuenta|cedula|cédula/i.test(f.key);
       const esTextoLibre = (f.type === 'text' || f.type === 'suggest') && !noFix;
-      payload[f.key] = f.type === 'number' ? Number(raw) : esTextoLibre ? corregirTexto(raw) : raw;
+      payload[f.key] = f.type === 'number' ? Number(raw) : f.type === 'switch' ? raw === 'true' : esTextoLibre ? corregirTexto(raw) : raw;
     });
 
     // Campos que quedaron OCULTOS por `showIf` con el estado actual (p. ej.
@@ -355,6 +357,13 @@ export function RecordForm({
                       setLookups((prev) => ({ ...prev, [f.key]: [...(prev[f.key] ?? []), opt] }))
                     }
                   />
+                ) : f.type === 'switch' ? (
+                  <TouchableOpacity onPress={() => set(f.key, values[f.key] === 'true' ? 'false' : 'true')} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 4 }}>
+                    <View style={{ width: 26, height: 26, borderRadius: 6, borderWidth: 2, borderColor: values[f.key] === 'true' ? colors.primary : colors.border, backgroundColor: values[f.key] === 'true' ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                      {values[f.key] === 'true' ? <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 15 }}>✓</Text> : null}
+                    </View>
+                    <Text style={{ color: colors.text, fontWeight: '700' }}>{values[f.key] === 'true' ? 'Sí' : 'No'}</Text>
+                  </TouchableOpacity>
                 ) : (
                   <TextInput
                     style={styles.input}
