@@ -872,6 +872,19 @@ export default function SupervisionScreen({ navigation }: any) {
       {secHead('reportes', '📋 Reportes')}
       {secClosed.has('reportes') ? null : <ReportesSection navigation={navigation} />}
 
+      {/* ── 🗓️ DISTRIBUCIÓN DE GUARDIAS: sección INDEPENDIENTE (no dentro de Reportes) ── */}
+      {secHead('guardias', '🗓️ Distribución de guardias')}
+      {secClosed.has('guardias') ? null : (
+        <Card>
+          <Text style={{ color: colors.muted, fontSize: 12.5, marginBottom: spacing.sm }}>
+            Arma la rotación de inspectores por rango de fechas (manual o 14x7, nunca descansan a la vez dos coordinadores) y genera el PDF del ciclo.
+          </Text>
+          <TouchableOpacity onPress={() => navigation?.navigate?.('DistribucionGuardias')} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' }}>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 14 }}>🗓️ Abrir distribución de guardias</Text>
+          </TouchableOpacity>
+        </Card>
+      )}
+
       {/* ── 🚚 CAMIONES (ASISTENCIA): salida al iniciar jornada / entrada al finalizar ── */}
       {secHead('camiones', '🚚 Camiones (asistencia)')}
       {secClosed.has('camiones') ? null : camiones.length === 0 ? (
