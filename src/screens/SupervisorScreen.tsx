@@ -30,6 +30,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
+import { generateMyShiftReceipt } from '../lib/inspectorReport';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
@@ -845,6 +846,32 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       : `✅ ${que} asignado a ${ids.length} máquina(s) → ${target.name}.${err ? ` (${err} con error)` : ''}`);
   };
   const toggleSel = (id: string) => setSelIds((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // ── 📄 REPORTE PERSONAL DE CIERRE DE JORNADA (imagen descargable) ──────────
+  // Solo aparece cuando el inspector ya NO tiene NINGUNA máquina de su turno con
+  // jornada abierta (todas finalizadas/paradas/averiadas/pendientes) — es decir,
+  // terminó su turno. Usa `fixedShift` (turno fijo del inspector) y `openMine`
+  // (jornada abierta EN MI turno para esa máquina), ya calculados arriba.
+  const misMaquinasDelTurno = useMemo(
+    () => (fixedShift ? mine.filter((m) => shiftOfMine(m.id) === fixedShift) : []),
+    [mine, assignMap, uid, fixedShift],
+  );
+  const puedeDescargarCierre = useMemo(
+    () => !!fixedShift && misMaquinasDelTurno.length > 0 && misMaquinasDelTurno.every((m) => !openMine(m.id)),
+    [fixedShift, misMaquinasDelTurno, roundsById],
+  );
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const descargarCierreJornada = async () => {
+    if (!fixedShift || receiptBusy) return;
+    setReceiptBusy(true);
+    try {
+      await generateMyShiftReceipt({ date: today, shift: fixedShift, inspectorName: fullName || 'Inspector' });
+    } catch {
+      setNotice('❌ No se pudo generar la imagen del reporte.');
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
 
   // ── "↪ Reasignar a…": MUEVE las máquinas de `reassign.ids` al inspector destino
   //    `reassignTo` en el turno elegido (día/noche/ambos). Es un upsert directo por
@@ -1808,6 +1835,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           </Card>
         </>
       )}
+
+      {/* 📄 Cierre de jornada: imagen descargable con el resumen de MIS máquinas de
+          este turno, para tener respaldo propio (misma data que el reporte que
+          imprime el jefe). Solo sale cuando ya no queda ninguna en curso. */}
+      {puedeDescargarCierre ? (
+        <TouchableOpacity onPress={descargarCierreJornada} disabled={receiptBusy} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, backgroundColor: '#1E3A5F', borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm, opacity: receiptBusy ? 0.6 : 1 }}>
+          <Text style={{ fontSize: 16 }}>📄</Text>
+          <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14 }}>{receiptBusy ? 'Generando…' : 'Descargar mi reporte de cierre'}</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* 📚 HISTÓRICO por inspector (jornadas finalizadas) — también desde el teléfono. */}
       <TouchableOpacity onPress={() => setShowHist(true)} activeOpacity={0.85} style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
