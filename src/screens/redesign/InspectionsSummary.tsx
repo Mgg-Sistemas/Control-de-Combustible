@@ -1428,10 +1428,24 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
-                          {/* Hora de inicio → fin de la jornada del día (de los tramos trabajados). */}
-                          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
-                            🕐 {r.horaIni} → {r.horaFin}  ·  ⏱️ {r.worked} h trab.
-                          </Text>
+                          {/* Hora de inicio → fin y TOTAL en VERDE (de los tramos trabajados).
+                              Si estuvo PARADA (amarillo) o AVERIADA (rojo), se muestra debajo. */}
+                          {(Number(r.worked) > 0 || r.horaIni !== '—') ? (
+                            <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                              <Text style={{ color: colors.muted }}>🕐 Inicio </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                              <Text style={{ color: colors.muted }}>  →  Fin </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
+                              <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text>
+                              <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
+                            </Text>
+                          ) : null}
+                          {r.estado === 'parada' ? (
+                            <Text style={{ color: colors.warning, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>🟡 Estuvo parada / no trabajó</Text>
+                          ) : null}
+                          {r.estado === 'averiada' ? (
+                            <Text style={{ color: colors.danger, fontSize: 11.5, marginTop: 1, fontWeight: '800' }}>🔴 Averiada</Text>
+                          ) : null}
                           {/* Encargado de la máquina (del catálogo: machinery.encargado). */}
                           {info?.encargado ? (
                             <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>
