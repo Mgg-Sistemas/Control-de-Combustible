@@ -418,17 +418,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     return () => clearInterval(id);
   }, [jornadaStart]);
 
-  const load = async () => {
-    if (!uid) { setLoading(false); return; }
-    const [{ data: prof }, mach] = await Promise.all([
-      supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
-      selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name)'),
-    ]);
-    const name = (prof as any)?.full_name ?? '';
-    setFullName(name);
+  // Extraído de `load()` para poder recargar SOLO la lista de máquinas desde el
+  // realtime de abajo (sin repetir el resto de la carga inicial en cada cambio).
+  const loadMachines = async () => {
+    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, referencia, encargado, latitude, longitude, active, operational, en_espera, company:company_id(name)');
     const list = ((mach ?? []) as any[]).map((m) => ({ ...m, companyName: m.company?.name ?? 'Sin empresa' })) as Mach[];
     list.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
     setMachines(list);
+  };
+
+  const load = async () => {
+    setLoading(true);
+    if (!uid) { setLoading(false); return; }
+    const [{ data: prof }] = await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle(),
+      loadMachines(),
+    ]);
+    const name = (prof as any)?.full_name ?? '';
+    setFullName(name);
     // Estas 3 llamadas son independientes entre sí (ninguna usa el resultado de
     // la otra) — antes iban una detrás de otra (3 idas y vueltas de red en
     // serie); en paralelo la carga inicial es notablemente más rápida.
@@ -545,6 +552,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Círculos de estado en vivo: jornada (machine_rounds), avería/parada
   // (maintenance_requests) y visitas.
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
+  // Catálogo de máquinas en vivo: si desde la PC/otro teléfono se activa/desactiva
+  // una máquina o cambia su operational/en_espera/encargado, antes solo se veía
+  // al hacer pull-to-refresh — el inspector podía seguir operando sobre datos
+  // desactualizados (visibleParaInspector/necesitaInspector dependen de esto).
+  useRealtimeRefresh(['machinery'], () => { loadMachines(); });
 
   // TAREA 4 (aditivo, solo LECTURA/filtrado — no toca escrituras ni el catálogo):
   // oculta del listado operativo del inspector las máquinas INACTIVAS (active=false)

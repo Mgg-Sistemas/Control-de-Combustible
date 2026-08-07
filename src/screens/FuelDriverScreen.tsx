@@ -25,6 +25,7 @@ import { insertMachineDispatch } from '../lib/dispatches';
 import { insertMachineService, MachineServiceKind } from '../lib/machineServices';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import EdificioPicker from '../components/EdificioPicker';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 // Máquina cargada del catálogo (solo los campos que usamos aquí).
 type Machine = {
@@ -85,6 +86,7 @@ export default function FuelDriverScreen() {
   const [driverName, setDriverName] = useState('');
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Buscador manual.
   const [query, setQuery] = useState('');
@@ -131,7 +133,9 @@ export default function FuelDriverScreen() {
     };
   }, [uid]);
 
-  // Carga de TODAS las máquinas del catálogo.
+  // Carga de TODAS las máquinas del catálogo. En realtime: si desde la web se
+  // agrega una máquina o se le edita sector/parroquia/encargado, antes el chofer
+  // no lo veía hasta cerrar y reabrir la app.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -163,7 +167,8 @@ export default function FuelDriverScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadTick]);
+  useRealtimeRefresh(['machinery'], () => setReloadTick((n) => n + 1));
 
   // Búsqueda: casa contra code, empresa, serial, placa, encargado, referencia y tipo.
   const filtered = useMemo(() => {

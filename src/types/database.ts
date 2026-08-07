@@ -969,8 +969,12 @@ export interface AppRole {
   modules: Record<string, string>; // { module_key: 'lectura'|'escritura'|'full' }
   /** Tipo de panel del rol: 'modulos' = lista de módulos (por defecto);
    *  'coordinador_qr' = panel de coordinador con escáner QR (surtir gasoil,
-   *  avería y marcar máquina lista). */
-  panel_type?: 'modulos' | 'coordinador_qr' | 'chofer_combustible';
+   *  avería y marcar máquina lista); 'chofer_combustible' = una sola pantalla
+   *  de surtir; 'conductor' = panel de CHOFER con sus 3 pestañas (Surtir ·
+   *  Camiones · Asistencia), igual que el rol fijo "conductor" pero para un
+   *  rol personalizado (ej. "Chofer camión de combustible" con módulos extra
+   *  de tanques/consumos para reportes). */
+  panel_type?: 'modulos' | 'coordinador_qr' | 'chofer_combustible' | 'conductor';
   created_at: string;
 }
 
