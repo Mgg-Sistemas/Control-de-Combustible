@@ -33,9 +33,10 @@ const matchMachine = (m: MachineLike, q: string) =>
   !q || MATCH_FIELDS.some((k) => norm(String(m[k] ?? '')).includes(q));
 
 export default function CoordinadorInspectoresView({
-  rows, query, onQueryChange, expanded, onToggle, onTapMachine,
+  rows, shiftLabel, query, onQueryChange, expanded, onToggle, onTapMachine,
 }: {
   rows: InspectorRow[];
+  shiftLabel: string;
   query: string;
   onQueryChange: (t: string) => void;
   expanded: Set<string>;
@@ -94,6 +95,10 @@ export default function CoordinadorInspectoresView({
 
   return (
     <View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.brand + '18', borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: 6, paddingHorizontal: spacing.sm, marginBottom: spacing.xs }}>
+        <Text style={{ fontSize: 14 }}>🕒</Text>
+        <Text style={{ flex: 1, color: colors.brandText, fontSize: 12, fontWeight: '800' }}>Turno actual: {shiftLabel} · solo se muestran los inspectores de este turno.</Text>
+      </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
         Toca una máquina para operarla (iniciar jornada · avería · parada · ubicación). Lo que hagas se le marca a su inspector.
       </Text>
