@@ -12,6 +12,7 @@ import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
 import { generateEmpresaDiaReport } from '../../lib/porEmpresaReport';
+import { generateMachineHoursReport } from '../../lib/machineHoursReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
@@ -47,6 +48,7 @@ const POR_ASIGNAR_KEY = '__por_asignar__';
 const EFICIENCIA_KEY = '__eficiencia__';
 // Token de pdfBusy para el reporte del día POR EMPRESA.
 const EMPRESA_KEY = '__empresa_dia__';
+const HORAS_KEY = '__horas_mant__';
 // Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
 // el dashboard en el turno correcto (antes abría siempre en DÍA).
 function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
@@ -178,12 +180,27 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // y la avería/motivo. El reporte hace sus propias consultas (ver porEmpresaReport).
   const [empresaPickerOpen, setEmpresaPickerOpen] = useState(false);
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
+  // El mismo selector de empresas sirve para dos reportes: 'dia' (del día por
+  // empresa) y 'mant' (horas trabajadas totales · próximas a mantenimiento).
+  const [reportMode, setReportMode] = useState<'dia' | 'mant'>('dia');
   const makeEmpresaReport = async () => {
     if (empresaSel.size === 0) return;
     setEmpresaPickerOpen(false);
     setPdfBusy(EMPRESA_KEY);
     try {
       await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel] });
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+  // Reporte de HORAS TRABAJADAS TOTALES + próximas a mantenimiento (regla 200/220/250
+  // sobre horómetro − base). No es por día: suma todo el histórico. Sin empresas
+  // seleccionadas = TODAS.
+  const makeHorasMantReport = async () => {
+    setEmpresaPickerOpen(false);
+    setPdfBusy(HORAS_KEY);
+    try {
+      await generateMachineHoursReport({ companyIds: [...empresaSel] });
     } finally {
       setPdfBusy(null);
     }
@@ -851,6 +868,44 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     });
   }, [listRows, listQ]);
 
+  // Inspector de DÍA y de NOCHE por máquina (de las asignaciones), para el buscador global.
+  const inspByShift = useMemo(() => {
+    const m = new Map<string, { day?: string; night?: string }>();
+    assignments.forEach((a) => {
+      const e = m.get(a.machinery_id) ?? {};
+      if (a.shift === 'day') e.day = a.inspector_name || undefined;
+      else if (a.shift === 'night') e.night = a.inspector_name || undefined;
+      m.set(a.machinery_id, e);
+    });
+    return m;
+  }, [assignments]);
+
+  // BUSCADOR GLOBAL de máquinas: busca en TODAS las máquinas del catálogo por CUALQUIER
+  // característica (código, placa, serial, identificador, empresa, encargado, ubicación,
+  // edificio, sector, zona, tipo, clasificación) + el nombre del inspector (día/noche).
+  // Devuelve la ficha con ESTADO, ambos INSPECTORES, HORAS y hora de inicio/fin.
+  const machineSearchShown = useMemo(() => {
+    const nq = norm(inspQ.trim());
+    if (!nq) return [] as any[];
+    const rows = Array.from(machineInfo.keys()).map((id) => {
+      const info = machineInfo.get(id) ?? null;
+      const rd = roundDetail.get(id) ?? null;
+      const worked = rd ? rd.dayH + rd.nightH : 0;
+      const seg = segDay[id] ?? null;
+      const openNow = selDay === caracasToday() && !!rd?.openStartAt;
+      const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
+        : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
+      const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
+      const dn = inspByShift.get(id) ?? {};
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow };
+    });
+    return rows.filter((r) => {
+      const i = r.info;
+      return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
+        .some((v) => norm(v).includes(nq));
+    }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift]);
+
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
     const { startedSet, paradaSet, averSet, closedSet, anyOpenSet } = daySets;
@@ -1093,8 +1148,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </View>
 
           {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
-          <TouchableOpacity onPress={() => setEmpresaPickerOpen(true)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+          <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
             <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
+          </TouchableOpacity>
+
+          {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
+              selector de empresas; sin selección = todas. Regla 200/220/250. */}
+          <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas trabajadas · mantenimiento (250 h)'}</Text>
           </TouchableOpacity>
 
           {/* Selector de EMPRESAS (tipo check) para el reporte del día. */}
@@ -1102,7 +1163,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <Pressable onPress={() => setEmpresaPickerOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
               <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '82%', padding: spacing.lg }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>📊 Reporte del día por empresa · {shortDate(selDay)}</Text>
+                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, flex: 1 }} numberOfLines={2}>{reportMode === 'mant' ? '🛠️ Horas trabajadas · próximas a mantenimiento' : `📊 Reporte del día por empresa · ${shortDate(selDay)}`}</Text>
                   <TouchableOpacity onPress={() => setEmpresaPickerOpen(false)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>Cerrar ✕</Text>
                   </TouchableOpacity>
@@ -1126,9 +1187,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     );
                   })}
                 </ScrollView>
-                <TouchableOpacity onPress={makeEmpresaReport} disabled={empresaSel.size === 0} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', opacity: empresaSel.size === 0 ? 0.5 : 1 }}>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar reporte ({empresaSel.size})</Text>
-                </TouchableOpacity>
+                {reportMode === 'mant' ? (
+                  <>
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm, textAlign: 'center' }}>Sin selección = todas las empresas. Regla: 🟡 200 h · 🟠 220 h · 🔴 250 h (límite).</Text>
+                    <TouchableOpacity onPress={makeHorasMantReport} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center' }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar ({empresaSel.size === 0 ? 'todas' : empresaSel.size})</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity onPress={makeEmpresaReport} disabled={empresaSel.size === 0} activeOpacity={0.85} style={{ marginTop: spacing.md, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 13, alignItems: 'center', opacity: empresaSel.size === 0 ? 0.5 : 1 }}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 13.5 }}>📄 Generar reporte ({empresaSel.size})</Text>
+                  </TouchableOpacity>
+                )}
               </Pressable>
             </Pressable>
           </Modal>
@@ -1239,9 +1309,63 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
             <Text style={{ fontSize: 14 }}>🔎</Text>
-            <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
+            <TextInput value={inspQ} onChangeText={setInspQ} placeholder="Buscar: inspector, máquina, placa, serial, empresa, edificio…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 13, paddingVertical: 8 }} />
             {inspQ ? <TouchableOpacity onPress={() => setInspQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
+
+          {/* BUSCADOR GLOBAL: al escribir, muestra las máquinas que coinciden (por CUALQUIER
+              característica) con su ESTADO, ambos INSPECTORES (día/noche) y las HORAS. */}
+          {inspQ.trim() ? (
+            <View style={{ marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5, padding: spacing.sm, backgroundColor: colors.background }}>
+                🔎 {machineSearchShown.length} máquina(s) encontrada(s)
+              </Text>
+              {machineSearchShown.length === 0 ? (
+                <Text style={{ color: colors.muted, fontSize: 12.5, padding: spacing.sm, textAlign: 'center' }}>Sin coincidencias.</Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 340 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {machineSearchShown.map((r, i) => {
+                    const em = estadoMeta(r.estado);
+                    const motivo = r.estado === 'averiada' ? (motivoByMachine.aver.get(r.id)?.m || '') : r.estado === 'parada' ? (motivoByMachine.par.get(r.id)?.m || '') : '';
+                    const info = r.info;
+                    const ubic = info?.referencia || info?.location || info?.sector || null;
+                    return (
+                      <View key={r.id} style={{ borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border, padding: spacing.sm, gap: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13.5 }}>{r.code}</Text>
+                          <View style={{ backgroundColor: em.bg, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
+                            <Text style={{ color: em.fg, fontSize: 10, fontWeight: '900' }}>{em.label}</Text>
+                          </View>
+                        </View>
+                        {motivo ? (
+                          <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
+                            {r.estado === 'averiada' ? '🔧 ' : '🟡 '}{motivo}
+                          </Text>
+                        ) : null}
+                        <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                          {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
+                        </Text>
+                        {info?.encargado ? (
+                          <Text style={{ fontSize: 11 }} numberOfLines={1}>
+                            <Text style={{ color: colors.muted }}>👤 Encargado </Text><Text style={{ color: colors.text, fontWeight: '700' }}>{info.encargado}</Text>
+                          </Text>
+                        ) : null}
+                        <Text style={{ fontSize: 11 }} numberOfLines={1}>
+                          <Text style={{ color: colors.muted }}>☀️ </Text><Text style={{ color: r.dayInsp ? colors.text : colors.muted, fontWeight: r.dayInsp ? '700' : '400' }}>{r.dayInsp || 'sin inspector'}</Text>
+                          <Text style={{ color: colors.muted }}>    🌙 </Text><Text style={{ color: r.nightInsp ? colors.text : colors.muted, fontWeight: r.nightInsp ? '700' : '400' }}>{r.nightInsp || 'sin inspector'}</Text>
+                        </Text>
+                        <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                          <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                          <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
+                          <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+          ) : null}
 
           {/* Reporte (PDF) de eficiencia de TODOS los inspectores del turno/día. */}
           <TouchableOpacity onPress={makeEficienciaReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginBottom: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
@@ -1249,7 +1373,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </TouchableOpacity>
 
           {inspShown.length === 0 ? (
-            <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
+            inspQ.trim() ? null : <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {

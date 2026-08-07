@@ -139,12 +139,18 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const confirm = useConfirm();
   const toast = useToast();
   const { session, role } = useAuth();
-  // Las ANALISTAS pueden PONER y QUITAR horas libremente (día/noche/parada/extra),
-  // incluso las ya cargadas; lo único que NO pueden tocar es el PRECIO de la jornada.
+  // Regla del cliente (07-ago-2026): la ANALISTA SOLO puede CARGAR horas a máquinas que
+  // NO tienen horas ese día; NO puede borrar/reducir ni agregar más a las que ya tienen.
+  // Tampoco puede tocar el PRECIO de la jornada.
   const esAnalista = role === 'analista';
   const puedeEditarPrecio = !esAnalista;
-  // Las horas ya NO se bloquean para el analista (queda por trazabilidad `ajuste_manual`).
-  const bloqueadoAnalista = (_valorActual: number) => false;
+  // Bloqueo POR CAMPO: la analista no puede modificar/borrar un campo que ya tiene valor.
+  const bloqueadoAnalista = (valorActual: number) => esAnalista && Number(valorActual) > 0;
+  // Bloqueo POR MÁQUINA+DÍA: si la máquina YA tiene horas de trabajo (día o noche), la
+  // analista no puede tocar nada de esa máquina ese día (ni agregar el otro turno, ni
+  // parada/extra, ni borrar). Solo un administrador puede corregir.
+  const analistaMaqConHoras = (ex?: { day_hours?: any; night_hours?: any } | null) =>
+    esAnalista && ((Number(ex?.day_hours ?? 0) > 0) || (Number(ex?.night_hours ?? 0) > 0));
   const [date, setDate] = useState(todayISO());
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
@@ -170,9 +176,17 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [encargadoOpen, setEncargadoOpen] = useState(false);
   const [encargadoQuery, setEncargadoQuery] = useState('');
   const SIN_ENCARGADO = '(sin encargado)';
-  const toggleEncargado = (name: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+  // Clave CANÓNICA para unificar el mismo encargado escrito distinto (mayúsculas,
+  // acentos, ñ, espacios internos/dobles): "ALBERTO" / "Alberto" / "CARLOS  NUÑES"
+  // caen en la misma clave. Vacío → sentinela (sin encargado).
+  const encKey = (raw: any) => {
+    const t = String(raw ?? '').trim();
+    if (!t) return SIN_ENCARGADO;
+    return norm(t).replace(/\s+/g, ' ').trim();
+  };
+  const toggleEncargado = (key: string) => setEncargadoSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   // ¿La máquina pasa el filtro de encargado? (vacío = todos). Se usa en la lista y en los PDF.
-  const inEncargado = (m: Machinery) => encargadoSel.size === 0 || encargadoSel.has((m.encargado || '').trim() || SIN_ENCARGADO);
+  const inEncargado = (m: Machinery) => encargadoSel.size === 0 || encargadoSel.has(encKey(m.encargado));
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); // empresa → desplegada
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({}); // máquina → tarjeta desplegada
@@ -526,9 +540,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const setShift = async (m: Machinery, dISO: string, which: 'day' | 'night', hoursVal: number) => {
     const ik = `${m.id}|${dISO}`;
     const ex = rounds[rkey(m.id, dISO)];
-    // Analista: solo puede INGRESAR el turno si aún no tiene horas; no modificarlas.
+    // Analista: SOLO puede cargar horas a máquinas SIN horas ese día. Si la máquina ya
+    // tiene día u noche, no puede agregar el otro turno, ni modificar, ni borrar.
     const curTurno = which === 'day' ? Number(ex?.day_hours ?? 0) : Number(ex?.night_hours ?? 0);
-    if (bloqueadoAnalista(curTurno)) { toast.error('Como analista puedes cargar horas nuevas, pero no modificar las que ya están cargadas. Pide a un administrador que corrija.'); return; }
+    if (analistaMaqConHoras(ex)) { toast.error('Esta máquina ya tiene horas ese día. Como analista solo puedes cargar horas a máquinas SIN horas; para modificar o borrar, pide a un administrador.'); return; }
     const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
     // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
     // (si tocó el turno sin salir del campo), para no perder esas horas.
@@ -553,12 +568,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   const setHours = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { toast.error('Como analista puedes cargar horas de parada nuevas, pero no modificar las ya cargadas.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (analistaMaqConHoras(ex) || bloqueadoAnalista(Number(ex?.hours_stopped ?? 0))) { toast.error('Como analista no puedes modificar/borrar horas ya cargadas (parada). Pide a un administrador.'); setHoursInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { hours_stopped: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
   const setOvertime = async (m: Machinery, dISO: string, val: string) => {
     const ex = rounds[rkey(m.id, dISO)];
-    if (bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista puedes cargar horas extra nuevas, pero no modificar las ya cargadas.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
+    if (analistaMaqConHoras(ex) || bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista no puedes modificar/borrar horas ya cargadas (extra). Pide a un administrador.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { overtime_hours: Math.max(0, Number(val.replace(',', '.')) || 0) });
   };
 
@@ -1346,11 +1361,24 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // pasan el filtro de empresa. Buscable y multi-check.
   const encargadoOptions = (() => {
     const base = activasControl.filter((m) => matchCompany(m));
-    const counts = new Map<string, number>();
-    base.forEach((m) => { const k = (m.encargado || '').trim() || SIN_ENCARGADO; counts.set(k, (counts.get(k) || 0) + 1); });
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name === SIN_ENCARGADO ? 1 : b.name === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
+    // Agrupa por clave canónica (unifica variantes). Por clave: conteo total + qué
+    // etiqueta cruda se usó y cuántas veces, para mostrar la variante MÁS común.
+    const grp = new Map<string, { count: number; labels: Map<string, number> }>();
+    base.forEach((m) => {
+      const k = encKey(m.encargado);
+      const label = k === SIN_ENCARGADO ? SIN_ENCARGADO : String(m.encargado ?? '').trim().replace(/\s+/g, ' ');
+      const e = grp.get(k) ?? { count: 0, labels: new Map<string, number>() };
+      e.count += 1;
+      e.labels.set(label, (e.labels.get(label) || 0) + 1);
+      grp.set(k, e);
+    });
+    return Array.from(grp.entries())
+      .map(([key, e]) => {
+        // Display = variante más frecuente; empate → orden natural (cmpText).
+        const name = Array.from(e.labels.entries()).sort((a, b) => b[1] - a[1] || cmpText(a[0], b[0]))[0][0];
+        return { key, name, count: e.count };
+      })
+      .sort((a, b) => a.key === SIN_ENCARGADO ? 1 : b.key === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
   })();
   const encargadoShown = encargadoOptions.filter((o) => !encargadoQuery.trim() || norm(o.name).includes(norm(encargadoQuery.trim())));
   // Empresa seleccionada para sincronizar el reporte (null = todas).
@@ -1587,9 +1615,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             </View>
             <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
               {encargadoShown.map((o) => {
-                const on = encargadoSel.has(o.name);
+                const on = encargadoSel.has(o.key);
                 return (
-                  <TouchableOpacity key={o.name} onPress={() => toggleEncargado(o.name)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand + '12' : 'transparent' }}>
+                  <TouchableOpacity key={o.key} onPress={() => toggleEncargado(o.key)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 9, paddingHorizontal: spacing.xs, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: on ? colors.brand + '12' : 'transparent' }}>
                     <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
                     <Text style={{ color: colors.text, fontWeight: on ? '800' : '600', fontSize: 13, flex: 1 }} numberOfLines={1}>{o.name}</Text>
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{o.count}</Text>
@@ -1897,7 +1925,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
-                        const lockTurno = bloqueadoAnalista(cur); // analista: ya cargado → no se modifica
+                        const lockTurno = analistaMaqConHoras(b); // analista: máquina con horas → bloqueada (no agregar/modificar/borrar)
                         const opName = which === 'day' ? b?.day_operator : b?.night_operator;
                         const opCi = which === 'day' ? b?.day_operator_ci : b?.night_operator_ci;
                         return (
@@ -1932,27 +1960,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       })}
                       <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {bloqueadoAnalista(stopped) ? '🔒' : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>⏸ parada {(analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={hoursInput[ik] !== undefined ? hoursInput[ik] : stopped ? String(stopped) : ''}
-                            editable={!bloqueadoAnalista(stopped)}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(stopped))}
                             onChangeText={(t) => setHoursInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             onSubmitEditing={() => hoursInput[ik] !== undefined && setHours(m, dISO, hoursInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(stopped) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(stopped)) ? 0.5 : 1 }}
                           />
                         </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, minWidth: 0 }}>
-                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {bloqueadoAnalista(ot) ? '🔒' : ''}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 11 }}>➕ extra {(analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? '🔒' : ''}</Text>
                           <TextInput
                             value={overtimeInput[ik] !== undefined ? overtimeInput[ik] : ot ? String(ot) : ''}
-                            editable={!bloqueadoAnalista(ot)}
+                            editable={!(analistaMaqConHoras(b) || bloqueadoAnalista(ot))}
                             onChangeText={(t) => setOvertimeInput((p) => ({ ...p, [ik]: onlyDecimal(t) }))}
                             onBlur={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             onSubmitEditing={() => overtimeInput[ik] !== undefined && setOvertime(m, dISO, overtimeInput[ik])}
                             keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted}
-                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: bloqueadoAnalista(ot) ? 0.5 : 1 }}
+                            style={{ flex: 1, minWidth: 0, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.infoSoftBorder, borderRadius: radius.sm, paddingVertical: 4, paddingHorizontal: 6, color: colors.text, textAlign: 'right', fontSize: 12, opacity: (analistaMaqConHoras(b) || bloqueadoAnalista(ot)) ? 0.5 : 1 }}
                           />
                         </View>
                       </View>
