@@ -19,8 +19,9 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
 
-type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null; operational: boolean };
+type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null; encargado: string | null; operational: boolean };
 type ProfileRow = { id: string; full_name: string | null };
+type CompanyRow = { id: string; name: string | null };
 
 type Tone = 'info' | 'warning' | 'danger' | 'success';
 function toneSoft(colors: any, tone: Tone) {
@@ -87,15 +88,21 @@ export default function ManguerasScreen() {
   const canApprove = levelMeets(level, 'full');
 
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false, realtimeFrom: 'hose_services' });
-  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id, operational', orderBy: 'code', realtimeFrom: 'machinery' });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
+  const { data: companies } = useTable<CompanyRow>('companies', { select: 'id, name', orderBy: 'name' });
   const { rate: bcvRate } = useBcvRate();
 
-  const machineryMap = useMemo(() => {
-    const m: Record<string, { code: string; serial: string | null; plate: string | null; operational: boolean }> = {};
-    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate, operational: r.operational }; });
+  const companiesMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    companies.forEach((c) => { if (c.id) m[c.id] = c.name || '—'; });
     return m;
-  }, [machinery]);
+  }, [companies]);
+  const machineryMap = useMemo(() => {
+    const m: Record<string, { code: string; serial: string | null; plate: string | null; encargado: string | null; companyName: string | null; operational: boolean }> = {};
+    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate, encargado: r.encargado, companyName: r.company_id ? (companiesMap[r.company_id] ?? null) : null, operational: r.operational }; });
+    return m;
+  }, [machinery, companiesMap]);
   const profilesMap = useMemo(() => {
     const m: Record<string, string> = {};
     profiles.forEach((p) => { m[p.id] = p.full_name || 'Usuario'; });
@@ -115,11 +122,12 @@ export default function ManguerasScreen() {
 
   const machineOptions = useMemo(() => {
     const q = norm(machineQuery);
+    const withInfo = machinery.map((m) => ({ ...m, companyName: m.company_id ? (companiesMap[m.company_id] ?? '') : '' }));
     const list = q
-      ? machinery.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''}`).includes(q))
-      : machinery;
+      ? withInfo.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.companyName} ${m.encargado ?? ''}`).includes(q))
+      : withInfo;
     return list.slice().sort((a, b) => cmpText(a.code, b.code)).slice(0, 30);
-  }, [machinery, machineQuery]);
+  }, [machinery, machineQuery, companiesMap]);
 
   const q = norm(query.trim());
   const shown = useMemo(() => {
@@ -155,8 +163,15 @@ export default function ManguerasScreen() {
         options: [{ label: 'En proceso', value: 'en_proceso' }, { label: 'Instalada', value: 'instalada' }],
       };
 
+  // El "Código de la fabricación" ya NO lo escribe el usuario: lo asigna la BASE
+  // automáticamente como correlativo de 4 dígitos (0001, 0002…). Al crear se muestra un
+  // aviso; al editar, el código ya asignado en modo solo lectura (no editable).
+  const codeField: Field = editing
+    ? { key: 'code_locked', type: 'section', label: `🔖 Código de la fabricación: ${editing.code ?? '—'} (automático · no editable)` }
+    : { key: 'code_info', type: 'section', label: '🔖 Código de la fabricación: se asigna automático (0001, 0002…) al guardar.' };
+
   const FIELDS: Field[] = [
-    { key: 'code', label: 'Código de la fabricación', type: 'text', required: true },
+    codeField,
     // `activeCol: 'operational'` marca con "(Inactiva)" las máquinas dadas de baja
     // en la lista, SIN ocultarlas (el historial de mangueras de una máquina inactiva
     // debe seguir siendo consultable/asignable si hiciera falta).
@@ -274,7 +289,7 @@ export default function ManguerasScreen() {
             ) : null}
             {machineOpen ? (
               <View style={{ marginTop: spacing.xs }}>
-                <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="🔎 Buscar por código, serial o placa…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="🔎 Buscar por código, serial, placa, empresa o encargado…" placeholderTextColor={colors.muted} style={input} />
                 <View style={{ maxHeight: 240, marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
                   {machineOptions.length === 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text>
@@ -287,6 +302,8 @@ export default function ManguerasScreen() {
                         {!m.operational ? <Pill label="⛔ Inactiva" tone="danger" colors={colors} /> : null}
                       </View>
                       <Text style={{ color: colors.muted, fontSize: 11 }}>{[m.serial ? `Serial ${m.serial}` : '', m.plate ? `Placa ${m.plate}` : ''].filter(Boolean).join(' · ') || '—'}</Text>
+                      {m.companyName ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.companyName}</Text> : null}
+                      {m.encargado ? <Text style={{ color: colors.muted, fontSize: 11 }}>👤 {m.encargado}</Text> : null}
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -339,7 +356,7 @@ export default function ManguerasScreen() {
           ) : (
             shown.map((h) => {
               const mach = h.machinery_id ? machineryMap[h.machinery_id] : undefined;
-              const machLabel = mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : '', mach.plate ? `Placa ${mach.plate}` : ''].filter(Boolean).join(' · ') : '—';
+              const machLabel = mach ? [mach.code, mach.serial ? `Serial ${mach.serial}` : '', mach.plate ? `Placa ${mach.plate}` : '', mach.companyName ? `🏢 ${mach.companyName}` : '', mach.encargado ? `👤 ${mach.encargado}` : ''].filter(Boolean).join(' · ') : '—';
               const installInfo = INSTALL_INFO[h.install_status] ?? INSTALL_INFO.en_proceso;
               const paymentInfo = PAYMENT_INFO[h.payment_status] ?? PAYMENT_INFO.pendiente;
               const registradoPor = h.created_by ? (profilesMap[h.created_by] || 'Usuario') : 'Usuario';
