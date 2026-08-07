@@ -555,24 +555,33 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   //    cuentan (igual que el teléfono) — salvo las averiadas, que van a su categoría.
   const daySets = useMemo(() => {
     const isToday = selDay === caracasToday();
-    // ¿Trabajó o tiene jornada abierta EN ESTE turno?
-    const startedInShift = (r: Round): boolean => {
-      const dayH = Number(r.day_hours) || 0, nightH = Number(r.night_hours) || 0;
-      const openSh = r.jornada_start_at ? (r.jornada_shift === 'night' ? 'night' : 'day') : null;
-      return shift === 'day' ? (dayH > 0 || openSh === 'day') : (nightH > 0 || openSh === 'night');
+    // Turno REAL de la ronda. Para una jornada ABIERTA con jornada_shift nulo, se
+    // infiere por la HORA DE INICIO (Caracas: 7am–7pm día, resto noche) — así una
+    // jornada de noche recién abierta no cae por defecto en "día" (bug: "aparece una
+    // de día") ni se cuenta como "cerrada". Cerrada: por las horas registradas.
+    const shiftOfRound = (r: Round): 'day' | 'night' => {
+      if (r.jornada_shift === 'night') return 'night';
+      if (r.jornada_shift === 'day') return 'day';
+      if (r.jornada_start_at) return paradaShiftOf(r.jornada_start_at);
+      return ((Number(r.night_hours) || 0) > 0 && (Number(r.day_hours) || 0) === 0) ? 'night' : 'day';
     };
-    const workedSet = new Set<string>(); // trabajó/abrió ESTE turno
-    const openSet = new Set<string>();   // jornada de ESTE turno aún abierta
+    const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
+    const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
+    const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
-      if (startedInShift(r)) workedSet.add(r.machinery_id);
-      if (r.jornada_start_at && (r.jornada_shift === 'night' ? 'night' : 'day') === shift) openSet.add(r.machinery_id);
+      const sh = shiftOfRound(r);
+      if (roundStarted(r) && sh === shift) workedSet.add(r.machinery_id);
+      if (r.jornada_start_at) {
+        anyOpenSet.add(r.machinery_id);
+        if (sh === shift) openSet.add(r.machinery_id);
+      }
     });
     // Rescate: jornada de NOCHE de AYER aún abierta (cruza medianoche) — solo turno NOCHE.
     if (isToday && shift === 'night') {
       const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
       const yesterdayIso = y.toISOString().slice(0, 10);
-      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { workedSet.add(r.machinery_id); openSet.add(r.machinery_id); } });
+      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { workedSet.add(r.machinery_id); openSet.add(r.machinery_id); anyOpenSet.add(r.machinery_id); } });
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
