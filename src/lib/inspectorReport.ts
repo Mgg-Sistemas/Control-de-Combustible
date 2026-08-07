@@ -50,7 +50,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; timeline: string };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
@@ -277,7 +277,21 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       evs.push({ t: evParada.start, label: `${horaCaracasMs(evParada.start)} 🟡 paró: ${evParada.motivo || 'sin motivo'}${durTxt}${finTxt}` });
     }
     evs.sort((a, b) => a.t - b.t);
-    const timeline = evs.map((e) => e.label).join(' · ');
+    // HORAS PARADA de ESTE turno: duración del episodio de parada/avería vigente,
+    // acotada a la ventana del turno (día 7am–7pm; noche 7pm–7am+1). Si sigue parada
+    // sin reactivar, se cuenta hasta el fin del turno. Reemplaza la "línea de tiempo".
+    const shiftStartMs = turno === 'night'
+      ? new Date(date + 'T19:00:00-04:00').getTime()
+      : new Date(date + 'T07:00:00-04:00').getTime();
+    const shiftEndMs = turno === 'night'
+      ? new Date(date + 'T07:00:00-04:00').getTime() + 86400000
+      : new Date(date + 'T19:00:00-04:00').getTime();
+    let horasParada = 0;
+    if (evParada) {
+      const pStart = Math.max(evParada.start, shiftStartMs);
+      const pEnd = Math.min(evParada.end ?? shiftEndMs, shiftEndMs);
+      horasParada = Math.max(0, r2((pEnd - pStart) / 3600000));
+    }
     iMap.set(id, {
       id,
       code: base.code,
@@ -293,7 +307,7 @@ async function computeInspectorData(date: string, companies?: string[] | null): 
       nightH,
       estado,
       motivo,
-      timeline,
+      horasParada,
     });
   };
 
@@ -375,16 +389,17 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   const estRank = (e: EstadoKey) => (e === 'averia' ? 0 : e === 'encurso' ? 1 : e === 'parada' ? 2 : e === 'pendiente' ? 3 : 4);
   const renderInspector = (turno: Turno, insp: string, machMap: Map<string, Mach>): string => {
     const list = [...machMap.values()].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
-    let tD = 0, tN = 0;
+    let tD = 0, tN = 0, tPar = 0, tJor = 0;
     const rows = list.map((m, i) => {
-      const tot = r2(m.dayH + m.nightH);
-      tD += m.dayH; tN += m.nightH;
+      const trabajando = r2(m.dayH + m.nightH);          // TOTAL HORAS TRABAJANDO (día + noche)
+      const jornada = r2(Math.max(0, trabajando - m.horasParada)); // JORNADA = trabajando − paradas
+      tD += m.dayH; tN += m.nightH; tPar += m.horasParada; tJor += jornada;
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>${(m.estado === 'parada' || m.estado === 'averia') && m.motivo ? `<div style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</div>` : ''}`;
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${tot}</td><td>${esc(m.timeline || '—')}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r">${r2(m.dayH)}</td><td class="r">${r2(m.nightH)}</td><td class="r b">${trabajando}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Total</th><th>Línea de tiempo (este turno)</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="7">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td></td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">H. Día</th><th class="r">H. Noche</th><th class="r">Trabajando</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="7">Total · ${list.length} equipo(s)</td><td class="r">${r2(tD)}</td><td class="r">${r2(tN)}</td><td class="r b">${r2(tD + tN)}</td><td class="r">${r2(tPar)}</td><td class="r b">${r2(tJor)}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales.
     const bySec = new Map<string, { c: number; d: number; n: number }>();
