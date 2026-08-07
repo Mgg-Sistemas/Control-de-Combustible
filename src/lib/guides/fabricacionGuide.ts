@@ -64,7 +64,7 @@ export async function generateFabricacionGuide(): Promise<boolean> {
     appBar('🧵 Nueva fabricación') +
     mockupBody(
       mockupCard(
-        mockupField('Código de la fabricación', 'MNG-014', true) +
+        mockupField('Código de la fabricación', '0014 (automático)', true) +
         mockupField('Máquina', 'CAMION VOLTEO TORONTO', true) +
         mockupField('Descripción del trabajo', 'Manguera del brazo hidráulico', true) +
         mockupField('Fecha', '06/08/2026', true) +
@@ -78,7 +78,8 @@ export async function generateFabricacionGuide(): Promise<boolean> {
     twoCol(
       step2Mock,
       stepList([
-        'Toca **+ Nueva fabricación** y llena código, máquina, descripción, fecha, costo (US$) y proveedor.',
+        'Toca **+ Nueva fabricación**. El **código de la fabricación es automático** (correlativo de 4 dígitos: 0001, 0002…, no editable). Llena máquina, descripción, fecha, costo (US$) y proveedor.',
+        'Al **buscar la máquina** se muestran su **serial/placa**, la **empresa** y el **encargado** (además del código), y puedes filtrar por cualquiera de esos datos.',
         'Con **✏️ Editar** corriges los datos mientras no esté pagada.',
         'El botón **🔧 Marcar instalada** pasa el estado de instalación de 🟡 En proceso a 🟢 Instalada.',
         'El botón **📤 Enviar a autorización** manda el pago de ⏳ Pendiente a 📤 En autorización.',
