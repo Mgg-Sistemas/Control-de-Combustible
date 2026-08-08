@@ -48,8 +48,9 @@ export default function IntakesPilot() {
     { key: 'liters', label: 'Litros', type: 'number', required: true },
     { key: 'unit_cost', label: 'Costo unitario', type: 'number' },
     { key: 'total_cost', label: 'Costo total', type: 'number' },
-    // Preseleccionado con el tanque del encargado (si coincide el responsable).
-    { key: 'tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', required: true, ...(miTanqueId ? { defaultValue: miTanqueId } : {}) },
+    // Preseleccionado con el tanque del encargado (si coincide el responsable). Muestra
+    // ubicación + responsable en la etiqueta para distinguir tanques con el mismo nombre.
+    { key: 'tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', subLabelCols: ['location', 'responsable'], dropdown: true, required: true, ...(miTanqueId ? { defaultValue: miTanqueId } : {}) },
   ]), [miTanqueId]);
 
   return (
