@@ -150,7 +150,8 @@ export default function CoordinadorInspectoresView({
                   {pill('🟢', r.buckets.iniciadas.length, colors.success)}
                   {pill('🏁', r.buckets.cerradas.length, colors.brandText)}
                   {pill('⏳', r.buckets.pendientes.length, colors.brandText)}
-                  {pill('🟡🔴', r.buckets.paradas.length + r.buckets.averiadas.length, colors.warning)}
+                  {pill('🟡', r.buckets.paradas.length, colors.warning)}
+                  {pill('🔴', r.buckets.averiadas.length, colors.danger)}
                 </View>
               </View>
               <Text style={{ color: colors.muted, fontSize: 20 }}>{open ? '⌄' : '›'}</Text>

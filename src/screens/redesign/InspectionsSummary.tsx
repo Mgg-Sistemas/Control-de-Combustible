@@ -1157,8 +1157,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const horasTotales = Math.round(visibleIds.reduce((sum, id) => sum + (allHoursByMachine[id] ?? 0), 0) * 10) / 10;
       // CERRADAS del inspector: de sus iniciadas, las que ya finalizaron (en closedSet).
       const cer = ini.filter((id) => closedSet.has(id));
-      return { name: e.name, ini: s(ini), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
-    }).sort((a, b) => b.ini.length - a.ini.length || cmpText(a.name, b.name));
+      // `ini` sigue siendo INCLUSIVO de `cer` (lo necesitan la eficiencia y "Horas
+      // reales" — una máquina cerrada sigue contando como "trabajada"). Pero eso
+      // hacía que la tarjeta "Iniciadas" mostrara un número distinto al de la
+      // "VISTA DE INSPECTOR (TELÉFONO)" (SupervisorScreen.tsx), que sí las separa
+      // en categorías excluyentes — reportado por el cliente 08/08/2026 (mismo
+      // inspector, mismo día/turno, "Iniciadas" no coincidía entre las 2 vistas).
+      // `iniActivas` es SOLO para lo que se MUESTRA como "Iniciadas" (activas
+      // ahora mismo, sin contar las ya cerradas) — así ambas vistas dan el mismo
+      // número, sin tocar el cálculo interno de eficiencia/horas.
+      const iniActivas = ini.filter((id) => !closedSet.has(id));
+      return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
+    }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
 
   // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
@@ -1209,7 +1219,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const base = perInspector.filter((i) => !i.isFaltantes);
     return nq ? base.filter((i) => norm(i.name).includes(nq)) : base;
   }, [perInspector, inspQ]);
-  const maxInsp = Math.max(1, ...inspShown.map((i) => i.ini.length));
+  const maxInsp = Math.max(1, ...inspShown.map((i) => i.iniActivas.length));
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
   // Cajón MAQUINAS FALTANTES del turno: sus máquinas son, por definición, las que
   // no tienen inspector real — se ofrecen para asignar directo desde aquí.
@@ -1633,10 +1643,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {
                 const on = ins.name === selInsp;
-                const h = Math.max(6, (ins.ini.length / maxInsp) * 96);
+                const h = Math.max(6, (ins.iniActivas.length / maxInsp) * 96);
                 return (
                   <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 58, alignItems: 'center' }}>
-                    <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{ins.ini.length}</Text>
+                    <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{ins.iniActivas.length}</Text>
                     <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
                       <View style={{ height: h, width: '100%', backgroundColor: on ? colors.accent : colors.tankFill }} />
                     </View>
@@ -1736,7 +1746,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.background }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14, marginBottom: spacing.sm }}>👷 {sel.name} <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>· {sel.total} asignada(s)</Text></Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                <KpiCard label="Iniciadas" value={sel.ini.length} tone="brand" onPress={() => openList(`✅ Iniciadas · ${sel.name}`, sel.ini)} />
+                <KpiCard label="Iniciadas" value={sel.iniActivas.length} tone="brand" onPress={() => openList(`✅ Iniciadas · ${sel.name}`, sel.iniActivas)} />
                 <KpiCard label="Cerradas" value={sel.cer.length} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${sel.name}`, sel.cer)} />
                 <KpiCard label="Pendientes" value={sel.pend.length} tone="muted" onPress={() => openList(`⏳ Pendientes · ${sel.name}`, sel.pend)} />
                 <KpiCard label="Paradas" value={sel.par.length} tone="warn" onPress={() => openList(`🟡 Paradas · ${sel.name}`, sel.par)} />
