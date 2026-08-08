@@ -18,7 +18,7 @@ type MachineLike = {
 };
 export type InspectorRow = {
   id: string; name: string; total: number;
-  buckets: { iniciadas: MachineLike[]; pendientes: MachineLike[]; paradas: MachineLike[]; averiadas: MachineLike[] };
+  buckets: { iniciadas: MachineLike[]; cerradas: MachineLike[]; pendientes: MachineLike[]; paradas: MachineLike[]; averiadas: MachineLike[] };
 };
 
 // Buscador por TODAS las características posibles de la máquina: recorre CADA campo del
@@ -65,11 +65,12 @@ export default function CoordinadorInspectoresView({
       if (nameHit) return r;
       const buckets = {
         iniciadas: r.buckets.iniciadas.filter((m) => matchMachine(m, q)),
+        cerradas: r.buckets.cerradas.filter((m) => matchMachine(m, q)),
         pendientes: r.buckets.pendientes.filter((m) => matchMachine(m, q)),
         paradas: r.buckets.paradas.filter((m) => matchMachine(m, q)),
         averiadas: r.buckets.averiadas.filter((m) => matchMachine(m, q)),
       };
-      const total = buckets.iniciadas.length + buckets.pendientes.length + buckets.paradas.length + buckets.averiadas.length;
+      const total = buckets.iniciadas.length + buckets.cerradas.length + buckets.pendientes.length + buckets.paradas.length + buckets.averiadas.length;
       return { ...r, buckets, total };
     })
     .filter((r) => r.total > 0);
@@ -135,6 +136,7 @@ export default function CoordinadorInspectoresView({
         // 3 grupos colapsables dentro del inspector.
         const groups = [
           { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success, items: r.buckets.iniciadas.map((m) => ({ m, color: colors.success, tag: undefined as string | undefined })) },
+          { key: 'cerradas', label: 'Cerradas / finalizadas', icon: '🏁', color: colors.brandText, items: r.buckets.cerradas.map((m) => ({ m, color: colors.brandText, tag: 'Finalizada' as string | undefined })) },
           { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText, items: r.buckets.pendientes.map((m) => ({ m, color: colors.brandText, tag: undefined as string | undefined })) },
           { key: 'paradas_averias', label: 'Paradas / averiadas', icon: '🟡', color: colors.warning, items: parAve },
         ];
@@ -146,6 +148,7 @@ export default function CoordinadorInspectoresView({
                 <Text numberOfLines={1} style={{ color: colors.text, fontWeight: '900', fontSize: 14 }}>{r.name}</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: 3 }}>
                   {pill('🟢', r.buckets.iniciadas.length, colors.success)}
+                  {pill('🏁', r.buckets.cerradas.length, colors.brandText)}
                   {pill('⏳', r.buckets.pendientes.length, colors.brandText)}
                   {pill('🟡🔴', r.buckets.paradas.length + r.buckets.averiadas.length, colors.warning)}
                 </View>

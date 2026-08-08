@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius, AppColors } from '../../theme';
 
-export type KpiTone = 'success' | 'warning' | 'accent' | 'danger';
+export type KpiTone = 'success' | 'warning' | 'accent' | 'danger' | 'brand';
 
 export type KpiItem = {
   key: string;
@@ -44,6 +44,12 @@ function getToneMap(colors: AppColors) {
       border: colors.dangerSoftBorder,
       fg: colors.dangerSoftText,
       solid: colors.danger,
+    },
+    brand: {
+      bg: colors.surfaceAlt,
+      border: colors.brandText,
+      fg: colors.brandText,
+      solid: colors.brandText,
     },
   };
 }
