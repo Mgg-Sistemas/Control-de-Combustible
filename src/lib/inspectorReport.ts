@@ -400,6 +400,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       lng: a.longitude != null ? Number(a.longitude) : null,
     });
   });
+  // Pares turno|máquina que YA están cubiertos por una asignación vigente (CHECK):
+  // la sección (b) es solo para máquinas SIN asignación en ese turno — si no se
+  // excluyen aquí, una máquina reasignada de B a A (assignInspector reemplaza la
+  // fila de machine_inspectors, pero NO toca `recorded_by` de rondas ya creadas)
+  // sale DOS VECES: una bajo A (asignación vigente, sección a) y otra bajo B (quien
+  // grabó la ronda antes de la reasignación, sección b), duplicando también las
+  // horas en los totales del reporte.
+  const asignadaEnTurno = new Set<string>(assignments.map((a) => `${a.shift}|${a.machinery_id}`));
   // b) Máquinas con ronda iniciada por un inspector real aunque NO le estén
   //    asignadas (escaneo suelto / reasignación) → bajo quien la registró.
   ((rounds ?? []) as any[]).forEach((r) => {
@@ -411,6 +419,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const turno: Turno = r.jornada_shift === 'night' ? 'night'
       : r.jornada_shift === 'day' ? 'day'
       : (nightH > 0 && dayH === 0 ? 'night' : 'day');
+    if (asignadaEnTurno.has(`${turno}|${r.machinery_id}`)) return;
     const mm = r.machine || {};
     putMach(turno, nameById[rb] || '—', r.machinery_id, {
       code: mm.code ?? '—',

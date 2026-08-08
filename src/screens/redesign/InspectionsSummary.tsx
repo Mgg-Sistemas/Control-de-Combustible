@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, ScrollView, Modal, Pressable, Alert } from 'react-native';
 import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
@@ -144,6 +144,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [internalDay, setInternalDay] = useState(caracasBusinessToday());
   const selDay = date ?? internalDay;
   const setSelDay = useCallback((d: string) => { if (onDateChange) onDateChange(d); else setInternalDay(d); }, [onDateChange]);
+  // Igual que en SupervisionScreen: si este componente se usa SIN `date` controlado
+  // desde afuera, `internalDay` no se refrescaba solo al cruzar el borde del día de
+  // negocio (7am/medianoche) — quedaba congelado en el día de montaje. Solo pisa
+  // `internalDay` si seguía en el día viejo (respeta la navegación manual del usuario).
+  const bizDayRef = useRef(caracasBusinessToday());
+  useEffect(() => {
+    const t = setInterval(() => {
+      const biz = caracasBusinessToday();
+      if (biz !== bizDayRef.current) {
+        setInternalDay((prev) => (prev === bizDayRef.current ? biz : prev));
+        bizDayRef.current = biz;
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
   // Navegar ±1 día (sin pasar de hoy). Al cambiar el día se limpia el inspector abierto.
   const shiftDay = (delta: number) => {
     const d = new Date(selDay + 'T12:00:00');
@@ -260,9 +275,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
-    const [roundsRows, maintRes, asg, machRows, allHoursMap] = await Promise.all([
+    const [roundsRows, maintRows, asg, machRows, allHoursMap] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
-      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
+      // selectAllRows (no .from directo): con el uso normal de la flota, las
+      // averías/paradas "pendiente" se acumulan indefinidamente (se arrastran hasta
+      // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
+      // consulta — igual que ya se cuidó arriba con machine_rounds/machinery.
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, machine:machinery_id(code)', (q) => q.eq('status', 'pendiente')),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
@@ -272,7 +291,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       loadTotalHoursByMachine(),
     ]);
     setRounds((roundsRows ?? []) as any);
-    setMaint((maintRes.data ?? []) as any);
+    setMaint((maintRows ?? []) as any);
     setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
     setMachList((machRows ?? []) as any);
     setAllHoursByMachine(allHoursMap);
@@ -690,7 +709,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // de la avería/parada, la máquina volvió a trabajar → NO cuenta como averiada/parada
     // (antes salía 🔴 AVERIADA y a la vez "EN CURSO / transcurrido" — imposible). Mismo
     // criterio que el teléfono (iniciar jornada reactiva) y el reporte por inspector.
-    const reactivadaTras = (id: string, t: number) => { const js = openStartMs.get(id); return js != null && js >= t; };
+    // BUG (08/08/2026): `openStartMs` solo tiene jornadas que siguen ABIERTAS ahora
+    // mismo. En cuanto `auto_close_jornadas()` cierra el turno (7am/7pm) pone
+    // `jornada_start_at = null`, así que una máquina reactivada tras la avería/parada
+    // y que YA trabajó y cerró su turno completo volvía a contar como averiada/parada
+    // (el ticket de mantenimiento sigue "pendiente" por diseño). Igual que
+    // inspectorReport.ts (`reactivadaHoy = openForShift || hoursForShift > 0`), se
+    // suma el fallback a `workedSet` (horas bancadas de ESTE turno), no solo la
+    // jornada abierta.
+    const reactivadaTras = (id: string, t: number) => { const js = openStartMs.get(id); return (js != null && js >= t) || workedSet.has(id); };
     const averAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
