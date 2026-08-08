@@ -1329,8 +1329,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
               y "Gestionar", que se quitaron a pedido). */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
             {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
-            <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
+            <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
             </TouchableOpacity>
             {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
                 selector de empresas; sin selección = todas. Regla 200/220/250. */}
