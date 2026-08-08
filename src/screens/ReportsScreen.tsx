@@ -1464,8 +1464,7 @@ export default function ReportsScreen({ route }: any) {
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
-      <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>
-      ${sinUbic ? `<tr><td style="color:#6B7280">Sin ubicación GPS</td><td style="text-align:right;color:#6B7280">${sinUbic}</td></tr>` : ''}</tbody>
+      <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr></tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen: TOTAL por TIPO de maquinaria (Jumbo, Payloader…) y DÓNDE se ubican
     // (🟢 Este / 🟠 Oeste). Ej.: "PAYLOADER · 7 · 3 Este · 4 Oeste". A→Z natural.
@@ -1480,13 +1479,12 @@ export default function ReportsScreen({ route }: any) {
       if (mac === 'OESTE') e.oeste += 1; else if (mac === 'ESTE') e.este += 1; else e.su += 1;
       porTipoZona.set(k, e);
     });
-    const tipoZTot = { este: 0, oeste: 0, su: 0 };
-    porTipoZona.forEach((v) => { tipoZTot.este += v.este; tipoZTot.oeste += v.oeste; tipoZTot.su += v.su; });
-    const anyTZsu = tipoZTot.su > 0;
+    const tipoZTot = { este: 0, oeste: 0 };
+    porTipoZona.forEach((v) => { tipoZTot.este += v.este; tipoZTot.oeste += v.oeste; });
     const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria · 🟢 Este / 🟠 Oeste</div>
-      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:70px;text-align:right">Total</th><th style="width:70px;text-align:right">🟢 Este</th><th style="width:70px;text-align:right">🟠 Oeste</th>${anyTZsu ? '<th style="width:70px;text-align:right">Sin ubic.</th>' : ''}</tr></thead>
-      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td>${anyTZsu ? `<td style="text-align:right;color:#6B7280">${v.su}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${anyTZsu ? 5 : 4}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td>${anyTZsu ? `<td style="text-align:right;font-weight:800">${tipoZTot.su}</td>` : ''}</tr></tfoot></table>`;
+      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th><th style="width:80px;text-align:right">🟢 Este</th><th style="width:80px;text-align:right">🟠 Oeste</th></tr></thead>
+      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>`;
     // Resumen: cantidad por CLASIFICACIÓN (Excavadora, Volteo…). A→Z natural.
     const countByClasif = new Map<string, number>();
     list.forEach((m) => { const c = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; countByClasif.set(c, (countByClasif.get(c) ?? 0) + 1); });
