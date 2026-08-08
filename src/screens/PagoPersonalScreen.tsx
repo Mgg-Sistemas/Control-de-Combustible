@@ -568,15 +568,24 @@ export default function PagoPersonalScreen() {
   // exporta SOLO esos (p. ej. filtrar a "Inactivos/Desincorporados" y seleccionarlos);
   // si no hay ninguno seleccionado, exporta todos respetando el filtro de cargo (como
   // ya hacía antes de agregar la selección).
-  const exportarExcel = () => {
+  const exportarExcel = async () => {
     if (!sel) return;
     if (Platform.OS !== 'web') { toast.info('La descarga de Excel se hace desde el navegador (versión web).'); return; }
     const base = itemSelIds.size
       ? items.filter((it) => itemSelIds.has(it.id))
       : cargoSel.size ? items.filter((it) => cargoSel.has(cargoOf(it.cargo))) : items;
+    // Nº de cuenta bancaria: viene de la ficha de perfil del empleado (employees.bank_account),
+    // no del renglón de nómina — se busca puntual al exportar.
+    const empIds = [...new Set(base.map((it) => it.employee_id).filter(Boolean))] as string[];
+    const cuentaById = new Map<string, string>();
+    if (empIds.length) {
+      const { data: emps } = await supabase.from('employees').select('id, bank_account').in('id', empIds);
+      (emps ?? []).forEach((e: any) => { if (e.bank_account) cuentaById.set(e.id, e.bank_account); });
+    }
     const ok = exportPagoPersonalXlsx(
       base.map((it) => ({
         nombre: it.person_name, cedula: it.cedula ?? '', cargo: it.cargo ?? '',
+        cuenta: (it.employee_id && cuentaById.get(it.employee_id)) || '',
         dias: Number(it.dias) || 0, dias_noche: Number(it.dias_noche) || 0, horas: Number(it.horas) || 0, semanas: Number(it.semanas) || 0,
         devengado: devengadoOf(it, sel.mode), bonos: sumLines(it.bonos), deducciones: sumLines(it.deducciones),
         total: Number(it.total) || 0, pagado: paidOf(it.id), saldo: saldoOf(it),

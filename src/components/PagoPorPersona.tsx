@@ -327,7 +327,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       concepto: p.concepto || '',
       monto: Number(p.monto) || 0,
     }));
-    const ok = exportPersonaHistoricoXlsx(fullName(e), e.cedula || '', rows, bcvRate);
+    const ok = exportPersonaHistoricoXlsx(fullName(e), e.cedula || '', rows, bcvRate, e.bank_account);
     if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');
   };
 
@@ -335,7 +335,7 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     const rows = employees
       .filter((e) => seleccionados.has(e.id))
       .sort((a, b) => cmpText(fullName(a), fullName(b)))
-      .map((e) => ({ nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '', total: totalOf(e) }));
+      .map((e) => ({ nombre: fullName(e), cedula: e.cedula || '', cargo: e.cargo ? canonicalCargo(e.cargo) : '', cuenta: e.bank_account || '', total: totalOf(e) }));
     if (rows.length === 0) return;
     const ok = exportPersonasSeleccionadasXlsx(rows, bcvRate);
     if (!ok) toast.error('No se pudo generar el Excel (la descarga se hace desde el navegador).');

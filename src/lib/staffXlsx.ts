@@ -16,6 +16,7 @@ export type PagoPersonalXlsxRow = {
   nombre: string;
   cedula: string;
   cargo: string;
+  cuenta: string;       // número de cuenta bancaria del trabajador (ficha de perfil)
   dias: number;        // jornadas de DÍA (modo "Por día")
   dias_noche: number;   // jornadas de NOCHE (modo "Por día")
   horas: number;        // modo "Por hora"
@@ -77,15 +78,15 @@ const MONEY_FMT = '#,##0.00';
 const QTY_FMT = '#,##0.##';
 
 const COLS = [
-  'Nombre completo', 'Cédula', 'Cargo',
+  'Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta',
   'Días', 'Noches', 'Horas', 'Semanas',
   'Devengado (US$)', 'Bonos (US$)', 'Deducciones (US$)', 'Total (US$)', 'Pagado (US$)', 'Saldo (US$)',
 ] as const;
 
 // Columnas de MONTOS en US$.
-const USD_COLS = [7, 8, 9, 10, 11, 12];
+const USD_COLS = [8, 9, 10, 11, 12, 13];
 // Columnas de CANTIDAD trabajada.
-const QTY_COLS = [3, 4, 5, 6];
+const QTY_COLS = [4, 5, 6, 7];
 
 // Filas fijas del encabezado: 0 = contexto del período, 1 = blanco, 2 = encabezado de columnas.
 const META_ROW = 0;
@@ -110,13 +111,13 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   aoa[HEADER_ROW] = [...COLS];
   rows.forEach((r, i) => {
     aoa[FIRST_DATA_ROW + i] = [
-      r.nombre, r.cedula || '', r.cargo || '',
+      r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '',
       r.dias || 0, r.dias_noche || 0, r.horas || 0, r.semanas || 0,
       r.devengado || 0, r.bonos || 0, r.deducciones || 0, r.total || 0, r.pagado || 0, r.saldo || 0,
     ];
   });
   const totalRow = FIRST_DATA_ROW + rows.length;
-  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -168,7 +169,7 @@ export function exportPagoPersonalXlsx(rows: PagoPersonalXlsxRow[], _bcvRate: nu
   }
 
   ws['!cols'] = [
-    { wch: 26 }, { wch: 14 }, { wch: 20 },
+    { wch: 26 }, { wch: 14 }, { wch: 20 }, { wch: 18 },
     { wch: 8 }, { wch: 8 }, { wch: 9 }, { wch: 9 },
     { wch: 13 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
   ];
@@ -206,13 +207,14 @@ export function exportPersonaHistoricoXlsx(
   cedula: string,
   rows: PersonaXlsxRow[],
   _bcvRate: number | null,
+  cuenta?: string | null,
 ): boolean {
   const wb = XLSX.utils.book_new();
   const nCols = PERSONA_COLS.length;
   const blankRow = (n: number) => new Array(n).fill('');
 
   const aoa: any[][] = [];
-  aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}`, ...blankRow(nCols - 2)];
+  aoa[PERSONA_META_ROW] = ['Trabajador:', `${nombre}${cedula ? ` · C.I. ${cedula}` : ''}${cuenta ? ` · Cuenta ${cuenta}` : ''}`, ...blankRow(nCols - 2)];
   aoa[1] = blankRow(nCols);
   aoa[PERSONA_HEADER_ROW] = [...PERSONA_COLS];
   rows.forEach((r, i) => {
@@ -271,10 +273,11 @@ export type PersonasSeleccionadasXlsxRow = {
   nombre: string;
   cedula: string;
   cargo: string;
+  cuenta: string; // número de cuenta bancaria del trabajador (ficha de perfil)
   total: number; // US$ — total pagado histórico de la persona
 };
 
-const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Total pagado (US$)'] as const;
+const SEL_COLS = ['Nombre completo', 'Cédula', 'Cargo', 'Nº Cuenta', 'Total pagado (US$)'] as const;
 const SEL_META_ROW = 0;
 const SEL_HEADER_ROW = 2;
 const SEL_FIRST_DATA_ROW = 3;
@@ -296,10 +299,10 @@ export function exportPersonasSeleccionadasXlsx(
   aoa[1] = blankRow(nCols);
   aoa[SEL_HEADER_ROW] = [...SEL_COLS];
   rows.forEach((r, i) => {
-    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.total || 0];
+    aoa[SEL_FIRST_DATA_ROW + i] = [r.nombre, r.cedula || '', r.cargo || '', r.cuenta || '', r.total || 0];
   });
   const totalRow = SEL_FIRST_DATA_ROW + rows.length;
-  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', 0];
+  aoa[totalRow] = ['TOTAL', `${rows.length} persona(s)`, '', '', 0];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
 
@@ -311,10 +314,10 @@ export function exportPersonasSeleccionadasXlsx(
   const metaLabelRef = XLSX.utils.encode_cell({ r: SEL_META_ROW, c: 0 });
   if ((ws as any)[metaLabelRef]) (ws as any)[metaLabelRef].s = META_STYLE;
 
-  // Total US$ (col 3): formato de número.
+  // Total US$ (col 4): formato de número.
   rows.forEach((_r, i) => {
     const row = SEL_FIRST_DATA_ROW + i;
-    const usdRef = XLSX.utils.encode_cell({ r: row, c: 3 });
+    const usdRef = XLSX.utils.encode_cell({ r: row, c: 4 });
     const usdCell = (ws as any)[usdRef];
     if (usdCell) { usdCell.z = MONEY_FMT; usdCell.t = 'n'; }
   });
@@ -323,8 +326,8 @@ export function exportPersonasSeleccionadasXlsx(
   if (rows.length) {
     const firstExcelRow = SEL_FIRST_DATA_ROW + 1;
     const lastExcelRow = SEL_FIRST_DATA_ROW + rows.length;
-    const colLetter = XLSX.utils.encode_col(3);
-    const ref = XLSX.utils.encode_cell({ r: totalRow, c: 3 });
+    const colLetter = XLSX.utils.encode_col(4);
+    const ref = XLSX.utils.encode_cell({ r: totalRow, c: 4 });
     (ws as any)[ref] = { t: 'n', z: MONEY_FMT, f: `SUM(${colLetter}${firstExcelRow}:${colLetter}${lastExcelRow})` };
   }
   for (let c = 0; c < nCols; c++) {
@@ -334,7 +337,7 @@ export function exportPersonasSeleccionadasXlsx(
     else (ws as any)[ref] = { t: 's', v: '', s: TOTAL_STYLE };
   }
 
-  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 15 }];
+  ws['!cols'] = [{ wch: 26 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 15 }];
   ws['!rows'] = [{ hpt: 20 }, { hpt: 6 }, { hpt: 30 }];
   ws['!merges'] = [
     { s: { r: SEL_META_ROW, c: 1 }, e: { r: SEL_META_ROW, c: nCols - 1 } },
