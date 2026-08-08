@@ -58,10 +58,43 @@ async function pick(
   });
 }
 
-/** Convierte el asset elegido en el cuerpo a subir. En WEB usa el blob directo
- *  (rápido, evita el decode base64); en NATIVO usa base64. */
+/**
+ * (WEB) Redimensiona/recomprime una imagen con canvas ANTES de subirla. Una foto de
+ * cámara de teléfono trae miles de px (varios MB) aunque se baje la calidad; subir eso
+ * por datos móviles es lo que tarda. Bajarla a máx `maxDim` px de lado + JPEG deja el
+ * archivo en ~100-300 KB → la subida es mucho más rápida. Sin dependencias nativas
+ * (el teléfono usa la app web). Si algo falla, devuelve null y se cae al blob original.
+ */
+async function resizeImageWeb(uri: string, maxDim = 1600, quality = 0.5): Promise<Blob | null> {
+  try {
+    const d: any = (globalThis as any).document;
+    if (!d) return null;
+    const img: any = await new Promise((resolve, reject) => {
+      const im = new (globalThis as any).Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = uri;
+    });
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if (!w || !h) return null;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    // Si ya es pequeña (scale=1) igual la recomprimimos a JPEG (baja el peso de PNG/HEIC).
+    const cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
+    const canvas: any = d.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b: any) => resolve(b), 'image/jpeg', quality));
+    return blob && blob.size > 0 ? blob : null;
+  } catch { return null; }
+}
+
+/** Convierte el asset elegido en el cuerpo a subir. En WEB redimensiona con canvas
+ *  (rápido, archivo liviano) y cae al blob directo si falla; en NATIVO usa base64. */
 async function assetToBody(asset: any): Promise<Blob | Uint8Array | null> {
   if (Platform.OS === 'web' && asset?.uri) {
+    const resized = await resizeImageWeb(asset.uri);
+    if (resized) return resized;
     try {
       const resp = await fetch(asset.uri);
       const blob = await resp.blob();

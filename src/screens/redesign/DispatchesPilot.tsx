@@ -90,9 +90,11 @@ export default function DispatchesPilot() {
         title="Consumos"
         table="dispatches"
         orderBy="dispatch_date"
+        ascending={false}
         select="*, machine:machinery_id(code), vehicle:vehicle_id(plate)"
         editable
         dateField="dispatch_date"
+        defaultToday
         emptyIcon="⛽"
         emptyTitle="Sin consumos"
         emptySubtitle="Registra los despachos a vehículos o maquinaria."
