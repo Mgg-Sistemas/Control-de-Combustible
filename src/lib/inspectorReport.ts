@@ -574,6 +574,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     : `<p class="none">Sin jornadas de inspección para el día ${dmy(date)}${shift === 'both' ? '' : ` (${shift === 'day' ? 'turno día' : 'turno noche'})`}.</p>`;
 
   const extraCss = `
+    /* Orientación HORIZONTAL (mejor lectura de textos largos). Mantiene el margen
+       2cm del membrete base (las reglas @page se combinan). */
+    @page{size:A4 landscape}
     h2.turno{font-size:15px;color:#1E3A5F;margin:20px 0 6px;padding-bottom:6px;border-bottom:2px solid #1E3A5F}
     h2.turno .tcnt{font-size:11px;color:#6B7280;font-weight:600}
     .insp{margin:14px 0 4px;font-size:12.5px;color:#111;border-left:4px solid #1E3A5F;padding-left:8px}
