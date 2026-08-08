@@ -1073,8 +1073,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         `<div class="grand">Total general de equipos: ${total}</div>` +
         `<h2>Totales por tipo de maquinaria · 🟢 Este / 🟠 Oeste</h2>
          <table><thead><tr><th>Tipo de maquinaria</th><th style="text-align:right">Total</th><th style="text-align:right">🟢 Este</th><th style="text-align:right">🟠 Oeste</th>${anySU ? '<th style="text-align:right">Sin ubic.</th>' : ''}</tr></thead>
-         <tbody>${clasifRows || `<tr><td colspan="${anySU ? 5 : 4}" style="text-align:center">Sin datos</td></tr>`}</tbody>
-         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td><td style="text-align:right;font-weight:800">${tipoTot.este}</td><td style="text-align:right;font-weight:800">${tipoTot.oeste}</td>${anySU ? `<td style="text-align:right;font-weight:800">${tipoTot.su}</td>` : ''}</tr></tfoot></table>` +
+         <tbody>${clasifRows || `<tr><td colspan="${anySU ? 5 : 4}" style="text-align:center">Sin datos</td></tr>`}</tbody></table>` +
         `<h2 style="margin-top:18px">Por empresa</h2>
          <table><thead><tr><th>Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
          <tbody>${resumenRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
