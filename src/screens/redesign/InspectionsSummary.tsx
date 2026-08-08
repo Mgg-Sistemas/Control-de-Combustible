@@ -108,6 +108,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // (min started_at), hora final (max ended_at) y horas trabajadas (suma) — para
   // mostrarlas en el detalle de cada máquina, igual que el reporte por empresa.
   const [segDay, setSegDay] = useState<Record<string, { minStart: number; maxEnd: number; sum: number }>>({});
+  // Mismos tramos de `machine_work_segments`, pero SEPARADOS por turno (día/noche).
+  // Una máquina "corrido" (trabaja día Y noche el mismo día) tiene un solo
+  // `jornada_start_at` compartido en `machine_rounds` — no alcanza para saber por
+  // separado a qué hora terminó el día y a qué hora empezó/terminó la noche. Estos
+  // tramos SÍ vienen con `shift` propio y son la fuente correcta para eso.
+  const [segByShift, setSegByShift] = useState<Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }>>({});
   const [loading, setLoading] = useState(true);
   // Inspectores REALES (para el desplegable de "Máquinas por asignar" del cajón
   // MAQUINAS FALTANTES) — mismos roles que puede elegir el CHECK MÁQUINA del teléfono.
@@ -257,10 +263,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
-    // Tramos trabajados del día (hora inicio/fin y horas por máquina).
-    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours', (q) => q.eq('round_date', selDay))
+    // Tramos trabajados del día (hora inicio/fin y horas por máquina), y la MISMA
+    // información separada por turno (día/noche) — ver `segByShift` arriba.
+    selectAllRows('machine_work_segments', 'machinery_id, shift, started_at, ended_at, hours', (q) => q.eq('round_date', selDay))
       .then((rows) => {
         const map: Record<string, { minStart: number; maxEnd: number; sum: number }> = {};
+        const byShift: Record<string, { day?: { minStart: number; maxEnd: number; sum: number }; night?: { minStart: number; maxEnd: number; sum: number } }> = {};
         ((rows ?? []) as any[]).forEach((s) => {
           const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
           const en = s.ended_at ? new Date(s.ended_at).getTime() : NaN;
@@ -269,10 +277,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           if (!isNaN(st)) cur.minStart = Math.min(cur.minStart, st);
           if (!isNaN(en)) cur.maxEnd = Math.max(cur.maxEnd, en);
           map[s.machinery_id] = cur;
+          const sh: 'day' | 'night' = s.shift === 'night' ? 'night' : 'day';
+          const entry = byShift[s.machinery_id] ?? {};
+          const prev = entry[sh] ?? { minStart: Infinity, maxEnd: -Infinity, sum: 0 };
+          prev.sum += Number(s.hours) || 0;
+          if (!isNaN(st)) prev.minStart = Math.min(prev.minStart, st);
+          if (!isNaN(en)) prev.maxEnd = Math.max(prev.maxEnd, en);
+          entry[sh] = prev;
+          byShift[s.machinery_id] = entry;
         });
         setSegDay(map);
+        setSegByShift(byShift);
       })
-      .catch(() => setSegDay({}));
+      .catch(() => { setSegDay({}); setSegByShift({}); });
     setLoading(false);
   }, [fromDate, selDay]);
 
@@ -863,6 +880,48 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return map;
   }, [rounds, selDay]);
 
+  // Detalle SEPARADO por turno (día/noche) del día elegido — para máquinas
+  // "corrido" que trabajan AMBOS turnos el mismo día. `machine_rounds` solo tiene
+  // un `jornada_start_at` compartido (el turno que esté vivo AHORA), así que el
+  // turno que YA cerró se lee de `segByShift` (machine_work_segments, con hora
+  // real de inicio/fin propia); el turno vivo se marca "En curso" con su hora de
+  // arranque real. Sin esto, ver el turno DÍA de una máquina cuya noche ya está
+  // en curso mostraba "FIN EN CURSO" con el badge "CERRADA" (contradictorio) —
+  // porque tomaba prestado el `jornada_start_at` de la noche.
+  type ShiftInfo = { hours: number; horaIni: string; horaFin: string; openNow: boolean };
+  const shiftDetail = useMemo(() => {
+    const map = new Map<string, { day: ShiftInfo; night: ShiftInfo }>();
+    const blank = (): ShiftInfo => ({ hours: 0, horaIni: '—', horaFin: '—', openNow: false });
+    rounds.forEach((r) => {
+      if (r.round_date !== selDay) return;
+      const cur = map.get(r.machinery_id) ?? { day: blank(), night: blank() };
+      cur.day.hours += Number(r.day_hours) || 0;
+      cur.night.hours += Number(r.night_hours) || 0;
+      if ((r as any).jornada_start_at) {
+        const openSh = roundShift(r);
+        cur[openSh].openNow = true;
+        cur[openSh].horaIni = horaCaracas(new Date((r as any).jornada_start_at).getTime());
+        cur[openSh].horaFin = 'En curso';
+      }
+      map.set(r.machinery_id, cur);
+    });
+    // Rellena inicio/fin de los turnos YA CERRADOS con la hora real de sus tramos
+    // (machine_work_segments) — el turno vivo (openNow) ya quedó fijado arriba.
+    Object.entries(segByShift).forEach(([id, byShift]) => {
+      const cur = map.get(id);
+      if (!cur) return;
+      (['day', 'night'] as const).forEach((sh) => {
+        const info = cur[sh];
+        const seg = byShift[sh];
+        if (!info.openNow && seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
+          info.horaIni = horaCaracas(seg.minStart);
+          info.horaFin = horaCaracas(seg.maxEnd);
+        }
+      });
+    });
+    return map;
+  }, [rounds, segByShift, selDay]);
+
   // Horas REALES trabajadas de una máquina en selDay: lo ya bancado (day_hours +
   // night_hours) MÁS, si su jornada sigue abierta y selDay es HOY, lo transcurrido
   // desde que arrancó (en vivo, hasta el momento de mirar el panel) — así una
@@ -963,9 +1022,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // guardado (puede ser 0 o un valor fijo pre-cargado), no el tiempo real que
       // lleva corriendo — se calcula aparte (ahora − hora de inicio real).
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH };
+      // Máquina "corrido" (trabajó/trabaja AMBOS turnos el mismo día): se muestran
+      // los DOS por separado (cada uno con su propia hora real), en vez del
+      // inicio/fin de arriba que solo alcanza para un turno a la vez.
+      const sd = shiftDetail.get(id) ?? null;
+      const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
+      const dayElapsedH = sd?.day.openNow ? Math.max(0, (Date.now() - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'day')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      const nightElapsedH = sd?.night.openNow ? Math.max(0, (Date.now() - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'night')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
     });
-  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine]);
+  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds]);
   const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
     if (!nq) return listRows;
@@ -1006,14 +1072,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
       const dn = inspByShift.get(id) ?? {};
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH };
+      const sd = shiftDetail.get(id) ?? null;
+      const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
     });
     return rows.filter((r) => {
       const i = r.info;
       return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
         .some((v) => norm(v).includes(nq));
     }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
-  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift]);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail]);
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
@@ -1485,14 +1553,37 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted }}>☀️ </Text><Text style={{ color: r.dayInsp ? colors.text : colors.muted, fontWeight: r.dayInsp ? '700' : '400' }}>{r.dayInsp || 'sin inspector'}</Text>
                           <Text style={{ color: colors.muted }}>    🌙 </Text><Text style={{ color: r.nightInsp ? colors.text : colors.muted, fontWeight: r.nightInsp ? '700' : '400' }}>{r.nightInsp || 'sin inspector'}</Text>
                         </Text>
-                        <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
-                          <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
-                          <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
-                          <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
-                          {r.elapsedH != null ? (<>
-                            <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
-                          </>) : null}
-                        </Text>
+                        {r.bothShifts ? (
+                          // Trabajó/trabaja AMBOS turnos hoy: se muestran por separado —
+                          // cada uno con su propia hora real (nunca se pisan entre sí).
+                          <>
+                            <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                              <Text style={{ color: colors.muted }}>☀️ Día · Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaIni}</Text>
+                              <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaFin}</Text>
+                              <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.dayInfo?.hours ?? 0) * 100) / 100} h</Text>
+                            </Text>
+                            <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                              <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaIni}</Text>
+                              <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaFin}</Text>
+                              <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.nightInfo?.hours ?? 0) * 100) / 100} h</Text>
+                            </Text>
+                            <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                              <Text style={{ color: colors.muted }}>⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
+                              {r.elapsedH != null ? (<>
+                                <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido (turno vivo) </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
+                              </>) : null}
+                            </Text>
+                          </>
+                        ) : (
+                          <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
+                            <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                            <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
+                            <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
+                            {r.elapsedH != null ? (<>
+                              <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
+                            </>) : null}
+                          </Text>
+                        )}
                       </View>
                     );
                   })}
@@ -1688,7 +1779,41 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           </Text>
                           {/* Hora de inicio → fin y TOTAL en VERDE (de los tramos trabajados).
                               Si estuvo PARADA (amarillo) o AVERIADA (rojo), se muestra debajo. */}
-                          {(Number(r.worked) > 0 || r.horaIni !== '—') ? (
+                          {r.bothShifts ? (
+                            // Trabajó/trabaja AMBOS turnos hoy: DÍA y NOCHE por separado, cada
+                            // uno con su hora real (nunca se pisan — antes esta fila podía
+                            // mostrar "CERRADA" con "FIN EN CURSO" al mezclar los dos turnos).
+                            <>
+                              <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                                <Text style={{ color: colors.muted }}>☀️ Día · Inicio </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaIni}</Text>
+                                <Text style={{ color: colors.muted }}>  →  Fin </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaFin}</Text>
+                                <Text style={{ color: colors.muted }}>  ·  </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.dayInfo?.hours ?? 0) * 100) / 100} h</Text>
+                                {r.dayElapsedH != null ? (<>
+                                  <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
+                                  <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.dayElapsedH * 100) / 100} h</Text>
+                                </>) : null}
+                              </Text>
+                              <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                                <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaIni}</Text>
+                                <Text style={{ color: colors.muted }}>  →  Fin </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaFin}</Text>
+                                <Text style={{ color: colors.muted }}>  ·  </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.nightInfo?.hours ?? 0) * 100) / 100} h</Text>
+                                {r.nightElapsedH != null ? (<>
+                                  <Text style={{ color: colors.muted }}>  ·  ⏳ </Text>
+                                  <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.nightElapsedH * 100) / 100} h</Text>
+                                </>) : null}
+                              </Text>
+                              <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
+                                <Text style={{ color: colors.muted }}>⏱️ Total del día </Text>
+                                <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
+                              </Text>
+                            </>
+                          ) : (Number(r.worked) > 0 || r.horaIni !== '—') ? (
                             <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>🕐 Inicio </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
