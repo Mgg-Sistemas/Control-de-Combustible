@@ -196,9 +196,23 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: '2-digit', hour12: false }).format(ms));
     return h >= 7 && h < 19 ? 'day' : 'night';
   };
+  // Franjas del día reportado (Caracas): DÍA = 07:00–19:00 (12h) · NOCHE = 00:00–07:00
+  // y 19:00–24:00 (12h). Cada turno tiene un máximo de 12h.
   const dayBoundStart = new Date(`${date}T00:00:00-04:00`).getTime();
   const dayBoundEnd = new Date(`${date}T23:59:59.999-04:00`).getTime();
+  const day7 = new Date(`${date}T07:00:00-04:00`).getTime();
+  const day19 = new Date(`${date}T19:00:00-04:00`).getTime();
   const nowMs = Date.now();
+  // ¿El día reportado es HOY (Caracas)? El cálculo "en vivo" (jornada abierta que sigue
+  // sumando) solo aplica hoy; un día pasado muestra únicamente lo que quedó banqueado.
+  const caracasHoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const isToday = date === caracasHoy;
+  /** Horas de solapamiento entre [a1,a2] y [b1,b2]. */
+  const overlapH = (a1: number, a2: number, b1: number, b2: number) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1)) / 3600000;
+  // Reparte las horas paradas por la FRANJA real donde caen (no por la hora de inicio):
+  // una parada que arranca de día y sigue de noche cuenta sus horas en cada turno.
+  // Solo cuenta lo que cae DENTRO del día seleccionado (una parada de varios días no
+  // infla el día) y cada turno se topa en 12h.
   const paradasDiaNoche = (id: string): { dia: number; noche: number } => {
     const eps = paradasByMachine.get(id) || [];
     let dia = 0, noche = 0;
@@ -206,10 +220,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       const start = Math.max(p.start, dayBoundStart);
       const end = Math.min(p.end ?? nowMs, dayBoundEnd);
       if (end <= start) return;
-      const horas = (end - start) / 3600000;
-      if (paradaShiftOf(p.start) === 'night') noche += horas; else dia += horas;
+      dia += overlapH(start, end, day7, day19);
+      noche += overlapH(start, end, dayBoundStart, day7) + overlapH(start, end, day19, dayBoundEnd);
     });
-    return { dia: n2(dia), noche: n2(noche) };
+    return { dia: n2(Math.min(12, dia)), noche: n2(Math.min(12, noche)) };
   };
 
   // Motivo (avería/parada) de UN turno para una máquina, o undefined si ese turno no
@@ -265,10 +279,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // duración del turno (igual que el auto-cierre del servidor).
     const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
     const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
-    if (jStart && jShift) {
+    // La jornada abierta suma en vivo SOLO si estamos viendo HOY y arrancó DENTRO de
+    // este día (si arrancó otro día — p. ej. máquina averiada arrastrada — no infla el
+    // día seleccionado; solo cuenta lo banqueado de esa fecha).
+    const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
+    if (isToday && jStart && jShift && jStartHoy) {
       const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
       if (jShift === 'day') dh = n2(dh + elapsed); else nh = n2(nh + elapsed);
     }
+    // Tope por turno: DÍA máx 12h, NOCHE máx 12h (una máquina "corrida" puede tener
+    // ambos → hasta 24h de jornada, pero nunca >12 en un mismo turno).
+    dh = n2(Math.min(12, dh));
+    nh = n2(Math.min(12, nh));
     const trab = n2(dh + nh);
     // Horas paradas totales (fallback sin episodios) + reparto día/noche por episodio.
     let par = 0;
@@ -280,7 +302,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     }
     const epSplit = paradasDiaNoche(id);
     const hayEpisodios = epSplit.dia > 0 || epSplit.noche > 0;
-    const paradasDia = hayEpisodios ? epSplit.dia : par;
+    // Fallback sin episodios (solo hours_stopped/span): se topa también a 12h de día.
+    const paradasDia = hayEpisodios ? epSplit.dia : n2(Math.min(12, par));
     const paradasNoche = hayEpisodios ? epSplit.noche : 0;
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';

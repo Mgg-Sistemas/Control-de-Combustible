@@ -342,11 +342,13 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // abierta (`openForShift`) — antes esto sumaba igual, así que el reporte mostraba
     // "🔴 Averiada" con las horas de Trabajando/Jornada creciendo solas, como si
     // operara con normalidad.
+    // Tope por turno: DÍA máx 12h, NOCHE máx 12h (el elapsed en vivo y el total del
+    // turno nunca superan las 12h de duración del turno).
     const liveElapsedH = estado === 'encurso' && rd?.jornada_start_at
-      ? Math.max(0, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000)
+      ? Math.max(0, Math.min(12, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000))
       : 0;
-    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(dayH + liveElapsedH) : dayH;
-    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(nightH + liveElapsedH) : nightH;
+    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(Math.min(12, dayH + liveElapsedH)) : r2(Math.min(12, dayH));
+    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(Math.min(12, nightH + liveElapsedH)) : r2(Math.min(12, nightH));
     iMap.set(id, {
       id,
       code: base.code,
