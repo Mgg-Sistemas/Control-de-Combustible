@@ -2074,7 +2074,6 @@ export default function ReportsScreen({ route }: any) {
           { v: 'deploy', label: '🚜 Despliegue' },
           { v: 'conteo', label: '📊 Conteo equipos' },
           { v: 'camiones', label: '🚛 Camiones E/S' },
-          { v: 'inspeccion', label: '🔍 Inspección equipos' },
           { v: 'inspectores', label: '👷 Inspectores' },
         ] as const).map((t) => {
           const active = mode === t.v;
@@ -2088,8 +2087,6 @@ export default function ReportsScreen({ route }: any) {
                 if (t.v === 'rounds' || t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
-                // Inspección de equipos: reporte de UN día; arranca en HOY.
-                if (t.v === 'inspeccion') { setFrom(isoDaysAgo(0)); }
                 // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
                 if (t.v === 'inspectores') { setFrom(isoDaysAgo(0)); }
               }}
