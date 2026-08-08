@@ -14,6 +14,7 @@ import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
+import { sectorOf, sectorMacro } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
@@ -988,16 +989,24 @@ export default function EquiposScreen({ navigation, route }: any) {
     const resumenRows = empresas
       .map((c) => `<tr><td>${esc(c.name)}</td><td style="text-align:right;font-weight:700">${c.items.length}</td></tr>`)
       .join('');
-    // Totales POR CLASIFICACIÓN (arriba del reporte): cuántos equipos hay de cada
-    // clasificación en el alcance impreso (ej. Excavadora 5, Volteo 12…), A→Z natural.
-    const porClasif = new Map<string, number>();
+    // Totales POR TIPO DE MAQUINARIA (arriba del reporte): cuántos equipos de cada tipo
+    // y DÓNDE se ubican (🟢 Este / 🟠 Oeste, por GPS). Ej.: "PAYLOADER 7 · 3 Este · 4 Oeste".
+    // A→Z natural. La zona sale del sector geográfico (sectorOf) igual que el mapa.
+    const porTipo = new Map<string, { total: number; este: number; oeste: number; su: number }>();
     empresas.forEach((c) => c.items.forEach((m) => {
-      const k = repClasifLabel(m);
-      porClasif.set(k, (porClasif.get(k) ?? 0) + 1);
+      const k = repTipoLabel(m);
+      const e = porTipo.get(k) ?? { total: 0, este: 0, oeste: 0, su: 0 };
+      e.total += 1;
+      const macro = sectorMacro(sectorOf((m as any).latitude, (m as any).longitude));
+      if (macro === 'OESTE') e.oeste += 1; else if (macro === 'ESTE') e.este += 1; else e.su += 1;
+      porTipo.set(k, e);
     }));
-    const clasifRows = Array.from(porClasif.entries())
+    const tipoTot = { este: 0, oeste: 0, su: 0 };
+    porTipo.forEach((v) => { tipoTot.este += v.este; tipoTot.oeste += v.oeste; tipoTot.su += v.su; });
+    const anySU = tipoTot.su > 0;
+    const clasifRows = Array.from(porTipo.entries())
       .sort((a, b) => cmpText(a[0], b[0]))
-      .map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`)
+      .map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td>${anySU ? `<td style="text-align:right;color:#B91C1C">${v.su}</td>` : ''}</tr>`)
       .join('');
     const detalle = empresas
       .map((c) => {
@@ -1039,10 +1048,10 @@ export default function EquiposScreen({ navigation, route }: any) {
         .grand{margin:4px 0 8px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:15px;border-radius:6px;text-align:right}`,
       body:
         `<div class="grand">Total general de equipos: ${total}</div>` +
-        `<h2>Totales por clasificación</h2>
-         <table><thead><tr><th>Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
-         <tbody>${clasifRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>` +
+        `<h2>Totales por tipo de maquinaria · 🟢 Este / 🟠 Oeste</h2>
+         <table><thead><tr><th>Tipo de maquinaria</th><th style="text-align:right">Total</th><th style="text-align:right">🟢 Este</th><th style="text-align:right">🟠 Oeste</th>${anySU ? '<th style="text-align:right">Sin ubic.</th>' : ''}</tr></thead>
+         <tbody>${clasifRows || `<tr><td colspan="${anySU ? 5 : 4}" style="text-align:center">Sin datos</td></tr>`}</tbody>
+         <tfoot><tr><td style="text-align:right;font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td><td style="text-align:right;font-weight:800">${tipoTot.este}</td><td style="text-align:right;font-weight:800">${tipoTot.oeste}</td>${anySU ? `<td style="text-align:right;font-weight:800">${tipoTot.su}</td>` : ''}</tr></tfoot></table>` +
         `<h2 style="margin-top:18px">Por empresa</h2>
          <table><thead><tr><th>Empresa</th><th style="text-align:right">Cantidad</th></tr></thead>
          <tbody>${resumenRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
