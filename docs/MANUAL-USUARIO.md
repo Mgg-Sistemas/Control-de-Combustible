@@ -175,6 +175,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
 - El equipo queda **No operativa**, **sale del control** y pasa a **"En reparación"** en el módulo
   **Mantenimiento de Maquinaria**, donde se registra su retorno operativo cuando quede lista.
 
+**🟢 Inspector "SOS LA GUAIRA" — máquinas siempre trabajando:**
+- Las máquinas asignadas al inspector **SOS LA GUAIRA** **nunca se muestran como parada ni averiada**:
+  siempre cuentan como **trabajando** y sus horas paradas se cuentan como **trabajadas** — en el
+  catálogo, el panel de Inspecciones (contadores), el teléfono y todos los reportes (por inspector,
+  resumen y por empresa).
+- Si a una de esas máquinas se le reporta una avería/parada, el ticket **sí queda** en **Mantenimiento
+  de Maquinaria** (para el mecánico), pero **no cambia su estado** de trabajando en las inspecciones.
+
 **Sección "En espera" (recibir máquinas):**
 - Arriba aparece **🕓 En espera** con las máquinas que **aún no se han recibido**.
 - Para recibir una: elige su **fecha de entrada** y toca **📥 Recibir**.
