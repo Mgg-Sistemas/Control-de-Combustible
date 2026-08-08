@@ -179,12 +179,15 @@ export default function SupervisionScreen({ navigation }: any) {
   const loadAssigns = useCallback(async () => {
     const { rows, missing } = await listInspectorAssignments();
     setAssignsMissing(missing);
-    // Solo máquinas ACTIVAS del catálogo (machinery.active/operational/en_espera). Las
+    // Solo máquinas ACTIVAS del catálogo (machinery.active/en_espera). Las
     // inactivas/retiradas/en espera de recepción no deben inflar el listado "por
     // inspector" (un inspector no trabaja equipo dado de baja o aún sin recibir) —
     // mismo criterio que Inspecciones y el teléfono (antes faltaba `en_espera` aquí).
+    // Regla confirmada 08-ago-2026: una máquina averiada/parada (operational=false)
+    // pero ACTIVA sigue asignada a su inspector y debe seguir contando aquí con su
+    // estado real — ya NO se excluye solo por operational=false.
     // Aplica a TODOS los inspectores (pantalla y PDFs).
-    const activos = rows.filter((a) => !(a.machineActive === false || a.machineOperational === false || a.machineEnEspera === true));
+    const activos = rows.filter((a) => !(a.machineActive === false || a.machineEnEspera === true));
     setAssigns(activos);
   }, []);
   useEffect(() => { loadAssigns(); }, [loadAssigns]);

@@ -599,15 +599,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
   };
 
-  // Máquinas inactivas/averiadas/en espera de CATÁLOGO (active=false, operational=false
-  // o en_espera=true) — el teléfono (necesitaInspector/visibleParaInspector) las OCULTA.
-  // Se excluyen de los conteos para que el panel cuadre con lo que ve el inspector.
-  // Antes faltaba `en_espera` aquí: una máquina en espera de recepción seguía contando
-  // en el universo/pendientes/eficiencia del coordinador aunque el teléfono ya la
-  // hubiera ocultado — el desajuste que reportó el cliente.
+  // Máquinas FUERA del catálogo asignable: desactivadas (active=false) o en espera de
+  // recepción/traslado (en_espera=true). Regla confirmada 08-ago-2026: `operational=false`
+  // (avería/parqueada) YA NO cuenta como "invisible" — sigue asignada a su inspector y debe
+  // verse en el dashboard con su estado real (parada/pendiente/averiada), igual que ya
+  // hace el reporte de inspectores (inspectorReport.ts). Antes se ocultaba también por
+  // operational=false, así que el dashboard mostraba menos máquinas que el reporte
+  // impreso para el mismo inspector (ej. 72 vs 76) — el reporte estaba bien, el dashboard
+  // las escondía de más.
   const machInactiveSet = useMemo(() => {
     const s = new Set<string>();
-    machList.forEach((m) => { if (m.active === false || m.operational === false || m.en_espera === true) s.add(m.id); });
+    machList.forEach((m) => { if (m.active === false || m.en_espera === true) s.add(m.id); });
     return s;
   }, [machList]);
 

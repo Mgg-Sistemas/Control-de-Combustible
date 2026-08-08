@@ -286,9 +286,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   ids.forEach((id) => {
     const m = machById.get(id);
     const empresa = m?.company?.name || 'Sin empresa';
-    // Inactiva = fuera de servicio en el catálogo (active=false O operational=false).
-    // Antes solo miraba `active`, así que las inactivas por `operational` no salían.
-    const inactiva = m?.active === false || m?.operational === false;
+    // Inactiva = fuera de servicio en el catálogo (active=false). Regla confirmada
+    // 08-ago-2026: una máquina averiada/parada (operational=false) pero ACTIVA y con
+    // inspector asignado sigue contando como ACTIVA con su estado real (la avería ya
+    // se refleja en la columna "Avería/motivo" vía averiaTxt) — ya no se agrupa como
+    // "🚫 INACTIVA" solo por operational=false (antes sí, y eso la sacaba del bloque
+    // de Activas aunque siguiera trabajando/asignada).
+    const inactiva = m?.active === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
     // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
