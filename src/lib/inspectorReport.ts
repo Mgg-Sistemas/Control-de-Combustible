@@ -430,10 +430,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     });
   });
   // b) Máquinas con ronda iniciada por un inspector real aunque NO le estén
-  //    asignadas (escaneo suelto / reasignación) → bajo quien la registró.
+  //    asignadas (escaneo suelto). SOLO si la máquina NO está asignada a NADIE: si ya
+  //    tiene inspector asignado (aunque la haya scaneado otro), va SOLO bajo su inspector
+  //    asignado en (a) — igual que las tarjetas, que agrupan por asignación. Sin este
+  //    filtro, una máquina asignada a otro inspector pero iniciada por ARTURO se sumaba
+  //    a ARTURO y el reporte mostraba 6 equipos cuando las tarjetas (solo asignadas)
+  //    mostraban 4. (08/08/2026: "no sé de dónde salen 6 equipos, son 4").
+  const assignedIds = new Set(assignments.map((a) => a.machinery_id));
   ((rounds ?? []) as any[]).forEach((r) => {
     const rb = (r.recorded_by ?? null) as string | null;
     if (!rb || adminIds.has(rb)) return;
+    if (assignedIds.has(r.machinery_id)) return; // ya sale bajo su inspector asignado (a)
     const dayH = Number(r.day_hours) || 0;
     const nightH = Number(r.night_hours) || 0;
     if (!(r.jornada_start_at || dayH > 0 || nightH > 0)) return;
