@@ -61,6 +61,8 @@ export default function DistribucionGuardiasScreen() {
   const [descansoFor, setDescansoFor] = useState<Meta | null>(null); // agregar descanso a inspector
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
+  const [grupoOpen, setGrupoOpen] = useState(false);     // armar grupos 14x7 a mano
+  const [grupoSel, setGrupoSel] = useState<Record<string, string>>({}); // metaId → 'A'|'B'|'C'
 
   const load = async () => {
     setLoading(true);
@@ -144,40 +146,55 @@ export default function DistribucionGuardiasScreen() {
     load();
   };
 
-  // AUTOGENERAR 14x7: 3 grupos, cada grupo descansa una semana (7 días). Reparte los
-  // cargos por grupo para que NO coincidan dos coordinadores (ni dos nocturnos) en la
-  // misma semana de descanso. Borra las guardias previas y crea las nuevas.
-  const autogenerar = async () => {
+  // Sugerencia AUTOMÁTICA de grupos (round-robin por categoría): coordinadores,
+  // nocturnos y resto se reparten en A/B/C para que NO coincidan dos coordinadores
+  // (ni dos nocturnos) en la misma semana de descanso. Devuelve metaId → 'A'|'B'|'C'.
+  const computeAutoGroups = (): Record<string, string> => {
+    const nGroups = 3; const letra = ['A', 'B', 'C'];
+    const cat = (m: Meta) => (m.cargo === 'Coordinador' ? 0 : m.cargo === 'Nocturno' ? 1 : 2);
+    const orden = [...metas].sort((a, b) => cat(a) - cat(b) || cmpText(a.inspector_name, b.inspector_name));
+    const counters = [0, 0, 0];
+    const out: Record<string, string> = {};
+    orden.forEach((m) => { const c = cat(m); const g = counters[c] % nGroups; counters[c]++; out[m.id] = letra[g]; });
+    return out;
+  };
+
+  // AUTOGENERAR 14x7: abre el modal para ARMAR LOS GRUPOS A MANO. Precarga con los
+  // grupos ya asignados (si hay) o con la sugerencia automática, y desde el modal se
+  // ajusta y se genera la rotación.
+  const abrirGrupos = () => {
     if (metas.length === 0) { setNotice('❌ Primero agrega inspectores.'); return; }
-    const ok = await confirm({ title: 'Autogenerar 14x7', message: `Se armará una rotación de 3 grupos (ciclo de 21 días desde ${dmy(from)}), repartiendo cargos para que no descansen juntos dos coordinadores ni dos nocturnos. Reemplaza las guardias actuales. ¿Continuar?`, confirmText: 'Autogenerar' });
-    if (!ok) return;
-    {
-        setBusy(true); setNotice(null);
-        const nGroups = 3;
-        // Orden: coordinadores, nocturnos, resto → round-robin por categoría reparte
-        // cada categoría en grupos distintos (≤1 coordinador y ≤1 nocturno por grupo).
-        const cat = (m: Meta) => (m.cargo === 'Coordinador' ? 0 : m.cargo === 'Nocturno' ? 1 : 2);
-        const orden = [...metas].sort((a, b) => cat(a) - cat(b) || cmpText(a.inspector_name, b.inspector_name));
-        const counters = [0, 0, 0]; // siguiente grupo por categoría
-        const grupoDe = new Map<string, number>();
-        orden.forEach((m) => { const c = cat(m); const g = counters[c] % nGroups; counters[c]++; grupoDe.set(m.id, g); });
-        const letra = ['A', 'B', 'C'];
-        const cycleStart = from;
-        // Actualiza grupo en meta y crea el descanso de su grupo.
-        const nuevosShifts: any[] = [];
-        for (const m of metas) {
-          const g = grupoDe.get(m.id) ?? 0;
-          await supabase.from('guard_inspector_meta').update({ grupo: letra[g], updated_by: uid }).eq('id', m.id);
-          const dFromG = addDaysISO(cycleStart, g * 7);
-          const dToG = addDaysISO(cycleStart, g * 7 + 6);
-          nuevosShifts.push({ inspector_id: m.inspector_id, inspector_name: m.inspector_name, from_date: dFromG, to_date: dToG, kind: 'descanso', grupo: letra[g], created_by: uid });
-        }
-        await supabase.from('guard_shifts').delete().in('inspector_name', metas.map((m) => m.inspector_name));
-        if (nuevosShifts.length) await supabase.from('guard_shifts').insert(nuevosShifts);
-        setTo(addDaysISO(cycleStart, 20));
-        setBusy(false); load();
-        setNotice('✅ Rotación 14x7 generada.');
+    const init: Record<string, string> = {};
+    let alguno = false;
+    metas.forEach((m) => { if (m.grupo && ['A', 'B', 'C'].includes(m.grupo)) { init[m.id] = m.grupo; alguno = true; } });
+    setGrupoSel(alguno ? init : computeAutoGroups());
+    setNotice(null);
+    setGrupoOpen(true);
+  };
+
+  // GENERAR la rotación 14x7 a partir de los grupos elegidos a mano (grupoSel).
+  // Cada grupo descansa una semana: A = semana 1, B = semana 2, C = semana 3 (desde
+  // el inicio del ciclo). Borra las guardias previas y crea las nuevas.
+  const generarRotacion = async () => {
+    const faltan = metas.filter((m) => !grupoSel[m.id]);
+    if (faltan.length) { setNotice(`❌ Falta asignar grupo a ${faltan.length} inspector(es).`); return; }
+    setBusy(true); setNotice(null);
+    const semanaDe: Record<string, number> = { A: 0, B: 1, C: 2 };
+    const cycleStart = from;
+    const nuevosShifts: any[] = [];
+    for (const m of metas) {
+      const letra = grupoSel[m.id];
+      await supabase.from('guard_inspector_meta').update({ grupo: letra, updated_by: uid }).eq('id', m.id);
+      const wk = semanaDe[letra] ?? 0;
+      const dFromG = addDaysISO(cycleStart, wk * 7);
+      const dToG = addDaysISO(cycleStart, wk * 7 + 6);
+      nuevosShifts.push({ inspector_id: m.inspector_id, inspector_name: m.inspector_name, from_date: dFromG, to_date: dToG, kind: 'descanso', grupo: letra, created_by: uid });
     }
+    await supabase.from('guard_shifts').delete().in('inspector_name', metas.map((m) => m.inspector_name));
+    if (nuevosShifts.length) await supabase.from('guard_shifts').insert(nuevosShifts);
+    setTo(addDaysISO(cycleStart, 20));
+    setBusy(false); setGrupoOpen(false); load();
+    setNotice('✅ Rotación 14x7 generada.');
   };
 
   const generarPDF = async () => {
@@ -203,7 +220,7 @@ export default function DistribucionGuardiasScreen() {
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
         <DateField value={to} onChange={setTo} />
         <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <TouchableOpacity onPress={autogenerar} disabled={busy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+          <TouchableOpacity onPress={abrirGrupos} disabled={busy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Autogenerar 14x7</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={generarPDF} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
@@ -348,6 +365,63 @@ export default function DistribucionGuardiasScreen() {
             <TouchableOpacity onPress={() => setAddOpen(false)} style={{ marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>
             </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal: ARMAR GRUPOS 14x7 a mano */}
+      <Modal visible={grupoOpen} transparent animationType="slide" onRequestClose={() => setGrupoOpen(false)}>
+        <Pressable onPress={() => setGrupoOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%', padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>⚙️ Armar grupos 14x7</Text>
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              Asigna cada inspector a un grupo. Descansan por semana: 🅰️ A = semana 1 · 🅱️ B = semana 2 · 🅲 C = semana 3 (desde {dmy(from)}). Al generar se reemplazan las guardias actuales.
+            </Text>
+            {/* Sugerir automático + conteo por grupo */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                {['A', 'B', 'C'].map((g) => (
+                  <View key={g} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: GRUPO_COLOR[g], alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontSize: 9, fontWeight: '900' }}>{g}</Text>
+                    </View>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{metas.filter((m) => grupoSel[m.id] === g).length}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity onPress={() => setGrupoSel(computeAutoGroups())} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>✨ Sugerir automático</Text>
+              </TouchableOpacity>
+            </View>
+            {notice && grupoOpen ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12, marginBottom: spacing.xs }}>{notice}</Text> : null}
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 380 }}>
+              {[...metas].sort((a, b) => cmpText(a.inspector_name, b.inspector_name)).map((m) => (
+                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{m.inspector_name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.cargo || 'Inspector'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 5 }}>
+                    {['A', 'B', 'C'].map((g) => {
+                      const on = grupoSel[m.id] === g;
+                      return (
+                        <TouchableOpacity key={g} onPress={() => setGrupoSel((prev) => ({ ...prev, [m.id]: g }))} style={{ width: 30, height: 30, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? GRUPO_COLOR[g] : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? GRUPO_COLOR[g] : colors.border }}>
+                          <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '900', fontSize: 13 }}>{g}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity onPress={() => setGrupoOpen(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={generarRotacion} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: busy ? 0.6 : 1 }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '⚙️ Generar rotación 14x7'}</Text>
+              </TouchableOpacity>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
