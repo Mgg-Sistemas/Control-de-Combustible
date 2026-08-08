@@ -216,6 +216,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'El reporte respeta todo lo que estás viendo (estado + cargos marcados + búsqueda): imprime exactamente esa selección.' },
       { t: 'note', text: 'Estado del empleado "Otro": además de Activo / Inactivo / Suspendido, un empleado puede quedar en estado "Otro". Los que están en "Otro" NO entran al control de pago: no se precargan al crear una nómina/período y no aparecen en Pago a personal → Por persona (ni en "Todos"). Úsalo para gente que no debe pagarse por este sistema.' },
       { t: 'note', text: 'Ficha del trabajador (toca 🪪 Ficha en un empleado, o escanea su carnet): abajo hay dos botones. 📄 Ficha completa (PDF) descarga TODOS los datos por secciones (identificación, datos laborales, contacto, emergencia, banco y tallas). 🖼️ Carnet (imagen) descarga el carnet 54×86 mm. Lo mismo aplica a los Aliados (su PDF es la ficha completa; la imagen es el carnet).' },
+      { t: 'note', text: 'Constancias por empleado: en cada persona hay dos botones. 📄 Const. carnet es la constancia de entrega de carnet (trabajo a destajo, la firma el colaborador). 📃 Constancia de trabajo es el formato estándar "A quien pueda interesar": hace constar que la persona presta servicios en SOS La Guaira, con su cédula, cargo y fecha de ingreso (no incluye el sueldo); al pie lleva una firma centrada para la Jefa de Administración. Se genera en PDF listo para imprimir/guardar.' },
     ],
   },
   {

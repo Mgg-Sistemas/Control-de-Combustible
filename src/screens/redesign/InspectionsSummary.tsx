@@ -650,12 +650,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
     const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
     const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
+    const openStartMs = new Map<string, number>(); // hora de inicio de la jornada ABIERTA de ESTE turno
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
       if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
       if (r.jornada_start_at) {
         anyOpenSet.add(r.machinery_id);
-        if (openShiftOf(r) === shiftArg) openSet.add(r.machinery_id);
+        if (openShiftOf(r) === shiftArg) {
+          openSet.add(r.machinery_id);
+          const ms = new Date(r.jornada_start_at as string).getTime();
+          if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
+        }
       }
     });
     // NOTA: ya NO hay "rescate" de la jornada de noche de ayer hacia la vista de
@@ -681,11 +686,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // turno la ve averiada; el OTRO turno ve la máquina como pendiente/iniciada. Arrastra
     // dentro de SU mismo turno hasta resolverla (si es de un día anterior, cuenta salvo
     // que la máquina haya trabajado ese turno).
+    // REACTIVACIÓN (fix 08/08/2026): si la jornada de ESTE turno se (re)inició DESPUÉS
+    // de la avería/parada, la máquina volvió a trabajar → NO cuenta como averiada/parada
+    // (antes salía 🔴 AVERIADA y a la vez "EN CURSO / transcurrido" — imposible). Mismo
+    // criterio que el teléfono (iniciar jornada reactiva) y el reporte por inspector.
+    const reactivadaTras = (id: string, t: number) => { const js = openStartMs.get(id); return js != null && js >= t; };
     const averAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
       if (t > dayEndMs || paradaShiftOf(m.created_at) !== shiftArg) return;
+      if (reactivadaTras(m.machinery_id, t)) return;
       const arr = t < dayStartMs;
       if (arr ? !workedSet.has(m.machinery_id) : true) averAll.add(m.machinery_id);
     });
@@ -695,6 +706,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (m.material !== 'MÁQUINA PARADA') return;
       const t = new Date(m.created_at).getTime();
       if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shiftArg) return;
+      if (reactivadaTras(m.machinery_id, t)) return;
       const arr = t < dayStartMs;
       const applies = arr ? !workedSet.has(m.machinery_id) : true;
       if (applies) paradaAll.add(m.machinery_id);

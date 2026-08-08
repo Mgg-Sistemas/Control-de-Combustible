@@ -12,7 +12,7 @@ import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
 import { qrSvg, employeeQrUrl } from '../lib/qr';
 import { carnetHtml, fullName } from '../lib/carnet';
-import { constanciaCarnetHtml } from '../lib/constancia';
+import { constanciaCarnetHtml, constanciaTrabajoHtml } from '../lib/constancia';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { Employee, Company } from '../types/database';
 import { spacing, radius } from '../theme';
@@ -199,6 +199,22 @@ export default function EmpleadosScreen({ navigation }: any) {
       state: e.state,
     });
     await exportPdf(html, `Constancia entrega carnet - ${fullName(e)}`);
+    setBusy(null);
+  };
+
+  // CONSTANCIA DE TRABAJO (formato estándar, "A quien pueda interesar"): hace constar
+  // cargo y fecha de ingreso; firma centrada de la Jefa de Administración.
+  const imprimirConstanciaTrabajo = async (e: Employee) => {
+    setBusy(e.id + '-const-trab');
+    const html = constanciaTrabajoHtml({
+      fullName: fullName(e),
+      cedula: e.cedula,
+      cargo: e.cargo ? canonicalCargo(e.cargo) : null,
+      hireDate: e.hire_date,
+      city: e.city,
+      state: e.state,
+    });
+    await exportPdf(html, `Constancia de trabajo - ${fullName(e)}`);
     setBusy(null);
   };
 
@@ -415,7 +431,8 @@ export default function EmpleadosScreen({ navigation }: any) {
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
                         <Btn label="✎ Editar" color="#475569" onPress={() => openEdit(e)} />
                         <Btn label="🪪 Ficha" color="#2563EB" onPress={() => navigation.navigate('EmployeeCard', { employeeId: e.id })} />
-                        <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Constancia'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
+                        <Btn label={busy === e.id + '-const' ? 'Generando…' : '📄 Const. carnet'} color="#0F766E" disabled={busy === e.id + '-const'} onPress={() => imprimirConstancia(e)} />
+                        <Btn label={busy === e.id + '-const-trab' ? 'Generando…' : '📃 Constancia de trabajo'} color="#1E3A5F" disabled={busy === e.id + '-const-trab'} onPress={() => imprimirConstanciaTrabajo(e)} />
                         <Btn label={busy === e.id + '-photo' ? 'Subiendo…' : '📷 Foto'} color={colors.success} disabled={busy === e.id + '-photo'} onPress={() => subirFoto(e)} />
                         {e.photo_url ? (
                           <Btn label="🗑️ Quitar foto" color={colors.danger} disabled={busy === e.id + '-photo'} onPress={() => borrarFoto(e)} />

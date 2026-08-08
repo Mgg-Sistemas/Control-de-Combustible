@@ -591,6 +591,13 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > franelas y demás artículos que se le han entregado, con fecha y detalle — lo mismo que muestra la
 > pestaña **"👷 Dotación"** de Inventario (ver 4.8d) pero ya filtrado a esa persona.
 
+> **Constancias por empleado:** en cada persona de la lista hay dos botones de constancia.
+> **📄 Const. carnet** es la constancia de **entrega de carnet** (trabajo a destajo; la firma el
+> colaborador). **📃 Constancia de trabajo** es el **formato estándar** dirigido *"A quien pueda
+> interesar"*: hace constar que la persona **presta servicios en SOS La Guaira**, con su **cédula,
+> cargo y fecha de ingreso** (**no incluye el sueldo**). Al pie lleva una **firma centrada para la
+> Jefa de Administración**. Sale en **PDF** listo para imprimir o guardar.
+
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
