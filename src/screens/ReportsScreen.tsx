@@ -1495,9 +1495,12 @@ export default function ReportsScreen({ route }: any) {
     const countByEnte = new Map<string, number>();
     list.forEach((m) => { const e = enteOf(m); countByEnte.set(e, (countByEnte.get(e) ?? 0) + 1); });
     const enteSorted = [...countByEnte.entries()].sort((a, b) => (a[0] === 'SOS La Guaira' ? 1 : b[0] === 'SOS La Guaira' ? -1 : cmpText(a[0], b[0])));
+    // Etiqueta a mostrar: SOS La Guaira lleva el responsable (Jesús Lozada). El resto igual.
+    const enteLabel = (e: string) => (e === 'SOS La Guaira' ? 'SOS La Guaira · Jesús Lozada' : e);
     const resumenEnteHtml = `<div class="sect">🚜 Equipos a disposición de (ente / institución)</div>
+      <div style="font-size:12px;color:#374151;margin:-2px 0 8px 0">📍 Los equipos a disposición de (ente / institución) están desplegados por ambos sectores <b>ESTE</b> y <b>OESTE</b>.</div>
       <table class="tac"><thead><tr><th>A cargo de</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
-      <tbody>${enteSorted.map(([e, n]) => `<tr><td>${esc(e)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tbody>${enteSorted.map(([e, n]) => `<tr><td>${esc(enteLabel(e))}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Estado REAL de la flota (siempre desde 'all', aunque el ficticio muestre todo
     // operativo): activos (operativos) vs inactivos (inoperativas + en espera).
