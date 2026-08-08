@@ -1078,6 +1078,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (slots.night?.id && slots.night.id !== uid) return slots.night.name;
     return 'OTRO inspector';
   };
+  // Nº de máquinas asignadas a un inspector (cualquier turno) — para el CHECK.
+  const inspCount = (id: string) => Object.values(assignMap).filter((s) => s.day?.id === id || s.night?.id === id).length;
+  // Buscador de inspectores por TODAS sus características (no solo el nombre): nombre,
+  // rol (supervisor/coordinador…) y nº de máquinas asignadas. Query vacía = todos.
+  const matchInsp = (p: { id: string; name: string; role?: string | null }, q: string): boolean => {
+    const nq = norm((q || '').trim());
+    if (!nq) return true;
+    return norm(`${p.name} ${p.role || 'inspector'} ${inspCount(p.id)} maquinas`).includes(nq);
+  };
 
   const openCheckin = (m: Mach) => {
     // Bloqueo: un inspector NO puede escanear/abrir/marcar la máquina de OTRO inspector.
@@ -2292,9 +2301,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </TouchableOpacity>
                 ))}
               </View>
-              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
-                {inspectors.filter((p) => !pendBatchQuery.trim() || norm(p.name).includes(norm(pendBatchQuery.trim()))).map((p) => (
+                {inspectors.filter((p) => matchInsp(p, pendBatchQuery)).map((p) => (
                   <TouchableOpacity key={p.id} disabled={pendBatchBusy} onPress={() => assignPendBatch({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs, opacity: pendBatchBusy ? 0.6 : 1 }}>
                     <Text style={{ fontSize: 20 }}>👮</Text>
                     <Text style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
@@ -2403,9 +2412,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
                 <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{pendientesCount > 0 ? pendientesCount : '✓'}</Text>
               </TouchableOpacity>
-              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
-                {inspectors.filter((p) => !inspQuery.trim() || norm(p.name).includes(norm(inspQuery.trim()))).map((p) => {
+                {inspectors.filter((p) => matchInsp(p, inspQuery)).map((p) => {
                   const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
                   return (
                     <TouchableOpacity key={p.id} onPress={() => { setCheckInspector({ id: p.id, name: p.name }); setCheckQuery(''); setCheckFilter('mine'); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
@@ -2591,9 +2600,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                         {pickShift === sh ? (
                           <View style={{ marginTop: spacing.sm }}>
-                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
                             <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                              {inspectors.filter((p) => !assignForQuery.trim() || norm(p.name).includes(norm(assignForQuery.trim()))).map((p) => (
+                              {inspectors.filter((p) => matchInsp(p, assignForQuery)).map((p) => (
                                 <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? colors.successSoftBg : colors.surface, marginBottom: spacing.xs }}>
                                   <Text style={{ fontSize: 18 }}>👮</Text>
                                   <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
@@ -2634,9 +2643,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               // ── PASO A: elegir el inspector DESTINO ──────────────────────────────
               <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige el inspector destino:</Text>
-                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector por nombre…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
                 <ScrollView style={{ maxHeight: 320, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {inspectors.filter((p) => !reassignQuery.trim() || norm(p.name).includes(norm(reassignQuery.trim()))).map((p) => (
+                  {inspectors.filter((p) => matchInsp(p, reassignQuery)).map((p) => (
                     <TouchableOpacity key={p.id} onPress={() => setReassignTo({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
                       <Text style={{ fontSize: 18 }}>👮</Text>
                       <Text numberOfLines={1} style={{ flex: 1, color: colors.text, fontWeight: '800' }}>{p.name}</Text>
