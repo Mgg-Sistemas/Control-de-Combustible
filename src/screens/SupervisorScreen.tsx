@@ -31,7 +31,6 @@ import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 import { generateMyShiftReceipt } from '../lib/inspectorReport';
-import { forceReloadLatest } from '../lib/version';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
@@ -1847,10 +1846,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       ) : null}
       {uiV2 ? (
         <>
+          {/* El círculo del avatar (menú) SOLO cuando hay algo exclusivo que mostrar: el
+              botón "Sistema" (para quien entra al panel con onSistema). El resto de
+              funciones (actualizar app, cambiar contraseña, tema…) ya viven en la tuerca
+              ⚙️ del encabezado global, así que para el inspector normal NO se muestra el
+              círculo (era redundante). */}
           <InspectorHeaderBar
             name={fullName || 'Mi ronda'}
             subtitle="Inspector"
-            onMenuPress={() => setMenuOpen(true)}
+            onMenuPress={onSistema ? () => setMenuOpen(true) : undefined}
           />
           <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
             <Pressable onPress={() => setMenuOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', paddingTop: 56, paddingRight: spacing.md, alignItems: 'flex-end' }}>
@@ -1859,16 +1863,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ fontSize: 16 }}>🔄</Text>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{loading ? 'Actualizando…' : 'Actualizar'}</Text>
                 </TouchableOpacity>
-                {/* Control MANUAL siempre disponible en web: fuerza la recarga a la
-                    ÚLTIMA versión del app (bundle nuevo), por si el aviso automático
-                    UpdateBanner no llega a salir (caché del host, guarda anti-lazo…).
-                    Distinto del "Actualizar" de arriba, que solo recarga los DATOS. */}
-                {Platform.OS === 'web' ? (
-                  <TouchableOpacity onPress={() => { setMenuOpen(false); forceReloadLatest(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-                    <Text style={{ fontSize: 16 }}>🔄</Text>
-                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Actualizar app</Text>
-                  </TouchableOpacity>
-                ) : null}
+                {/* "Actualizar app" ya NO va aquí: vive en la tuerca ⚙️ del encabezado
+                    global (disponible en todas las pantallas). Aquí solo queda lo propio
+                    del panel de inspector. */}
                 {onSistema ? (
                   <TouchableOpacity onPress={() => { setMenuOpen(false); onSistema(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ fontSize: 16 }}>🗂️</Text>
@@ -1925,18 +1922,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               >
                 <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{loading ? '⏳ Actualizando…' : '🔄 Actualizar'}</Text>
               </TouchableOpacity>
-              {/* 🔄 Actualizar app: control MANUAL siempre visible (solo web) para forzar
-                  la recarga a la ÚLTIMA versión del app aunque el aviso automático
-                  (UpdateBanner) no salga. Distinto del "Actualizar" de al lado, que solo
-                  recarga los DATOS de la pantalla. */}
-              {Platform.OS === 'web' ? (
-                <TouchableOpacity
-                  onPress={forceReloadLatest}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
-                >
-                  <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>🔄 Actualizar app</Text>
-                </TouchableOpacity>
-              ) : null}
+              {/* "Actualizar app" ya NO va aquí: vive en la tuerca ⚙️ del encabezado global. */}
               {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
               {onSistema ? (
                 <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
