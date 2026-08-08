@@ -1135,11 +1135,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
     });
     return rows.filter((r) => {
+      // SOLO máquinas OPERATIVAS: fuera las INACTIVAS del catálogo (NO OPERATIVA
+      // operational=false o desactivada active=false) — igual que el resto de la vista de
+      // inspectores. Las averiadas/paradas OPERATIVAS sí siguen apareciendo.
+      if (machHardInactiveSet.has(r.id)) return false;
       const i = r.info;
       return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
         .some((v) => norm(v).includes(nq));
     }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
-  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail, nowTick]);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail, nowTick, machHardInactiveSet]);
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
