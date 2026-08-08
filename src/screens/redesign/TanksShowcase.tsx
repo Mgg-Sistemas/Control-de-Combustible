@@ -122,8 +122,12 @@ export default function TanksShowcase() {
                         <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
                       </View>
                     </View>
-                    <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm, textTransform: 'capitalize' }, f(family.body)]}>
+                    <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }, f(family.body)]}>
                       {t.fuel} · cap. {Number(t.capacity_l).toLocaleString()} L · umbral {LOW_PCT}%
+                    </Text>
+                    {/* Responsable / encargado a cargo del tanque (de tanks.responsable). */}
+                    <Text style={[{ color: t.responsable ? colors.text : colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm, fontWeight: t.responsable ? '700' : '400' }, f(family.bodySemi)]}>
+                      👤 Responsable: {t.responsable && String(t.responsable).trim() ? t.responsable : 'sin asignar'}
                     </Text>
 
                     {/* Cifra grande en mono + % a la derecha. */}

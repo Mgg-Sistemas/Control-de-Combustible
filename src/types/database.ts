@@ -112,6 +112,7 @@ export interface Tank {
   created_at: string;
   chofer: string | null;        // chofer de la cisterna (para tanques móviles)
   machinery_id: string | null;  // vínculo con la cisterna del catálogo (camión cisterna)
+  responsable: string | null;   // encargado a cargo del tanque
 }
 
 export interface TankLevel {
@@ -121,6 +122,8 @@ export interface TankLevel {
   capacity_l: number;
   current_l: number;
   pct: number | null;
+  responsable: string | null;   // encargado a cargo del tanque (de tanks.responsable)
+  location?: string | null;
 }
 
 export interface Vehicle {
