@@ -351,7 +351,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
@@ -378,11 +378,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     <div class="kpi-note">Total de jornada = total de horas ACTIVAS (trabajadas). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
 
   const extraCss = `
+    /* Orientación HORIZONTAL (se aprecian mejor los textos largos). Mantiene el
+       margen 2cm del membrete base (las reglas @page se combinan). */
+    @page{size:A4 landscape}
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
     table.ir{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11px}
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
     td.r,th.r{text-align:right} td.b{font-weight:800}
+    td.ok{color:#067647;font-weight:800}
     td.par{color:#B42318;font-weight:700}
     table.ir tr.inact td.par{color:#B42318}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
