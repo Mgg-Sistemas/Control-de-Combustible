@@ -335,8 +335,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
         <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
-        <td class="r">${f.paradasDia > 0 ? f.paradasDia : '—'}</td>
-        <td class="r">${f.paradasNoche > 0 ? f.paradasNoche : '—'}</td>
+        <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ -${f.paradasDia}` : '—'}</td>
+        <td class="r${f.paradasNoche > 0 ? ' par' : ''}">${f.paradasNoche > 0 ? `🌙 -${f.paradasNoche}` : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
       </tr>`).join('');
     const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
@@ -346,7 +346,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tParDia}</td><td class="r">${tParNoche}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
@@ -365,9 +365,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const kpis = `
     <div class="kpis">
       <div class="kpi"><div class="k">Total hrs día</div><div class="v">${totDayH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">${totParDay} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">☀️ ${totParDay > 0 ? `-${totParDay}` : '0'} H</div></div>
       <div class="kpi"><div class="k">Total hrs noche</div><div class="v">${totNightH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${totParNight} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? `-${totParNight}` : '0'} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
     </div>
     <div class="kpi-note">Total de jornada = total de horas ACTIVAS (trabajadas). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
@@ -378,6 +378,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
     td.r,th.r{text-align:right} td.b{font-weight:800}
+    td.par{color:#B42318;font-weight:700}
+    table.ir tr.inact td.par{color:#B42318}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
     .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
     .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
