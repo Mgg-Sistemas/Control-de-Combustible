@@ -267,6 +267,35 @@ export default function EquiposScreen({ navigation, route }: any) {
   };
   useEffect(() => { loadAveriaCat(); }, [machinery.data]);
 
+  // Última inactividad RESUELTA (parada/avería ya cerrada con "Volver a Operativa" o
+  // reactivación de jornada) por máquina — para mostrar en la ficha del catálogo un
+  // resumen tipo "Inactivo desde [inicio] hasta [fin] — Total: Xd Yh". Es un historial
+  // (maintenance_requests.created_at/resolved_at), independiente del toggle admin
+  // `operational`/`inactivated_at`/`reactivated_at` que ya muestra EstadoFechaLine.
+  const [lastInactivity, setLastInactivity] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; startMs: number; endMs: number }>>({});
+  const loadLastInactivity = async () => {
+    try {
+      const { data } = await supabase
+        .from('maintenance_requests')
+        .select('machinery_id, material, notes, created_at, resolved_at')
+        .eq('status', 'realizado')
+        .not('resolved_at', 'is', null)
+        .order('created_at', { ascending: false });
+      const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; startMs: number; endMs: number }> = {};
+      (data ?? []).forEach((r: any) => {
+        if (m[r.machinery_id]) return; // ya tomamos la más reciente (viene ordenado desc)
+        m[r.machinery_id] = {
+          tipo: r.material === 'MÁQUINA PARADA' ? 'parada' : 'averia',
+          motivo: r.notes || (r.material === 'MÁQUINA PARADA' ? null : r.material),
+          startMs: new Date(r.created_at).getTime(),
+          endMs: new Date(r.resolved_at).getTime(),
+        };
+      });
+      setLastInactivity(m);
+    } catch {}
+  };
+  useEffect(() => { loadLastInactivity(); }, [machinery.data]);
+
   // Estatus EN VIVO por jornada (machine_rounds): horas trabajadas hoy + jornada abierta.
   // Se lee la ronda de HOY (día de negocio Caracas) y la de ANOCHE si es una jornada de
   // NOCHE aún abierta (round_date = ayer). Por máquina: dayH/nightH ya trabajadas y el
@@ -323,7 +352,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // turno y avería/parada) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
   useRealtimeRefresh(['machine_guards'], loadGuards);
   useRealtimeRefresh(['supervisor_visits', 'machine_inspectors'], () => { loadInspectors(); loadInspByShift(); });
-  useRealtimeRefresh(['maintenance_requests'], loadAveriaCat);
+  useRealtimeRefresh(['maintenance_requests'], () => { loadAveriaCat(); loadLastInactivity(); });
   useRealtimeRefresh(['machine_rounds'], loadJornadaCat);
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
@@ -996,6 +1025,29 @@ export default function EquiposScreen({ navigation, route }: any) {
       </View>
     );
   };
+  // "Xd Yh" (o solo "Yh" si dura menos de un día) a partir de una duración en ms.
+  const fmtDuration = (ms: number) => {
+    const totalH = Math.max(0, ms / 3600000);
+    const d = Math.floor(totalH / 24);
+    const h2 = Math.round(totalH - d * 24);
+    return d > 0 ? `${d}d ${h2}h` : `${Math.round(totalH)}h`;
+  };
+  // Resumen de la ÚLTIMA parada/avería ya resuelta (historial, no el estado vigente —
+  // ese lo cubre AveriaBadge). Solo se muestra cuando la máquina NO está averiada/parada
+  // ahora mismo, para no duplicar información con el badge en vivo.
+  const UltimaInactividadLine = ({ id }: { id: string }) => {
+    const s = liveStatusOf(id);
+    if (s.estado === 'averiada' || s.estado === 'parada') return null;
+    const li = lastInactivity[id];
+    if (!li) return null;
+    const fmt = (ms: number) => fmtEstadoFecha(new Date(ms).toISOString());
+    return (
+      <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }} numberOfLines={2}>
+        🕘 Última inactividad: {li.tipo === 'averia' ? 'avería' : 'parada'}
+        {li.motivo ? ` (${li.motivo})` : ''} — {fmt(li.startMs)} a {fmt(li.endMs)} · Total: {fmtDuration(li.endMs - li.startMs)}
+      </Text>
+    );
+  };
 
   // PDF: Total general → Por empresa (resumen) → Detalle por empresa (Equipo · Serial · Estado).
   // Edificio (derivado del catálogo oficial) o, si no matchea ninguno, la referencia
@@ -1121,6 +1173,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             </View>
             <EstadoFechaLine m={m} />
             <AveriaBadge id={m.id} />
+            <UltimaInactividadLine id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
@@ -1865,6 +1918,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           </View>
                           <EstadoFechaLine m={m} />
                           <AveriaBadge id={m.id} />
+                          <UltimaInactividadLine id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
