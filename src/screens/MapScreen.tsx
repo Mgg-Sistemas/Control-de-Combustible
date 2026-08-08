@@ -84,7 +84,8 @@ export default function MapScreen({ navigation, route }: any) {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   // Leyenda de empresa y zonas: ahora viven FUERA del mapa (controlan el mapa por postMessage).
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
-  const [zonesOn, setZonesOn] = useState<Set<number>>(new Set());
+  // Sectores VISIBLES por defecto al abrir el mapa (todos prendidos).
+  const [zonesOn, setZonesOn] = useState<Set<number>>(() => new Set(MAP_ZONES.map((_, i) => i)));
   const [legendOpen, setLegendOpen] = useState(false);
   const [zonesOpen, setZonesOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false); // mapa en pantalla completa
@@ -478,23 +479,11 @@ export default function MapScreen({ navigation, route }: any) {
         </Text>
       </Card>
 
-      {/* Reporte de REFERENCIAS: el punto de referencia (edificio, parque, plaza,
-          calle) que el inspector le pone a cada máquina al marcar su ubicación. */}
-      <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
-        <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <View style={{ flex: 1, paddingRight: spacing.sm }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Máquinas por sector (Este / Oeste)</Text>
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con el edificio/referencia que puso el inspector, el inspector y la empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
-          </View>
-          <Text style={{ color: colors.brandText, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
-        </Card>
-      </TouchableOpacity>
-
       {/* Capas: prender/apagar puntos por categoría (camiones, grúas…) o por máquina. */}
       {!focus && pins && pins.length > 0 ? (
         <Card>
           <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '800' }}>🗂️ Capas · mostrar / ocultar</Text>
+            <Text style={{ color: colors.text, fontWeight: '800' }}>🚜 Tipo de maquinaria</Text>
             <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
           </TouchableOpacity>
 
@@ -631,7 +620,30 @@ export default function MapScreen({ navigation, route }: any) {
             <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>⛶ Ver el mapa en pantalla completa</Text>
           </TouchableOpacity>
 
-          {/* Ubicación MANUAL — solo administradores pueden reubicar máquinas. */}
+          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} />
+
+          {/* Rutas: mostrar/ocultar desde FUERA del mapa (por defecto OCULTAS). */}
+          <TouchableOpacity
+            onPress={() => setShowRoutes((v) => !v)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: showRoutes ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: showRoutes ? colors.brand : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginTop: spacing.sm, marginBottom: spacing.sm }}
+          >
+            <Text style={{ color: showRoutes ? colors.brandContrast : colors.text, fontWeight: '800' }}>
+              {showRoutes ? '🧭 Ocultar rutas' : '🧭 Mostrar rutas'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Reporte de REFERENCIAS (Máquinas por sector) — DEBAJO del mapa. */}
+          <TouchableOpacity onPress={referenciasPdf} disabled={refBusy} activeOpacity={0.85}>
+            <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>📄 Máquinas por sector (Este / Oeste)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>Máquinas ubicadas agrupadas por sector 🟢 Este / 🟠 Oeste (y sub-sector), con el edificio/referencia que puso el inspector, el inspector y la empresa. Las que faltan por ubicar salen aparte como ⛔ SIN UBICACIÓN (con placa/serial)</Text>
+              </View>
+              <Text style={{ color: colors.brandText, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
+            </Card>
+          </TouchableOpacity>
+
+          {/* Ubicación MANUAL — solo administradores pueden reubicar máquinas. DEBAJO del mapa. */}
           {isAdmin && !focus ? (
             <Card style={locateFor ? { borderColor: colors.accent, borderWidth: 1 } : undefined}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -656,7 +668,7 @@ export default function MapScreen({ navigation, route }: any) {
             </Card>
           ) : null}
 
-          {/* Mover SECTORES — solo administradores pueden reubicar las zonas del mapa. */}
+          {/* Mover SECTORES — solo administradores pueden reubicar las zonas del mapa. DEBAJO del mapa. */}
           {isAdmin && !focus ? (
             <Card style={zoneEdit ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -672,18 +684,6 @@ export default function MapScreen({ navigation, route }: any) {
               </Text>
             </Card>
           ) : null}
-
-          {/* Rutas: mostrar/ocultar desde FUERA del mapa (por defecto OCULTAS). */}
-          <TouchableOpacity
-            onPress={() => setShowRoutes((v) => !v)}
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: showRoutes ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: showRoutes ? colors.brand : colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
-          >
-            <Text style={{ color: showRoutes ? colors.brandContrast : colors.text, fontWeight: '800' }}>
-              {showRoutes ? '🧭 Ocultar rutas' : '🧭 Mostrar rutas'}
-            </Text>
-          </TouchableOpacity>
-
-          <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} />
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (

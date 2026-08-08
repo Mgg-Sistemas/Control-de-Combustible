@@ -185,24 +185,34 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     h += '</div>';
     return h;
   }
-  var firstFix = true;
-  map.on('locationfound', function(e){
-    var html = nearbyHtml(e.latlng.lat, e.latlng.lng);
-    if (userMarker){ userMarker.setLatLng(e.latlng); userMarker.setPopupContent(html); } else { userMarker = L.marker(e.latlng, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup(html, { maxWidth:260 }); }
-    if (userCircle){ userCircle.setLatLng(e.latlng).setRadius(e.accuracy); } else { userCircle = L.circle(e.latlng, { radius:e.accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); }
-    // Al ABRIR el mapa: en cuanto llega la primera ubicación, se centra en el usuario
-    // (una sola vez) para que "salga su ubicación". Después solo se actualiza el punto.
-    if (firstFix){ firstFix = false; map.setView(e.latlng, 14); }
-  });
+  var firstFix = true, pendingCenter = false;
+  // Coloca/actualiza el punto azul del usuario. Centra la vista la primera vez que
+  // llega una ubicación (para que "salga su ubicación") o cuando se pidió centrar.
+  function placeUser(lat, lng, accuracy, doCenter){
+    var ll = L.latLng(lat, lng);
+    var html = nearbyHtml(lat, lng);
+    if (userMarker){ userMarker.setLatLng(ll); userMarker.setPopupContent(html); } else { userMarker = L.marker(ll, { icon:userIcon(), zIndexOffset:1000 }).addTo(map).bindPopup(html, { maxWidth:260 }); }
+    if (accuracy){ if (userCircle){ userCircle.setLatLng(ll).setRadius(accuracy); } else { userCircle = L.circle(ll, { radius:accuracy, color:'#2563EB', weight:1, fillColor:'#2563EB', fillOpacity:0.12 }).addTo(map); } }
+    if (firstFix){ firstFix = false; map.setView(ll, 14); }
+    else if (doCenter || pendingCenter){ pendingCenter = false; map.setView(ll, 16); userMarker.openPopup(); }
+  }
+  // Geolocalización DESDE EL IFRAME: funciona en desktop. En MÓVIL el iframe srcdoc
+  // tiene origen opaco y el navegador bloquea la geolocalización → también se la
+  // pedimos al PADRE (origen real soslaguaira.com) por postMessage.
+  map.on('locationfound', function(e){ placeUser(e.latlng.lat, e.latlng.lng, e.accuracy, false); });
   map.on('locationerror', function(){ /* sin permiso o no disponible: se ignora en silencio */ });
-  // Rastrea la posición sin cambiar la vista (para no tapar las máquinas al abrir).
   map.locate({ watch:true, enableHighAccuracy:true, maximumAge:10000, timeout:15000 });
+  function requestParentLocation(watch){ try { parent.postMessage({ type:'request-location', watch: !!watch }, '*'); } catch(e){} }
+  requestParentLocation(true); // el padre vigila y envía 'user-location' con las coords
   // Botón "centrar en MI ubicación".
   var LocateBtn = L.Control.extend({ options:{ position:'topleft' }, onAdd:function(){
     var c=L.DomUtil.create('div','leaflet-bar'); var a=L.DomUtil.create('a','',c);
     a.href='#'; a.title='Mi ubicación'; a.textContent='📍';
     a.style.cssText='width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:#fff;font-size:18px;text-decoration:none';
-    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev); if(userMarker){ map.setView(userMarker.getLatLng(), 16); userMarker.openPopup(); } else { map.locate({ setView:true, maxZoom:16, enableHighAccuracy:true }); } });
+    L.DomEvent.on(a,'click',function(ev){ L.DomEvent.stop(ev);
+      if(userMarker){ map.setView(userMarker.getLatLng(), 16); userMarker.openPopup(); }
+      else { pendingCenter = true; map.locate({ enableHighAccuracy:true }); requestParentLocation(false); }
+    });
     return c; }});
   map.addControl(new LocateBtn());
 
@@ -305,6 +315,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     }
     else if (d.type === 'map-zone-edit'){ setZoneEdit(!!d.on); }
     else if (d.type === 'map-zone-offsets'){ ZONE_OFF = d.offsets || {}; applyOffsets(); }
+    else if (d.type === 'user-location'){ if (isFinite(d.lat) && isFinite(d.lng)) placeUser(Number(d.lat), Number(d.lng), Number(d.accuracy) || 0, !!d.center); }
   });
 
   // Al TOCAR el mapa:
@@ -370,6 +381,37 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   });
+  // Geolocalización del usuario: el iframe (srcdoc = origen opaco) NO puede pedirla en
+  // móvil. La pedimos aquí (origen real) con navigator.geolocation y le mandamos las
+  // coords al iframe por postMessage para que dibuje y centre el punto azul.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.addEventListener) return;
+    let watchId: number | null = null;
+    const sendLoc = (pos: any, center: boolean) => {
+      try {
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'user-location', lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, center },
+          '*',
+        );
+      } catch {}
+    };
+    const onMsg = (e: any) => {
+      if (e?.data?.type !== 'request-location') return;
+      const geo = (typeof navigator !== 'undefined' && navigator.geolocation) || null;
+      if (!geo) return;
+      // Lectura inmediata (si el usuario tocó 📍, se centra al llegar).
+      geo.getCurrentPosition((pos) => sendLoc(pos, !e.data.watch), () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 });
+      // Vigilancia continua, una sola vez.
+      if (e.data.watch && watchId == null) {
+        watchId = geo.watchPosition((pos) => sendLoc(pos, false), () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => {
+      window.removeEventListener('message', onMsg);
+      if (watchId != null && typeof navigator !== 'undefined' && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {
