@@ -183,6 +183,15 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // el turno). ARRASTRADA (marcada antes del día del reporte) aplica a TODA la
   // máquina (ambos turnos), PERO solo si NO trabaja hoy: si iniciaron jornada la
   // máquina se reactivó y está EN CURSO (la vieja pierde).
+  // Deja SOLO el motivo en la nota: quita la Ubicación (GPS) y el Edificio — el
+  // reporte muestra POR QUÉ, no dónde (el Edificio ya tiene su propia columna).
+  const soloMotivo = (notes: any): string =>
+    String(notes ?? '')
+      .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')
+      .replace(/\s*·\s*Edificio:.*$/i, '')
+      .replace(/^NO TRABAJ[ÓO] LA M[ÁA]QUINA\s*·?\s*/i, 'No trabajó · ')
+      .replace(/·\s*$/, '')
+      .trim();
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
@@ -190,7 +199,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
     const end = m.resolved_at ? new Date(m.resolved_at).getTime() : null;
-    const motivo = String(m.notes ?? '').trim();
+    const motivo = soloMotivo(m.notes) || 'No trabajó';
     // TODO por TURNO (por la hora de la marca): así una parada/avería de NOCHE NO
     // aparece en el inspector de DÍA (ej. "no trabaja de noche"). Aplica tanto a la
     // de HOY como a la ARRASTRADA (día anterior): cada una pertenece a su turno.
@@ -208,7 +217,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
     const end = m.resolved_at ? new Date(m.resolved_at).getTime() : null;
-    const motivo = String(m.notes ?? '').trim() || String(m.material ?? '') || 'Avería';
+    const motivo = soloMotivo(m.notes) || String(m.material ?? '') || 'Avería';
     const sh = paradaShiftOf(m.created_at); // avería por TURNO (igual que la parada)
     const target = start < dayStartMs ? averiaArrByShift : averiaHoyByShift;
     const mm = target.get(id) ?? new Map<Turno, EventoParada>();
