@@ -67,7 +67,7 @@ type MachRow = {
   id: string; code: string | null; plate: string | null; serial: string | null; identifier: string | null;
   encargado: string | null; location: string | null; referencia: string | null; sector: string | null;
   zona: string | null; tipo: string | null; clasificacion: string | null; machinery_type: string | null;
-  last_horometro: number | null; operational: boolean | null; active: boolean | null; company?: { name?: string } | null;
+  last_horometro: number | null; operational: boolean | null; active: boolean | null; en_espera: boolean | null; company?: { name?: string } | null;
 };
 type MInfo = {
   id: string; code: string; plate: string | null; serial: string | null; identifier: string | null;
@@ -248,7 +248,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
-      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, company_id, company:company_id(name)'),
+      selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
       // Histórico COMPLETO (todas las fechas) solo de horas, para "Horas reales totales".
       selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours'),
     ]);
@@ -591,12 +591,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }
   };
 
-  // Máquinas inactivas/averiadas de CATÁLOGO (active=false u operational=false) — el
-  // teléfono (visibleParaInspector) las OCULTA. Se excluyen de los conteos para que el
-  // panel cuadre con lo que ve el inspector.
+  // Máquinas inactivas/averiadas/en espera de CATÁLOGO (active=false, operational=false
+  // o en_espera=true) — el teléfono (necesitaInspector/visibleParaInspector) las OCULTA.
+  // Se excluyen de los conteos para que el panel cuadre con lo que ve el inspector.
+  // Antes faltaba `en_espera` aquí: una máquina en espera de recepción seguía contando
+  // en el universo/pendientes/eficiencia del coordinador aunque el teléfono ya la
+  // hubiera ocultado — el desajuste que reportó el cliente.
   const machInactiveSet = useMemo(() => {
     const s = new Set<string>();
-    machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
+    machList.forEach((m) => { if (m.active === false || m.operational === false || m.en_espera === true) s.add(m.id); });
     return s;
   }, [machList]);
 

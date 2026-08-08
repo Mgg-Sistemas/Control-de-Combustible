@@ -663,14 +663,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const resumenInspectores = useMemo(() => {
     const byId: Record<string, { id: string; name: string; day: Mach[]; night: Mach[] }> = {};
     const ensure = (id: string, name: string) => (byId[id] ||= { id, name, day: [], night: [] });
-    machines.forEach((m) => {
+    // Antes no filtraba nada: una máquina dada de baja o averiada (sin jornada
+    // abierta) seguía saliendo en el resumen de un inspector, aunque ya no
+    // apareciera en NINGUNA otra lista de esta misma pantalla (mine/searchList/
+    // grupos, todas usan `visibleParaInspector`) — inconsistencia dentro del
+    // propio teléfono.
+    machines.filter(visibleParaInspector).forEach((m) => {
       const s = assignMap[m.id] || {};
       if (s.day?.id) ensure(s.day.id, s.day.name).day.push(m);
       if (s.night?.id) ensure(s.night.id, s.night.name).night.push(m);
     });
     Object.values(byId).forEach((g) => { g.day.sort((a, b) => cmpText(a.code, b.code)); g.night.sort((a, b) => cmpText(a.code, b.code)); });
     return Object.values(byId).sort((a, b) => cmpText(a.name, b.name));
-  }, [machines, assignMap]);
+  }, [machines, assignMap, roundsById]);
   const toggleExp = (k: string) => setExpanded((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   // ── REGLA DE TURNOS DEL INSPECTOR ──────────────────────────────────────────
