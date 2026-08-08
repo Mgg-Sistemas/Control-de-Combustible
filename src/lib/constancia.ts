@@ -13,6 +13,14 @@ function hoyLargo(): string {
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
+/** Fecha ISO (AAAA-MM-DD) a texto largo "15 de julio de 2026"; '' si no hay fecha. */
+function fechaLarga(iso?: string | null): string {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-').map((n) => parseInt(n, 10));
+  if (!y || !m || !d) return '';
+  return `${d} de ${MESES[m - 1] ?? ''} de ${y}`;
+}
+
 /** Sello de impresión: "15/07/2026, 03:42 p. m." (fecha y hora en que se imprime). */
 function selloImpresion(): string {
   const d = new Date();
@@ -107,5 +115,81 @@ export function constanciaCarnetHtml(d: ConstanciaData): string {
     </div>
 
     <div class="foot">${esc(COMPANY_NAME)} · Constancia de entrega de ficha / carnet &nbsp;·&nbsp; Impreso el ${impreso}</div>
+  </body></html>`;
+}
+
+export type ConstanciaTrabajoData = {
+  fullName: string;
+  cedula?: string | null;
+  cargo?: string | null;
+  hireDate?: string | null;   // fecha de ingreso ISO "AAAA-MM-DD"
+  city?: string | null;
+  state?: string | null;
+};
+
+/**
+ * CONSTANCIA DE TRABAJO (formato estándar) lista para imprimir. Dirigida "A quien
+ * pueda interesar"; hace constar que la persona presta servicios en la empresa,
+ * con su cédula, cargo y fecha de ingreso. NO incluye el sueldo (decisión del
+ * cliente). Al pie lleva una firma CENTRADA para la Jefa de Administración.
+ */
+export function constanciaTrabajoHtml(d: ConstanciaTrabajoData): string {
+  const linea = '________________________';
+  const nombre = esc(d.fullName || linea);
+  const ci = esc(d.cedula || linea);
+  const cargo = esc(d.cargo || linea);
+  const empresa = 'SOS LA GUAIRA';
+  const ingreso = esc(fechaLarga(d.hireDate) || linea);
+  const lugar = esc([d.city, d.state].filter(Boolean).join(', ') || 'La Guaira, Venezuela');
+  const fecha = esc(hoyLargo());
+  const impreso = esc(selloImpresion());
+
+  return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
+  <style>
+    @page{ margin:2cm; size:letter }
+    *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact }
+    html,body{ margin:0; padding:0 }
+    body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:11pt; line-height:1.5; display:flex; flex-direction:column; min-height:100vh }
+    @media screen{ body{ padding:20px 30px; background:#fff } }
+    .head{ text-align:center; border-bottom:2.5px solid #1E3A5F; padding-bottom:7px; margin-bottom:16px }
+    .head img{ height:62px; width:auto }
+    .head .co{ color:#1E3A5F; font-weight:700; font-size:11pt; letter-spacing:.2px; margin-top:3px }
+    h1{ font-size:14pt; text-align:center; color:#1E3A5F; margin:8px 0 2px; text-transform:uppercase; letter-spacing:1px }
+    .dirigida{ text-align:center; color:#333; font-size:11pt; font-weight:700; margin:14px 0 18px }
+    p{ text-align:justify; margin:12px 0 }
+    .fill{ font-weight:700 }
+    .cierre{ margin-top:14px }
+    /* Firma CENTRADA al pie (Jefa de Administración). */
+    .sign-block{ margin-top:auto; padding-top:40px }
+    .firma-final{ text-align:center }
+    .firma-final .line{ width:280px; margin:0 auto; border-top:1px solid #1a1a1a; padding-top:6px }
+    .firma-final .rol{ font-weight:700; color:#1E3A5F; font-size:11pt; text-transform:uppercase; letter-spacing:.3px }
+    .firma-final .emp{ color:#555; font-size:10pt; margin-top:1px }
+    .firma-final .sello{ color:#9aa4b2; font-size:9pt; font-style:italic; margin-top:2px }
+    .foot{ margin-top:20px; text-align:center; color:#9aa4b2; font-size:8pt; border-top:1px solid #e5e7eb; padding-top:6px }
+  </style></head><body>
+    <div class="head">
+      <img src="${LOGO_DATA_URI}"/>
+      <div class="co">${esc(COMPANY_NAME)}</div>
+    </div>
+
+    <h1>Constancia de Trabajo</h1>
+    <div class="dirigida">A quien pueda interesar</div>
+
+    <p>Por medio de la presente se hace constar que el(la) ciudadano(a) <span class="fill">${nombre}</span>, titular de la cédula de identidad N.° <span class="fill">${ci}</span>, presta sus servicios en esta empresa <span class="fill">${empresa}</span> desde el <span class="fill">${ingreso}</span>, desempeñando el cargo de <span class="fill">${cargo}</span>, cumpliendo cabalmente con sus funciones y responsabilidades.</p>
+
+    <p class="cierre">Constancia que se expide a solicitud de la parte interesada, en ${lugar}, a la fecha ${fecha}.</p>
+
+    <div class="sign-block">
+      <div class="firma-final">
+        <div class="line">
+          <div class="rol">Jefa de Administración</div>
+          <div class="emp">${esc(COMPANY_NAME)}</div>
+          <div class="sello">Firma y sello</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">${esc(COMPANY_NAME)} · Constancia de trabajo &nbsp;·&nbsp; Impreso el ${impreso}</div>
   </body></html>`;
 }
