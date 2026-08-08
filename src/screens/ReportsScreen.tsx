@@ -27,6 +27,7 @@ import { normalizeDept } from '../lib/personal';
 import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
+import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
 import { spacing, radius, AppColors } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -968,9 +969,14 @@ export default function ReportsScreen({ route }: any) {
         mDias.set(r.machinery_id, (mDias.get(r.machinery_id) ?? 0) + 1);
       }
     });
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA, machineInspectors.ts): sus máquinas nunca
+    // cuentan como avería/parada — mismo criterio que Catálogo/Inspecciones/Control.
+    const { rows: assigns } = await listInspectorAssignments();
+    const siempreActivoSet = new Set(assigns.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
     // Estado ACTUAL por máquina: avería real gana sobre el marcador "MÁQUINA PARADA".
     const estadoMap = new Map<string, FleetEstado>();
     (pend ?? []).forEach((r: any) => {
+      if (siempreActivoSet.has(r.machinery_id)) return;
       const actual = estadoMap.get(r.machinery_id);
       if (actual === 'averia') return;
       estadoMap.set(r.machinery_id, r.material === 'MÁQUINA PARADA' ? 'parada' : 'averia');
