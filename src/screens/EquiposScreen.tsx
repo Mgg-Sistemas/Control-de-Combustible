@@ -1783,9 +1783,11 @@ export default function EquiposScreen({ navigation, route }: any) {
             <ScrollView>
               {groupByCompany(detailFiltered).map((g) => {
                 // Las INACTIVAS arrancan COLAPSADAS (solo se abren si el usuario toca);
-                // activas y en espera siguen abiertas por defecto. Al BUSCAR, todos los
-                // grupos se abren para que se vean los resultados.
-                const open = detailNq ? true : (detailExpanded[g.key] ?? (detailStatus !== 'inactive'));
+                // activas y en espera siguen abiertas por defecto. Al BUSCAR, los grupos
+                // arrancan abiertos para ver los resultados, PERO si el usuario toca para
+                // colapsar/expandir su elección manda (por eso el ?? va primero, no un
+                // `detailNq ? true` que ignoraba el toque y no dejaba colapsar al buscar).
+                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'inactive'));
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
