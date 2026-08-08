@@ -4,7 +4,7 @@ import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { edificioLabel } from './edificios';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
-import { isoYesterday } from './caracasDay';
+import { isoYesterday, shiftElapsedHours } from './caracasDay';
 
 /**
  * Reporte RESUMEN POR INSPECTOR (PDF), para un día.
@@ -60,6 +60,7 @@ type Row = {
   tipo: string; clasificacion: string;
   enCurso: boolean; parada: boolean; pendiente: boolean; finalizada: boolean; averiada: boolean; motivo: string;
   horas: number; // horas REALES trabajadas por esta máquina en el turno (0 si parada/avería/pendiente) — base de la eficiencia
+  shiftCtx: 'day' | 'night'; // turno de ESTA fila (el reporte puede incluir ambos si no se filtró uno) — para el denominador de eficiencia
 };
 
 /**
@@ -222,6 +223,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
       clasificacion: (extra?.clasificacion && String(extra.clasificacion).trim()) || '—',
       enCurso, parada, pendiente, finalizada, averiada, motivo,
       horas: Math.min(12, Math.max(0, hoursForShift)),
+      shiftCtx,
     });
   });
 
@@ -286,7 +288,11 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     const chequeadas = list.length - pendientes.length;
     const esVirtual = sinInspReal(name);
     const horasTrabajadas = list.reduce((s, r) => s + r.horas, 0);
-    const horasEsperadas = list.length * 12;
+    // FIX 08-ago-2026 (reportado por cliente): el denominador dividía SIEMPRE entre 12h
+    // fijas por máquina, aunque el turno recién hubiera empezado — si el PDF se genera a
+    // mitad de turno la eficiencia salía artificialmente bajísima. Ahora usa las horas YA
+    // TRANSCURRIDAS del turno de CADA fila (shiftElapsedHours), igual que el dashboard.
+    const horasEsperadas = list.reduce((s, r) => s + shiftElapsedHours(date, r.shiftCtx), 0);
     const eficiencia = !esVirtual && horasEsperadas > 0 ? Math.round((horasTrabajadas / horasEsperadas) * 100) : null;
     return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, horasTrabajadas, horasEsperadas, eficiencia, esVirtual };
   });

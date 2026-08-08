@@ -16,7 +16,7 @@ import { generateMachineHoursReport } from '../../lib/machineHoursReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
-import { caracasToday, caracasNowShift, caracasBusinessToday } from '../../lib/caracasDay';
+import { caracasToday, caracasNowShift, caracasBusinessToday, shiftElapsedHours } from '../../lib/caracasDay';
 import { useNavigation } from '@react-navigation/native';
 
 /**
@@ -1247,10 +1247,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // solo penalizaba lo pendiente (sin tocar), lo que distorsionaba el indicador
       // (una máquina averiada/parada todo el turno sumaba lo mismo que una que
       // trabajó completo). Ahora pondera por HORAS REALES de este turno: horas
-      // trabajadas ÷ horas de turno esperadas (12 h × máquinas asignadas) × 100.
-      // Misma fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
+      // trabajadas ÷ horas de turno esperadas (máquinas asignadas × horas YA
+      // TRANSCURRIDAS del turno). Misma fórmula que el PDF de generateSummaryReport
+      // (inspectorSummaryReport.ts).
+      // FIX 08-ago-2026 (reportado por cliente): el denominador dividía SIEMPRE entre
+      // 12h fijas, aunque el turno recién hubiera empezado — a los pocos minutos de
+      // turno noche eso hacía que la eficiencia saliera pegada en ~0% toda la noche
+      // ("dañado"). Ahora el denominador también usa las horas transcurridas del
+      // turno (shiftElapsedHours), igual que el numerador, que ya es en vivo.
       const horasEficiencia = visibleIds.reduce((sum, id) => sum + liveHorasShiftOf(id), 0);
-      const horasEsperadasEficiencia = visibleIds.length * 12;
+      const horasEsperadasEficiencia = visibleIds.length * shiftElapsedHours(selDay, shift);
       const eficiencia = isFaltantes || horasEsperadasEficiencia === 0 ? null : Math.round((horasEficiencia / horasEsperadasEficiencia) * 100);
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
@@ -1259,7 +1265,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // Horas TOTALES (histórico completo, no solo selDay): suma de allHoursByMachine
       // en las mismas máquinas visibles — acumulado de todas las rondas alguna vez
       // registradas, no limitado a los 14 días de `rounds`.
-      const horasTotales = Math.round(visibleIds.reduce((sum, id) => sum + (allHoursByMachine[id] ?? 0), 0) * 10) / 10;
+      // FIX 08-ago-2026 (reportado por cliente, discrepancia con el PDF del inspector):
+      // `allHoursByMachine` viene de un RPC que suma day_hours/night_hours YA BANCADOS
+      // en la BD — mientras una jornada sigue ABIERTA esas columnas quedan en 0/atrasadas
+      // hasta que cierra, así que el total quedaba por debajo de lo que muestra el PDF
+      // (que sí suma el tramo EN VIVO, igual que `liveHorasOf`/`horas` arriba). Se suma
+      // aquí SOLO la parte todavía no persistida (liveHorasOf − lo ya bancado hoy) para
+      // no contar dos veces lo que el RPC ya trae.
+      const horasTotales = Math.round(visibleIds.reduce((sum, id) => {
+        const rd = roundDetail.get(id);
+        const bankedHoy = rd ? Math.min(12, rd.dayH) + Math.min(12, rd.nightH) : 0;
+        const liveExtra = Math.max(0, liveHorasOf(id) - bankedHoy);
+        return sum + (allHoursByMachine[id] ?? 0) + liveExtra;
+      }, 0) * 10) / 10;
       // CERRADAS del inspector: de sus iniciadas, las que ya finalizaron (en closedSet).
       const cer = ini.filter((id) => closedSet.has(id));
       // `ini` sigue siendo INCLUSIVO de `cer` (lo necesitan la eficiencia y "Horas
@@ -1277,7 +1295,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const todas = s(visibleIds.slice());
       return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), todas, total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, liveHorasShiftOf, allHoursByMachine]);
+  }, [assignments, shift, selDay, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, liveHorasShiftOf, allHoursByMachine, roundDetail, nowTick]);
 
   // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
   // abierto (las mismas que suman "Horas reales"/"Horas reales totales"), con su

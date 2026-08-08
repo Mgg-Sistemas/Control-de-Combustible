@@ -39,3 +39,25 @@ export function isoYesterday(iso: string): string {
   const d = new Date(iso + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Horas TRANSCURRIDAS del turno (día 07:00–19:00 · noche 19:00–07:00+1), tope 12h.
+ * Corrección 08-ago-2026 (pedido cliente): la "eficiencia" ponderada por horas reales
+ * dividía SIEMPRE entre 12h fijas aunque el turno recién hubiera empezado — a los 38
+ * min de turno noche, ninguna máquina puede pasar de ~0.6h trabajadas, así que dividir
+ * entre 12h completas mostraba ~0% toda la noche, "dañado", en vez de reflejar el
+ * avance real. Con esta función, el DENOMINADOR también usa las horas ya transcurridas
+ * del turno (mismo criterio que el NUMERADOR, que ya es en vivo) — así el % es
+ * significativo desde el minuto 1 y converge a la fórmula final al cerrar el turno.
+ * - Turno de un día YA CERRADO (no es el turno de negocio actual): 12h (turno completo).
+ * - Turno de HOY, en curso: horas reales transcurridas desde que arrancó, tope 12h.
+ */
+export function shiftElapsedHours(dateISO: string, shift: 'day' | 'night'): number {
+  const isCurrentBusinessDay = dateISO === caracasBusinessToday();
+  if (!isCurrentBusinessDay) return 12;
+  const startIso = shift === 'day' ? `${dateISO}T07:00:00-04:00` : `${dateISO}T19:00:00-04:00`;
+  const start = new Date(startIso).getTime();
+  if (Date.now() < start) return 0; // turno de hoy que todavía no arranca (p. ej. noche antes de las 19:00)
+  const elapsedH = (Date.now() - start) / 3600000;
+  return Math.min(12, Math.max(0, elapsedH));
+}
