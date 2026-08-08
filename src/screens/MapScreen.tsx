@@ -105,7 +105,7 @@ export default function MapScreen({ navigation, route }: any) {
   const load = React.useCallback(async () => {
     const { data: machines } = await supabase
       .from('machinery')
-      .select('id, code, tipo, clasificacion, plate, serial, latitude, longitude, location_at, operational, company:company_id(name)')
+      .select('id, code, tipo, clasificacion, plate, serial, identifier, encargado, latitude, longitude, location_at, operational, company:company_id(name)')
       .not('latitude', 'is', null);
     const { data: history } = await supabase
       .from('machinery_locations')
@@ -132,6 +132,8 @@ export default function MapScreen({ navigation, route }: any) {
       clasificacion: m.clasificacion ?? null,
       plate: m.plate ?? null,
       serial: m.serial ?? null,
+      identifier: m.identifier ?? null,
+      encargado: m.encargado ?? null,
       utm: formatUTM(Number(m.latitude), Number(m.longitude)),
       route: routes.get(m.id) ?? [],
     }));
