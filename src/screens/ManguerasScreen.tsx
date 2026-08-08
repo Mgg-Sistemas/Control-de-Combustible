@@ -175,7 +175,7 @@ export default function ManguerasScreen() {
     // `activeCol: 'operational'` marca con "(Inactiva)" las máquinas dadas de baja
     // en la lista, SIN ocultarlas (el historial de mangueras de una máquina inactiva
     // debe seguir siendo consultable/asignable si hiciera falta).
-    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', activeCol: 'operational', dropdown: true, required: true },
+    { key: 'machinery_id', label: 'Máquina', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate', 'encargado'], activeCol: 'operational', dropdown: true, required: true },
     { key: 'description', label: 'Descripción del trabajo', type: 'text' },
     { key: 'service_date', label: 'Fecha', type: 'date', required: true, defaultValue: new Date().toISOString().slice(0, 10) },
     { key: 'cost_usd', label: 'Costo (US$)', type: 'number', required: true },
