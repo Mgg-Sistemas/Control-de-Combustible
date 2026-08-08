@@ -175,13 +175,15 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     if (byKey.has(k)) return;
     const shiftCtx: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
     const rd = roundByMachine.get(a.machinery_id);
-    // Regla confirmada 08-ago-2026: una máquina PARADA/no-operativa (averiada, parqueada)
-    // pero ACTIVA y asignada a un inspector SIGUE contando — se muestra con su estado
-    // real (parada/pendiente/averiada), nunca desaparece. Solo se excluye si está
-    // DESACTIVADA del catálogo (active=false) o EN ESPERA de recepción/traslado
-    // (en_espera=true) — esas sí son "todavía no es un equipo operativo asignable".
+    // INACTIVA del catálogo: máquina marcada NO OPERATIVA con "⛔ Inactiva" (operational=
+    // false) o desactivada (active=false) — igual criterio que inspectorReport.ts
+    // (inactiveIds), InspectionsSummary.tsx (machHardInactiveSet) y el teléfono
+    // (visibleParaInspector): NUNCA cuenta acá, solo sale en el reporte por empresa y en
+    // Control. `operational` solo lo cambia el botón del admin; la avería/parada de campo
+    // (maintenance_requests) NO lo toca, así que una máquina averiada pero OPERATIVA sigue
+    // contando con su estado real.
     const ex = extraById.get(a.machinery_id);
-    const inactiva = ex ? !ex.active || ex.enEspera : false;
+    const inactiva = ex ? !ex.active || !ex.operational || ex.enEspera : false;
     if (inactiva && !rd?.startAt) return;
     // Trabajó ESTE turno: horas del turno, o jornada abierta cuyo turno (por marca o hora
     // de inicio) es este turno.
