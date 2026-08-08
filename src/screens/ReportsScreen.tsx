@@ -1341,7 +1341,11 @@ export default function ReportsScreen({ route }: any) {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
-    const all = (mach ?? []) as any[];
+    // Torontos y volquetas INACTIVOS (inoperativos, en espera o dados de baja) NO se
+    // toman en cuenta en NINGÚN conteo del reporte (real ni ficticio).
+    const esTorontoOVolqueta = (m: any) => /toronto|volqueta/i.test(`${m.code ?? ''} ${m.clasificacion ?? ''}`);
+    const inactivaM = (m: any) => m.operational === false || m.en_espera === true || m.active === false;
+    const all = ((mach ?? []) as any[]).filter((m) => !(esTorontoOVolqueta(m) && inactivaM(m)));
     // REAL: solo activas/operativas (excluye inoperativas, en espera y dadas de baja),
     //   sincronizado con el conteo por zona del mapa.
     // FICTICIO: TODAS las máquinas de la flota (solo excluye dadas de baja); las
