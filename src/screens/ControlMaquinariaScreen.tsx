@@ -16,6 +16,7 @@ import { DateField } from '../components/DateField';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
+import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMachine';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
@@ -357,10 +358,16 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       // Inspector "asignado" = quien hizo el último check-in en cada máquina.
       latestInspectorByMachine().then(setInspectors).catch(() => {});
       // Averías PENDIENTES → en la tarjeta sale "🔴 MÁQUINA PARADA".
+      // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiadas — se
+      // excluyen del set aunque tengan tickets pendientes (se ignora su mantenimiento).
       (async () => {
         try {
-          const { data } = await supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente');
-          setAveriadas(new Set(((data ?? []) as any[]).map((r) => r.machinery_id as string)));
+          const [{ data }, { rows }] = await Promise.all([
+            supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente'),
+            listInspectorAssignments(),
+          ]);
+          const sos = new Set(rows.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
+          setAveriadas(new Set(((data ?? []) as any[]).map((r) => r.machinery_id as string).filter((id) => !sos.has(id))));
         } catch {}
       })();
       const cmap: Record<string, string> = {};

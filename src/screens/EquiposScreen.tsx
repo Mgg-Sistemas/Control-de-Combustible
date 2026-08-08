@@ -21,7 +21,7 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
-import { listInspectorAssignments } from '../lib/machineInspectors';
+import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico } from '../lib/edificios';
@@ -982,7 +982,10 @@ export default function EquiposScreen({ navigation, route }: any) {
     const trabajadas = Math.max(0, total - enCurso);
     const hasOpen = openStartDay != null || openStartNight != null;
     const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
-    const averiaVigente = !!a && !(hasOpen && openStart >= a.createdMs);
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
+    const insp = inspByShift[id];
+    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
+    const averiaVigente = !siempreActivo && !!a && !(hasOpen && openStart >= a.createdMs);
     let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
     if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
     else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';

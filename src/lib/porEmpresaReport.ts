@@ -1,7 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
-import { listInspectorAssignments } from './machineInspectors';
+import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
 /**
@@ -119,6 +119,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const dayInsp = new Map<string, string>();
   const nightInsp = new Map<string, string>();
   assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
+  // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): estas máquinas nunca muestran parada/avería
+  // ni horas paradas en el reporte por empresa (se ignora su historial de mantenimiento).
+  const siempreActivoIds = new Set<string>();
+  assigns.forEach((a) => { if (inspectorSiempreActivo(a.inspector_name)) siempreActivoIds.add(a.machinery_id); });
 
   // 4) Avería/parada PENDIENTE vigente hasta ese día (se arrastra hasta resolver).
   //    CORREGIDO: antes, apenas veía el registro paralelo "MÁQUINA PARADA" (que se
@@ -178,6 +182,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   });
   const paradasByMachine = new Map<string, { start: number; end: number | null; motivo: string }[]>();
   paradaRows.forEach((p) => {
+    if (siempreActivoIds.has(p.machinery_id)) return; // SOS LA GUAIRA: sin paradas
     const startMs = new Date(p.created_at).getTime();
     const endMs = p.resolved_at ? new Date(p.resolved_at).getTime() : null;
     const pareja = (otrasByMachine.get(p.machinery_id) || []).find(
@@ -285,6 +290,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   };
   // Avería/motivo etiquetado por turno: "☀️ <día> · 🌙 <noche>" (solo los que existan).
   const averiaTxt = (id: string): string => {
+    if (siempreActivoIds.has(id)) return ''; // SOS LA GUAIRA: nunca avería/parada
     const rows = mrByMachine.get(id) || [];
     if (!rows.length) return '';
     const d = motivoDe(rows, 'day'); const nn = motivoDe(rows, 'night');
@@ -357,6 +363,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     } else {
       par = n2(Number(r?.hours_stopped) || 0);
     }
+    if (siempreActivoIds.has(id)) par = 0; // SOS LA GUAIRA: horas paradas cuentan como trabajadas
     const epSplit = paradasDiaNoche(id);
     const hadEps = (paradasByMachine.get(id)?.length ?? 0) > 0;
     // Si la máquina TUVO episodios de parada (aunque queden en 0 por reactivación), se usa
