@@ -25,9 +25,13 @@ export default function AjustesScreen() {
   const { colors } = useTheme();
   const toast = useToast();
 
-  // Backup de la BD: SOLO para Anthony y Angelica (por nombre, sin tildes). Web.
+  // Acceso "superadmin/desarrollador": SOLO Anthony y Angelica (por nombre, sin
+  // tildes). Gatea el Backup de la BD y el panel masivo de activar/desactivar
+  // máquinas (ambos son herramientas sensibles, no de uso diario del resto de
+  // admins). Web.
   const nfull = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
-  const puedeBackup = nfull.includes('ANTHONY') || nfull.includes('ANGELICA');
+  const esSuperadmin = nfull.includes('ANTHONY') || nfull.includes('ANGELICA');
+  const puedeBackup = esSuperadmin;
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const doBackup = async () => {
@@ -176,7 +180,7 @@ export default function AjustesScreen() {
       {/* Apariencia (modo oscuro) y Seguridad (contraseña + huella) viven SOLO en la
           tuerca ⚙️ del encabezado (HeaderSettings). Aquí quedan las herramientas
           avanzadas, el respaldo y cerrar sesión, para no repetir las mismas opciones. */}
-      {role === 'admin' ? (
+      {role === 'admin' && esSuperadmin ? (
         <>
           <SectionTitle>Herramientas avanzadas</SectionTitle>
           <Card>
