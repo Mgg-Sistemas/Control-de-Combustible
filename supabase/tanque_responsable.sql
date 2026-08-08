@@ -8,19 +8,21 @@
 
 alter table public.tanks add column if not exists responsable text;
 
--- Recrear la vista incluyendo `responsable` (y `location`, útil para el detalle). El
--- nivel actual/porcentaje se mantiene igual (derivado del ledger). `group by t.id`
--- basta porque id es PK (las demás columnas de `t` son dependientes funcionales).
+-- Recrear la vista incluyendo `responsable` (y `location`). IMPORTANTE: `create or
+-- replace view` NO permite reordenar ni renombrar columnas — solo AÑADIR columnas al
+-- FINAL. Por eso se mantiene el orden original (id, name, fuel, capacity_l, current_l,
+-- pct) y se agregan `responsable` y `location` al final. El nivel actual/porcentaje
+-- sigue derivado del ledger. `group by t.id` basta porque id es PK.
 create or replace view public.tank_levels as
 select
   t.id,
   t.name,
   t.fuel,
   t.capacity_l,
-  t.responsable,
-  t.location,
   coalesce(sum(m.liters), 0)::numeric(12,2)                          as current_l,
-  round(coalesce(sum(m.liters),0) / nullif(t.capacity_l,0) * 100, 1) as pct
+  round(coalesce(sum(m.liters),0) / nullif(t.capacity_l,0) * 100, 1) as pct,
+  t.responsable,
+  t.location
 from public.tanks t
 left join public.stock_movements m on m.tank_id = t.id
 group by t.id;
