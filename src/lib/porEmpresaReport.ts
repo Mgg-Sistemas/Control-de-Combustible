@@ -2,6 +2,7 @@ import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { listInspectorAssignments } from './machineInspectors';
+import { isoYesterday } from './caracasDay';
 
 /**
  * Reporte del DÍA por EMPRESA (PDF). Para las empresas elegidas (tipo check) y un
@@ -64,8 +65,21 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift',
     (q) => q.eq('round_date', date).in('machinery_id', ids),
   );
+  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
+  // AYER (el día en que inició), no el de `date` — sin este fallback, generar este
+  // reporte bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
+  // y esa máquina no sumaba sus horas EN VIVO (ver bloque "EN VIVO" más abajo).
+  // Mismo criterio que ya usa `computeInspectorData` en inspectorReport.ts.
+  const roundsNocheAyer = await selectAllRows(
+    'machine_rounds',
+    'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift',
+    (q) => q.eq('round_date', isoYesterday(date)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null).in('machinery_id', ids),
+  );
   const roundBy = new Map<string, any>();
   ((rounds ?? []) as any[]).forEach((r) => roundBy.set(r.machinery_id, r));
+  // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
+  // `date` (si la tienen, esa es la vigente).
+  ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundBy.has(r.machinery_id)) roundBy.set(r.machinery_id, r); });
 
   // 2b) Tramos trabajados del día (machine_work_segments) — se guarda CADA fila (no
   //     solo el agregado) para poder reconstruir la línea de tiempo completa: HORA de

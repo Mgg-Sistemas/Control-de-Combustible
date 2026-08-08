@@ -4,6 +4,7 @@ import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { edificioLabel } from './edificios';
 import { listInspectorAssignments } from './machineInspectors';
+import { isoYesterday } from './caracasDay';
 
 /**
  * Reporte RESUMEN POR INSPECTOR (PDF), para un día.
@@ -75,9 +76,31 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     .from('machine_rounds')
     .select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift')
     .eq('round_date', date);
+  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
+  // AYER (el día en que inició), no el de `date` — sin este fallback, generar este
+  // reporte bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
+  // y la máquina salía "⏳ sin iniciar" en vez de "🟢 iniciada" (ver `openForShift`
+  // más abajo). Mismo criterio que ya usa `computeInspectorData` en inspectorReport.ts.
+  const { data: rsAyer } = await supabase
+    .from('machine_rounds')
+    .select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift')
+    .eq('round_date', isoYesterday(date))
+    .eq('jornada_shift', 'night')
+    .not('jornada_start_at', 'is', null);
   const roundByMachine = new Map<string, { startAt: string | null; shift: 'day' | 'night' | null; dayH: number; nightH: number }>();
   ((rs ?? []) as any[]).forEach((r) => {
     if (roundByMachine.has(r.machinery_id)) return; // 1 ronda por máquina/día
+    roundByMachine.set(r.machinery_id, {
+      startAt: r.jornada_start_at ?? null,
+      shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,
+      dayH: Number(r.day_hours) || 0,
+      nightH: Number(r.night_hours) || 0,
+    });
+  });
+  // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
+  // `date` (si la tienen, esa es la vigente).
+  ((rsAyer ?? []) as any[]).forEach((r) => {
+    if (roundByMachine.has(r.machinery_id)) return;
     roundByMachine.set(r.machinery_id, {
       startAt: r.jornada_start_at ?? null,
       shift: (r.jornada_shift ?? null) as 'day' | 'night' | null,

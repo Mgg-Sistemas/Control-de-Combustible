@@ -16,6 +16,7 @@ import { generateMachineHoursReport } from '../../lib/machineHoursReport';
 import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
+import { caracasToday, caracasNowShift, caracasBusinessToday } from '../../lib/caracasDay';
 
 /**
  * RESUMEN DE INSPECCIONES (rediseño) — dashboard analítico, autocontenido.
@@ -55,11 +56,6 @@ async function loadTotalHoursByMachine(): Promise<Record<string, number>> {
 }
 
 const CARACAS_TZ = 'America/Caracas';
-function caracasToday(): string {
-  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
-  return `${p.year}-${p.month}-${p.day}`;
-}
 const shortDate = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m && d ? `${d}/${m}` : iso; };
 // Hora (Caracas) "HH:MM am/pm" de un instante (ms epoch), o '—'.
 const horaCaracas = (ms: number): string => {
@@ -73,9 +69,6 @@ const EFICIENCIA_KEY = '__eficiencia__';
 // Token de pdfBusy para el reporte del día POR EMPRESA.
 const EMPRESA_KEY = '__empresa_dia__';
 const HORAS_KEY = '__horas_mant__';
-// Turno ACTUAL según la hora de Caracas: día 7am–7pm, resto noche. Sirve para abrir
-// el dashboard en el turno correcto (antes abría siempre en DÍA).
-function caracasNowShift(): 'day' | 'night' { let h = new Date().getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; }
 // Turno de una PARADA por la hora (Caracas) en que se marcó: día 7-19, resto noche.
 const paradaShiftOf = (iso: string): 'day' | 'night' => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; };
 
@@ -148,7 +141,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [assignBusy, setAssignBusy] = useState<string | null>(null); // machinery_id en proceso de asignar
   // El día visible puede venir CONTROLADO por la pantalla padre (para compartir la
   // misma fecha con la lista de rondas de abajo); si no, se maneja internamente.
-  const [internalDay, setInternalDay] = useState(caracasToday());
+  const [internalDay, setInternalDay] = useState(caracasBusinessToday());
   const selDay = date ?? internalDay;
   const setSelDay = useCallback((d: string) => { if (onDateChange) onDateChange(d); else setInternalDay(d); }, [onDateChange]);
   // Navegar ±1 día (sin pasar de hoy). Al cambiar el día se limpia el inspector abierto.
@@ -399,7 +392,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // Solo se puede gestionar el día de HOY (no días pasados): "Iniciar" fabricaría
   // una jornada retroactiva sin sentido, y "Pendiente" borraría horas de un corte
   // que ya podría estar cerrado/pagado.
-  const bulkIsToday = selDay === caracasToday();
+  const bulkIsToday = selDay === caracasBusinessToday();
   const toggleBulkOne = (key: string) => setBulkSel((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const toggleBulkGroup = (keys: string[]) => setBulkSel((prev) => {
     const allIn = keys.every((k) => prev.has(k));
@@ -429,19 +422,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const items = [...bulkSel].map((k) => { const [id, sh] = k.split('::'); return { id, shift: sh as 'day' | 'night' }; });
       const uid = session?.user?.id ?? null;
       const codeOf = (id: string) => assignments.find((a) => a.machinery_id === id)?.code || '—';
-      // Si es de turno NOCHE y la jornada abierta en realidad vive en la fila de
-      // AYER (cruzó la medianoche), hay que operar sobre
-      // ESA fila — si actuáramos siempre sobre "hoy" crearíamos una fila nueva
-      // vacía y dejaríamos la jornada real de ayer abierta sin tocar.
-      const yD = new Date(selDay + 'T12:00:00-04:00'); yD.setUTCDate(yD.getUTCDate() - 1);
-      const yesterdayIso = yD.toISOString().slice(0, 10);
-      const roundDateFor = (id: string, sh: 'day' | 'night') => {
-        if (sh === 'night') {
-          const yRow = rounds.find((r) => r.machinery_id === id && r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at);
-          if (yRow) return yesterdayIso;
-        }
-        return selDay;
-      };
+      // `selDay` YA es el día de negocio correcto (ver caracasBusinessToday): la
+      // jornada de noche en curso, aunque cruce la medianoche, vive en la fila de
+      // `selDay` directamente — este panel además solo se habilita cuando
+      // `bulkIsToday` (selDay === caracasBusinessToday()), así que nunca hace
+      // falta buscar en otra fecha.
+      const roundDateFor = (_id: string, _sh: 'day' | 'night') => selDay;
       // ANTES: esta función hacía un `await` de red POR CADA máquina, uno detrás
       // de otro (secuencial) — con una selección grande (100+ máquinas, el caso
       // real de "marcar todas pendiente") eso son cientos de viajes de red uno
@@ -641,7 +627,6 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // real (ej.: no veía averías arrastradas de días anteriores, o nunca detectaba
   // "cerrada" porque su propio `started` ya contaba las cerradas-con-horas).
   const buildDaySets = useCallback((shiftArg: 'day' | 'night') => {
-    const isToday = selDay === caracasToday();
     // Turno REAL de la ronda. Para una jornada ABIERTA con jornada_shift nulo, se
     // infiere por la HORA DE INICIO (Caracas: 7am–7pm día, resto noche) — así una
     // jornada de noche recién abierta no cae por defecto en "día" (bug: "aparece una
@@ -671,12 +656,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         if (openShiftOf(r) === shiftArg) openSet.add(r.machinery_id);
       }
     });
-    // Rescate: jornada de NOCHE de AYER aún abierta (cruza medianoche) — solo turno NOCHE.
-    if (isToday && shiftArg === 'night') {
-      const y = new Date(selDay + 'T12:00:00-04:00'); y.setUTCDate(y.getUTCDate() - 1);
-      const yesterdayIso = y.toISOString().slice(0, 10);
-      rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { workedSet.add(r.machinery_id); openSet.add(r.machinery_id); anyOpenSet.add(r.machinery_id); } });
-    }
+    // NOTA: ya NO hay "rescate" de la jornada de noche de ayer hacia la vista de
+    // HOY — antes esto hacía que la misma máquina apareciera "activa" en DOS días
+    // a la vez (ayer Y hoy). Ahora `selDay` por defecto YA es el día de negocio
+    // correcto (ver caracasBusinessToday) — antes de las 7am, `selDay` ya ES ayer,
+    // así que la jornada de noche en curso se encuentra sola, sin rescate.
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
     // El turno NOCHE cruza la medianoche (19:00 → 07:00 del día siguiente): una
     // avería/parada marcada a las 2am, por ejemplo, tiene `created_at` del día
@@ -917,6 +901,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const shiftDetail = useMemo(() => {
     const map = new Map<string, { day: ShiftInfo; night: ShiftInfo }>();
     const blank = (): ShiftInfo => ({ hours: 0, horaIni: '—', horaFin: '—', openNow: false });
+    // "En curso" (con contador vivo) solo tiene sentido si `selDay` es el día de
+    // negocio ACTUAL — mismo gate que `bulkIsToday`/`liveHorasOf`/`openNow` de
+    // abajo. En un día pasado con una jornada que quedó sin cerrar (debris), se
+    // muestra su hora de inicio pero SIN marcarla como viva (evita mostrar
+    // "En curso" contradictorio junto al resto de la fila, que sí respeta el día
+    // de negocio).
+    const liveDay = selDay === caracasBusinessToday();
     rounds.forEach((r) => {
       if (r.round_date !== selDay) return;
       const cur = map.get(r.machinery_id) ?? { day: blank(), night: blank() };
@@ -924,9 +915,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       cur.night.hours += Number(r.night_hours) || 0;
       if ((r as any).jornada_start_at) {
         const openSh = roundShift(r);
-        cur[openSh].openNow = true;
+        cur[openSh].openNow = liveDay;
         cur[openSh].horaIni = horaCaracas(new Date((r as any).jornada_start_at).getTime());
-        cur[openSh].horaFin = 'En curso';
+        cur[openSh].horaFin = liveDay ? 'En curso' : '—';
       }
       map.set(r.machinery_id, cur);
     });
@@ -955,7 +946,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const rd = roundDetail.get(id);
     if (!rd) return 0;
     let day = rd.dayH, night = rd.nightH;
-    if (selDay === caracasToday() && rd.openStartAt) {
+    if (selDay === caracasBusinessToday() && rd.openStartAt) {
       const elapsed = Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
       if (rd.shift === 'night') night += elapsed; else day += elapsed;
     }
@@ -1044,7 +1035,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // sigue abierta (hoy), el inicio cae al arranque de la jornada y el fin queda
       // "En curso" (aún no cerró).
       const seg = segDay[id] ?? null;
-      const openNow = selDay === caracasToday() && !!rd?.openStartAt;
+      const openNow = selDay === caracasBusinessToday() && !!rd?.openStartAt;
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
@@ -1101,7 +1092,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const info = machineInfo.get(id) ?? null;
       const rd = roundDetail.get(id) ?? null;
       const seg = segDay[id] ?? null;
-      const openNow = selDay === caracasToday() && !!rd?.openStartAt;
+      const openNow = selDay === caracasBusinessToday() && !!rd?.openStartAt;
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
@@ -1289,7 +1280,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           {(['day', 'night'] as const).map((s) => {
             const on = shift === s;
             return (
-              <TouchableOpacity key={s} onPress={() => { setShift(s); setSelInsp(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.pill, alignItems: 'center', backgroundColor: on ? colors.brandContrast : 'transparent' }}>
+              <TouchableOpacity key={s} onPress={() => { setShift(s); if (s === 'night' && selDay === caracasToday()) { const bd = caracasBusinessToday(); if (bd !== selDay) setSelDay(bd); } setSelInsp(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.pill, alignItems: 'center', backgroundColor: on ? colors.brandContrast : 'transparent' }}>
                 <Text style={{ color: on ? colors.brand : colors.brandContrast, fontWeight: '900', fontSize: 13 }}>{s === 'day' ? '☀️ DÍA' : '🌙 NOCHE'}</Text>
               </TouchableOpacity>
             );
@@ -1416,7 +1407,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                   {!bulkIsToday ? (
                     <Text style={{ color: colors.dangerSoftText, fontSize: 12, marginBottom: spacing.sm }}>
-                      Solo se puede gestionar el día de HOY ({shortDate(caracasToday())}) — volvé al día actual con ▶ arriba para usar este panel.
+                      Solo se puede gestionar el día de HOY ({shortDate(caracasBusinessToday())}) — volvé al día actual con ▶ arriba para usar este panel.
                     </Text>
                   ) : null}
                   {/* Búsqueda propia del panel: por nombre de MÁQUINA o de INSPECTOR. */}

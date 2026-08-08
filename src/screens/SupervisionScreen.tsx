@@ -20,13 +20,12 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import InspectionsSummary from './redesign/InspectionsSummary'; // rediseño: dashboard analítico de inspecciones
 import ReportesSection from '../components/ReportesSection';
+// caracasToday/caracasBusinessToday: centralizadas en src/lib/caracasDay.ts (antes
+// esta pantalla tenía su propia copia de caracasToday, que no sabía que el turno
+// NOCHE cruza la medianoche — ver comentario en ese archivo).
+import { caracasToday, caracasBusinessToday } from '../lib/caracasDay';
 
 const CARACAS_TZ = 'America/Caracas';
-function caracasToday(): string {
-  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
-  return `${p.year}-${p.month}-${p.day}`;
-}
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
@@ -114,7 +113,11 @@ export default function SupervisionScreen({ navigation }: any) {
     const term = v.machineSerial || v.machineCode;
     if (term) navigation?.navigate?.('Equipos', { q: String(term) });
   };
-  const [date, setDate] = useState(caracasToday());
+  // Día por defecto de esta pantalla (y el que se le pasa a InspectionsSummary /
+  // a las consultas por round_date/work_date de abajo): día de NEGOCIO, no de
+  // calendario — antes de las 7am la jornada de noche en curso sigue viva bajo
+  // round_date = AYER, y con la fecha de calendario pura se veía vacía.
+  const [date, setDate] = useState(caracasBusinessToday());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [visits, setVisits] = useState<VisitRow[]>([]);

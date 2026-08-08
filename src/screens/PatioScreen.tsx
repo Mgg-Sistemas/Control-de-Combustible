@@ -16,14 +16,10 @@ import { spacing, radius } from '../theme';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { saveVisit } from '../lib/supervisorVisits';
 import { shiftOf, caracasParts } from '../lib/jornada';
+import { caracasToday, isoYesterday } from '../lib/caracasDay';
 import { logAudit } from '../lib/audit';
 
 const CARACAS_TZ = 'America/Caracas';
-function caracasToday(): string {
-  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(new Date()).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
-  return `${p.year}-${p.month}-${p.day}`;
-}
 function caracasClock(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
@@ -44,8 +40,8 @@ const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.'))
 
 type Mode = 'camion' | 'averia' | 'gasoil' | 'jornada';
 type Mach = { id: string; code: string; plate: string | null };
-type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null };
-type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null };
+type OpenJornada = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null; roundDate: string };
+type PendingFin = { id: string; code: string; start: string; shift: 'day' | 'night'; iniHoro: number | null; roundDate: string };
 type PendingStart = { id: string; code: string; latitude: number | null; longitude: number | null };
 
 /**
@@ -98,17 +94,24 @@ export default function PatioScreen({ navigation }: any) {
 
   // Camiones con JORNADA ABIERTA hoy (para la lista de "asistencia" del patio).
   const loadOpen = async () => {
-    const { data } = await supabase
-      .from('machine_rounds')
-      .select('machinery_id, jornada_start_at, jornada_shift, horometro_inicial, machine:machinery_id(code)')
-      .eq('round_date', caracasToday())
-      .not('jornada_start_at', 'is', null);
-    setOpenJornadas(((data ?? []) as any[]).map((r) => ({
+    const today = caracasToday();
+    const yesterday = isoYesterday(today);
+    const cols = 'machinery_id, jornada_start_at, jornada_shift, horometro_inicial, machine:machinery_id(code)';
+    const [{ data }, { data: dataNoche }] = await Promise.all([
+      supabase.from('machine_rounds').select(cols).eq('round_date', today).not('jornada_start_at', 'is', null),
+      // Jornadas de NOCHE de AYER aún ABIERTAS (cruzan la medianoche): sin esto el
+      // camión desaparece de "en jornada" antes del amanecer aunque siga trabajando
+      // (mismo criterio que SupervisorScreen.reloadEstados).
+      supabase.from('machine_rounds').select(cols).eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+    ]);
+    const rows = [...((data ?? []) as any[]), ...((dataNoche ?? []) as any[]).map((r) => ({ ...r, __roundDate: yesterday }))];
+    setOpenJornadas(rows.map((r) => ({
       id: r.machinery_id as string,
       code: r.machine?.code ?? '—',
       start: r.jornada_start_at as string,
       shift: (r.jornada_shift as 'day' | 'night') ?? 'day',
       iniHoro: r.horometro_inicial != null ? Number(r.horometro_inicial) : null,
+      roundDate: (r.__roundDate as string | undefined) ?? today,
     })));
   };
   useEffect(() => { loadOpen(); }, []);
@@ -139,7 +142,17 @@ export default function PatioScreen({ navigation }: any) {
   const handleJornadaScan = async (m: { id: string; code: string; latitude: number | null; longitude: number | null }) => {
     const today = caracasToday();
     setJornBusy(true);
-    const round = await getMachineRound(m.id, today);
+    let round = await getMachineRound(m.id, today);
+    let roundDate = today;
+    // Si HOY no tiene jornada abierta, rescata la de NOCHE de AYER si sigue abierta
+    // (cruza la medianoche) — mismo criterio que SupervisorScreen: sin esto, antes
+    // del amanecer el escaneo interpreta "sin jornada abierta" y ofrece INICIAR una
+    // nueva encima de la que ya está corriendo.
+    if (!(round as any)?.jornada_start_at) {
+      const yesterday = isoYesterday(today);
+      const ry = await getMachineRound(m.id, yesterday);
+      if ((ry as any)?.jornada_start_at && (ry as any)?.jornada_shift === 'night') { round = ry; roundDate = yesterday; }
+    }
     setJornBusy(false);
     if (!(round as any)?.jornada_start_at) {
       // Sin jornada abierta → pide el horómetro inicial (precargado con el último final).
@@ -149,7 +162,7 @@ export default function PatioScreen({ navigation }: any) {
     } else {
       // Jornada abierta → confirmar finalización (pide horómetro final).
       setHoroFin('');
-      setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day', iniHoro: (round as any).horometro_inicial != null ? Number((round as any).horometro_inicial) : null });
+      setPendingFin({ id: m.id, code: m.code, start: (round as any).jornada_start_at, shift: ((round as any).jornada_shift as 'day' | 'night') ?? 'day', iniHoro: (round as any).horometro_inicial != null ? Number((round as any).horometro_inicial) : null, roundDate });
     }
   };
 
@@ -183,14 +196,18 @@ export default function PatioScreen({ navigation }: any) {
     const hf = Number((horoFin || '').replace(',', '.'));
     if (!isFinite(hf) || hf < 0) { setNotice('❌ Ingresa el horómetro final.'); return; }
     setJornBusy(true);
-    const today = caracasToday();
+    // Cierra contra el round_date en que la jornada REALMENTE arrancó (no "hoy"): una
+    // jornada de noche que cruza la medianoche sigue perteneciendo al round del día en
+    // que empezó (mismo criterio que SupervisorScreen.finalizarJornada). Usar "hoy" acá
+    // crearía un round nuevo vacío y dejaría el original abierto para siempre.
+    const roundDate = pendingFin.roundDate;
     const horas = Math.max(0, Math.round((Date.now() - new Date(pendingFin.start).getTime()) / 3600000 * 100) / 100);
-    const round = await getMachineRound(pendingFin.id, today);
+    const round = await getMachineRound(pendingFin.id, roundDate);
     const hi = Number((round as any)?.horometro_inicial);
     if (isFinite(hi) && hf < hi) { setJornBusy(false); setNotice('❌ El horómetro final no puede ser menor que el inicial.'); return; }
     const key = pendingFin.shift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((round as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(pendingFin.id, today, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(pendingFin.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, horometro_final: hf, jornada_start_at: null }, uid || null);
     setJornBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     logAudit('JORNADA_FIN', 'machinery', pendingFin.id, `${pendingFin.code} · ${horas.toFixed(2)} h`);
@@ -273,7 +290,7 @@ export default function PatioScreen({ navigation }: any) {
                 <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{j.code} <Text style={{ color: colors.muted, fontWeight: '400' }}>· {j.shift === 'night' ? '🌙 noche' : '☀️ día'}</Text></Text>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Desde {caracasClock(j.start)} · ⏱️ {elapsedLabel(j.start)}</Text>
               </View>
-              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift, iniHoro: j.iniHoro }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+              <TouchableOpacity onPress={() => { setHoroFin(''); setPendingFin({ id: j.id, code: j.code, start: j.start, shift: j.shift, iniHoro: j.iniHoro, roundDate: j.roundDate }); }} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                 <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>🏁 Finalizar</Text>
               </TouchableOpacity>
             </View>
