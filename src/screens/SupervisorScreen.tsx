@@ -1352,6 +1352,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
+    // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, así
+    // que se CIERRAN (resuelven) sus paradas/averías PENDIENTES. Sin esto, la máquina
+    // seguía mostrándose 🔴 AVERIADA / 🟡 PARADA aunque reiniciaran la jornada: la
+    // avería pendiente se arrastra y en el clasificador (segmentoDe) `avHoy`/`avAny`
+    // ganaban sobre "iniciada". Mismo criterio que `volverOperativa`. Best-effort:
+    // no debe tumbar el inicio de jornada (se hace después del upsert exitoso).
+    try {
+      await supabase
+        .from('maintenance_requests')
+        .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
+        .eq('machinery_id', ci.id)
+        .eq('status', 'pendiente');
+    } catch { /* si falla, el realtime/refresh posterior lo reintenta al reactivar de nuevo */ }
     // HORÓMETRO (solo mantenimiento · NO toca pagos): refleja el horómetro inicial como
     // horómetro VIVO de la máquina, y —la PRIMERA vez— fija la base de mantenimiento en
     // ese inicial para empezar a contar desde 0 (horas acum. = last_horometro − base,
