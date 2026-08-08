@@ -1028,6 +1028,20 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return Math.min(12, day) + Math.min(12, night);
   }, [roundDetail, selDay]);
 
+  // Horas REALES de SOLO el turno actual (`shift`, el que está elegido arriba) — a
+  // diferencia de `liveHorasOf` (día+noche combinados, usado en la tarjeta "Horas
+  // reales"), esta es la base de la EFICIENCIA por inspector: cada inspector solo
+  // responde por su propio turno, no por el del otro inspector en la misma máquina.
+  const liveHorasShiftOf = useCallback((id: string): number => {
+    const rd = roundDetail.get(id);
+    if (!rd) return 0;
+    let h = shift === 'night' ? rd.nightH : rd.dayH;
+    if (selDay === caracasBusinessToday() && rd.openStartAt && rd.shift === shift) {
+      h += Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
+    }
+    return Math.min(12, h);
+  }, [roundDetail, selDay, shift]);
+
   // Estado (iniciada/cerrada/averiada/parada/pendiente) de una máquina en selDay+turno.
   // Misma prioridad que el teléfono (segmentoDe) y el desglose por inspector:
   // avería > parada > iniciada/cerrada > pendiente (una máquina averiada/parada no
@@ -1221,10 +1235,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // eficiencia (no tiene sentido "premiar/penalizar" al usuario de sistema) — en
       // su lugar se ofrece un desplegable para asignar sus máquinas a alguien real.
       const isFaltantes = sinInspectorReal(e.name);
-      // Eficiencia = % de asignadas que el inspector SÍ chequeó (iniciada, parada o
-      // averiada) contra las que dejó completamente sin tocar (pendientes). Misma
-      // fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
-      const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
+      // Eficiencia REAL (corrección 08-ago-2026, pedido cliente): antes era "% de
+      // asignadas chequeadas" — trabajando, parada Y avería contaban IGUAL (100%),
+      // solo penalizaba lo pendiente (sin tocar), lo que distorsionaba el indicador
+      // (una máquina averiada/parada todo el turno sumaba lo mismo que una que
+      // trabajó completo). Ahora pondera por HORAS REALES de este turno: horas
+      // trabajadas ÷ horas de turno esperadas (12 h × máquinas asignadas) × 100.
+      // Misma fórmula que el PDF de generateSummaryReport (inspectorSummaryReport.ts).
+      const horasEficiencia = visibleIds.reduce((sum, id) => sum + liveHorasShiftOf(id), 0);
+      const horasEsperadasEficiencia = visibleIds.length * 12;
+      const eficiencia = isFaltantes || horasEsperadasEficiencia === 0 ? null : Math.round((horasEficiencia / horasEsperadasEficiencia) * 100);
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
@@ -1250,7 +1270,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const todas = s(visibleIds.slice());
       return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), todas, total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, allHoursByMachine]);
+  }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, liveHorasShiftOf, allHoursByMachine]);
 
   // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
   // abierto (las mismas que suman "Horas reales"/"Horas reales totales"), con su
