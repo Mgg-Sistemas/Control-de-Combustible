@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, KeyboardAvoidingView } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -101,27 +101,29 @@ export default function InspeccionesScreen() {
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const loadMachines = React.useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('machinery')
       .select('id, code, plate, serial, tipo, clasificacion, company:company_id(name)')
       .order('code', { ascending: true });
+    if (error) { toast.error('No se pudo cargar el catálogo de equipos: ' + error.message); return; }
     setMachines((data ?? []).map((m: any) => ({
       id: m.id, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null,
       tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, company: m.company?.name ?? 'Sin empresa',
     })));
-  }, []);
+  }, [toast]);
   useEffect(() => { loadMachines(); }, [loadMachines]);
 
   const loadHistory = React.useCallback(async (machineId: string) => {
     setHistory(null);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('machine_inspections')
       .select('*')
       .eq('machinery_id', machineId)
       .order('inspected_at', { ascending: false })
       .limit(100);
+    if (error) { toast.error('No se pudo cargar el historial: ' + error.message); setHistory([]); return; }
     setHistory((data as MachineInspection[]) ?? []);
-  }, []);
+  }, [toast]);
 
   // Tiempo real: si otro usuario da de alta/edita un equipo, o registra/edita/borra
   // una inspección, esta pantalla se refresca sola (lista y detalle abierto).
@@ -424,7 +426,7 @@ export default function InspeccionesScreen() {
 
       {/* Formulario de NUEVA inspección */}
       <Modal visible={formOpen} animationType="slide" transparent onRequestClose={() => setFormOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '92%' }}>
             <View style={{ padding: spacing.lg, paddingBottom: spacing.sm, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.brandText, fontWeight: '900', fontSize: 18 }}>{editId ? 'Editar inspección' : 'Nueva inspección'} · {selected?.code}</Text>
@@ -520,7 +522,7 @@ export default function InspeccionesScreen() {
               <View style={{ height: spacing.lg }} />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Vista previa de la CARGA MASIVA por Excel */}

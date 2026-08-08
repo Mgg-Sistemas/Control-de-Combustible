@@ -32,6 +32,11 @@ export type InspectorShift = 'day' | 'night' | 'both';
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
 const r2 = (n: number) => Math.round(n * 100) / 100;
+/** Día ISO (AAAA-MM-DD) + n días (n puede ser negativo). */
+const addDaysISO = (iso: string, n: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
 // Hora Caracas (UTC-4) del ISO y turno de la PARADA según esa hora (día 7-19, noche resto).
 // Mismo criterio que la app: la parada pertenece al TURNO en que se marcó.
 const caracasHour = (iso: string): number => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h; };
@@ -108,10 +113,21 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; if (p.role === 'admin') adminIds.add(p.id); });
 
   // 2) Jornadas de inspección del día (machine_rounds con recorded_by = inspector).
+  const nextDate = addDaysISO(date, 1);
   const rounds = await selectAllRows(
     'machine_rounds',
     'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))',
     (q) => q.eq('round_date', date)
+  );
+  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
+  // AYER (el día en que inició), no el de hoy — sin este fallback, generar el reporte
+  // de "hoy" bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
+  // y la máquina salía "⏳ por iniciar" en vez de "● en curso". Mismo criterio que ya
+  // usa SupervisorScreen.tsx para el círculo 🟢 del teléfono.
+  const roundsNocheAyer = await selectAllRows(
+    'machine_rounds',
+    'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))',
+    (q) => q.eq('round_date', addDaysISO(date, -1)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
   );
 
   // 3) Asignaciones (CHECK): columna vertebral — TODAS las máquinas de cada
@@ -121,12 +137,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   //    RESOLVIERON justo este día) para poder armar la línea de tiempo con la hora de
   //    reactivación — igual patrón que porEmpresaReport.ts.
   const { rows: assignments } = await listInspectorAssignments();
-  const resolvedHoyFilter = `status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${date}T23:59:59.999-04:00)`;
+  // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
+  // noche va de 19:00 a 07:00+1, así que una avería/parada marcada a la 1am, o
+  // resuelta esa misma madrugada, cae dentro del turno noche de HOY pero antes se
+  // quedaba fuera del rango y el reporte no la mostraba en absoluto.
+  const nightEndBound = `${nextDate}T07:00:00-04:00`;
+  const resolvedHoyFilter = `status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`;
   const { data: maint } = await supabase
     .from('maintenance_requests')
     .select('machinery_id, notes, created_at, status, resolved_at')
     .eq('material', 'MÁQUINA PARADA')
-    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .lte('created_at', nightEndBound)
     .or(resolvedHoyFilter)
     .order('created_at', { ascending: false });
   // Averías REALES pendientes (material != MÁQUINA PARADA): la máquina queda AVERIADA.
@@ -136,7 +157,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     .from('maintenance_requests')
     .select('machinery_id, notes, material, created_at, status, resolved_at')
     .neq('material', 'MÁQUINA PARADA')
-    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .lte('created_at', nightEndBound)
     .or(resolvedHoyFilter)
     .order('created_at', { ascending: false });
   // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea
@@ -198,7 +219,13 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // 4) Ubicaciones por máquina (todos los check-in del día, ubicaciones distintas).
   const visits = await listVisits(date);
   const locByMachine = new Map<string, LocInfo[]>();
-  visits.forEach((v) => {
+  // `listVisits` viene ordenado por `visited_at` DESCENDENTE (el más reciente primero);
+  // se recorre en orden CRONOLÓGICO (ascendente) para quedarse con la PRIMERA vez que
+  // se vio cada ubicación — antes se quedaba con la última (por ser la primera en el
+  // orden descendente), así que si una máquina volvía a un sitio ya visitado, la tabla
+  // "cambió de ubicación" mostraba la hora de la visita más reciente a ese sitio en vez
+  // de cuándo llegó realmente ahí, invirtiendo o desfasando la línea de tiempo.
+  visits.slice().sort((a, b) => String(a.visited_at).localeCompare(String(b.visited_at))).forEach((v) => {
     const lat = (v.lat ?? v.machineLat ?? null) as number | null;
     const lng = (v.lng ?? v.machineLng ?? null) as number | null;
     const { key, label } = locLabel(lat, lng, v.machineRef ?? null);
@@ -226,6 +253,9 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   //    finalizada), no solo las que tienen jornada registrada.
   const roundByMachine = new Map<string, any>();
   ((rounds ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
+  // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
+  // HOY (si la tienen, esa es la vigente — ver comentario del fetch más arriba).
+  ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
   const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
@@ -248,8 +278,16 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     //  arrastrado pierde si la máquina inició jornada (se reactivó).
     const parHoy = paradaHoyByShift.get(id)?.get(turno);
     const averHoyMot = averiaHoyByShift.get(id)?.get(turno);
-    const averArrMot = !openForShift ? averiaArrByShift.get(id)?.get(turno) : undefined;
-    const parArrMot = !openForShift ? paradaArrByShift.get(id)?.get(turno) : undefined;
+    // La arrastrada se suprime si la máquina se REACTIVÓ hoy: sigue abierta AHORA
+    // (openForShift) o YA trabajó y cerró con horas (hoursForShift > 0). Antes solo
+    // miraba `openForShift`, así que una máquina con avería/parada de días atrás que
+    // el inspector abrió y CERRÓ hoy (con horas) seguía saliendo "🔴 Averiada"/"🟡
+    // Parada" en este reporte, mientras el teléfono del inspector (que sí considera
+    // "trabajó hoy" para suprimirla) ya no mostraba ninguna marca — la misma máquina
+    // se veía distinta en el PDF del jefe y en el teléfono del inspector.
+    const reactivadaHoy = openForShift || hoursForShift > 0;
+    const averArrMot = !reactivadaHoy ? averiaArrByShift.get(id)?.get(turno) : undefined;
+    const parArrMot = !reactivadaHoy ? paradaArrByShift.get(id)?.get(turno) : undefined;
     const estado: EstadoKey =
       averHoyMot != null ? 'averia'
       : parHoy != null ? 'parada'
@@ -299,11 +337,16 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // llevara horas trabajando (bug: "no trae ningún dato" para el inspector con
     // máquinas en curso). Se suma el tiempo transcurrido desde `jornada_start_at`
     // hasta ahora, igual que ya hace el panel en vivo de Inspecciones (`liveHorasOf`).
-    const liveElapsedH = openForShift && rd?.jornada_start_at
+    // Solo se suma en vivo si el estado FINAL es 'encurso': si hay avería/parada de
+    // HOY, esa gana en la prioridad de arriba aunque la jornada siga técnicamente
+    // abierta (`openForShift`) — antes esto sumaba igual, así que el reporte mostraba
+    // "🔴 Averiada" con las horas de Trabajando/Jornada creciendo solas, como si
+    // operara con normalidad.
+    const liveElapsedH = estado === 'encurso' && rd?.jornada_start_at
       ? Math.max(0, (Date.now() - new Date(rd.jornada_start_at).getTime()) / 3600000)
       : 0;
-    const dayHDisp = turno === 'day' && openForShift ? r2(dayH + liveElapsedH) : dayH;
-    const nightHDisp = turno === 'night' && openForShift ? r2(nightH + liveElapsedH) : nightH;
+    const dayHDisp = turno === 'day' && estado === 'encurso' ? r2(dayH + liveElapsedH) : dayH;
+    const nightHDisp = turno === 'night' && estado === 'encurso' ? r2(nightH + liveElapsedH) : nightH;
     iMap.set(id, {
       id,
       code: base.code,

@@ -14,8 +14,12 @@ import { supabase } from './supabase';
 /** UUID fijo del usuario de SISTEMA "MAQUINAS FALTANTES" (ver supabase/maquinas_faltantes.sql):
  *  cubre automáticamente los turnos que se queden sin inspector humano (cron cada 15 min) para
  *  que la máquina siga acumulando horas, pero NO es un encargado real — sirve para distinguir
- *  "cubierta por el sistema" de "asignada a una persona de verdad". */
-export const PLACEHOLDER_INSPECTOR_ID = '00000000-0000-0000-0000-00000000fa1a';
+ *  "cubierta por el sistema" de "asignada a una persona de verdad".
+ *  OJO: debe coincidir EXACTO con el id real usado en supabase/maquinas_faltantes.sql — antes
+ *  tenía un UUID inventado de una versión temprana que nunca se actualizó al id real, así que
+ *  `esVirtual()` (SupervisorScreen.tsx) nunca coincidía y el badge "🤖 sin encargado real" y el
+ *  filtro "sin_real" quedaban rotos en silencio. */
+export const PLACEHOLDER_INSPECTOR_ID = '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
 
 /** Turno de la asignación: día (☀️) o noche (🌙). */
 export type Shift = 'day' | 'night';

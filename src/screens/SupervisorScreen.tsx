@@ -1488,7 +1488,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Sin señal: encola la visita "parada" + el bancado de horas (si había jornada
     // abierta) + las 2 solicitudes de Mantenimiento, tal cual — se reproducen en el
     // mismo orden al reconectar (ver replayOne en offlineQueue.ts).
-    if (!isOnline()) {
+    const encolar = async () => {
       const hourBanking = jornadaStart
         ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
@@ -1508,10 +1508,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
       setCiMotivo(''); setParadaOpen(false); setPaMaterial(null); setPaQty(''); setPaPhoto(null);
       setCi(null);
-      return;
-    }
+    };
+    if (!isOnline()) { await encolar(); return; }
     const ok = await registrarParadaBase('parada_averia');
-    if (!ok) { setCiSaving(false); return; }
+    // `isOnline()` casi siempre es `true` en el teléfono (sin NetInfo instalado, ver
+    // offlineQueue.ts) — si `registrarParadaBase` falló igual (típicamente por falta
+    // real de señal, ya que ahí solo hay llamadas de red), antes se perdía la parada
+    // en silencio. Ahora se encola en vez de simplemente abandonar.
+    if (!ok) { await encolar(); return; }
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('maintenance_requests').insert({
         machinery_id: ci.id, material: paMaterial, quantity: paMaterial === 'otro' ? null : avNumOrNull(paQty),
@@ -1541,7 +1545,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const marcarParadaNoTrabajo = async () => {
     if (!ci || ciSaving) return;
     setCiSaving(true); setNotice(null);
-    if (!isOnline()) {
+    const encolar = async () => {
       const edifRef = ((ci as any)?.referencia ?? '').trim();
       const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
       const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
@@ -1563,10 +1567,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
       setNtCoords(null); setParadaOpen(false);
       setCi(null);
-      return;
-    }
+    };
+    if (!isOnline()) { await encolar(); return; }
     const ok = await registrarParadaBase('parada_no_trabajo');
-    if (!ok) { setCiSaving(false); return; }
+    // Ver comentario equivalente en marcarParadaAveria: fallo de red mid-flujo
+    // ahora se encola en vez de perderse.
+    if (!ok) { await encolar(); return; }
     const edifRef = ((ci as any)?.referencia ?? '').trim();
     const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
     const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
@@ -1599,7 +1605,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const volverOperativa = async () => {
     if (!ci || ciSaving) return;
     setCiSaving(true); setNotice(null);
-    if (!isOnline()) {
+    const encolar = async () => {
       await enqueueVolverOperativa({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'trabajando', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
         machineryId: ci.id,
@@ -1608,8 +1614,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       }, `${ci.code} · vuelve a OPERATIVA`);
       setCiSaving(false);
       setNotice(`📶 Sin conexión: ${ci.code} guardada como OPERATIVA en el teléfono, se subirá sola cuando haya señal.`);
-      return;
-    }
+    };
+    if (!isOnline()) { await encolar(); return; }
     const vis = await registrarVisita('trabajando');
     const { error: upErr } = await supabase
       .from('maintenance_requests')
@@ -1619,8 +1625,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       .from('maintenance_requests')
       .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
       .eq('machinery_id', ci.id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente');
+    // Las 3 escrituras fallaron: caso real de sin-señal (antes solo mostraba "❌ No se
+    // pudo poner operativa" y se perdía). Si solo falló ALGUNA, se deja el aviso
+    // parcial de abajo — reintentar completo por señal intermitente arriesgaría
+    // duplicar la resolución de la avería/parada que sí se cerró.
+    if (!vis && upErr && upErr2) { await encolar(); return; }
     setCiSaving(false);
-    if (!vis && upErr && upErr2) { setNotice('❌ No se pudo poner operativa.'); return; }
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · vuelve a OPERATIVA`);
     await reloadEstados();
     setNotice(`🟢 ${ci.code} de nuevo OPERATIVA${upErr || upErr2 ? ' · ⚠️ una avería no se pudo cerrar' : ' · avería(s) cerrada(s) en Mantenimiento'}.`);

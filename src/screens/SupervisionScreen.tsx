@@ -116,6 +116,7 @@ export default function SupervisionScreen({ navigation }: any) {
   };
   const [date, setDate] = useState(caracasToday());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   type RawRound = { machinery_id: string; code: string; companyName: string; serial: string | null; plate: string | null; encargado: string | null; startAt: string | null; shift: 'day' | 'night' | null; worked: number; horoIni: number | null; horoFin: number | null; recordedBy: string | null; lat: number | null; lng: number | null; sector: string | null; referencia: string | null };
@@ -353,7 +354,7 @@ export default function SupervisionScreen({ navigation }: any) {
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
-    const [vs, { data: rs }, { data: js }, { data: yl }, { data: mr }] = await Promise.all([
+    const [vs, { data: rs, error: rsErr }, { data: js, error: jsErr }, { data: yl, error: ylErr }, { data: mr, error: mrErr }] = await Promise.all([
       listVisits(date),
       supabase
         .from('machine_rounds')
@@ -381,6 +382,10 @@ export default function SupervisionScreen({ navigation }: any) {
         .lte('created_at', `${date}T23:59:59.999-04:00`)
         .order('created_at', { ascending: false }),
     ]);
+    // Antes se ignoraba `error` de estas 4 consultas: si RLS/red fallaba, la pantalla
+    // mostraba "Sin visitas/jornadas este día" indistinguible de un día realmente sin
+    // actividad — el admin podía creer que nadie trabajó cuando en realidad falló la carga.
+    setLoadError(!!(rsErr || jsErr || ylErr || mrErr));
     setVisits(vs);
     setParadaRaw(((mr ?? []) as any[]).map((r) => ({
       id: r.id as string,
@@ -826,6 +831,11 @@ export default function SupervisionScreen({ navigation }: any) {
   return (
     <Screen onRefresh={load} refreshing={loading}>
       <ConfigBanner />
+      {loadError ? (
+        <View style={{ backgroundColor: colors.dangerSoftBg, borderWidth: 1, borderColor: colors.dangerSoftBorder, borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ color: colors.dangerSoftText, fontSize: 12, fontWeight: '700' }}>⚠️ No se pudo cargar todo el día (visitas, jornadas, camiones o paradas). Desliza hacia abajo para reintentar — los datos de abajo pueden estar incompletos.</Text>
+        </View>
+      ) : null}
       {/* Rediseño: dashboard analítico (gráficas + switch día/noche + KPIs +
           desglose por inspector). Autocontenido; no altera la lógica de abajo. */}
       {/* El navegador de FECHA vive ARRIBA, dentro del dashboard (junto a las gráficas);
