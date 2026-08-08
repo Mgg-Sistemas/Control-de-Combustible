@@ -575,7 +575,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   useRealtimeRefresh(['machine_inspectors'], () => { reloadAssigns(); });
   // Círculos de estado en vivo: jornada (machine_rounds), avería/parada
   // (maintenance_requests) y visitas.
-  useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); });
+  useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'supervisor_visits'], () => { reloadEstados(); }, { debounceMs: 1000, maxWaitMs: 4000 });
   // Catálogo de máquinas en vivo: si desde la PC/otro teléfono se activa/desactiva
   // una máquina o cambia su operational/en_espera/encargado, antes solo se veía
   // al hacer pull-to-refresh — el inspector podía seguir operando sobre datos

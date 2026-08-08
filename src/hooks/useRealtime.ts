@@ -15,29 +15,59 @@ export function nextRtInstanceId(): number {
   return ++rtxSeq;
 }
 
+/** Opciones de debounce del refresco en vivo. */
+export type RealtimeRefreshOpts = {
+  /** Espera de silencio tras el ÚLTIMO cambio antes de refrescar (ms). Def. 600. */
+  debounceMs?: number;
+  /** Tope: durante una RÁFAGA continua se refresca al menos cada tanto (ms). Def. 2500. */
+  maxWaitMs?: number;
+};
+
 /**
  * Refresca en TIEMPO REAL pantallas que tienen su propia carga (no usan useTable):
- * ejecuta `onChange` (con un pequeño debounce) cada vez que cambia (INSERT/UPDATE/
- * DELETE) alguna de las tablas indicadas en la base de datos. Así, cuando otro
- * usuario/dispositivo registra algo (p. ej. la cocina escanea un carnet), la
- * pantalla se actualiza sola sin tener que refrescar a mano.
+ * ejecuta `onChange` cada vez que cambia (INSERT/UPDATE/DELETE) alguna de las tablas
+ * indicadas. Así, cuando otro usuario/dispositivo registra algo (p. ej. la cocina
+ * escanea un carnet), la pantalla se actualiza sola sin refrescar a mano.
+ *
+ * COALESCE de ráfagas: cada refresco vuelve a bajar datos (refetch completo, no
+ * incremental), que es caro. Para no dispararlo N veces cuando llegan muchos cambios
+ * seguidos (edición en lote, sincronización), se espera `debounceMs` de silencio
+ * antes de refrescar; pero si la ráfaga es continua, se garantiza un refresco al
+ * menos cada `maxWaitMs` (así la pantalla no queda “congelada” esperando el silencio).
+ * En tablas de alta frecuencia, sube estos valores desde la pantalla.
  */
-export function useRealtimeRefresh(tables: string[], onChange: () => void) {
+export function useRealtimeRefresh(tables: string[], onChange: () => void, opts?: RealtimeRefreshOpts) {
   const id = useRef(0);
   if (id.current === 0) id.current = ++rtxSeq;
   // Guardamos el callback en un ref para NO re-suscribir el canal en cada render
-  // (solo se re-suscribe si cambia la lista de tablas).
+  // (solo se re-suscribe si cambia la lista de tablas o los tiempos).
   const cb = useRef(onChange);
   cb.current = onChange;
   const key = tables.join(',');
+  const wait = opts?.debounceMs ?? 600;
+  const maxWait = opts?.maxWaitMs ?? 2500;
 
   useEffect(() => {
     if (!isSupabaseConfigured || !key) return;
-    let timer: any;
-    const bump = () => { clearTimeout(timer); timer = setTimeout(() => cb.current(), 350); };
+    let timer: any;      // debounce del último cambio
+    let maxTimer: any;   // tope de espera durante una ráfaga continua
+    let pending = false; // hay cambios sin refrescar
+    const fire = () => {
+      clearTimeout(timer); clearTimeout(maxTimer);
+      timer = undefined; maxTimer = undefined; pending = false;
+      cb.current();
+    };
+    const bump = () => {
+      pending = true;
+      clearTimeout(timer);
+      timer = setTimeout(fire, wait);
+      // Arranca el tope solo una vez por ráfaga: garantiza un refresco aunque los
+      // cambios sigan llegando sin pausa (si no, el debounce nunca dispararía).
+      if (!maxTimer) maxTimer = setTimeout(() => { if (pending) fire(); }, maxWait);
+    };
     const ch = supabase.channel(`rtx-${key}-${id.current}`);
     key.split(',').forEach((t) => ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump));
     ch.subscribe();
-    return () => { clearTimeout(timer); supabase.removeChannel(ch); };
-  }, [key]);
+    return () => { clearTimeout(timer); clearTimeout(maxTimer); supabase.removeChannel(ch); };
+  }, [key, wait, maxWait]);
 }

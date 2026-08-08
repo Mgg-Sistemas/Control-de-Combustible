@@ -469,7 +469,9 @@ export default function SupervisionScreen({ navigation }: any) {
   // TIEMPO REAL: al marcar una máquina (supervisor) o registrar/finalizar una
   // jornada, la supervisión del día se actualiza sola — en SILENCIO (sin blanquear
   // la pantalla con el spinner en cada evento).
-  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs', 'maintenance_requests'], () => { load(true); });
+  // Debounce alto: este load baja varias tablas completas; coalescemos ráfagas de
+  // eventos (jornadas/paradas en lote) para no repetir el refetch pesado.
+  useRealtimeRefresh(['supervisor_visits', 'machine_rounds', 'operator_assignments', 'truck_yard_logs', 'maintenance_requests'], () => { load(true); }, { debounceMs: 1200, maxWaitMs: 4000 });
   // Al asignar/quitar una máquina con el CHECK (teléfono), refresca las asignaciones.
   useRealtimeRefresh(['machine_inspectors'], () => { loadAssigns(); });
 
