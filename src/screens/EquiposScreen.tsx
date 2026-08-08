@@ -474,8 +474,23 @@ export default function EquiposScreen({ navigation, route }: any) {
   const viewer = viewerId ? (machinery.data.find((x) => x.id === viewerId) ?? null) : null;
   const toggleOp = (m: Machinery) =>
     run(m.id + '-op', async () => {
+      const activando = !m.operational; // pasa a OPERATIVA (true)
       const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
-      return { ok: !error, error: error?.message };
+      if (error) return { ok: false, error: error.message };
+      // Al ACTIVAR (volver operativa) se limpia la etiqueta de avería/parada: se resuelven
+      // las maintenance_requests pendientes de la máquina (mismo criterio que
+      // `volverOperativa`/`iniciarJornada` en el teléfono). Best-effort: no debe tumbar el
+      // toggle si falla; el realtime lo refresca. Al DESACTIVAR no se toca (queda inactiva).
+      if (activando) {
+        try {
+          await supabase
+            .from('maintenance_requests')
+            .update({ status: 'realizado', resolved_at: new Date().toISOString() })
+            .eq('machinery_id', m.id)
+            .eq('status', 'pendiente');
+        } catch { /* el refetch/realtime posterior reintenta */ }
+      }
+      return { ok: true };
     });
   // 3er estado: "En espera por recepción" (independiente de Operativa / No operativa).
   const toggleEspera = (m: Machinery) =>

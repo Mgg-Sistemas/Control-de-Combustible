@@ -612,13 +612,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     machList.forEach((m) => { if (m.active === false || m.en_espera === true) s.add(m.id); });
     return s;
   }, [machList]);
-  // INACTIVAS "duras" del catálogo (active=false): NUNCA se muestran en la vista de
-  // inspectores, ni siquiera con jornada abierta (pedido cliente 08/08/2026) — solo en el
-  // reporte por empresa y en Control. Las EN ESPERA sí mantienen la excepción de jornada
-  // abierta (por eso van en un set aparte).
+  // INACTIVAS "duras" del catálogo: la máquina marcada NO OPERATIVA con el botón
+  // "⛔ Inactiva" del Catálogo (operational=false) — o desactivada (active=false).
+  // NUNCA se muestran en la vista de inspectores, ni siquiera con jornada abierta (pedido
+  // cliente 08/08/2026) — solo en el reporte por empresa y en Control. IMPORTANTE:
+  // `operational` SOLO lo cambia ese botón del admin; la avería/parada de campo NO toca
+  // `operational` (vive en maintenance_requests), así que una máquina averiada pero
+  // OPERATIVA sí sigue viéndose con su estado. Las EN ESPERA mantienen la excepción de
+  // jornada abierta (van en `machInactiveSet`).
   const machHardInactiveSet = useMemo(() => {
     const s = new Set<string>();
-    machList.forEach((m) => { if (m.active === false) s.add(m.id); });
+    machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
     return s;
   }, [machList]);
 

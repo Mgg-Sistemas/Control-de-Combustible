@@ -106,6 +106,14 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
 export async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
   const cos = companies && companies.length ? companies : null;
 
+  // INACTIVAS del catálogo (NO OPERATIVA `operational=false`, botón "⛔ Inactiva", o
+  // desactivada `active=false`): NUNCA entran a este reporte de inspectores — igual que
+  // las tarjetas en vivo (`machHardInactiveSet` de InspectionsSummary) y el teléfono
+  // (`visibleParaInspector`). Solo salen en el reporte por empresa y en Control. Así el
+  // PDF firmado y la pantalla muestran EXACTAMENTE las mismas máquinas.
+  const { data: inactRows } = await supabase.from('machinery').select('id').or('operational.eq.false,active.eq.false');
+  const inactiveIds = new Set(((inactRows ?? []) as any[]).map((m) => m.id as string));
+
   // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
   const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
   const nameById: Record<string, string> = {};
@@ -270,6 +278,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
   const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
     if (cos && !cos.includes(base.company)) return;
+    if (inactiveIds.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
     data.set(turno, tMap);
     const iMap = tMap.get(insp) ?? new Map<string, Mach>();
