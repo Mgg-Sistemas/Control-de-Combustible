@@ -24,7 +24,7 @@ import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
 import { normalizeDept } from '../lib/personal';
-import { sectorOf, SUBSECTORS, sectorLabel } from '../lib/mapZones';
+import { sectorOf, SUBSECTORS, sectorLabel, sectorMacro } from '../lib/mapZones';
 import { latestInspectorByMachine } from '../lib/supervisorVisits';
 import { generateInspectorReport, listInspectorNames, InspectorShift } from '../lib/inspectorReport';
 import { VenezuelaMap, MapPin } from '../components/VenezuelaMap';
@@ -1339,10 +1339,15 @@ export default function ReportsScreen({ route }: any) {
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     const all = (mach ?? []) as any[];
-    // Equipos de la operación: SOLO los activos/operativos. Se excluyen los dados de
-    // baja (active === false), los inoperativos del catálogo (operational === false)
-    // y los que están en espera / mantenimiento (en_espera === true).
-    const list = all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
+    // ⚠️ REPORTE FICTICIO / SIMULADO: incluye TODAS las máquinas de la flota
+    // (excepto las dadas de baja). Las inoperativas y en espera se muestran como
+    // OPERATIVAS (ver estadoOf) y todas se distribuyen AL AZAR entre Este y Oeste
+    // (ver randSectorById / ubicOf), sin usar el GPS real. Solo aplica a ESTE reporte.
+    const list = all.filter((m) => m.active !== false);
+    // Sector aleatorio (fijo por máquina durante el armado del reporte): se elige un
+    // subsector al azar del catálogo de zonas → reparte Este/Oeste de forma pareja.
+    const randSectorById = new Map<string, string>();
+    list.forEach((m) => { const s = SUBSECTORS[Math.floor(Math.random() * SUBSECTORS.length)]; randSectorById.set(m.id, s.n); });
     // Personal de la nómina (solo cuando se pide "con personal"): operadores por
     // máquina, coordinadores e inspectores repartidos por zona (Este/Oeste).
     const empsRaw = conPersonal ? (((await selectAllRows('employees', 'first_name, last_name, cargo, department, status')) ?? []) as any[]) : [];
@@ -1353,16 +1358,19 @@ export default function ReportsScreen({ route }: any) {
     const coordinadores = byCargo(/coordinador/i);
     const inspectores = byCargo(/inspector/i);
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
-    const estadoOf = (m: any) => (m.en_espera === true ? 'En espera / Mantenimiento' : m.operational === false ? 'Inoperativo' : 'Operativo');
+    // Reporte ficticio: TODAS se muestran como OPERATIVAS (ACTIVAS).
+    const estadoOf = (_m: any) => 'Operativo';
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
     const ubicOf = (m: any) => {
       const rawRef = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
       // Ignora referencias que son SOLO números (ej. "46564.0"): mejor mostrar el sector.
       const ref = /^[\d.,\s-]+$/.test(rawRef) ? '' : rawRef;
-      const sec = sectorOf(m.latitude, m.longitude);
-      const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
-      const sub = sec ? sec.replace(/^(Este|Oeste)\s*·\s*/, '').replace(/^Sub\s*\d+:\s*/, '') : '';
+      // Ubicación SIMULADA: sector asignado al azar (no GPS). sectorLabel → "Este · Macuto".
+      const sec = randSectorById.get(m.id) ?? null;
+      const label = sectorLabel(sec);
+      const macro = sectorMacro(sec) === 'OESTE' ? 'Oeste' : 'Este';
+      const sub = label.replace(/^(Este|Oeste)\s*·\s*/, '');
       const parts: string[] = [];
       if (macro) parts.push(macro);
       if (sub) parts.push(sub);
@@ -1426,8 +1434,9 @@ export default function ReportsScreen({ route }: any) {
       <tbody>${[...countByCo.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([co, n]) => `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
+    // Conteo por zona SIMULADO: según el sector aleatorio asignado a cada máquina.
     let este = 0, oeste = 0, sinUbic = 0;
-    list.forEach((m) => { const sec = sectorOf(m.latitude, m.longitude); if (!sec) { sinUbic++; return; } if (sec.startsWith('Oeste')) oeste++; else este++; });
+    list.forEach((m) => { if (sectorMacro(randSectorById.get(m.id) ?? null) === 'OESTE') oeste++; else este++; });
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
