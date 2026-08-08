@@ -104,7 +104,12 @@ export type InspectorInfo = { name: string; date: string; status: VisitStatus; n
 export async function latestInspectorByMachine(): Promise<Record<string, InspectorInfo>> {
   const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
   const adminIds = new Set(((admins ?? []) as any[]).map((a) => a.id as string));
-  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_id, supervisor_name, visit_date, visited_at, status, near');
+  // Solo necesitamos la ÚLTIMA visita por máquina: un check-in de hace meses ya no
+  // dice quién es el inspector "actual". Acotamos a los últimos 90 días para no
+  // descargar toda la tabla histórica (que crece sin límite). Además, la asignación
+  // explícita del CHECK (machine_inspectors, más abajo) manda por encima de esto.
+  const floor = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const rows = await selectAllRows('supervisor_visits', 'machinery_id, supervisor_id, supervisor_name, visit_date, visited_at, status, near', (q) => q.gte('visit_date', floor));
   const acc: Record<string, InspectorInfo & { _ts: string }> = {};
   (rows ?? []).forEach((v: any) => {
     if (v.supervisor_id && adminIds.has(v.supervisor_id)) return; // ignora visitas de admin (pruebas)
