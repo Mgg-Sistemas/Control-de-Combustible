@@ -52,16 +52,17 @@ export function addDaysISO(iso: string, delta: number): string {
   return `${dt.getUTCFullYear()}-${mm}-${dd}`;
 }
 /**
- * REDONDEO AL TURNO: cada jornada (día o noche) se lleva al turno más cercano, para
- * que las horas y el $ salgan "redondos" (sin decimales) y consistentes en Control,
- * Pagos e Informe (todos usan esta función):
- *   • 0 si no trabajó · ≤ 9 h = MEDIO (6 h) · > 9 h = COMPLETO (12 h)
- * Tolera decimales del horómetro (11.6 → 12, 5.8 → 6).
+ * HORAS REALES REDONDEADAS HACIA ARRIBA (pedido cliente 08/08/2026): cada jornada
+ * (día o noche) usa sus horas REALES (las que registró Inspecciones, o las que cargó
+ * un analista/admin manualmente) redondeadas al entero siguiente — ya NO se fuerza al
+ * turno más cercano (6h/12h). Ej.: 7.6 h → 8 h · 9.2 h → 10 h · 6 h → 6 h (ya entero).
+ * Usada en Control, Pagos e Informe (todos llaman esta función) para que el monto
+ * refleje lo realmente trabajado, no un bloque fijo.
  */
-export const turnoH = (h: number): 0 | 6 | 12 => {
+export const turnoH = (h: number): number => {
   const v = Number(h) || 0;
-  if (v <= 0.01) return 0;
-  return v <= 9 ? 6 : 12;
+  if (v <= 0) return 0;
+  return Math.ceil(v);
 };
 /** Horas trabajadas del día = (turno día + turno noche, redondeados) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
@@ -79,7 +80,9 @@ export const pricePerHour = (jornadaPrice: number): number => (Number(jornadaPri
  */
 export const payUnitsWorked = (dayH: number, nightH: number, stopped: number, overtime: number): number =>
   workedFromShifts(dayH, nightH, stopped, overtime) / 12;
-/** Texto del turno según las horas de turno totales (día + noche). */
+/** Texto del turno según las horas de turno totales (día + noche). Con horas reales
+ *  (ya no solo 6/12/18/24) casi siempre cae en el fallback "N h" — se deja el texto
+ *  fijo para los bloques exactos clásicos (medio/completo turno) por costumbre. */
 export function shiftLabel(totalShiftHours: number): string {
   const h = Number(totalShiftHours) || 0;
   if (h <= 0) return 'Sin turno';
@@ -87,7 +90,7 @@ export function shiftLabel(totalShiftHours: number): string {
   if (h === 12) return 'Turno completo';
   if (h === 18) return 'Turno y medio';
   if (h === 24) return 'Dos turnos';
-  return `${Math.round(h / 12)} turno(s)`;
+  return `${h} h`;
 }
 /** Compat: horas trabajadas asumiendo turno completo (para datos viejos sin turnos). */
 export const workedHours = (hoursStopped: number) => Math.max(0, SHIFT_HOURS - (hoursStopped || 0));
@@ -1969,7 +1972,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>🕒 Ver tramos</Text>
                           </TouchableOpacity>
                         </View>
-                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.round(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
+                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.ceil(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
@@ -1981,7 +1984,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
                               <Text style={{ width: 20, fontSize: 14, textAlign: 'center' }}>{which === 'day' ? '☀️' : '🌙'}</Text>
                               {SHIFT_OPTS.map((opt) => {
-                                const active = turnoH(cur) === opt.hours;   // hidrata el turno tolerando decimales (11.6 → Completo)
+                                // Resalta el botón solo si las horas YA son exactamente 0/6/12 (redondeadas hacia
+                                // arriba). Con horas reales (ej. 7.6→8) ningún botón queda activo a propósito —
+                                // esos botones son un atajo manual, no fuerzan el valor real ya cargado.
+                                const active = turnoH(cur) === opt.hours;
                                 const activeBg = opt.hours === 0 ? colors.danger : colors.success;
                                 return (
                                   <TouchableOpacity
