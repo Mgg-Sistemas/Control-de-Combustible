@@ -30,6 +30,30 @@ import { DateField } from '../../components/DateField';
  * lógica de SupervisionScreen. Se inserta arriba de esa vista.
  */
 
+/**
+ * Horas TOTALES (histórico completo) por máquina. Intenta el RPC agregado en el
+ * servidor (machine_total_hours, ver supabase/machine_total_hours.sql) que baja
+ * UNA fila por máquina. Si el RPC aún no existe (SQL sin correr) o falla, cae al
+ * escaneo completo de machine_rounds — mismo resultado, más red. Fórmula idéntica
+ * en ambos caminos: Σ (day_hours + night_hours). */
+async function loadTotalHoursByMachine(): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabase.rpc('machine_total_hours');
+    if (error) throw error;
+    if (Array.isArray(data)) {
+      const map: Record<string, number> = {};
+      (data as any[]).forEach((r) => { map[r.machinery_id] = Number(r.total_hours) || 0; });
+      return map;
+    }
+  } catch { /* RPC no disponible: se usa el fallback de abajo */ }
+  const rows = await selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours');
+  const map: Record<string, number> = {};
+  (rows ?? []).forEach((r: any) => {
+    map[r.machinery_id] = (map[r.machinery_id] ?? 0) + (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
+  });
+  return map;
+}
+
 const CARACAS_TZ = 'America/Caracas';
 function caracasToday(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -243,23 +267,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
-    const [roundsRows, maintRes, asg, machRows, allHoursRows] = await Promise.all([
+    const [roundsRows, maintRes, asg, machRows, allHoursMap] = await Promise.all([
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at, machine:machinery_id(code)').eq('status', 'pendiente'),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
-      // Histórico COMPLETO (todas las fechas) solo de horas, para "Horas reales totales".
-      selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours'),
+      // Horas totales (histórico completo) por máquina, agregadas EN EL SERVIDOR
+      // (RPC machine_total_hours, ver supabase/machine_total_hours.sql). Evita bajar
+      // toda machine_rounds. Si el RPC no existe aún, cae al escaneo completo.
+      loadTotalHoursByMachine(),
     ]);
     setRounds((roundsRows ?? []) as any);
     setMaint((maintRes.data ?? []) as any);
     setAssignments(((asg?.rows ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift, code: a.code ?? '—' })));
     setMachList((machRows ?? []) as any);
-    const allHoursMap: Record<string, number> = {};
-    (allHoursRows ?? []).forEach((r: any) => {
-      allHoursMap[r.machinery_id] = (allHoursMap[r.machinery_id] ?? 0) + (Number(r.day_hours) || 0) + (Number(r.night_hours) || 0);
-    });
     setAllHoursByMachine(allHoursMap);
     // Litros surtidos por máquina en el día elegido (misma fuente que SupervisionScreen).
     loadFuelByMachine(selDay).then(setFuelDay).catch(() => setFuelDay({}));
