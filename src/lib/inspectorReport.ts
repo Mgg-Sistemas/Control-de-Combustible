@@ -4,7 +4,7 @@ import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
-import { listInspectorAssignments } from './machineInspectors';
+import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -330,12 +330,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     const averHoyMot = activa(averiaHoyByShift.get(id)?.get(turno));
     const averArrMot = !reactivadaHoy ? activa(averiaArrByShift.get(id)?.get(turno)) : undefined;
     const parArrMot = !reactivadaHoy ? activa(paradaArrByShift.get(id)?.get(turno)) : undefined;
+    // REGLA "SIEMPRE ACTIVO": las máquinas de estos inspectores (SOS LA GUAIRA)
+    // nunca salen avería/parada — se suprimen ambas y la máquina cae en su estado
+    // de trabajo (en curso / finalizada / por iniciar). horasParada queda en 0
+    // porque `evParada` depende de `estado` (no será avería/parada).
+    const siempreActivo = inspectorSiempreActivo(insp);
     const estado: EstadoKey =
-      averHoyMot != null ? 'averia'
-      : parHoy != null ? 'parada'
+      (!siempreActivo && averHoyMot != null) ? 'averia'
+      : (!siempreActivo && parHoy != null) ? 'parada'
       : openForShift ? 'encurso'
-      : averArrMot != null ? 'averia'
-      : parArrMot != null ? 'parada'
+      : (!siempreActivo && averArrMot != null) ? 'averia'
+      : (!siempreActivo && parArrMot != null) ? 'parada'
       : hoursForShift > 0 ? 'finalizada'
       : 'pendiente';
     const evParada: EventoParada | undefined =

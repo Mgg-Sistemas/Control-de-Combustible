@@ -7,7 +7,7 @@ import { cmpText, norm } from '../../lib/text';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
-import { listInspectorAssignments, assignInspector } from '../../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, inspectorSiempreActivo } from '../../lib/machineInspectors';
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
@@ -750,9 +750,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       if (js != null) return js >= t;
       return workedSet.has(id);
     };
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca entran a avería/parada
+    // — caen a iniciada/cerrada/pendiente según su jornada (se ignora el ticket).
+    const siempreActivoSet = new Set(
+      assignments.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id),
+    );
     const averAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
+      if (siempreActivoSet.has(m.machinery_id)) return;
       const t = new Date(m.created_at).getTime();
       if (t > dayEndMs || paradaShiftOf(m.created_at) !== shiftArg) return;
       if (reactivadaTras(m.machinery_id, t)) return;
@@ -763,6 +769,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const paradaAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material !== 'MÁQUINA PARADA') return;
+      if (siempreActivoSet.has(m.machinery_id)) return;
       const t = new Date(m.created_at).getTime();
       if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shiftArg) return;
       if (reactivadaTras(m.machinery_id, t)) return;

@@ -21,6 +21,21 @@ import { supabase } from './supabase';
  *  filtro "sin_real" quedaban rotos en silencio. */
 export const PLACEHOLDER_INSPECTOR_ID = '3b996dc0-b2a7-42d7-9fa0-4b96b8af4f7b';
 
+/**
+ * REGLA DE NEGOCIO — INSPECTORES "SIEMPRE ACTIVOS".
+ * Las máquinas asignadas a estos inspectores SIEMPRE se consideran trabajando:
+ * nunca se clasifican como "parada" ni "avería" (aunque existan solicitudes
+ * MÁQUINA PARADA / averías pendientes en el historial de mantenimiento) y sus
+ * horas paradas se cuentan como trabajadas. El historial de mantenimiento NO se
+ * borra; solo se ignora al clasificar el estado y contar horas.
+ * Comparar SIEMPRE contra el nombre VIVO del inspector (el que resuelve
+ * listInspectorAssignments() desde profiles), en minúsculas y sin espacios extra.
+ */
+export const INSPECTORES_SIEMPRE_ACTIVOS = ['inspector sos la guaira'];
+export function inspectorSiempreActivo(name?: string | null): boolean {
+  return INSPECTORES_SIEMPRE_ACTIVOS.includes((name || '').trim().toLowerCase());
+}
+
 /** Turno de la asignación: día (☀️) o noche (🌙). */
 export type Shift = 'day' | 'night';
 export const shiftIcon = (s: Shift) => (s === 'night' ? '🌙' : '☀️');
