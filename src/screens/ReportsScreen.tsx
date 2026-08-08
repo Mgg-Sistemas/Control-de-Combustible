@@ -1339,8 +1339,10 @@ export default function ReportsScreen({ route }: any) {
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     const all = (mach ?? []) as any[];
-    // Equipos de la operación: se excluyen los dados de baja (active === false).
-    const list = all.filter((m) => m.active !== false);
+    // Equipos de la operación: SOLO los activos/operativos. Se excluyen los dados de
+    // baja (active === false), los inoperativos del catálogo (operational === false)
+    // y los que están en espera / mantenimiento (en_espera === true).
+    const list = all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
     // Personal de la nómina (solo cuando se pide "con personal"): operadores por
     // máquina, coordinadores e inspectores repartidos por zona (Este/Oeste).
     const empsRaw = conPersonal ? (((await selectAllRows('employees', 'first_name, last_name, cargo, department, status')) ?? []) as any[]) : [];
