@@ -954,11 +954,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const liveHorasOf = useCallback((id: string): number => {
     const rd = roundDetail.get(id);
     if (!rd) return 0;
-    let total = rd.dayH + rd.nightH;
+    let day = rd.dayH, night = rd.nightH;
     if (selDay === caracasToday() && rd.openStartAt) {
-      total += Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
+      const elapsed = Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000);
+      if (rd.shift === 'night') night += elapsed; else day += elapsed;
     }
-    return total;
+    // Tope por turno: DÍA máx 12h, NOCHE máx 12h (corrido = hasta 24, nunca >12 por turno).
+    return Math.min(12, day) + Math.min(12, night);
   }, [roundDetail, selDay]);
 
   // Estado (iniciada/cerrada/averiada/parada/pendiente) de una máquina en selDay+turno.
@@ -1059,9 +1061,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // TOTAL: si trabajó AMBOS turnos, día+noche completos (+ lo transcurrido del que
       // siga abierto). Si no, solo el TURNO de la jornada (noche muestra noche) + en vivo.
       const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
+      // Tope por turno: DÍA máx 12h, NOCHE máx 12h (corrido = hasta 24, nunca >12 por turno).
       const worked = bothShifts
-        ? Math.round(((sd!.day.hours + sd!.night.hours) + (elapsedH ?? 0)) * 100) / 100
-        : Math.round((bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
+        ? Math.round((Math.min(12, sd!.day.hours + (sd!.day.openNow ? (dayElapsedH ?? 0) : 0)) + Math.min(12, sd!.night.hours + (sd!.night.openNow ? (nightElapsedH ?? 0) : 0))) * 100) / 100
+        : Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
     });
   }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick]);
@@ -1104,8 +1107,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
       const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
       // Horas del TURNO de la jornada (noche muestra noche) + EN VIVO si sigue abierta.
+      // Tope 12h por turno (nunca supera la duración del turno).
       const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
-      const worked = Math.round((bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
+      const worked = Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       const dn = inspByShift.get(id) ?? {};
       const sd = shiftDetail.get(id) ?? null;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
