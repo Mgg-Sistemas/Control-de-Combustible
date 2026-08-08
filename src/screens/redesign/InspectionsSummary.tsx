@@ -612,6 +612,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     machList.forEach((m) => { if (m.active === false || m.en_espera === true) s.add(m.id); });
     return s;
   }, [machList]);
+  // INACTIVAS "duras" del catálogo (active=false): NUNCA se muestran en la vista de
+  // inspectores, ni siquiera con jornada abierta (pedido cliente 08/08/2026) — solo en el
+  // reporte por empresa y en Control. Las EN ESPERA sí mantienen la excepción de jornada
+  // abierta (por eso van en un set aparte).
+  const machHardInactiveSet = useMemo(() => {
+    const s = new Set<string>();
+    machList.forEach((m) => { if (m.active === false) s.add(m.id); });
+    return s;
+  }, [machList]);
 
   // Conjuntos de estado para el DÍA + TURNO elegidos. TODO va SEPARADO por turno:
   //  - Iniciada/cerrada = trabajó/abrió jornada EN ESE turno (por horas del turno u
@@ -716,7 +725,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet). Sin jornada abierta,
     // aunque tenga horas viejas, el teléfono la OCULTA → el admin no debe contarla (bug:
     // "los inspectores tienen menos máquinas, aquí salen de más").
-    const visibleOk = (id: string) => !machInactiveSet.has(id) || anyOpenSet.has(id);
+    const visibleOk = (id: string) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id));
     // Universo del turno: asignadas al turno + las que trabajaron el turno, ambas filtradas
     // por el mismo criterio de visibilidad del teléfono.
     const universe = new Set<string>();
@@ -758,7 +767,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       pendSet.add(id);
     });
     return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
-  }, [rounds, selDay, maint, assignments, machInactiveSet]);
+  }, [rounds, selDay, maint, assignments, machInactiveSet, machHardInactiveSet]);
   // Ambos turnos calculados de una vez (misma fuente que `daySets`, sin drift) —
   // lo usa el panel "Gestionar" para clasificar filas de día Y de noche a la vez.
   const daySetsByShift = useMemo(
@@ -789,6 +798,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // (anyOpenSet) — si no, el teléfono y el dashboard la ocultan, así que
       // Gestionar tampoco debe mostrarla como si estuviera "Pendiente" (estaría
       // mintiendo: puede seguir averiada/parada/cerrada, solo que oculta a propósito).
+      if (machHardInactiveSet.has(a.machinery_id)) return; // active=false: nunca en inspecciones
       if (machInactiveSet.has(a.machinery_id) && !ds.anyOpenSet.has(a.machinery_id)) return;
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
@@ -806,7 +816,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return [...byName.values()]
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, daySetsByShift, machInactiveSet]);
+  }, [assignments, daySetsByShift, machInactiveSet, machHardInactiveSet]);
   // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
     const q = norm(bulkQuery.trim());
@@ -1144,7 +1154,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
       // Excluye máquinas inactivas/no-operativas SIN jornada de hoy (machInactiveSet),
       // igual que el teléfono — si no, no cuenta en el total ("N asignada(s)").
-      const visibleIds = [...e.ids].filter((id) => !machInactiveSet.has(id) || anyOpenSet.has(id));
+      const visibleIds = [...e.ids].filter((id) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id)));
       visibleIds.forEach((id) => {
         if (averSet.has(id)) ave.push(id);
         else if (paradaSet.has(id)) par.push(id);
@@ -1183,7 +1193,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const iniActivas = ini.filter((id) => !closedSet.has(id));
       return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
+  }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, allHoursByMachine]);
 
   // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
   // abierto (las mismas que suman "Horas reales"/"Horas reales totales"), con su

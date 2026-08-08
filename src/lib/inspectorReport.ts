@@ -195,6 +195,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
+  const nowMs = Date.now();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
@@ -280,7 +281,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;
-    const openForShift = !!rd?.jornada_start_at && rd?.jornada_shift === turno;
+    // Turno de la jornada ABIERTA: si `jornada_shift` viene nulo se INFIERE por la hora
+    // de inicio (Caracas 7am–7pm = día), EXACTAMENTE igual que las tarjetas en vivo
+    // (`openShiftOf` en InspectionsSummary). Antes el reporte exigía
+    // `jornada_shift === turno` sin inferir, así que una jornada reabierta sin turno
+    // explícito NO se detectaba como reactivación → el PDF firmado seguía diciendo
+    // "🔴/🟡" mientras las tarjetas ya la mostraban en curso ("el reporte dice una
+    // cosa y las tarjetas otra").
+    const openShift: Turno | null = rd?.jornada_start_at
+      ? (rd.jornada_shift === 'night' ? 'night' : rd.jornada_shift === 'day' ? 'day' : paradaShiftOf(rd.jornada_start_at))
+      : null;
+    const openForShift = !!rd?.jornada_start_at && openShift === turno;
     // Prioridad UNIFICADA (igual que el teléfono `segmentoDe` y el admin):
     //  avería HOY > parada HOY > trabajando > avería ARRASTRADA > parada ARRASTRADA >
     //  finalizada (con horas) > por iniciar. Lo de HOY gana sobre "trabajando"; lo
@@ -300,9 +311,12 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // reiniciara DESPUÉS de ella. Regla: una avería/parada cuenta como estado ACTUAL
     // solo si sigue SIN resolver (end == null) y la jornada NO se reinició después de
     // ella (si jornada_start_at > la marca, la máquina se reactivó → trabaja).
-    const jStartMs = rd?.jornada_start_at && rd?.jornada_shift === turno ? new Date(rd.jornada_start_at).getTime() : null;
+    const jStartMs = openForShift ? new Date(rd.jornada_start_at).getTime() : null;
+    // `>=` (no `>`) para IGUALAR el criterio de las tarjetas/tlf (`reactivadaTras` /
+    // `reactivada`): si la jornada arrancó en el mismo instante o DESPUÉS de la marca,
+    // la máquina volvió a trabajar y la avería/parada ya no cuenta.
     const activa = (ev?: EventoParada): EventoParada | undefined =>
-      ev && ev.end == null && !(jStartMs != null && jStartMs > ev.start) ? ev : undefined;
+      ev && ev.end == null && !(jStartMs != null && jStartMs >= ev.start) ? ev : undefined;
     const parHoy = activa(paradaHoyByShift.get(id)?.get(turno));
     const averHoyMot = activa(averiaHoyByShift.get(id)?.get(turno));
     const averArrMot = !reactivadaHoy ? activa(averiaArrByShift.get(id)?.get(turno)) : undefined;
@@ -335,8 +349,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     }
     evs.sort((a, b) => a.t - b.t);
     // HORAS PARADA de ESTE turno: duración del episodio de parada/avería vigente,
-    // acotada a la ventana del turno (día 7am–7pm; noche 7pm–7am+1). Si sigue parada
-    // sin reactivar, se cuenta hasta el fin del turno. Reemplaza la "línea de tiempo".
+    // acotada a la ventana del turno (día 7am–7pm; noche 7pm–7am+1). Reemplaza la
+    // "línea de tiempo".
     const shiftStartMs = turno === 'night'
       ? new Date(date + 'T19:00:00-04:00').getTime()
       : new Date(date + 'T07:00:00-04:00').getTime();
@@ -345,8 +359,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       : new Date(date + 'T19:00:00-04:00').getTime();
     let horasParada = 0;
     if (evParada) {
+      // Si SIGUE parada (sin reactivar) el "fin" es AHORA cuando el turno todavía está
+      // en curso (no el fin del turno): una máquina parada a las 7am, a las 12:46pm
+      // lleva ~5.7h paradas, NO 12h. Solo se topa al fin del turno cuando el turno ya
+      // terminó (día pasado, o ya son >7pm/>7am). Una parada ya resuelta usa su hora
+      // real de reactivación (evParada.end).
+      const abierto = evParada.end == null ? Math.min(nowMs, shiftEndMs) : evParada.end;
       const pStart = Math.max(evParada.start, shiftStartMs);
-      const pEnd = Math.min(evParada.end ?? shiftEndMs, shiftEndMs);
+      const pEnd = Math.min(abierto, shiftEndMs);
       horasParada = Math.max(0, r2((pEnd - pStart) / 3600000));
     }
     // Horas EN VIVO para una jornada que sigue "en curso" (estado === 'encurso'):
