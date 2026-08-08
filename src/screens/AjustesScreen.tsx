@@ -3,18 +3,11 @@ import { Text, TouchableOpacity, View, Switch, TextInput, Platform } from 'react
 import { Screen, Card, SectionTitle } from '../components/ui';
 import { useToast } from '../components/ToastProvider';
 import { useAuth } from '../context/AuthContext';
-import {
-  isBiometricSupported,
-  isBiometricEnabled,
-  enableBiometric,
-  disableBiometric,
-} from '../lib/biometric';
 import { supabase } from '../lib/supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { norm } from '../lib/text';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
-import { ChangePasswordButton } from '../components/ChangePasswordButton';
 
 const MAQUINAS_TOGGLE_KEY = 'maquinas_bulk_toggle';
 
@@ -29,10 +22,8 @@ type SearchProfile = { id: string; full_name: string | null; username: string | 
  */
 export default function AjustesScreen() {
   const { signOut, session, configured, role, fullName } = useAuth();
-  const { colors, scheme, toggle } = useTheme();
+  const { colors } = useTheme();
   const toast = useToast();
-  const [bioSupported, setBioSupported] = useState(false);
-  const [bioOn, setBioOn] = useState(false);
 
   // Backup de la BD: SOLO para Anthony y Angelica (por nombre, sin tildes). Web.
   const nfull = (fullName ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
@@ -64,13 +55,6 @@ export default function AjustesScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
   const [pickerBusyId, setPickerBusyId] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      setBioSupported(await isBiometricSupported());
-      setBioOn(await isBiometricEnabled());
-    })();
-  }, []);
 
   const loadMaqToggle = async () => {
     if (role !== 'admin') return;
@@ -187,52 +171,11 @@ export default function AjustesScreen() {
         )
         .slice(0, 8);
 
-  const toggleBio = async (value: boolean) => {
-    if (value) {
-      const ok = await enableBiometric();
-      if (!ok) {
-        toast.error('No se pudo activar. Tu dispositivo debe tener huella o Face ID configurado.');
-        return;
-      }
-    } else {
-      await disableBiometric();
-    }
-    setBioOn(value);
-  };
-
   return (
     <Screen>
-      <SectionTitle>Apariencia</SectionTitle>
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: spacing.md }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Modo oscuro</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {scheme === 'dark' ? 'Activado' : 'Desactivado'} · cambia el tema de la app
-            </Text>
-          </View>
-          <Switch value={scheme === 'dark'} onValueChange={toggle} />
-        </View>
-      </Card>
-
-      <SectionTitle>Seguridad</SectionTitle>
-      <View style={{ marginBottom: spacing.md }}>
-        <ChangePasswordButton variant="row" />
-      </View>
-      <Card>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flex: 1, paddingRight: spacing.md }}>
-            <Text style={{ fontWeight: '700', color: colors.text }}>Iniciar sesión con huella</Text>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>
-              {bioSupported
-                ? 'Pide tu huella o Face ID al abrir la app.'
-                : 'Tu dispositivo no tiene huella o Face ID configurado.'}
-            </Text>
-          </View>
-          <Switch value={bioOn} onValueChange={toggleBio} disabled={!bioSupported} />
-        </View>
-      </Card>
-
+      {/* Apariencia (modo oscuro) y Seguridad (contraseña + huella) viven SOLO en la
+          tuerca ⚙️ del encabezado (HeaderSettings). Aquí quedan las herramientas
+          avanzadas, el respaldo y cerrar sesión, para no repetir las mismas opciones. */}
       {role === 'admin' ? (
         <>
           <SectionTitle>Herramientas avanzadas</SectionTitle>
