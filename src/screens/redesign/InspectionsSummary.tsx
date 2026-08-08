@@ -17,6 +17,7 @@ import { generateSummaryReport } from '../../lib/inspectorSummaryReport';
 import { loadFuelByMachine, litersLabel, lphOf, FuelAgg } from '../../lib/fuelPerMachine';
 import { DateField } from '../../components/DateField';
 import { caracasToday, caracasNowShift, caracasBusinessToday } from '../../lib/caracasDay';
+import { useNavigation } from '@react-navigation/native';
 
 /**
  * RESUMEN DE INSPECCIONES (rediseño) — dashboard analítico, autocontenido.
@@ -110,6 +111,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const { colors } = useTheme();
   const { session } = useAuth();
   const toast = useToast();
+  const navigation = useNavigation<any>();
   const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
   const [rounds, setRounds] = useState<Round[]>([]);
   // Horas TOTALES (histórico completo, sin el límite de 14 días de `rounds`) por
@@ -1979,6 +1981,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Combustible del día', litros + (lph != null ? ` · ${lph} L/h` : ''))}
                           {detailRow('Horómetro del día', r.rd ? `${r.rd.horoIni ?? '—'} → ${r.rd.horoFin ?? '—'}` : '—')}
                           {detailRow('Último horómetro', info?.lastHoro != null ? String(info.lastHoro) : '—')}
+                          {/* Ver la UBICACIÓN de esta máquina en el mapa (último check-in / GPS). */}
+                          <TouchableOpacity
+                            onPress={() => { setListModal(null); navigation.navigate('Map', { focus: { id: r.id, code: r.code } }); }}
+                            activeOpacity={0.85}
+                            style={{ marginTop: spacing.sm, backgroundColor: '#0D9488', borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>🗺️ Ver ubicación en el mapa</Text>
+                          </TouchableOpacity>
                         </View>
                       ) : null}
                     </View>
