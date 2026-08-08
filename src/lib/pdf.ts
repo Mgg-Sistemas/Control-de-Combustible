@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { LOGO_DATA_URI } from './logoData';
+import { BCV_LOGO_DATA_URI } from './logoBcvData';
 import { COMPANY_NAME } from './company';
 
 const MESES = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
@@ -39,9 +40,14 @@ export const PDF_BASE_CSS = `
   body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;padding:0;background:#fff;text-transform:uppercase}
   /* En pantalla (vista previa) el documento se ve como una hoja blanca con márgenes. */
   @media screen{ body{ padding:28px 34px } }
-  .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
   .brand{display:flex;gap:16px;align-items:center}
+  .brand-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
   .brand img{height:70px;width:auto}
+  /* Logo + su título institucional (BCV / SOS LA GUAIRA) apilados y centrados. */
+  .logo-box{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .logo-box img{height:62px;width:auto}
+  .logo-cap{font-size:10px;font-weight:800;color:${PDF_ACCENT};letter-spacing:.3px;text-align:center;max-width:130px;line-height:1.15}
   .doc-title{font-size:26px;font-weight:800;color:${PDF_ACCENT};letter-spacing:1px;text-transform:uppercase;margin:0;line-height:1.02}
   .doc-sub{color:#6B7280;font-size:12px;margin-top:5px}
   .emit{text-align:right;font-size:12px;color:#333;white-space:nowrap}
@@ -68,10 +74,14 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
     <style>${PDF_BASE_CSS}${extraCss}</style></head><body>
     <div class="top">
-      <div class="brand"><img src="${LOGO_DATA_URI}"/>
+      <div class="brand">
+        <div class="logo-box"><img src="${BCV_LOGO_DATA_URI}"/><div class="logo-cap">Banco Central de Venezuela</div></div>
         <div><h1 class="doc-title">${title}</h1>${subtitle ? `<div class="doc-sub">${subtitle}</div>` : ''}</div>
       </div>
-      <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
+      <div class="brand-right">
+        <div class="logo-box"><img src="${LOGO_DATA_URI}"/><div class="logo-cap">SOS La Guaira</div></div>
+        <div class="emit"><span class="k">Emitida:</span> ${nowStamp()}</div>
+      </div>
     </div>
     <div class="rule"></div>
     <div class="company"><b>${COMPANY_NAME}</b><br/>Sistema de control interno</div>
