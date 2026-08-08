@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { spacing, radius } from '../../theme';
 import { useTheme } from '../../theme/ThemeContext';
 
@@ -47,7 +47,7 @@ export default function InspectorHeroCard({
       <TouchableOpacity
         activeOpacity={0.85}
         onPress={onScanPress}
-        style={{
+        style={[{
           backgroundColor: '#0F172A',
           borderRadius: 16,
           aspectRatio: 1.6,
@@ -58,7 +58,10 @@ export default function InspectorHeroCard({
           shadowOpacity: 0.25,
           shadowRadius: 12,
           elevation: 6,
-        }}
+        },
+        // En PC (web) la tarjeta ocupa TODO el ancho → con aspectRatio 1.6 el QR queda
+        // gigante. Se acota a un tamaño "de teléfono" (máx. 360 de ancho) centrado.
+        Platform.OS === 'web' ? { maxWidth: 360, width: '100%', alignSelf: 'center' } : null]}
       >
         <Text style={{ fontSize: 40 }}>📷</Text>
         <Text
