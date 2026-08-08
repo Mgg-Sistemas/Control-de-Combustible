@@ -730,9 +730,26 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // y que YA trabajó y cerró su turno completo volvía a contar como averiada/parada
     // (el ticket de mantenimiento sigue "pendiente" por diseño). Igual que
     // inspectorReport.ts (`reactivadaHoy = openForShift || hoursForShift > 0`), se
-    // suma el fallback a `workedSet` (horas bancadas de ESTE turno), no solo la
-    // jornada abierta.
-    const reactivadaTras = (id: string, t: number) => { const js = openStartMs.get(id); return (js != null && js >= t) || workedSet.has(id); };
+    // suma un fallback a `workedSet` para el caso YA CERRADO (banco horas de este
+    // turno y ya no tiene jornada abierta).
+    // BUG (08/08/2026, corregido el mismo día): la primera versión de este fallback
+    // usaba `|| workedSet.has(id)` como un OR plano — pero `workedSet` también es
+    // true para CUALQUIER jornada actualmente ABIERTA (workedInShift la marca así
+    // aunque lleve 0h bancadas), así que ese OR volvía SIEMPRE verdadero mientras
+    // hubiera jornada abierta, sin importar si la avería/parada se marcó ANTES o
+    // DESPUÉS de abrirla — una máquina que se averió DESPUÉS de iniciar jornada (avería
+    // real, vigente ahora mismo) se mostraba "🟢 iniciada" en vez de "🔴 averiada"
+    // (confirmado con datos reales: REMBERTO ROJAS, JUMBO 330 con jornada abierta a las
+    // 12:20pm y avería marcada después, dashboard la contaba "iniciada" con 100% de
+    // eficiencia mientras el reporte por inspector — que sí compara tiempos — la
+    // marcaba correctamente "sin chequear"/averiada). Con jornada ABIERTA, la única
+    // comparación válida es la de tiempos (`js >= t`); el fallback a `workedSet` solo
+    // aplica cuando NO hay jornada abierta (js === null), es decir, ya cerró con horas.
+    const reactivadaTras = (id: string, t: number) => {
+      const js = openStartMs.get(id);
+      if (js != null) return js >= t;
+      return workedSet.has(id);
+    };
     const averAll = new Set<string>();
     maint.forEach((m) => {
       if (m.material === 'MÁQUINA PARADA') return;
