@@ -491,6 +491,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   };
   useEffect(() => { loadTanks(); }, []);
   useRealtimeRefresh(['tanks'], loadTanks);
+  // Historial de combustible (modal ⛽): si el chofer surte desde el teléfono
+  // mientras este modal queda abierto en la PC, refresca la traza y el total.
+  useRealtimeRefresh(['dispatches', 'machine_rounds'], () => { if (fuelFor) openFuel(fuelFor); });
 
   // Fecha de hoy en Caracas (para el valor por defecto del calendario), independiente
   // de la zona horaria del dispositivo.

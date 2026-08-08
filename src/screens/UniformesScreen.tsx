@@ -10,6 +10,7 @@ import { norm, cmpText } from '../lib/text';
 import { Company, Employee, UniformDelivery, InventoryMovement, InventoryTransfer, InventoryItem } from '../types/database';
 import { useAuth } from '../context/AuthContext';
 import { useTable } from '../hooks/useTable';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 import { levelMeets } from '../lib/permissions';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
@@ -97,6 +98,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     setDeliveries((rows ?? []) as UniformDelivery[]);
   };
   useEffect(() => { loadDeliveries(); }, []);
+  useRealtimeRefresh(['uniform_deliveries'], () => { loadDeliveries(); });
 
   // Totales entregados por empleado (para el badge de cada tarjeta).
   const totalsByEmp = useMemo(() => {

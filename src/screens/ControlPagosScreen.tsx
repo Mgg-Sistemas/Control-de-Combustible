@@ -447,7 +447,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     let timer: any;
     const bump = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
     const ch = supabase.channel(`rt-control-pagos-${rtId.current}`);
-    ['machine_rounds', 'company_payments', 'machinery', 'fletes'].forEach((t) =>
+    ['machine_rounds', 'company_payments', 'machinery', 'fletes', 'payrolls', 'control_closures'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
