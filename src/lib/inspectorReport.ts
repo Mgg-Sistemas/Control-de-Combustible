@@ -547,35 +547,52 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
   const machMap = data.get(shift)?.get(inspectorName);
   const list = machMap ? [...machMap.values()].sort((a, b) => cmpText(a.code, b.code)) : [];
 
-  let tD = 0, tN = 0, tPar = 0, tJor = 0;
+  // SOLO las horas del TURNO del inspector: si es de día, sus horas de DÍA; si es de
+  // noche, sus horas de NOCHE (no se mezcla el otro turno de la misma máquina). Con su
+  // total de paradas y la jornada (horas del turno − paradas).
+  let tH = 0, tPar = 0, tJor = 0;
   const rows = list.map((m) => {
-    const trabajando = r2(m.dayH + m.nightH);
-    const jornada = r2(Math.max(0, trabajando - m.horasParada));
-    tD += m.dayH; tN += m.nightH; tPar += m.horasParada; tJor += jornada;
+    const shiftH = r2(shift === 'day' ? m.dayH : m.nightH);       // horas de SU turno
+    const jornada = r2(Math.max(0, shiftH - m.horasParada));       // jornada = turno − paradas
+    tH += shiftH; tPar += m.horasParada; tJor += jornada;
     const em = ESTADO_META[m.estado];
     const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
       ? `<div class="mot">${esc(m.motivo)}</div>` : '';
     return `<div class="row">
       <div class="rtop"><span class="code">${esc(m.code)}</span><span class="est" style="color:${em.color}">${esc(em.txt)}</span></div>
       ${motivo}
-      <div class="rnums">Día ${r2(m.dayH)}h · Noche ${r2(m.nightH)}h · Parada ${r2(m.horasParada)}h · <b>Jornada ${jornada}h</b></div>
+      <div class="rnums">Trabajó ${shiftH}h · Parada ${r2(m.horasParada)}h · <b>Jornada ${jornada}h</b></div>
     </div>`;
   }).join('');
 
   const turnoTxt = shift === 'day' ? '☀️ Turno Día (7:00am–7:00pm)' : '🌙 Turno Noche';
+  const turnoLbl = shift === 'day' ? 'día' : 'noche';
+  // TOTALES ARRIBA en tarjetas (estilo "Informe por jornada"): total de horas del turno,
+  // total de paradas y jornada total, + cantidad de máquinas.
+  const kpis = `
+    <div class="kpis">
+      <div class="kpi"><div class="k">Total de horas · turno ${esc(turnoLbl)}</div><div class="v">${r2(tH)} H</div></div>
+      <div class="kpi warn"><div class="k">Total paradas</div><div class="v">${r2(tPar)} H</div></div>
+      <div class="kpi ok"><div class="k">Jornada total</div><div class="v">${r2(tJor)} H</div></div>
+      <div class="kpi"><div class="k">Máquinas</div><div class="v">${list.length}</div></div>
+    </div>`;
   // Antes se descargaba como IMAGEN PNG (exportReceiptImage) y en algunos teléfonos se
   // veía cortada/borrosa. Ahora es un PDF con el mismo formato que el resto del sistema.
   const body = `
     <div class="stamp">Generado ${esc(nowStamp())}</div>
-    <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>
-    <div class="tot">
-      <div>Total máquinas: <b>${list.length}</b></div>
-      <div>Horas día: <b>${r2(tD)}h</b> · Horas noche: <b>${r2(tN)}h</b></div>
-      <div>Parada: <b>${r2(tPar)}h</b> · Jornada total: <b>${r2(tJor)}h</b></div>
-    </div>`;
+    ${kpis}
+    <div class="rows">${rows || '<div class="none">Sin máquinas asignadas este turno.</div>'}</div>`;
 
   const extraCss = `
     .stamp{color:#9CA3AF;font-size:10px;margin-bottom:8px}
+    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 14px;max-width:640px}
+    .kpi{flex:1;min-width:132px;border:1px solid #E5E7EB;border-radius:10px;padding:10px 12px;background:#F8FAFC;page-break-inside:avoid}
+    .kpi .k{font-size:9.5px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
+    .kpi .v{font-size:22px;font-weight:800;color:#1E3A5F;margin-top:2px}
+    .kpi.warn{background:#FEF3F2;border-color:#FECDCA}
+    .kpi.warn .v{color:#B42318}
+    .kpi.ok{background:#ECFDF3;border-color:#ABEFC6}
+    .kpi.ok .v{color:#067647}
     .rows{max-width:520px}
     .row{border:1px solid #E5E7EB;border-radius:8px;padding:8px 10px;margin-bottom:6px;page-break-inside:avoid}
     .rtop{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
@@ -584,8 +601,6 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
     .mot{font-size:10.5px;color:#B45309;margin-top:2px}
     .rnums{font-size:10.5px;color:#374151;margin-top:3px}
     .none{color:#6B7280;font-size:12px;text-align:center;padding:10px 0}
-    .tot{margin-top:8px;background:#EEF2F7;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#1E3A5F;max-width:520px}
-    .tot div{margin:1px 0}
   `;
 
   const html = pdfDocument({

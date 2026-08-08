@@ -12,8 +12,10 @@ export type InspectorHeaderBarProps = {
   notifCount?: number;
   /** Toque sobre el ícono de campana. */
   onNotifPress?: () => void;
-  /** Toque sobre el botón de menú/avatar (abre un menú externo — este componente no lo renderiza). */
-  onMenuPress: () => void;
+  /** Toque sobre el botón de menú/avatar (abre un menú externo — este componente no lo
+   *  renderiza). Si NO se pasa, el círculo del avatar NO se muestra (sus funciones ya
+   *  viven en la tuerca ⚙️ del encabezado global). */
+  onMenuPress?: () => void;
 };
 
 function getInitials(name: string): string {
@@ -96,25 +98,27 @@ export default function InspectorHeaderBar({
           </View>
         ) : null}
 
-        <TouchableOpacity
-          onPress={onMenuPress}
-          activeOpacity={0.7}
-          accessibilityLabel="Menú"
-          style={{
-            width: 34,
-            height: 34,
-            borderRadius: 17,
-            backgroundColor: colors.surfaceAlt,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text style={{ color: colors.text, fontWeight: '800', fontSize: initials ? 13 : 16 }}>
-            {initials || '☰'}
-          </Text>
-        </TouchableOpacity>
+        {onMenuPress ? (
+          <TouchableOpacity
+            onPress={onMenuPress}
+            activeOpacity={0.7}
+            accessibilityLabel="Menú"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: colors.surfaceAlt,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '800', fontSize: initials ? 13 : 16 }}>
+              {initials || '☰'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
