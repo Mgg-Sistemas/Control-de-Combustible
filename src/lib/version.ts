@@ -78,3 +78,38 @@ export async function isUpdateAvailable(): Promise<boolean> {
   try { store?.setItem?.(UPD_TARGET_KEY, served); } catch {}
   return true;
 }
+
+/**
+ * Fuerza la recarga a la ÚLTIMA versión publicada (solo web). Es la MISMA lógica
+ * que dispara la barra `UpdateBanner`, extraída aquí para reutilizarla también en
+ * un control MANUAL siempre visible (p. ej. el menú del inspector): así el usuario
+ * puede forzar la actualización aunque el aviso automático no llegue a salir.
+ *
+ * Pasos (el "por qué" de cada uno):
+ * 0) Marca el INTENTO: guardamos a qué bundle recargamos. Si el host sigue sirviendo
+ *    el mismo (no avanzamos), la guarda anti-lazo de `isUpdateAvailable` evita que el
+ *    aviso reaparezca en bucle ("no se quita").
+ * 1) Limpia caches del navegador / PWA por si un service worker guardó el index/bundle
+ *    viejo.
+ * 2) Recarga FORZANDO un index.html FRESCO con un cache-buster (`_v`). Un simple
+ *    `location.reload()` reusa el index cacheado → vuelve a cargar el bundle VIEJO. Con
+ *    la query nueva el navegador baja el index nuevo, que referencia el bundle con hash
+ *    nuevo (URL distinta) → carga la versión nueva.
+ */
+export function forceReloadLatest(): void {
+  if (Platform.OS !== 'web') return;
+  const w: any = globalThis;
+  // 0) Marca el intento (a qué bundle vamos), para la guarda anti-lazo.
+  try { const t = w.localStorage?.getItem?.(UPD_TARGET_KEY); if (t) w.localStorage?.setItem?.(UPD_ATTEMPT_KEY, t); } catch {}
+  // 1) Limpia caches del navegador / PWA si existen.
+  try { w.caches?.keys?.().then((ks: string[]) => ks.forEach((k) => w.caches.delete(k))).catch(() => {}); } catch {}
+  // 2) Recarga con cache-buster para bajar un index.html fresco.
+  try {
+    const url = new w.URL(w.location.href);
+    url.searchParams.set('_v', String(Date.now()));
+    w.location.replace(url.toString());
+    return;
+  } catch {}
+  // Fallback si algo de lo anterior falla.
+  try { w.location?.reload?.(); } catch {}
+}

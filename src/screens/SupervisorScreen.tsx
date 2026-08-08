@@ -31,6 +31,7 @@ import { spacing, radius } from '../theme';
 import { ChangePasswordButton } from '../components/ChangePasswordButton';
 import { isOnline, isNetworkErrorMsg, enqueueAveria, enqueueParada, enqueueVolverOperativa, subscribeQueue, flushQueue, onConnectivityChange } from '../lib/offlineQueue';
 import { generateMyShiftReceipt } from '../lib/inspectorReport';
+import { forceReloadLatest } from '../lib/version';
 import InspectorHeaderBar from '../components/redesign/InspectorHeaderBar';
 import InspectorHeroCard from '../components/redesign/InspectorHeroCard';
 import InspectorKpiGrid from '../components/redesign/InspectorKpiGrid';
@@ -417,6 +418,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const id = setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, [jornadaStart]);
+  // Reloj SIEMPRE activo (haya o no jornada abierta): sin esto `nowTick` quedaba
+  // congelado en la hora de carga y el TURNO ACTUAL (nowShift) y `shiftClosed` NO
+  // pasaban solos de día a noche a las 7pm/7am. Efecto real del bug: un coordinador
+  // (o la app) que cargaba de DÍA seguía mostrando/operando inspectores de DÍA ya
+  // entrada la noche ("al escanear solo salen los de día"). Con este tick de 30s el
+  // turno se recalcula solo y cambia a la hora que toca.
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   // Extraído de `load()` para poder recargar SOLO la lista de máquinas desde el
   // realtime de abajo (sin repetir el resto de la carga inicial en cada cambio).
@@ -659,10 +670,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const myShift = useMemo<Shift | null>(() => {
     if (!ci) return null;
     const s = assignMap[ci.id];
-    if (s?.day?.id === uid) return 'day';
-    if (s?.night?.id === uid) return 'night';
+    const mineDay = s?.day?.id === uid;
+    const mineNight = s?.night?.id === uid;
+    // Si el MISMO inspector cubre AMBOS turnos de esta máquina (día y noche), su turno
+    // "vigente" lo dicta la HORA actual (7am–7pm día / 7pm–7am noche), NO día-primero.
+    // Antes se devolvía 'day' siempre (se chequeaba día antes que noche) → de noche el
+    // inspector quedaba en turno DÍA: su jornada de día ya cerró (no podía iniciar) y
+    // veía la avería/parada marcada de DÍA. Ahora de noche resuelve 'night'.
+    if (mineDay && mineNight) { const h = caracasParts(new Date()).hour; return h >= 7 && h < 19 ? 'day' : 'night'; }
+    if (mineDay) return 'day';
+    if (mineNight) return 'night';
     return null;
-  }, [ci, assignMap, uid]);
+  }, [ci, assignMap, uid, nowTick]);
   // ¿El turno del inspector en esta máquina YA CERRÓ hoy? Se decide por la HORA DE
   // CIERRE del turno (hora de Caracas), NO por horas>0: así puede INICIAR/REINICIAR
   // varias veces el mismo día (p.ej. tras una parada) mientras su turno siga abierto,
@@ -735,8 +754,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // (admin/coordinador viendo todo → sin turno específico = comportamiento global).
   const shiftOfMine = (id: string): 'day' | 'night' | null => {
     const s = assignMap[id] || {};
-    if (s.day?.id === uid) return 'day';
-    if (s.night?.id === uid) return 'night';
+    const mineDay = s.day?.id === uid;
+    const mineNight = s.night?.id === uid;
+    // Cubre AMBOS turnos → el turno vigente lo dicta la hora actual (mismo criterio que
+    // `myShift`). Así de noche ve/opera el estado de NOCHE (la avería/parada de DÍA le
+    // sale como pendiente), no el de día por chequear día-primero.
+    if (mineDay && mineNight) return nowShift;
+    if (mineDay) return 'day';
+    if (mineNight) return 'night';
     return null;
   };
   // ¿MI turno trabajó/abrió jornada en esta máquina? Coordinador (sin turno) = global.
@@ -1834,6 +1859,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ fontSize: 16 }}>🔄</Text>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{loading ? 'Actualizando…' : 'Actualizar'}</Text>
                 </TouchableOpacity>
+                {/* Control MANUAL siempre disponible en web: fuerza la recarga a la
+                    ÚLTIMA versión del app (bundle nuevo), por si el aviso automático
+                    UpdateBanner no llega a salir (caché del host, guarda anti-lazo…).
+                    Distinto del "Actualizar" de arriba, que solo recarga los DATOS. */}
+                {Platform.OS === 'web' ? (
+                  <TouchableOpacity onPress={() => { setMenuOpen(false); forceReloadLatest(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                    <Text style={{ fontSize: 16 }}>🔄</Text>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Actualizar app</Text>
+                  </TouchableOpacity>
+                ) : null}
                 {onSistema ? (
                   <TouchableOpacity onPress={() => { setMenuOpen(false); onSistema(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <Text style={{ fontSize: 16 }}>🗂️</Text>
@@ -1890,6 +1925,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               >
                 <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 12 }}>{loading ? '⏳ Actualizando…' : '🔄 Actualizar'}</Text>
               </TouchableOpacity>
+              {/* 🔄 Actualizar app: control MANUAL siempre visible (solo web) para forzar
+                  la recarga a la ÚLTIMA versión del app aunque el aviso automático
+                  (UpdateBanner) no salga. Distinto del "Actualizar" de al lado, que solo
+                  recarga los DATOS de la pantalla. */}
+              {Platform.OS === 'web' ? (
+                <TouchableOpacity
+                  onPress={forceReloadLatest}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}
+                >
+                  <Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>🔄 Actualizar app</Text>
+                </TouchableOpacity>
+              ) : null}
               {/* Solo ADMIN (en teléfono) y, por excepción puntual, Jesús Lozada: ir a la app completa (SISTEMA). */}
               {onSistema ? (
                 <TouchableOpacity onPress={onSistema} style={{ backgroundColor: '#0F172A', borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
