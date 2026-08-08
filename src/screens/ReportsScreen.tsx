@@ -1915,6 +1915,17 @@ export default function ReportsScreen({ route }: any) {
       .map((t) => `<tr><td>${esc(t.name)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`)
       .join('');
     const estadoLbl = tipoEstado === 'todas' ? 'Todos los estados' : tipoEstado === 'activas' ? 'Solo activas' : 'Solo inactivas';
+    // Cantidad POR CLASIFICACIÓN de los equipos seleccionados (Excavadora, Volteo… con su
+    // total), A→Z natural. Sale junto al desglose por tipo de equipo.
+    const porClasif = new Map<string, number>();
+    empresas.forEach((e) => e.items.forEach((m) => {
+      const k = ((m as any).clas && String((m as any).clas).trim()) || 'Sin clasificación';
+      porClasif.set(k, (porClasif.get(k) ?? 0) + 1);
+    }));
+    const clasifRows = [...porClasif.entries()]
+      .sort((a, b) => cmpText(a[0], b[0]))
+      .map(([k, n]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`)
+      .join('');
     // Listado AGRUPADO por empresa: nombre de la máquina, serial/placa y encargado.
     const listRows = empresas.map((e) => `
       <tr><td colspan="4" style="background:#eef2f7;font-weight:800;color:#1E3A5F">🏢 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
@@ -1934,6 +1945,10 @@ export default function ReportsScreen({ route }: any) {
       <h2>Cantidad por tipo de equipo</h2>
       <table><thead><tr><th style="text-align:left">Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
       <tbody>${tipoRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
+      <h2 style="margin-top:16px">Cantidad por clasificación</h2>
+      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>${clasifRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
       <h2 style="margin-top:16px">Listado por empresa</h2>
       <table><thead><tr><th style="text-align:right">#</th><th style="text-align:left">Máquina</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Encargado</th></tr></thead>
@@ -2428,11 +2443,17 @@ export default function ReportsScreen({ route }: any) {
                   autoCapitalize="characters"
                   style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text }}
                 />
-                {tiposSel.size > 0 ? (
-                  <TouchableOpacity onPress={() => setTiposSel(new Set())} style={{ alignSelf: 'flex-start', marginTop: spacing.xs }}>
-                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar selección ({tiposSel.size})</Text>
+                {/* Tildar TODAS (las que muestra el buscador ahora) o limpiar la selección. */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                  <TouchableOpacity onPress={() => setTiposSel(new Set(tipoOpciones.map((o) => o.key)))} disabled={tipoOpciones.length === 0}>
+                    <Text style={{ color: tipoOpciones.length === 0 ? colors.muted : colors.brandText, fontWeight: '700', fontSize: 12 }}>✓ Seleccionar todas ({tipoOpciones.length})</Text>
                   </TouchableOpacity>
-                ) : null}
+                  {tiposSel.size > 0 ? (
+                    <TouchableOpacity onPress={() => setTiposSel(new Set())}>
+                      <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 12 }}>✕ Limpiar selección ({tiposSel.size})</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
                 <ScrollView style={{ maxHeight: 220, marginTop: spacing.xs }} nestedScrollEnabled>
                   {tipoOpciones.length === 0 ? (
                     <Text style={{ color: colors.muted, fontSize: 13, paddingVertical: spacing.sm }}>Sin coincidencias.</Text>
