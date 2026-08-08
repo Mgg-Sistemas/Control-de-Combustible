@@ -144,10 +144,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
 
   // 4) Modelo/tipo de máquina (no viene en listInspectorAssignments): 1 sola consulta.
   const ids = Array.from(new Set(assigns.map((a) => a.machinery_id)));
-  const extraById = new Map<string, { tipo: string | null; clasificacion: string | null; active: boolean; operational: boolean }>();
+  const extraById = new Map<string, { tipo: string | null; clasificacion: string | null; active: boolean; operational: boolean; enEspera: boolean }>();
   if (ids.length) {
-    const { data: ms } = await supabase.from('machinery').select('id, tipo, clasificacion, active, operational').in('id', ids);
-    ((ms ?? []) as any[]).forEach((m) => extraById.set(m.id as string, { tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, active: m.active !== false, operational: m.operational !== false }));
+    const { data: ms } = await supabase.from('machinery').select('id, tipo, clasificacion, active, operational, en_espera').in('id', ids);
+    ((ms ?? []) as any[]).forEach((m) => extraById.set(m.id as string, { tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, active: m.active !== false, operational: m.operational !== false, enEspera: m.en_espera === true }));
   }
 
   // 5) Estado real por inspector + máquina — POR TURNO (regla confirmada 06-ago-2026:
@@ -165,9 +165,13 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     if (byKey.has(k)) return;
     const shiftCtx: 'day' | 'night' = a.shift === 'night' ? 'night' : 'day';
     const rd = roundByMachine.get(a.machinery_id);
-    // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/averiada
-    // solo cuenta si tiene jornada ABIERTA ahora; sin jornada abierta, no entra.
-    const inactiva = extraById.get(a.machinery_id) ? !(extraById.get(a.machinery_id)!.active && extraById.get(a.machinery_id)!.operational) : false;
+    // Regla confirmada 08-ago-2026: una máquina PARADA/no-operativa (averiada, parqueada)
+    // pero ACTIVA y asignada a un inspector SIGUE contando — se muestra con su estado
+    // real (parada/pendiente/averiada), nunca desaparece. Solo se excluye si está
+    // DESACTIVADA del catálogo (active=false) o EN ESPERA de recepción/traslado
+    // (en_espera=true) — esas sí son "todavía no es un equipo operativo asignable".
+    const ex = extraById.get(a.machinery_id);
+    const inactiva = ex ? !ex.active || ex.enEspera : false;
     if (inactiva && !rd?.startAt) return;
     // Trabajó ESTE turno: horas del turno, o jornada abierta cuyo turno (por marca o hora
     // de inicio) es este turno.

@@ -584,16 +584,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   // TAREA 4 (aditivo, solo LECTURA/filtrado — no toca escrituras ni el catálogo):
   // oculta del listado operativo del inspector las máquinas INACTIVAS (active=false)
-  // o averiadas (operational=false), EXCEPTO si tienen una jornada abierta AHORA
-  // MISMO (roundsById[id]?.open) — así el inspector siempre puede cerrar una jornada
-  // que quedó abierta, aunque la máquina se haya inactivado después. Cuando la
-  // máquina se reactive (operational/active vuelven a true), reaparece sola en el
-  // próximo refresh/realtime (useTable/useRealtimeRefresh ya recargan `machines`).
+  // o EN ESPERA de recepción/traslado (en_espera=true), EXCEPTO si tienen una jornada
+  // abierta AHORA MISMO (roundsById[id]?.open) — así el inspector siempre puede cerrar
+  // una jornada que quedó abierta, aunque la máquina se haya inactivado después. Cuando
+  // la máquina se reactive (active/en_espera vuelven a su estado normal), reaparece sola
+  // en el próximo refresh/realtime (useTable/useRealtimeRefresh ya recargan `machines`).
+  // CONFIRMADO por el cliente (08/08/2026): una máquina averiada/parada
+  // (operational=false) pero activa y NO en espera debe seguir viéndose con su estado
+  // REAL (parada/averiada) en el teléfono del inspector, en el espejo del coordinador
+  // en PC y en el Resumen de Inspecciones — ya NO se oculta solo por operational=false.
   // No toca `machines` (fuente) ni el CHECK (checkList/necesitaInspector/
   // pendientesList/resumenInspectores), que siguen viendo TODO el catálogo para
   // poder asignar/reactivar máquinas inactivas.
   const visibleParaInspector = (m: Mach) => {
-    const inactiva = m.active === false || m.operational === false;
+    const inactiva = m.active === false || m.en_espera === true;
     return !inactiva || roundsById[m.id]?.open === true;
   };
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
