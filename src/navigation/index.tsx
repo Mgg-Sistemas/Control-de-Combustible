@@ -58,6 +58,7 @@ import ComprasScreen from '../screens/ComprasScreen';
 import InventarioScreen from '../screens/InventarioScreen';
 import InspeccionesScreen from '../screens/InspeccionesScreen';
 import ManguerasScreen from '../screens/ManguerasScreen';
+import MachineTraceabilityScreen from '../screens/MachineTraceabilityScreen';
 import FabricacionHubScreen from '../screens/FabricacionHubScreen';
 import WorkCentersScreen from '../screens/WorkCentersScreen';
 import BomScreen from '../screens/BomScreen';
@@ -237,6 +238,7 @@ function MoreStack() {
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
       <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
+      <Stack.Screen name="MachineTraceability" component={MachineTraceabilityScreen} options={{ title: 'Trazabilidad por equipo' }} />
       <Stack.Screen name="Users" component={UsersScreen} options={{ title: 'Usuarios' }} />
       <Stack.Screen name="Audit" component={AuditScreen} options={{ title: 'Auditoría' }} />
       <Stack.Screen name="Empresas" component={EmpresasScreen} options={{ title: 'Empresas' }} />

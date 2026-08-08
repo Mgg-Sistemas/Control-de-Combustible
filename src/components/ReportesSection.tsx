@@ -89,6 +89,17 @@ export default function ReportesSection(props: { navigation?: any }) {
         },
       ],
     },
+    {
+      key: 'maquinaria', icon: '🚜', title: 'Maquinaria / Vehículos',
+      cards: [
+        {
+          key: 'rep-trazabilidad-equipo', icon: '🧭', title: 'Trazabilidad e historial por equipo',
+          desc: 'Línea de tiempo de una máquina: días trabajados, paradas y averías, con inicio, fin y tiempo total inactivo.',
+          fields: ['Filtro por máquina', 'Rango de fechas', 'Exportar PDF'],
+          onPress: () => go('MachineTraceability'),
+        },
+      ],
+    },
   ];
 
   return (
