@@ -1451,6 +1451,33 @@ export default function ReportsScreen({ route }: any) {
       <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>
       ${sinUbic ? `<tr><td style="color:#6B7280">Sin ubicación GPS</td><td style="text-align:right;color:#6B7280">${sinUbic}</td></tr>` : ''}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Resumen: cantidad por CLASIFICACIÓN (Excavadora, Volteo…). A→Z natural.
+    const countByClasif = new Map<string, number>();
+    list.forEach((m) => { const c = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; countByClasif.set(c, (countByClasif.get(c) ?? 0) + 1); });
+    const resumenClasifHtml = `<div class="sect">🏷️ Cantidad por clasificación</div>
+      <table class="tac"><thead><tr><th>Clasificación</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${[...countByClasif.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([c, n]) => `<tr><td>${esc(c)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Resumen: equipos A DISPOSICIÓN / a cargo de cada ente (CVM, Gobernación, FANB…).
+    // SOS La Guaira (equipos propios) va al final. Se cuentan TODOS los equipos.
+    const countByEnte = new Map<string, number>();
+    list.forEach((m) => { const e = enteOf(m); countByEnte.set(e, (countByEnte.get(e) ?? 0) + 1); });
+    const enteSorted = [...countByEnte.entries()].sort((a, b) => (a[0] === 'SOS La Guaira' ? 1 : b[0] === 'SOS La Guaira' ? -1 : cmpText(a[0], b[0])));
+    const resumenEnteHtml = `<div class="sect">🚜 Equipos a disposición de (ente / institución)</div>
+      <table class="tac"><thead><tr><th>A cargo de</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${enteSorted.map(([e, n]) => `<tr><td>${esc(e)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Estado REAL de la flota (siempre desde 'all', aunque el ficticio muestre todo
+    // operativo): activos (operativos) vs inactivos (inoperativas + en espera).
+    // Se excluyen las dadas de baja (active === false).
+    const flota = all.filter((m) => m.active !== false);
+    const nActivos = flota.filter((m) => m.operational !== false && m.en_espera !== true).length;
+    const nInactivos = flota.length - nActivos;
+    const resumenEstadoHtml = `<div class="sect">🚦 Estado de la flota (activos / inactivos)</div>
+      <table class="tac"><thead><tr><th>Estado</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody><tr><td style="color:#0B7A3B;font-weight:700">🟢 Activos (operativos)</td><td style="text-align:right;font-weight:700">${nActivos}</td></tr>
+      <tr><td style="color:#B91C1C;font-weight:700">🔴 Inactivos (inoperativas / en espera)</td><td style="text-align:right;font-weight:700">${nInactivos}</td></tr></tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL FLOTA</td><td style="text-align:right;font-weight:800">${flota.length}</td></tr></tfoot></table>`;
     // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
     const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
     const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
@@ -1482,29 +1509,11 @@ export default function ReportsScreen({ route }: any) {
         .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
-      ${resumenCoHtml}
+      ${resumenEstadoHtml}
+      ${resumenClasifHtml}
       ${resumenZonaHtml}
-      ${(() => {
-        // Secciones numeradas. Con personal, el personal va ARRIBA (secciones 1 y 2).
-        const legendHtml = `<div class="box legend">
-          <div><b>ESTE:</b> Álamo, Macuto, Camurí Chico, El Palmar, Caraballeda, Caribe, Tanaguarena</div>
-          <div style="margin-top:4px"><b>OESTE:</b> El Chorro, El Trébol, Franja Costera, Hugo Chávez, Aeropuerto, Centro Catia, Catamare</div>
-        </div>`;
-        const obsHtml = `<div class="box">
-          <div class="kv"><b>Condiciones del terreno / Requerimientos de insumos o repuestos:</b></div>
-          ${linea(4)}
-        </div>`;
-        const secs: { icon: string; title: string; html: string }[] = [];
-        if (conPersonal) {
-          secs.push({ icon: '👥', title: 'Personal por departamento (totales)', html: resumenPersonalHtml });
-          secs.push({ icon: '👷', title: 'Coordinadores e inspectores por zona', html: zonaPersonalHtml });
-        }
-        secs.push({ icon: '📍', title: 'Ubicación táctica', html: legendHtml });
-        secs.push({ icon: '🛻', title: 'Camionetas pick-up', html: pickupsHtml });
-        secs.push({ icon: '🚜', title: 'Maquinaria y equipos en zona', html: maquinariaHtml || '<p class="muted">Sin equipos registrados.</p>' });
-        secs.push({ icon: '📝', title: 'Observaciones y novedades', html: obsHtml });
-        return secs.map((s, i) => `<div class="sect">${s.icon} ${i + 1}. ${s.title}</div>${s.html}`).join('');
-      })()}`;
+      ${resumenEnteHtml}
+      ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
     const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
     const fileName = `Reporte - Ubicaciones tácticas${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
