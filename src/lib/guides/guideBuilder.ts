@@ -21,7 +21,7 @@ export const esc = (v: any) =>
 // ── Documento base (cover + secciones numeradas) ───────────────────────────
 export function guideCss(): string {
   return `
-    @page{margin:1.6cm}
+    @page{margin:2cm}
     *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     html,body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
     body{font-family:-apple-system,"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;color:#22262b;background:#fff;margin:0;padding:0}

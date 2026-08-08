@@ -450,7 +450,7 @@ export function organigramaCard(): string {
 /** Documento HTML completo del diagrama (vista previa / PDF y respaldo del PNG). */
 export function organigramaHtml(): string {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title></title>
-    <style>@page{size:landscape;margin:8mm}${ORG_STYLES}</style></head>
+    <style>@page{size:landscape;margin:2cm}${ORG_STYLES}</style></head>
     <body>${organigramaCard()}</body></html>`;
 }
 
@@ -539,7 +539,7 @@ export function fichaCargoHtml(title: string): string {
 // Membrete propio (para no acoplar organigrama.ts al módulo de pdf.ts).
 function pdfDoc(title: string, subtitle: string, body: string): string {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title></title><style>
-    @page{margin:1.6cm}
+    @page{margin:2cm}
     *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     body{font-family:Tahoma,Geneva,Verdana,sans-serif;color:#333;background:#fff}
     @media screen{body{padding:26px 32px}}

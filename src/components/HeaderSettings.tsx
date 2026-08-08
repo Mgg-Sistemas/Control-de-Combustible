@@ -103,14 +103,8 @@ export default function HeaderSettings() {
               {/* Cambiar contraseña */}
               <ChangePasswordButton variant="row" />
 
-              {/* Actualizar app (solo web): fuerza la recarga a la ÚLTIMA versión (bundle
-                  nuevo) por si el aviso automático no llega a salir (caché del host). Aquí,
-                  en la tuerca, queda disponible en TODAS las pantallas y roles. */}
-              {Platform.OS === 'web' ? (
-                <TouchableOpacity onPress={() => { setOpen(false); forceReloadLatest(); }} style={{ paddingVertical: 4 }}>
-                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>🔄 Actualizar app (última versión)</Text>
-                </TouchableOpacity>
-              ) : null}
+              {/* Nota: "Actualizar app" ya NO va dentro de la tuerca; es un botón propio
+                  al lado del engranaje (ver UpdateAppButton en el encabezado). */}
 
               {/* Más ajustes (herramientas avanzadas) */}
               <TouchableOpacity onPress={goAjustes} style={{ paddingVertical: 4 }}>
@@ -121,5 +115,20 @@ export default function HeaderSettings() {
         </Pressable>
       </Modal>
     </View>
+  );
+}
+
+/**
+ * Botón 🔄 del encabezado (al lado de la tuerca ⚙️): fuerza la recarga a la ÚLTIMA
+ * versión del app (bundle nuevo) por si el aviso automático no llega a salir (caché
+ * del host). Solo web (en móvil nativo no aplica). Va como pieza propia del header,
+ * no dentro del menú de ajustes.
+ */
+export function UpdateAppButton() {
+  if (Platform.OS !== 'web') return null;
+  return (
+    <TouchableOpacity onPress={forceReloadLatest} style={{ paddingHorizontal: 8, paddingVertical: 4 }} accessibilityLabel="Actualizar app (última versión)">
+      <Text style={{ fontSize: 18 }}>🔄</Text>
+    </TouchableOpacity>
   );
 }
