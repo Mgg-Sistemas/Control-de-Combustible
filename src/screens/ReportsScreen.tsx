@@ -1467,6 +1467,26 @@ export default function ReportsScreen({ route }: any) {
       <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr>
       ${sinUbic ? `<tr><td style="color:#6B7280">Sin ubicación GPS</td><td style="text-align:right;color:#6B7280">${sinUbic}</td></tr>` : ''}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Resumen: TOTAL por TIPO de maquinaria (Jumbo, Payloader…) y DÓNDE se ubican
+    // (🟢 Este / 🟠 Oeste). Ej.: "PAYLOADER · 7 · 3 Este · 4 Oeste". A→Z natural.
+    // Zona REAL por GPS; en el ficticio, por el sector aleatorio asignado.
+    const macroDe = (m: any) => sectorMacro(ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude));
+    const porTipoZona = new Map<string, { total: number; este: number; oeste: number; su: number }>();
+    list.forEach((m) => {
+      const k = equipCategory(m.code) || 'SIN TIPO';
+      const e = porTipoZona.get(k) ?? { total: 0, este: 0, oeste: 0, su: 0 };
+      e.total += 1;
+      const mac = macroDe(m);
+      if (mac === 'OESTE') e.oeste += 1; else if (mac === 'ESTE') e.este += 1; else e.su += 1;
+      porTipoZona.set(k, e);
+    });
+    const tipoZTot = { este: 0, oeste: 0, su: 0 };
+    porTipoZona.forEach((v) => { tipoZTot.este += v.este; tipoZTot.oeste += v.oeste; tipoZTot.su += v.su; });
+    const anyTZsu = tipoZTot.su > 0;
+    const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria · 🟢 Este / 🟠 Oeste</div>
+      <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:70px;text-align:right">Total</th><th style="width:70px;text-align:right">🟢 Este</th><th style="width:70px;text-align:right">🟠 Oeste</th>${anyTZsu ? '<th style="width:70px;text-align:right">Sin ubic.</th>' : ''}</tr></thead>
+      <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td>${anyTZsu ? `<td style="text-align:right;color:#6B7280">${v.su}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${anyTZsu ? 5 : 4}" style="text-align:center">Sin equipos</td></tr>`}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td>${anyTZsu ? `<td style="text-align:right;font-weight:800">${tipoZTot.su}</td>` : ''}</tr></tfoot></table>`;
     // Resumen: cantidad por CLASIFICACIÓN (Excavadora, Volteo…). A→Z natural.
     const countByClasif = new Map<string, number>();
     list.forEach((m) => { const c = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; countByClasif.set(c, (countByClasif.get(c) ?? 0) + 1); });
@@ -1526,6 +1546,7 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenEstadoHtml}
+      ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
       ${resumenEnteHtml}
