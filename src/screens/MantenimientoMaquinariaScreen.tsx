@@ -181,18 +181,21 @@ export default function MantenimientoMaquinariaScreen() {
   // Solo refresca el reporte si ya se cargó (evita gastar la consulta cuando nadie visitó la pestaña).
   useRealtimeRefresh(['inventory_movements', 'inventory_items', 'machine_inspections'], () => { if (reportLoaded) loadReportData(); });
 
+  // Rendimiento: índice id → máquina para evitar machines.find() dentro de bucles (O(n²) → O(n)).
+  const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
+
   // Estadística por MÁQUINA: total de averías (todas), desglose por material y fechas.
   const machineStats = useMemo(() => {
     const by = new Map<string, { id: string; code: string; company: string; plate: string | null; serial: string | null; clasificacion: string | null; total: number; byMat: Record<string, number>; }>();
     reqs.forEach((r) => {
-      const mac = machines.find((m) => m.id === r.machinery_id);
+      const mac = machById.get(r.machinery_id);
       const g = by.get(r.machinery_id) ?? { id: r.machinery_id, code: r.code, company: r.company, plate: r.plate, serial: r.serial, clasificacion: mac?.clasificacion ?? null, total: 0, byMat: {} };
       g.total += 1;
       g.byMat[r.material] = (g.byMat[r.material] ?? 0) + 1;
       by.set(r.machinery_id, g);
     });
     return Array.from(by.values());
-  }, [reqs, machines]);
+  }, [reqs, machById]);
 
   // Reparación ACTIVA por máquina (si existe).
   const activeRepairByMachine = useMemo(() => {
@@ -288,7 +291,7 @@ export default function MantenimientoMaquinariaScreen() {
     const universe = machineStats.map((s) => ({ ...s }));
     Object.keys(inspByMachine).forEach((id) => {
       if (statById.has(id)) return;
-      const mac = machines.find((m) => m.id === id);
+      const mac = machById.get(id); // rendimiento: índice en vez de machines.find()
       if (!mac) return;
       universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> });
     });
@@ -475,7 +478,7 @@ export default function MantenimientoMaquinariaScreen() {
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machines.find((m) => m.id === mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true, last_horometro: null, horometro_base: null };
+                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true, last_horometro: null, horometro_base: null };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
@@ -573,7 +576,7 @@ export default function MantenimientoMaquinariaScreen() {
           const universe = machineStats.map((s) => ({ ...s }));
           Object.keys(inspByMachine).forEach((id) => {
             if (statById.has(id)) return;
-            const mac = machines.find((m) => m.id === id);
+            const mac = machById.get(id); // rendimiento: índice en vez de machines.find()
             if (!mac) return; // inspección de un equipo ya inactivo/borrado
             universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} });
           });
@@ -941,7 +944,7 @@ export default function MantenimientoMaquinariaScreen() {
             {repDetailId ? (() => {
               // El equipo puede venir de las averías o SOLO de inspección (sin avería).
               const sStat = machineStats.find((x) => x.id === repDetailId);
-              const mac = machines.find((m) => m.id === repDetailId);
+              const mac = machById.get(repDetailId); // rendimiento: índice en vez de machines.find()
               const s = sStat ?? (mac ? { id: mac.id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> } : null);
               if (!s) return null;
               const list = reqs.filter((r) => r.machinery_id === repDetailId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));

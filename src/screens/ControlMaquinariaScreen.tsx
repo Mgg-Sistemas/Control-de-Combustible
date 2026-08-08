@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Switch } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
@@ -287,7 +287,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // (por defecto 7, pero se pueden añadir 8, 10, … los que se necesiten).
   const [dayCount, setDayCount] = useState(7);
   const weekStart = weekStartISO(date);
-  const weekDays = Array.from({ length: dayCount }, (_, i) => shiftDay(weekStart, i));
+  // RENDIMIENTO: weekDays es una derivación pura de (weekStart, dayCount). Memoizarlo evita
+  // recrear el arreglo en cada render y, sobre todo, le da una referencia ESTABLE para que
+  // los useMemo que dependen de él (workedByMachine) no se recalculen sin necesidad.
+  const weekDays = useMemo(() => Array.from({ length: dayCount }, (_, i) => shiftDay(weekStart, i)), [weekStart, dayCount]);
   const weekEnd = weekDays[weekDays.length - 1];
 
   // Cierre de control + histórico
@@ -1318,11 +1321,30 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // control ni del reporte de ese corte (sus horas y su pago siguen contando). Como
   // `rounds` solo trae los días visibles, esto solo la mantiene en la semana donde tiene
   // horas; en semanas posteriores (sin horas) ya no aparece.
-  const conHorasEstaSemana = new Set<string>();
-  Object.values(rounds).forEach((b: any) => {
-    const h = Number(b.day_hours ?? 0) + Number(b.night_hours ?? 0) + Number(b.overtime_hours ?? 0) + Number(b.hours_stopped ?? 0);
-    if (h > 0) conHorasEstaSemana.add(b.machinery_id);
-  });
+  // RENDIMIENTO: solo depende de `rounds`; antes se reconstruía el Set en cada render/tecla.
+  const conHorasEstaSemana = useMemo(() => {
+    const s = new Set<string>();
+    Object.values(rounds).forEach((b: any) => {
+      const h = Number(b.day_hours ?? 0) + Number(b.night_hours ?? 0) + Number(b.overtime_hours ?? 0) + Number(b.hours_stopped ?? 0);
+      if (h > 0) s.add(b.machinery_id);
+    });
+    return s;
+  }, [rounds]);
+  // RENDIMIENTO: horas trabajadas del BLOQUE por máquina, precomputadas en UN solo pase por
+  // `rounds`. Antes cada tarjeta hacía `weekDays.reduce(...)` y además el total por empresa
+  // repetía el mismo reduce → O(máquinas×días) por render. Ahora la tarjeta y el total leen
+  // este Map en O(1). Se cuentan solo las rondas cuyo día está en el bloque visible (mismo
+  // criterio que sumar rounds[rkey(m.id, d)] sobre weekDays).
+  const workedByMachine = useMemo(() => {
+    const daySet = new Set(weekDays);
+    const map = new Map<string, number>();
+    Object.values(rounds).forEach((b: any) => {
+      if (!daySet.has(b.round_date)) return;
+      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      map.set(b.machinery_id, (map.get(b.machinery_id) ?? 0) + w);
+    });
+    return map;
+  }, [rounds, weekDays]);
   const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
   // Al BUSCAR se ignora el filtro de empresa: así encuentras un equipo por código/serial/
   // placa aunque esté en otra empresa (p. ej. uno recién agregado). Sin búsqueda, aplica
@@ -1331,7 +1353,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   // Filtro por encargado (multi-check; vacío = todos). Se ignora al BUSCAR (como empresa).
   const matchEncargado = (m: Machinery) => q ? true : inEncargado(m);
   // El control activo NO muestra las máquinas en espera por recepción: esas van a su sección.
-  const shown = machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m));
+  // RENDIMIENTO: lista base filtrada; antes se recalculaba en cada render/tecla. Deps = todo
+  // lo que leen los predicados: machines (código/estado/empresa/encargado), el Set de horas,
+  // el texto de búsqueda `q`, el filtro de empresa, la selección de encargados y `companies`.
+  const shown = useMemo(
+    () => machines.filter((m) => enControl(m) && !m.en_espera && matchCompanyOrSearch(m) && matchEncargado(m) && matchText(m)),
+    [machines, conHorasEstaSemana, q, companyFilter, encargadoSel, companies],
+  );
   // Máquinas EN ESPERA por recepción (por recibir), agrupadas por empresa.
   const enEspera = machines.filter((m) => esActiva(m) && m.en_espera && matchCompanyOrSearch(m) && matchText(m));
   const enEsperaByCompany = (() => {
@@ -1350,19 +1378,30 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
 
   // Opciones de empresa (con conteo) para el filtro desplegable. Cuenta las máquinas
   // que están en el control esta semana: operativas + inactivas que ya trabajaron.
-  const activasControl = machines.filter((m) => enControl(m) && !m.en_espera);
-  const companyOptions = [
-    { label: 'Todas las empresas', value: '__all__', count: activasControl.length },
-    ...Object.entries(companies)
-      .map(([id, name]) => ({ label: name, value: id, count: activasControl.filter((m) => m.company_id === id).length }))
-      .filter((o) => o.count > 0)
-      .sort((a, b) => cmpText(a.label, b.label)),
-    { label: 'Sin empresa', value: '__none__', count: activasControl.filter((m) => !m.company_id).length },
-  ];
+  // RENDIMIENTO: base del control (operativas + inactivas con horas), memoizada.
+  const activasControl = useMemo(() => machines.filter((m) => enControl(m) && !m.en_espera), [machines, conHorasEstaSemana]);
+  // RENDIMIENTO: antes, por CADA empresa se hacía un `.filter` sobre todas las máquinas
+  // (O(empresas×máquinas)). Ahora se cuenta en UN solo pase agrupando por company_id.
+  const companyOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    let sinEmpresa = 0;
+    activasControl.forEach((m) => {
+      if (m.company_id) counts.set(m.company_id, (counts.get(m.company_id) ?? 0) + 1);
+      else sinEmpresa += 1;
+    });
+    return [
+      { label: 'Todas las empresas', value: '__all__', count: activasControl.length },
+      ...Object.entries(companies)
+        .map(([id, name]) => ({ label: name, value: id, count: counts.get(id) ?? 0 }))
+        .filter((o) => o.count > 0)
+        .sort((a, b) => cmpText(a.label, b.label)),
+      { label: 'Sin empresa', value: '__none__', count: sinEmpresa },
+    ];
+  }, [activasControl, companies]);
   const companyFilterLabel = companyOptions.find((o) => o.value === companyFilter)?.label ?? 'Todas las empresas';
   // Opciones de ENCARGADO (distintos, con conteo) — sobre las máquinas del control que
   // pasan el filtro de empresa. Buscable y multi-check.
-  const encargadoOptions = (() => {
+  const encargadoOptions = useMemo(() => {
     const base = activasControl.filter((m) => matchCompany(m));
     // Agrupa por clave canónica (unifica variantes). Por clave: conteo total + qué
     // etiqueta cruda se usó y cuántas veces, para mostrar la variante MÁS común.
@@ -1382,14 +1421,15 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         return { key, name, count: e.count };
       })
       .sort((a, b) => a.key === SIN_ENCARGADO ? 1 : b.key === SIN_ENCARGADO ? -1 : cmpText(a.name, b.name));
-  })();
+  // RENDIMIENTO: solo cambia con la base del control o el filtro de empresa (matchCompany).
+  }, [activasControl, companyFilter]);
   const encargadoShown = encargadoOptions.filter((o) => !encargadoQuery.trim() || norm(o.name).includes(norm(encargadoQuery.trim())));
   // Empresa seleccionada para sincronizar el reporte (null = todas).
   const reportCompanyName =
     companyFilter === '__all__' ? null : companyFilter === '__none__' ? 'Sin empresa' : companies[companyFilter] ?? null;
 
   // Agrupa las máquinas mostradas por empresa (acordeón, como en el catálogo).
-  const machinesByCompany = (() => {
+  const machinesByCompany = useMemo(() => {
     const map = new Map<string, { key: string; name: string; items: Machinery[] }>();
     shown.forEach((it) => {
       const k = it.company_id ?? '__none__';
@@ -1401,19 +1441,28 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const list = Array.from(map.values()).sort((a, b) => a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name));
     list.forEach((g) => g.items.sort((a, b) => cmpText(a.code, b.code)));
     return list;
-  })();
+  // RENDIMIENTO: solo depende de las máquinas mostradas y del nombre de empresa.
+  }, [shown, companies]);
 
   // ── Datos para "Marcar equipo averiado" ─────────────────────────────────────
   // Empresas con al menos una máquina operativa (candidatas a tener un equipo averiado).
-  const averiaCompanyOptions = (() => {
+  // RENDIMIENTO: antes, por CADA empresa un `.filter` sobre todas las máquinas
+  // (O(empresas×máquinas)). Ahora se cuentan las operativas en UN solo pase por company_id.
+  const averiaCompanyOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    let sinEmpresa = 0;
+    machines.forEach((m) => {
+      if (m.operational === false) return;
+      if (m.company_id) counts.set(m.company_id, (counts.get(m.company_id) ?? 0) + 1);
+      else sinEmpresa += 1;
+    });
     const opts = Object.entries(companies)
-      .map(([id, name]) => ({ value: id, name, count: machines.filter((m) => m.company_id === id && m.operational !== false).length }))
+      .map(([id, name]) => ({ value: id, name, count: counts.get(id) ?? 0 }))
       .filter((o) => o.count > 0)
       .sort((a, b) => cmpText(a.name, b.name));
-    const sinEmpresa = machines.filter((m) => !m.company_id && m.operational !== false).length;
     if (sinEmpresa > 0) opts.push({ value: '__none__', name: 'Sin empresa', count: sinEmpresa });
     return opts;
-  })();
+  }, [machines, companies]);
   const averiaCompanyLabel = averiaCompany
     ? (averiaCompany === '__none__' ? 'Sin empresa' : companies[averiaCompany] ?? 'Empresa')
     : null;
@@ -1744,10 +1793,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               {/* Total de la EMPRESA en el rango de fechas seleccionado: horas + $ (suma de sus máquinas). */}
               {open ? (() => {
                 const compTot = g.items.reduce((acc, m) => {
-                  const h = weekDays.reduce((s, d) => {
-                    const b = rounds[rkey(m.id, d)];
-                    return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
-                  }, 0);
+                  // RENDIMIENTO: horas del bloque desde el Map precomputado (antes: reduce por día).
+                  const h = workedByMachine.get(m.id) ?? 0;
                   const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
                   acc.hours += h;
                   acc.amount += price > 0 ? (h / 12) * price : 0;
@@ -1763,10 +1810,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 );
               })() : null}
               {open ? g.items.map((m) => {
-          const weekWorked = weekDays.reduce((s, d) => {
-            const b = rounds[rkey(m.id, d)];
-            return s + workedFromShifts(Number(b?.day_hours ?? 0), Number(b?.night_hours ?? 0), Number(b?.hours_stopped ?? 0), Number(b?.overtime_hours ?? 0));
-          }, 0);
+          // RENDIMIENTO: horas del bloque desde el Map precomputado (antes: reduce por día en cada tarjeta).
+          const weekWorked = workedByMachine.get(m.id) ?? 0;
           const isOpen = cardOpen[m.id] ?? false;
           const machFletes = fletesByMachine[m.id] ?? [];
           const fletesUSD = machFletes.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);

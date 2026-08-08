@@ -395,7 +395,15 @@ export default function PagoPersonalScreen() {
   };
 
   // ── Abonos ──────────────────────────────────────────────────────────────────
-  const paidOf = (itemId: string) => round2(pays.filter((p) => p.item_id === itemId).reduce((s, p) => s + (Number(p.monto) || 0), 0));
+  // Rendimiento: antes `paidOf` filtraba TODA la tabla `pays` por cada renglón, y se
+  // llamaba por renglón + en totalPagado/totalSaldo → O(items × pays). Ahora se suma
+  // en UNA sola pasada por `pays`, agrupando por `item_id` (mismo criterio original).
+  const paidByItem = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of pays) m.set(p.item_id, (m.get(p.item_id) ?? 0) + (Number(p.monto) || 0));
+    return m;
+  }, [pays]);
+  const paidOf = (itemId: string) => round2(paidByItem.get(itemId) ?? 0);
   const saldoOf = (it: StaffPayItem) => Math.max(0, round2(Number(it.total) - paidOf(it.id)));
 
   const openPay = (it: StaffPayItem) => { setPayFor(it); setPMonto(String(saldoOf(it) || '')); setPMetodo('efectivo'); setPFecha(todayISO()); setPMontoCur('USD'); };

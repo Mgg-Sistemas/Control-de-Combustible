@@ -131,9 +131,39 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
     return next;
   });
 
-  // Movimientos por empleado (por id; respaldo por cédula).
-  const paysOf = (e: Employee) => pays.filter((p) => (p.employee_id ? p.employee_id === e.id : norm(p.cedula) === norm(e.cedula)));
-  const totalOf = (e: Employee) => round2(paysOf(e).reduce((s, p) => s + (Number(p.monto) || 0), 0));
+  // ── Índice de pagos (rendimiento) ────────────────────────────────────────────
+  // Antes `paysOf` filtraba TODA la tabla `pays` por cada empleado, y se invocaba
+  // varias veces por tarjeta (total + cantidad) → O(personas × pagos) en cada tecla.
+  // Ahora se recorre `pays` UNA sola vez y se agrupa en Map, respetando EXACTAMENTE
+  // el criterio de emparejamiento original: un pago CON `employee_id` pertenece al
+  // empleado por id; un pago SIN `employee_id`, por cédula normalizada.
+  const paysIndex = useMemo(() => {
+    const byId = new Map<string, { items: StaffPersonPayment[]; total: number; count: number }>();
+    const byCedula = new Map<string, { items: StaffPersonPayment[]; total: number; count: number }>();
+    for (const p of pays) {
+      const map = p.employee_id ? byId : byCedula;
+      const key = p.employee_id ? p.employee_id : norm(p.cedula);
+      let g = map.get(key);
+      if (!g) { g = { items: [], total: 0, count: 0 }; map.set(key, g); }
+      g.items.push(p);
+      g.total += Number(p.monto) || 0;
+      g.count += 1;
+    }
+    return { byId, byCedula };
+  }, [pays]);
+
+  // Movimientos por empleado (por id; respaldo por cédula) — lectura O(1) del índice.
+  const paysOf = (e: Employee) => {
+    const a = paysIndex.byId.get(e.id);
+    const b = paysIndex.byCedula.get(norm(e.cedula));
+    if (a && b) return [...a.items, ...b.items];
+    return a ? a.items : b ? b.items : [];
+  };
+  const totalOf = (e: Employee) => {
+    const a = paysIndex.byId.get(e.id);
+    const b = paysIndex.byCedula.get(norm(e.cedula));
+    return round2((a?.total ?? 0) + (b?.total ?? 0));
+  };
 
   // ── Ficha de persona ─────────────────────────────────────────────────────────
   const [sel, setSel] = useState<Employee | null>(null);
@@ -377,7 +407,8 @@ export function PagoPorPersona({ canEdit }: { canEdit: boolean }) {
       {shown.length === 0 ? (
         <EmptyState title="Sin personal" subtitle="No hay empleados que coincidan con la búsqueda." />
       ) : shown.map((e) => {
-        const n = paysOf(e).length;
+        // Cantidad de pagos: se lee O(1) del índice (mismo criterio id/cédula que paysOf).
+        const n = (paysIndex.byId.get(e.id)?.count ?? 0) + (paysIndex.byCedula.get(norm(e.cedula))?.count ?? 0);
         const on = seleccionados.has(e.id);
         return (
           <Card key={e.id}>
