@@ -866,8 +866,13 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   // Datos del reporte: total GENERAL, conteo POR EMPRESA y DETALLE por empresa (cada
   // equipo con sus datos reales). Aplica el filtro de CLASIFICACIÓN tildada (vacío = todas).
+  // El CONTEO cuenta SOLO equipos ACTIVOS (en ubicaciones/servicio): se excluyen los
+  // INACTIVOS del catálogo (active=false / NO OPERATIVA operational=false) y los que están
+  // EN ESPERA (stand by). Mismo criterio que el reporte de Conteo del módulo Reportes.
+  const esActivoConteo = (m: Machinery) => m.en_espera !== true && (m as any).active !== false && m.operational !== false;
   const buildReportData = (scope: string, sel: Set<string>) => {
-    const src = sel.size === 0 ? scopedMachines(scope) : scopedMachines(scope).filter((m) => sel.has(repClasifKey(m)));
+    const base = scopedMachines(scope).filter(esActivoConteo);
+    const src = sel.size === 0 ? base : base.filter((m) => sel.has(repClasifKey(m)));
     const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
       const name = it.company_id ? companyName(it.company_id) || 'Empresa' : 'Sin empresa';
@@ -885,7 +890,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
     const m = new Map<string, { key: string; tipo: string; count: number }>();
-    scopedMachines(reportCompany).forEach((it) => {
+    scopedMachines(reportCompany).filter(esActivoConteo).forEach((it) => {
       const k = repClasifKey(it);
       const e = m.get(k) ?? { key: k, tipo: repClasifLabel(it), count: 0 };
       e.count += 1;
