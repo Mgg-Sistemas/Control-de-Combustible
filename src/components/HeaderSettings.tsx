@@ -5,6 +5,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useToast } from './ToastProvider';
 import { isBiometricSupported, isBiometricEnabled, enableBiometric, disableBiometric } from '../lib/biometric';
 import { ChangePasswordButton } from './ChangePasswordButton';
+import { forceReloadLatest } from '../lib/version';
 
 /**
  * TUERCA ⚙️ del encabezado (junto a la campana). Reemplaza la fila "Ajustes" del
@@ -101,6 +102,15 @@ export default function HeaderSettings() {
 
               {/* Cambiar contraseña */}
               <ChangePasswordButton variant="row" />
+
+              {/* Actualizar app (solo web): fuerza la recarga a la ÚLTIMA versión (bundle
+                  nuevo) por si el aviso automático no llega a salir (caché del host). Aquí,
+                  en la tuerca, queda disponible en TODAS las pantallas y roles. */}
+              {Platform.OS === 'web' ? (
+                <TouchableOpacity onPress={() => { setOpen(false); forceReloadLatest(); }} style={{ paddingVertical: 4 }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>🔄 Actualizar app (última versión)</Text>
+                </TouchableOpacity>
+              ) : null}
 
               {/* Más ajustes (herramientas avanzadas) */}
               <TouchableOpacity onPress={goAjustes} style={{ paddingVertical: 4 }}>

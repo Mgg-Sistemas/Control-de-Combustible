@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Platform } from 'react-native';
-import { isUpdateAvailable, UPD_TARGET_KEY, UPD_ATTEMPT_KEY } from '../lib/version';
+import { isUpdateAvailable, forceReloadLatest } from '../lib/version';
 
 /**
  * Barra flotante que avisa cuando hay una versión nueva desplegada. En vez de
@@ -32,26 +32,9 @@ export function UpdateBanner() {
 
   const actualizar = () => {
     setShow(false); // feedback inmediato
-    const w: any = globalThis;
-    // 0) Marca el INTENTO: guardamos a qué bundle estamos recargando. Si tras recargar
-    //    el host sigue sirviendo el mismo (no avanzamos), la guarda anti-lazo en
-    //    version.ts evita que el aviso vuelva a salir en bucle ("no se quita").
-    try { const t = w.localStorage?.getItem?.(UPD_TARGET_KEY); if (t) w.localStorage?.setItem?.(UPD_ATTEMPT_KEY, t); } catch {}
-    // 1) Limpia caches del navegador / PWA si existen (por si un service worker
-    //    guardó el index/bundle viejo).
-    try { w.caches?.keys?.().then((ks: string[]) => ks.forEach((k) => w.caches.delete(k))).catch(() => {}); } catch {}
-    // 2) Recarga FORZANDO un index.html FRESCO con un cache-buster (_v). Un simple
-    //    location.reload() reusa el index cacheado → vuelve a cargar el bundle VIEJO
-    //    y el aviso reaparece. Con la query nueva el navegador baja el index nuevo,
-    //    que referencia el bundle con hash nuevo (URL distinta) → carga la versión nueva.
-    try {
-      const url = new w.URL(w.location.href);
-      url.searchParams.set('_v', String(Date.now()));
-      w.location.replace(url.toString());
-      return;
-    } catch {}
-    // Fallback si algo de lo anterior falla.
-    try { w.location?.reload?.(); } catch {}
+    // Misma lógica de recarga con cache-buster, ahora centralizada en version.ts
+    // (la reutiliza también el control manual "🔄 Actualizar app" del inspector).
+    forceReloadLatest();
   };
 
   if (!show) return null;
