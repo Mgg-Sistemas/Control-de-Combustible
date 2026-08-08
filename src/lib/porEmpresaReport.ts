@@ -31,7 +31,7 @@ const horaCaracas = (iso: string | null): string => {
 
 type Fila = {
   code: string; serialPlaca: string; inspector: string;
-  horaIni: string; horaFin: string; trabajadas: number; paradas: number; averia: string;
+  horaIni: string; horaFin: string; trabajadas: number; paradasDia: number; paradasNoche: number; averia: string;
   timeline: string;
 };
 
@@ -195,6 +195,33 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return evs.map((e) => e.label).join(' · ');
   };
 
+  // Separa las horas paradas en DÍA/NOCHE (pedido del cliente 07/08/2026: "tiene
+  // que mostrar total paradas día y total parada noche"). Usa los episodios
+  // reales de `maintenance_requests` (MÁQUINA PARADA, con hora exacta de inicio)
+  // como fuente — mismo criterio día 7am–7pm / noche resto que `paradaShiftOf`
+  // en SupervisorScreen.tsx — y acota cada episodio a la ventana de ESTE día
+  // reportado (una parada que sigue abierta o que arrancó otro día solo cuenta
+  // las horas que caen dentro de esta fecha).
+  const paradaShiftOf = (ms: number): 'day' | 'night' => {
+    const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Caracas', hour: '2-digit', hour12: false }).format(ms));
+    return h >= 7 && h < 19 ? 'day' : 'night';
+  };
+  const dayBoundStart = new Date(`${date}T00:00:00-04:00`).getTime();
+  const dayBoundEnd = new Date(`${date}T23:59:59.999-04:00`).getTime();
+  const nowMs = Date.now();
+  const paradasDiaNoche = (id: string): { dia: number; noche: number } => {
+    const eps = paradasByMachine.get(id) || [];
+    let dia = 0, noche = 0;
+    eps.forEach((p) => {
+      const start = Math.max(p.start, dayBoundStart);
+      const end = Math.min(p.end ?? nowMs, dayBoundEnd);
+      if (end <= start) return;
+      const horas = (end - start) / 3600000;
+      if (paradaShiftOf(p.start) === 'night') noche += horas; else dia += horas;
+    });
+    return { dia: n2(dia), noche: n2(noche) };
+  };
+
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
   const inspTxt = (id: string): string => {
     const d = dayInsp.get(id); const nn = nightInsp.get(id);
@@ -220,6 +247,14 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     } else {
       par = n2(Number(r?.hours_stopped) || 0);
     }
+    // Reparte las horas paradas en día/noche a partir de los episodios reales
+    // (hora exacta). Si no hay episodios pero sí quedó un hueco/valor manual
+    // (`par`), se muestra en DÍA por defecto — no hay hora exacta para
+    // clasificarlo y es mejor no perder el dato.
+    const epSplit = paradasDiaNoche(id);
+    const hayEpisodios = epSplit.dia > 0 || epSplit.noche > 0;
+    const paradasDia = hayEpisodios ? epSplit.dia : par;
+    const paradasNoche = hayEpisodios ? epSplit.noche : 0;
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averia = averBy.get(id) || '';
@@ -231,7 +266,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
       horaIni, horaFin,
-      trabajadas: trab, paradas: par, averia,
+      trabajadas: trab, paradasDia, paradasNoche, averia,
       timeline: buildTimeline(id),
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -247,17 +282,19 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
         <td>${esc(f.inspector)}</td>
         <td>${esc(f.horaIni)}</td><td>${esc(f.horaFin)}</td>
         <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
-        <td class="r">${f.paradas > 0 ? f.paradas : '—'}</td>
+        <td class="r">${f.paradasDia > 0 ? f.paradasDia : '—'}</td>
+        <td class="r">${f.paradasNoche > 0 ? f.paradasNoche : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
       </tr>`).join('');
     const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
-    const tPar = n2(filas.reduce((s, f) => s + f.paradas, 0));
+    const tParDia = n2(filas.reduce((s, f) => s + f.paradasDia, 0));
+    const tParNoche = n2(filas.reduce((s, f) => s + f.paradasNoche, 0));
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th>Hora inicio</th><th>Hora fin</th>
-      <th class="r">Horas trab.</th><th class="r">Horas parada</th><th>Avería / motivo</th>
+      <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tPar}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="6">Total · ${filas.length} equipo(s)</td><td class="r b">${tTrab}</td><td class="r">${tParDia}</td><td class="r">${tParNoche}</td><td></td></tr></tfoot></table>`;
   };
 
   const secciones = empresas.map(([name, filas]) =>
@@ -265,7 +302,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   const totMach = empresas.reduce((s, [, f]) => s + f.length, 0);
   const totTrab = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.trabajadas, 0), 0));
-  const totPar = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradas, 0), 0));
+  const totParDia = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasDia, 0), 0));
+  const totParNoche = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasNoche, 0), 0));
 
   const extraCss = `
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
@@ -275,7 +313,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     td.r,th.r{text-align:right} td.b{font-weight:800}
   `;
 
-  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s) · 🏁 ${totTrab} h trabajadas · 🟡 ${totPar} h paradas`;
+  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s) · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
 
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',

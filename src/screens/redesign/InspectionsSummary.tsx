@@ -418,10 +418,22 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           Alert.alert('No se pudo iniciar', error.message);
           return;
         }
+        // "🟢 Activar ahora" también debe SACAR a la máquina de Parada/Avería —
+        // si no, queda con jornada iniciada pero sigue saliendo 🔴/🟡 en toda la
+        // app (avería/parada pendiente le gana a "iniciada", ver `estadoDe` en
+        // SupervisorScreen.tsx) y el botón parece no hacer nada. Mismo patrón
+        // que `volverOperativa()` del teléfono: resuelve TODAS las solicitudes
+        // pendientes de Mantenimiento de esas máquinas (parada + avería real).
+        const ids = items.map((it) => it.id);
+        const { error: mrErr } = await supabase
+          .from('maintenance_requests')
+          .update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso })
+          .in('machinery_id', ids)
+          .eq('status', 'pendiente');
         await Promise.all(items.map((it) =>
           logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
         ));
-        Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.`);
+        Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.${mrErr ? ' ⚠️ No se pudieron cerrar todas las averías/paradas pendientes.' : ''}`);
       } else if (action === 'pending') {
         // Corrección del cliente: esto NO es "Parada" (eso es exclusivo de
         // avería/algo físico que le pasa a la máquina, con su propio botón y
@@ -624,7 +636,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       rounds.forEach((r) => { if (r.round_date === yesterdayIso && r.jornada_shift === 'night' && r.jornada_start_at) { workedSet.add(r.machinery_id); openSet.add(r.machinery_id); anyOpenSet.add(r.machinery_id); } });
     }
     const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
-    const dayEndMs = new Date(selDay + 'T23:59:59.999-04:00').getTime();
+    // El turno NOCHE cruza la medianoche (19:00 → 07:00 del día siguiente): una
+    // avería/parada marcada a las 2am, por ejemplo, tiene `created_at` del día
+    // SIGUIENTE en el calendario pero por horario (paradaShiftOf) sigue siendo
+    // del turno de noche de ESTE día. Antes el corte era siempre 23:59:59 de
+    // `selDay`, así que esas marcas de madrugada quedaban FUERA — el turno
+    // noche del panel/reporte no las mostraba aunque el PDF firmado (que ya
+    // usa este mismo criterio, ver inspectorReport.ts nightEndBound) sí. Se
+    // extiende el corte hasta las 7am del día siguiente SOLO para el turno noche.
+    const nightNextDay = (() => { const d = new Date(selDay + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+    const dayEndMs = shiftArg === 'night'
+      ? new Date(`${nightNextDay}T07:00:00-04:00`).getTime()
+      : new Date(selDay + 'T23:59:59.999-04:00').getTime();
     // Averías de ESTE turno. REGLA (confirmada 06-ago-2026): el estado avería/parada es
     // POR TURNO — pertenece al turno de la HORA en que se marcó (paradaShiftOf). Solo ese
     // turno la ve averiada; el OTRO turno ve la máquina como pendiente/iniciada. Arrastra
@@ -936,7 +959,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin };
+      // Transcurrido: mientras la jornada sigue ABIERTA, `worked` es el total ya
+      // guardado (puede ser 0 o un valor fijo pre-cargado), no el tiempo real que
+      // lleva corriendo — se calcula aparte (ahora − hora de inicio real).
+      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH };
     });
   }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine]);
   const listShown = useMemo(() => {
@@ -977,8 +1004,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
+      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
       const dn = inspByShift.get(id) ?? {};
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow };
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH };
     });
     return rows.filter((r) => {
       const i = r.info;
@@ -1470,6 +1498,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
                           <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
                           <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
+                          {r.elapsedH != null ? (<>
+                            <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
+                          </>) : null}
                         </Text>
                       </View>
                     );
@@ -1674,6 +1705,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
+                              {r.elapsedH != null ? (<>
+                                <Text style={{ color: colors.muted }}>  ·  ⏳ Transcurrido </Text>
+                                <Text style={{ color: colors.warning, fontWeight: '800' }}>{Math.round(r.elapsedH * 100) / 100} h</Text>
+                              </>) : null}
                             </Text>
                           ) : null}
                           {r.estado === 'parada' ? (
