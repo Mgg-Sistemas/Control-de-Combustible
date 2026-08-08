@@ -30,6 +30,7 @@ const horaCaracas = (iso: string | null): string => {
 };
 
 type Fila = {
+  inactiva: boolean;
   code: string; serialPlaca: string; inspector: string;
   horaIni: string; horaFin: string; trabajadas: number; paradasDia: number; paradasNoche: number; averia: string;
   timeline: string;
@@ -49,7 +50,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // 1) Máquinas de las empresas elegidas.
   const machs = await selectAllRows(
     'machinery',
-    'id, code, serial, plate, company_id, company:company_id(name)',
+    'id, code, serial, plate, active, company_id, company:company_id(name)',
     (q) => q.in('company_id', companyIds),
   );
   const ids = ((machs ?? []) as any[]).map((m) => m.id);
@@ -60,7 +61,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // 2) Rondas del día (horas trabajadas y paradas).
   const rounds = await selectAllRows(
     'machine_rounds',
-    'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours',
+    'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift',
     (q) => q.eq('round_date', date).in('machinery_id', ids),
   );
   const roundBy = new Map<string, any>();
@@ -128,20 +129,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     list.push(m);
     mrByMachine.set(m.machinery_id, list);
   });
-  const averBy = new Map<string, string>(); // motivo real más reciente por máquina (etiqueta corta)
-  mrByMachine.forEach((rows, machineryId) => {
-    const real = rows.find((r) => r.material !== 'MÁQUINA PARADA');
-    if (real) {
-      const notes = (real.notes && String(real.notes).trim()) || '';
-      averBy.set(machineryId, notes || String(real.material || 'Avería'));
-      return;
-    }
-    const parada = rows.find((r) => r.material === 'MÁQUINA PARADA');
-    if (parada) {
-      const notes = (parada.notes && String(parada.notes).trim()) || '';
-      averBy.set(machineryId, notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)');
-    }
-  });
+  // El motivo (avería/parada) se compone POR TURNO más abajo (averiaTxt), etiquetando
+  // ☀️ día / 🌙 noche según la HORA en que se registró — así el "no trabajó" de noche
+  // no se confunde con el trabajo del día. Usa mrByMachine (arriba) como fuente.
 
   // Línea de tiempo por máquina: cada fila 'MÁQUINA PARADA' es UN episodio de parada
   // (created_at = cuándo paró, resolved_at = cuándo se reactivó, o sigue en curso si
@@ -222,6 +212,28 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return { dia: n2(dia), noche: n2(noche) };
   };
 
+  // Motivo (avería/parada) de UN turno para una máquina, o undefined si ese turno no
+  // tuvo nada. Clasifica cada registro por la HORA (Caracas) en que se creó.
+  const motivoDe = (rows: any[], sh: 'day' | 'night'): string | undefined => {
+    const shiftRows = rows.filter((r) => paradaShiftOf(new Date(r.created_at).getTime()) === sh);
+    if (!shiftRows.length) return undefined;
+    const real = shiftRows.find((r) => r.material !== 'MÁQUINA PARADA');
+    if (real) { const notes = (real.notes && String(real.notes).trim()) || ''; return notes || String(real.material || 'Avería'); }
+    const parada = shiftRows.find((r) => r.material === 'MÁQUINA PARADA');
+    if (parada) { const notes = (parada.notes && String(parada.notes).trim()) || ''; return notes ? limpiarNoTrabajo(notes) : 'Parada (sin motivo)'; }
+    return undefined;
+  };
+  // Avería/motivo etiquetado por turno: "☀️ <día> · 🌙 <noche>" (solo los que existan).
+  const averiaTxt = (id: string): string => {
+    const rows = mrByMachine.get(id) || [];
+    if (!rows.length) return '';
+    const d = motivoDe(rows, 'day'); const nn = motivoDe(rows, 'night');
+    const parts: string[] = [];
+    if (d) parts.push(`☀️ ${d}`);
+    if (nn) parts.push(`🌙 ${nn}`);
+    return parts.join(' · ');
+  };
+
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
   const inspTxt = (id: string): string => {
     const d = dayInsp.get(id); const nn = nightInsp.get(id);
@@ -239,12 +251,26 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Por empresa → filas (solo máquinas con actividad o avería/parada ese día).
   const porEmpresa = new Map<string, Fila[]>();
   ids.forEach((id) => {
+    const m = machById.get(id);
+    const empresa = m?.company?.name || 'Sin empresa';
+    const inactiva = m?.active === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
-    const trab = n2((Number(r?.day_hours) || 0) + (Number(r?.night_hours) || 0) + (Number(r?.overtime_hours) || 0));
-    // Horas paradas: si hay tramos, span total − horas trabajadas (tiempo ocioso
-    // entre tramos, p. ej. avería a media jornada). Si no hay tramos, cae al valor
-    // manual `hours_stopped` (Control de Maquinaria).
+    // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
+    let dh = n2((Number(r?.day_hours) || 0) + (Number(r?.overtime_hours) || 0));
+    let nh = n2(Number(r?.night_hours) || 0);
+    // EN VIVO: una jornada ABIERTA (jornada_start_at, aún sin finalizar) suma las horas
+    // transcurridas hasta AHORA a su turno — así el reporte crece con el tiempo mientras
+    // la máquina trabaja (las horas se banquean recién al finalizar/parar). Tope 12h =
+    // duración del turno (igual que el auto-cierre del servidor).
+    const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
+    const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
+    if (jStart && jShift) {
+      const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
+      if (jShift === 'day') dh = n2(dh + elapsed); else nh = n2(nh + elapsed);
+    }
+    const trab = n2(dh + nh);
+    // Horas paradas totales (fallback sin episodios) + reparto día/noche por episodio.
     let par = 0;
     if (seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
       const spanH = (seg.maxEnd - seg.minStart) / 3600000;
@@ -252,28 +278,21 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     } else {
       par = n2(Number(r?.hours_stopped) || 0);
     }
-    // Reparte las horas paradas en día/noche a partir de los episodios reales
-    // (hora exacta). Si no hay episodios pero sí quedó un hueco/valor manual
-    // (`par`), se muestra en DÍA por defecto — no hay hora exacta para
-    // clasificarlo y es mejor no perder el dato.
     const epSplit = paradasDiaNoche(id);
     const hayEpisodios = epSplit.dia > 0 || epSplit.noche > 0;
     const paradasDia = hayEpisodios ? epSplit.dia : par;
     const paradasNoche = hayEpisodios ? epSplit.noche : 0;
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
-    const averia = averBy.get(id) || '';
-    if (trab <= 0 && par <= 0 && !averia) return; // sin nada que reportar ese día
-    // Acumular totales por turno (solo de las máquinas reportadas). Las paradas
-    // usan el MISMO reparto por episodio (paradasDia/paradasNoche) que la tabla
-    // de abajo, para que las tarjetas de arriba y las columnas coincidan siempre.
-    const dh = n2((Number(r?.day_hours) || 0) + (Number(r?.overtime_hours) || 0)); // extra = día
-    const nh = n2(Number(r?.night_hours) || 0);
+    const averiaBase = averiaTxt(id);
+    // Las ACTIVAS solo se listan si tuvieron algo ese día; las INACTIVAS aparecen
+    // SIEMPRE (solo en este reporte por empresa) con su estado 🚫 INACTIVA.
+    if (!inactiva && trab <= 0 && paradasDia <= 0 && paradasNoche <= 0 && !averiaBase) return;
     totDayH = n2(totDayH + dh); totNightH = n2(totNightH + nh);
     totParDay = n2(totParDay + paradasDia); totParNight = n2(totParNight + paradasNoche);
-    const m = machById.get(id);
-    const empresa = m?.company?.name || 'Sin empresa';
+    const averia = inactiva ? (averiaBase ? `🚫 INACTIVA · ${averiaBase}` : '🚫 INACTIVA') : averiaBase;
     const fila: Fila = {
+      inactiva,
       code: m?.code || '—',
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
@@ -289,7 +308,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   const tabla = (filas: Fila[]): string => {
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) =>
-      `<tr>
+      `<tr${f.inactiva ? ' class="inact"' : ''}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
         <td>${esc(f.horaIni)}</td><td>${esc(f.horaFin)}</td>
@@ -329,7 +348,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${totParNight} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
     </div>
-    <div class="kpi-note">Total de jornada = horas trabajando (${totTrab} h) − horas paradas (${totPar} h).</div>`;
+    <div class="kpi-note">Total de jornada = horas trabajando (${totTrab} h) − horas paradas (${totPar} h). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
 
   const extraCss = `
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
@@ -337,6 +356,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
     td.r,th.r{text-align:right} td.b{font-weight:800}
+    table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
     .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
     .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
     .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
