@@ -59,6 +59,7 @@ type Row = {
   serial: string | null; plate: string | null; sector: string; referencia: string; edificio: string;
   tipo: string; clasificacion: string;
   enCurso: boolean; parada: boolean; pendiente: boolean; finalizada: boolean; averiada: boolean; motivo: string;
+  horas: number; // horas REALES trabajadas por esta máquina en el turno (0 si parada/avería/pendiente) — base de la eficiencia
 };
 
 /**
@@ -218,6 +219,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
       tipo: (extra?.tipo && String(extra.tipo).trim()) || '—',
       clasificacion: (extra?.clasificacion && String(extra.clasificacion).trim()) || '—',
       enCurso, parada, pendiente, finalizada, averiada, motivo,
+      horas: Math.min(12, Math.max(0, hoursForShift)),
     });
   });
 
@@ -267,6 +269,13 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // en vivo (InspectionsSummary.tsx `sinInspectorReal`) — antes este PDF no la
   // aplicaba y mostraba un % contradictorio con lo que se ve en pantalla.
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
+  // Eficiencia REAL (corrección 08-ago-2026, pedido cliente): antes era "% de máquinas
+  // chequeadas" (trabajando/parada/avería contaban IGUAL, 100%, solo penalizaba lo
+  // pendiente) — una máquina averiada/parada TODO el turno sumaba lo mismo que una que
+  // trabajó completo, lo cual distorsionaba el indicador. Ahora pondera por HORAS REALES:
+  // eficiencia = horas realmente trabajadas ÷ horas de turno esperadas (12 h × máquinas
+  // asignadas) × 100. Una máquina parada/averiada aporta 0 h (resta eficiencia real,
+  // proporcional al tiempo perdido); una pendiente (sin iniciar) también aporta 0 h.
   const inspectoresConEficiencia = inspectores.map(([name, list]) => {
     const iniciadas = list.filter((r) => r.enCurso || r.finalizada).length;
     const averiadas = list.filter((r) => r.averiada);
@@ -274,8 +283,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     const pendientes = list.filter((r) => r.pendiente);
     const chequeadas = list.length - pendientes.length;
     const esVirtual = sinInspReal(name);
-    const eficiencia = !esVirtual && list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
-    return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, eficiencia, esVirtual };
+    const horasTrabajadas = list.reduce((s, r) => s + r.horas, 0);
+    const horasEsperadas = list.length * 12;
+    const eficiencia = !esVirtual && horasEsperadas > 0 ? Math.round((horasTrabajadas / horasEsperadas) * 100) : null;
+    return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, horasTrabajadas, horasEsperadas, eficiencia, esVirtual };
   });
 
   const secciones = inspectoresConEficiencia.map(({ name, list, iniciadas, averiadas, paradas, pendientes, eficiencia }) => {
@@ -312,7 +323,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   }).join('');
   const tablaEficiencia = `
     <h3>⚡ Eficiencia por inspector</h3>
-    <p class="sum">100% = chequeó todas sus máquinas asignadas (trabajando, parada o con avería reportada). Menos de 100% = le quedaron máquinas sin chequear.</p>
+    <p class="sum">Eficiencia = horas realmente trabajadas ÷ horas de turno esperadas de sus máquinas asignadas (12 h cada una). Las paradas y averías restan horas trabajadas, igual que las máquinas sin iniciar jornada.</p>
     <table class="efi"><thead><tr>
       <th style="width:24px">Nº</th><th>Inspector</th><th>Asignadas</th><th>Chequeadas</th><th>Sin chequear</th><th>Eficiencia</th>
     </tr></thead><tbody>${filasEficiencia || '<tr><td colspan="6">Sin inspectores para este día.</td></tr>'}</tbody></table>
