@@ -304,9 +304,16 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
   // aparecen en la sección "⛔ Maquinaria inactiva". Al reactivarlas (Operativa)
   // vuelven al catálogo automáticamente. Sus horas pasadas no se tocan.
+  // La TAPA solo aplica a los equipos de TRANSPORTE DE ESCOMBROS (volteos/volquetas/
+  // toronto/batea) — mismo criterio que los reportes (ESCOMBRO_RE por nombre/tipo/
+  // clasificación). El filtro por tapa se limita a ese conjunto (pedido del cliente).
+  const esEscombro = (m: Machinery) =>
+    /VOLQUETA|VOLTEO|TORONTO|ESCOMBRO|BATEA/.test(`${m.code ?? ''} ${(m as any).tipo ?? ''} ${(m as any).clasificacion ?? ''}`.toUpperCase());
   // Filtro por tapa: sencilla (con tapa, no doble) · doble (con tapa doble) · sin tapa.
+  // Al activar cualquier filtro de tapa, se muestran SOLO equipos de transporte de escombros.
   const matchTapa = (m: Machinery) =>
     tapaFilter === '__all__' ? true
+    : !esEscombro(m) ? false
     : tapaFilter === 'sin' ? !m.con_tapa
     : tapaFilter === 'doble' ? (!!m.con_tapa && !!m.tapa_doble)
     : (!!m.con_tapa && !m.tapa_doble); // 'sencilla'
@@ -1210,7 +1217,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por tapa</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingRight: spacing.md }}>
           {(() => {
-            const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m));
+            const base = machinery.data.filter((m) => m.operational !== false && matchCompany(m) && esEscombro(m));
             const counts = {
               __all__: base.length,
               sencilla: base.filter((m) => !!m.con_tapa && !m.tapa_doble).length,
