@@ -6,6 +6,7 @@ import { DateField } from '../components/DateField';
 import { supabase } from '../lib/supabase';
 import { exportPdf, exportCardImage, pdfDocument } from '../lib/pdf';
 import { organigramaHtml, organigramaCard, ORG_STYLES, ORG_SHEET_MM, fichasHtml, fichaCargoHtml, listaCargos } from '../lib/organigrama';
+import { generatePersonalReport } from '../lib/personalReport';
 import { EyeIcon } from '../components/EyeIcon';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -353,6 +354,20 @@ export default function NominaScreen({ navigation }: any) {
         <View style={{ flex: 1 }}>
           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Organigrama y manual de cargos</Text>
           <Text style={{ color: colors.muted, fontSize: 11 }}>Estructura corporativa por cargos + funciones y subordinados (PDF/imagen)</Text>
+        </View>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
+      </TouchableOpacity>
+
+      {/* 👥 Reporte de PERSONAL por departamento (movido desde Reportes). Toda la
+          nómina activa agrupada por departamento + totales por departamento y cargo. */}
+      <TouchableOpacity
+        onPress={() => generatePersonalReport()}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md }}
+      >
+        <Text style={{ fontSize: 20 }}>👥</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14 }}>Personal por departamento</Text>
+          <Text style={{ color: colors.muted, fontSize: 11 }}>Reporte PDF de toda la nómina agrupada por departamento (totales por departamento y cargo)</Text>
         </View>
         <Text style={{ color: colors.brandText, fontWeight: '800' }}>›</Text>
       </TouchableOpacity>
