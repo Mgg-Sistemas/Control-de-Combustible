@@ -133,7 +133,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
   // Filtro por segmento (chips) para la vista admin "Ver todas".
-  const [segFilter, setSegFilter] = useState<'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'>('all');
+  const [segFilter, setSegFilter] = useState<'all' | 'pendiente' | 'iniciada' | 'cerrada' | 'parada' | 'averia'>('all');
   // Lista de "Todas las máquinas" (vista admin) COLAPSADA por defecto: no se
   // pintan las filas hasta que el usuario la despliega, para no volcar de una
   // vez las ~200 máquinas. Ya combinada con los chips de segmento de arriba.
@@ -552,6 +552,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (seg === 'averia') return { color: '#B91C1C', icon: '🔴', label: 'Averiada' };
     if (seg === 'parada') return { color: '#D9A200', icon: '🟡', label: 'Parada' };
     if (seg === 'iniciada' && openMine(id)) return { color: '#1E9E4A', icon: '🟢', label: 'Trabajando' };
+    if (seg === 'cerrada') return { color: '#1E3A5F', icon: '🏁', label: 'Finalizada' };
     return null;
   };
 
@@ -784,15 +785,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (mineNight) return 'night';
     return null;
   };
-  // ¿MI turno trabajó/abrió jornada en esta máquina? Coordinador (sin turno) = global.
-  // Así la jornada del inspector de día NO le sale "iniciada" al de noche (ni al revés).
-  const workedMine = (id: string): boolean => {
-    const r = roundsById[id]; if (!r) return false;
-    const sh = shiftOfMine(id);
-    if (sh === 'day') return r.dayWorked > 0 || r.openDay;
-    if (sh === 'night') return r.nightWorked > 0 || r.openNight;
-    return r.open || r.worked > 0;
-  };
   const openMine = (id: string): boolean => {
     const r = roundsById[id]; if (!r) return false;
     const sh = shiftOfMine(id);
@@ -800,11 +792,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (sh === 'night') return r.openNight;
     return r.open;
   };
-  // Variante por TURNO EXPLÍCITO (la usa la vista del coordinador, que agrupa por el
-  // turno ACTUAL del sistema): igual que workedMine pero con el turno dado.
-  const workedEn = (id: string, sh: 'day' | 'night'): boolean => {
+  // ¿MI turno tiene HORAS registradas (finalizó la jornada)? Sirve para separar
+  // CERRADA (finalizó con horas, ya no abierta) de INICIADA (abierta ahora).
+  const hoursMine = (id: string): boolean => {
     const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? (r.dayWorked > 0 || r.openDay) : (r.nightWorked > 0 || r.openNight);
+    const sh = shiftOfMine(id);
+    if (sh === 'day') return r.dayWorked > 0;
+    if (sh === 'night') return r.nightWorked > 0;
+    return r.worked > 0;
+  };
+  const openEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.openDay : r.openNight;
+  };
+  const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
+    const r = roundsById[id]; if (!r) return false;
+    return sh === 'day' ? r.dayWorked > 0 : r.nightWorked > 0;
   };
   // ÍNDICE O(1) de averías/paradas por máquina y turno. RENDIMIENTO: antes `segmentoDe`
   // hacía hasta 4 `.some()` sobre averiaRawList/paradaRawList por CADA llamada, y se llama
@@ -837,21 +840,23 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // pendiente. Cada inspector ve SUS estados de SU turno, día independiente de noche.
   // Prioridad: avería HOY (de mi turno) > parada HOY (de mi turno) > jornada abierta/horas
   // > avería arrastrada (mi turno) > parada arrastrada (mi turno) > pendiente.
-  const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
+  const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     const sh = shiftOfMine(id);                         // turno del inspector en esta máquina
     if (hasIn(estadoIndex.avHoy, id, sh)) return 'averia';   // 1) marcado HOY en mi turno gana
     if (hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
-    if (workedMine(id)) return 'iniciada';                    // 2) jornada abierta / con horas
-    if (hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 3) arrastrada de mi turno
+    if (openMine(id)) return 'iniciada';                      // 2) jornada ABIERTA ahora mismo
+    if (hoursMine(id)) return 'cerrada';                      // 3) finalizó con horas (ya no abierta)
+    if (hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
     if (hasIn(estadoIndex.paAny, id, sh)) return 'parada';
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
   // turno actual): día independiente de noche, misma prioridad.
-  const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'pendiente' => {
+  const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     if (hasIn(estadoIndex.avHoy, id, sh)) return 'averia';
     if (hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
-    if (workedEn(id, sh)) return 'iniciada';
+    if (openEn(id, sh)) return 'iniciada';
+    if (hoursEn(id, sh)) return 'cerrada';
     if (hasIn(estadoIndex.avAny, id, sh)) return 'averia';
     if (hasIn(estadoIndex.paAny, id, sh)) return 'parada';
     return 'pendiente';
@@ -882,17 +887,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const segCountsBase = useMemo(() => {
     const q = norm(query.trim());
     const base = (puedeCoordinar && showAll ? machines.filter(visibleParaInspector) : mine).filter((m) => matchQuery(m, q));
-    const counts = { all: base.length, pendiente: 0, iniciada: 0, parada: 0, averia: 0 };
+    const counts = { all: base.length, pendiente: 0, iniciada: 0, cerrada: 0, parada: 0, averia: 0 };
     base.forEach((m) => { counts[segmentoDe(m.id)]++; });
     return counts;
   }, [machines, mine, query, showAll, puedeCoordinar, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById, averiaRawList, paradaRawList, assignMap, uid]);
   // Grupos colapsables de la vista del INSPECTOR (mis máquinas), por estado, usando el
   // MISMO segmentoDe: 🟢 iniciadas · ⏳ pendientes · 🟡 paradas (incl. arrastradas) · 🔴 averiadas.
   const grupos = useMemo(() => {
-    const g: Record<'iniciadas' | 'pendientes' | 'paradas' | 'averiadas', Mach[]> = { iniciadas: [], pendientes: [], paradas: [], averiadas: [] };
+    const g: Record<'iniciadas' | 'cerradas' | 'pendientes' | 'paradas' | 'averiadas', Mach[]> = { iniciadas: [], cerradas: [], pendientes: [], paradas: [], averiadas: [] };
     mine.forEach((m) => {
       const seg = segmentoDe(m.id);
-      g[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
+      g[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : seg === 'cerrada' ? 'cerradas' : 'pendientes'].push(m);
     });
     return g;
   }, [mine, averiaPendienteIds, averiaHoyIds, paradaHoyIds, paradaIds, roundsById, averiaRawList, paradaRawList, assignMap, uid]);
@@ -901,7 +906,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // MISMO segmentoDe del resto de la pantalla. El inspector de sistema "MAQUINAS
   // FALTANTES" (placeholder) no cuenta. Sirve para que el coordinador vea a cada
   // inspector "como una vista de inspector" y opere sus máquinas.
-  type InspBuckets = { iniciadas: Mach[]; pendientes: Mach[]; paradas: Mach[]; averiadas: Mach[] };
+  type InspBuckets = { iniciadas: Mach[]; cerradas: Mach[]; pendientes: Mach[]; paradas: Mach[]; averiadas: Mach[] };
   const inspectoresView = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; ids: Set<string> }>();
     const ensure = (id: string, name: string) => {
@@ -918,15 +923,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     const machById = new Map(machines.map((m) => [m.id, m] as const));
     const rows = Array.from(byId.values()).map((g) => {
-      const buckets: InspBuckets = { iniciadas: [], pendientes: [], paradas: [], averiadas: [] };
+      const buckets: InspBuckets = { iniciadas: [], cerradas: [], pendientes: [], paradas: [], averiadas: [] };
       g.ids.forEach((id) => {
         const m = machById.get(id);
         if (!m || !visibleParaInspector(m)) return;
         const seg = segmentoConTurno(id, nowShift);
-        buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : 'pendientes'].push(m);
+        buckets[seg === 'averia' ? 'averiadas' : seg === 'parada' ? 'paradas' : seg === 'iniciada' ? 'iniciadas' : seg === 'cerrada' ? 'cerradas' : 'pendientes'].push(m);
       });
       (Object.keys(buckets) as (keyof InspBuckets)[]).forEach((k) => buckets[k].sort((a, b) => cmpText(a.code, b.code)));
-      const total = buckets.iniciadas.length + buckets.pendientes.length + buckets.paradas.length + buckets.averiadas.length;
+      const total = buckets.iniciadas.length + buckets.cerradas.length + buckets.pendientes.length + buckets.paradas.length + buckets.averiadas.length;
       return { id: g.id, name: g.name, buckets, total };
     }).filter((r) => r.total > 0).sort((a, b) => cmpText(a.name, b.name));
     return rows;
@@ -1868,10 +1873,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   // TAREA 1: chips de filtro por segmento, arriba de la lista de máquinas (mismo
   // estilo de chip-pill ya usado en este archivo, ej. filtro de pendMode/checkFilter).
-  const SEG_CHIPS: { key: 'all' | 'pendiente' | 'iniciada' | 'parada' | 'averia'; label: string }[] = [
+  const SEG_CHIPS: { key: 'all' | 'pendiente' | 'iniciada' | 'cerrada' | 'parada' | 'averia'; label: string }[] = [
     { key: 'all', label: 'Todas' },
     { key: 'pendiente', label: '⏳ Pendientes por iniciar' },
     { key: 'iniciada', label: '🟢 Iniciadas' },
+    { key: 'cerrada', label: '🏁 Cerradas / finalizadas' },
     { key: 'parada', label: '🟡 Paradas' },
     { key: 'averia', label: '🔧 Por avería' },
   ];
@@ -2124,6 +2130,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               <InspectorKpiGrid
                 items={[
                   { key: 'iniciadas', label: 'Iniciadas', value: grupos.iniciadas.length, tone: 'success', icon: '🟢' },
+                  { key: 'cerradas', label: 'Cerradas', value: grupos.cerradas.length, tone: 'brand', icon: '🏁' },
                   { key: 'pendientes', label: 'Pendientes', value: grupos.pendientes.length, tone: 'accent', icon: '⏳' },
                   { key: 'paradas', label: 'Paradas', value: grupos.paradas.length, tone: 'warning', icon: '🟡' },
                   { key: 'averiadas', label: 'Averiadas', value: grupos.averiadas.length, tone: 'danger', icon: '🔴' },
@@ -2131,7 +2138,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 activeKey={Object.entries(grpOpen).find(([, v]) => v)?.[0] ?? null}
                 onSelect={(key) => {
                   const wasOpen = !!grpOpen[key];
-                  setGrpOpen({ iniciadas: false, pendientes: false, paradas: false, averiadas: false, [key]: !wasOpen });
+                  setGrpOpen({ iniciadas: false, cerradas: false, pendientes: false, paradas: false, averiadas: false, [key]: !wasOpen });
                 }}
               />
             </View>
@@ -2199,6 +2206,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {/* 4 grupos por ESTADO, COLAPSADOS por defecto, con contador y buscador propio. */}
               {([
                 { key: 'iniciadas', label: 'Iniciadas', icon: '🟢', color: colors.success, desc: 'Jornada abierta ahora mismo' },
+                { key: 'cerradas', label: 'Cerradas / finalizadas', icon: '🏁', color: colors.brandText, desc: 'Jornada finalizada hoy (con horas)' },
                 { key: 'pendientes', label: 'Pendientes por iniciar', icon: '⏳', color: colors.brandText, desc: 'Aún sin iniciar la jornada de hoy' },
                 { key: 'paradas', label: 'Paradas / no trabajó', icon: '🟡', color: colors.warning, desc: 'Paradas (arrastran el estado del día anterior)' },
                 { key: 'averiadas', label: 'Averiadas', icon: '🔴', color: colors.danger, desc: 'Con avería pendiente por resolver' },
