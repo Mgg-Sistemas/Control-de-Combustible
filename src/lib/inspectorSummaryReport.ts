@@ -3,7 +3,7 @@ import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { edificioLabel } from './edificios';
-import { listInspectorAssignments } from './machineInspectors';
+import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
 /**
@@ -196,8 +196,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     // trabajando; arrastrada solo si no trabajó el turno.
     const av = averiaByMachine.get(a.machinery_id);
     const par = paradaByMachine.get(a.machinery_id);
-    const avApplies = !!av && av.shift === shiftCtx && (av.createdMs < dayStartMs ? !worked : true);
-    const parApplies = !!par && par.shift === shiftCtx && (par.createdMs < dayStartMs ? !worked : true);
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca cuentan avería/parada.
+    const siempreActivo = inspectorSiempreActivo(a.inspector_name);
+    const avApplies = !siempreActivo && !!av && av.shift === shiftCtx && (av.createdMs < dayStartMs ? !worked : true);
+    const parApplies = !siempreActivo && !!par && par.shift === shiftCtx && (par.createdMs < dayStartMs ? !worked : true);
     let averiada = false, parada = false, enCurso = false, pendiente = false;
     if (avApplies) averiada = true;                // 1/4) avería de este turno
     else if (parApplies) parada = true;            // 2/5) parada de este turno
