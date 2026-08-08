@@ -486,9 +486,10 @@ function SupervisorTabs({ onSistema }: { onSistema?: () => void } = {}) {
   );
 }
 
-/** Panel del CONDUCTOR (chofer): sus 3 funciones diarias en pestañas — surtir
- *  combustible, entrada/salida de camiones y asistencia de camiones. No ve el
- *  resto del sistema. Arranca en "Surtir". */
+/** Panel del CONDUCTOR (chofer): sus funciones diarias en pestañas — surtir
+ *  combustible, el MAPA de máquinas y el CATÁLOGO. Ya NO muestra camiones ni
+ *  asistencia (pedido 08/08/2026: el chofer solo ve combustible, mapa y catálogo).
+ *  No ve el resto del sistema. Arranca en "Surtir". */
 function ConductorTabs() {
   const { colors } = useTheme();
   const screenHeader = useScreenHeader();
@@ -502,8 +503,8 @@ function ConductorTabs() {
       }}
     >
       <Tab.Screen name="ConductorSurtir" component={FuelDriverScreen} options={{ title: 'Surtir', tabBarIcon: tabIcon('⛽') }} />
-      <Tab.Screen name="ConductorCamiones" component={CamionesScreen} options={{ title: 'Camiones', tabBarIcon: tabIcon('🚪') }} />
-      <Tab.Screen name="ConductorAsistencia" component={AsistenciaCamionesScreen} options={{ title: 'Asistencia', tabBarIcon: tabIcon('📋') }} />
+      <Tab.Screen name="Map" component={MapScreen} options={{ title: 'Mapa', tabBarIcon: tabIcon('🗺️') }} />
+      <Tab.Screen name="Equipos" component={EquiposScreen} options={{ title: 'Catálogo', tabBarIcon: tabIcon('🚜') }} />
     </Tab.Navigator>
   );
 }
@@ -693,7 +694,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   combustible: { CombustibleHome: 'combustible-directo', Manual: 'manual', Ajustes: 'ajustes' },
   inventario: { InventarioHome: 'inventario-directo', Manual: 'manual', Ajustes: 'ajustes' },
   fabricacionPlanta: { PlantaKioskHome: 'kiosco-directo', Manual: 'manual' },
-  conductor: { ConductorSurtir: 'surtir', ConductorCamiones: 'camiones', ConductorAsistencia: 'asistencia-camiones' },
+  conductor: { ConductorSurtir: 'surtir', Map: 'mapa', Equipos: 'catalogo' },
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', DistribucionGuardias: 'distribucion-guardias', Manual: 'manual', Ajustes: 'ajustes' },
 };
 
