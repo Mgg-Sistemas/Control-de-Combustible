@@ -655,14 +655,15 @@ export default function ReportsScreen({ route }: any) {
     // Paginado: con >1000 rondas en el rango la consulta se truncaba.
     const data = await selectAllRows(
       'machine_rounds',
-      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
+      'round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price, jornada_start_at, jornada_shift, machinery:machinery_id(id, code, serial, tipo, clasificacion, entry_date, price_per_hour, company:company_id(name))',
       (q) => q.gte('round_date', fromArg).lte('round_date', toArg)
     );
+    const nowMs = Date.now();
     // Primer paso: por (máquina única, fecha) tomamos el máximo (dedupe de rondas).
     // Cada fecha guarda el precio EFECTIVO de esa ronda: si la ronda está cerrada trae
     // frozen_price (precio congelado del corte); si no, el precio actual de la máquina.
     // Así un corte cerrado se reporta con SUS precios aunque después cambien.
-    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null }> };
+    type Acc = { machine: string; tipo: string; clasificacion: string; serial: string | null; entry: string | null; company: string; price: number | null; byDate: Map<string, { d: number; n: number; s: number; o: number; price: number | null; js: number | null; jsh: string | null }> };
     const accs = new Map<string, Acc>();
     (data ?? []).forEach((r: any) => {
       const mm = r.machinery || {};
@@ -677,11 +678,14 @@ export default function ReportsScreen({ route }: any) {
         price: mm.price_per_hour != null ? Number(mm.price_per_hour) : null,
         byDate: new Map(),
       };
-      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0, price: null };
+      const cur = a.byDate.get(r.round_date) ?? { d: 0, n: 0, s: 0, o: 0, price: null, js: null as number | null, jsh: null as string | null };
       cur.d = Math.max(cur.d, Number(r.day_hours) || 0);
       cur.n = Math.max(cur.n, Number(r.night_hours) || 0);
       cur.s = Math.max(cur.s, Number(r.hours_stopped) || 0);
       cur.o = Math.max(cur.o, Number(r.overtime_hours) || 0);
+      // Jornada EN CURSO (marcada por el inspector, aún sin finalizar/auto-cerrar):
+      // guardamos su inicio para sumar el tiempo transcurrido en vivo más abajo.
+      if (r.jornada_start_at) { const ms = new Date(r.jornada_start_at).getTime(); if (isFinite(ms)) { cur.js = ms; cur.jsh = r.jornada_shift ?? null; } }
       // Precio efectivo de la ronda: congelado del rango (frozen_price>0) si existe; si no,
       // el precio ACTUAL de la máquina (que ya es "el de la semana pasada" si no lo cambiaste).
       cur.price = r.frozen_price != null && Number(r.frozen_price) > 0 ? Number(r.frozen_price) : (mm.price_per_hour != null ? Number(mm.price_per_hour) : null);
@@ -695,9 +699,17 @@ export default function ReportsScreen({ route }: any) {
     accs.forEach((a) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
-      a.byDate.forEach(({ d, n, s, o, price }) => {
-        const w = workedFromShifts(d, n, s, o);
-        dayH += d; nightH += n; totalH += w;
+      a.byDate.forEach(({ d, n, s, o, price, js, jsh }) => {
+        // Si hay jornada EN CURSO, sumamos el tiempo transcurrido (cap 12h) al turno
+        // abierto para que la máquina APAREZCA aunque no se haya finalizado todavía
+        // (sincroniza el informe con lo que el inspector tiene trabajando en vivo).
+        let dd = d, nn = n;
+        if (js != null) {
+          const elapsed = Math.min(12, Math.max(0, (nowMs - js) / 3600000));
+          if (jsh === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
+        }
+        const w = workedFromShifts(dd, nn, s, o);
+        dayH += dd; nightH += nn; totalH += w;
         if (w > 0) days += 1; // solo jornadas con horas trabajadas > 0
         // Monto por ronda con SU precio efectivo (congelado o actual); así los cortes
         // cerrados suman con sus precios aunque el precio de la máquina haya cambiado.
