@@ -231,6 +231,11 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return parts.length ? parts.join(' · ') : '—';
   };
 
+  // Totales GLOBALES por turno (solo de las máquinas que SÍ se reportan). Las horas de
+  // día = day_hours (+ extra); las de noche = night_hours. Las paradas se reparten por el
+  // turno donde trabajó la máquina (si trabajó día y noche, proporcional) para que
+  // Σparadas_día + Σparadas_noche = Σparadas (coincide con el total de la columna).
+  let totDayH = 0, totNightH = 0, totParDay = 0, totParNight = 0;
   // Por empresa → filas (solo máquinas con actividad o avería/parada ese día).
   const porEmpresa = new Map<string, Fila[]>();
   ids.forEach((id) => {
@@ -259,6 +264,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averia = averBy.get(id) || '';
     if (trab <= 0 && par <= 0 && !averia) return; // sin nada que reportar ese día
+    // Acumular totales por turno (solo de las máquinas reportadas).
+    const dh = n2((Number(r?.day_hours) || 0) + (Number(r?.overtime_hours) || 0)); // extra = día
+    const nh = n2(Number(r?.night_hours) || 0);
+    let parDay = 0, parNight = 0;
+    if (dh > 0 && nh > 0) { parDay = n2((par * dh) / (dh + nh)); parNight = n2(par - parDay); }
+    else if (nh > 0 && dh === 0) { parNight = par; }
+    else { parDay = par; }
+    totDayH = n2(totDayH + dh); totNightH = n2(totNightH + nh);
+    totParDay = n2(totParDay + parDay); totParNight = n2(totParNight + parNight);
     const m = machById.get(id);
     const empresa = m?.company?.name || 'Sin empresa';
     const fila: Fila = {
@@ -305,12 +319,32 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const totParDia = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasDia, 0), 0));
   const totParNoche = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasNoche, 0), 0));
 
+  // TOTAL DE JORNADA = horas trabajando − horas paradas (pedido del cliente).
+  const totJornada = n2(totTrab - totPar);
+  // Tarjetas de TOTALES arriba: HRS DÍA · PARADAS DÍA · HRS NOCHE · PARADA NOCHE · JORNADA.
+  const kpis = `
+    <div class="kpis">
+      <div class="kpi"><div class="k">Total hrs día</div><div class="v">${totDayH} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">${totParDay} H</div></div>
+      <div class="kpi"><div class="k">Total hrs noche</div><div class="v">${totNightH} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${totParNight} H</div></div>
+      <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
+    </div>
+    <div class="kpi-note">Total de jornada = horas trabajando (${totTrab} h) − horas paradas (${totPar} h).</div>`;
+
   const extraCss = `
     h3{margin:16px 0 3px;font-size:13px;color:#1E3A5F;padding-bottom:3px;border-bottom:2px solid #1E3A5F}
     table.ir{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11px}
     table.ir th,table.ir td{border:1px solid #ccc;padding:5px 7px;text-align:left;vertical-align:top}
     table.ir th{background:#1E3A5F;color:#fff}
     td.r,th.r{text-align:right} td.b{font-weight:800}
+    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
+    .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
+    .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
+    .kpi .v{font-size:20px;font-weight:800;color:#1E3A5F;margin-top:2px}
+    .kpi.warn{background:#FEF3F2;border-color:#FECDCA} .kpi.warn .v{color:#B42318}
+    .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
+    .kpi-note{font-size:10px;color:#6B7280;margin:0 0 12px}
   `;
 
   const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s) · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
@@ -318,7 +352,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',
     subtitle,
-    body: empresas.length ? secciones : '<p>Sin actividad para las empresas elegidas en este día.</p>',
+    body: empresas.length ? (kpis + secciones) : '<p>Sin actividad para las empresas elegidas en este día.</p>',
     extraCss,
   });
   return await exportPdf(html, `Reporte del dia por empresa ${fecha}`);

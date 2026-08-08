@@ -1244,28 +1244,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             })}
           </View>
 
-          {/* Fila con DOS botones en línea: reporte "por asignar/iniciar" + "Gestionar". */}
+          {/* Reportes principales, LADO A LADO (antes aquí estaban "Por asignar/iniciar"
+              y "Gestionar", que se quitaron a pedido). */}
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
-            <TouchableOpacity onPress={makePorAsignarReport} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-              <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === POR_ASIGNAR_KEY ? 'Generando…' : '📄 Por asignar / por iniciar'}</Text>
+            {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
+            <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+              <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
             </TouchableOpacity>
-            {bulkAllowed ? (
-              <TouchableOpacity onPress={() => setBulkOpen((o) => !o)} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>🔧 Gestionar iniciada / pendiente {bulkOpen ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-            ) : null}
+            {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
+                selector de empresas; sin selección = todas. Regla 200/220/250. */}
+            <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, paddingHorizontal: spacing.sm, alignItems: 'center', justifyContent: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12, textAlign: 'center' }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas de horómetro · mantenimiento (250 h)'}</Text>
+            </TouchableOpacity>
           </View>
-
-          {/* Reporte del DÍA por EMPRESA: abre el selector de empresas (tipo check). */}
-          <TouchableOpacity onPress={() => { setReportMode('dia'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brandText, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EMPRESA_KEY ? 'Generando…' : '📊 Reporte del día por empresa'}</Text>
-          </TouchableOpacity>
-
-          {/* Reporte HORAS TRABAJADAS (totales) · PRÓXIMAS A MANTENIMIENTO — mismo
-              selector de empresas; sin selección = todas. Regla 200/220/250. */}
-          <TouchableOpacity onPress={() => { setReportMode('mant'); setEmpresaPickerOpen(true); }} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === HORAS_KEY ? 'Generando…' : '🛠️ Horas de horómetro · mantenimiento (250 h)'}</Text>
-          </TouchableOpacity>
 
           {/* Selector de EMPRESAS (tipo check) para el reporte del día. */}
           <Modal visible={empresaPickerOpen} transparent animationType="slide" onRequestClose={() => setEmpresaPickerOpen(false)}>

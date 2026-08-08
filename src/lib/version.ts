@@ -29,6 +29,66 @@ export const UPD_ATTEMPT_KEY = 'sos_upd_attempt';
 function ls(): any { try { return (globalThis as any).localStorage ?? null; } catch { return null; } }
 
 /**
+ * Recarga "blanda" por ACTUALIZAR: al pulsar el botón dejamos una marca en
+ * sessionStorage (sobrevive la recarga en la MISMA pestaña) + un respaldo del token
+ * de Supabase. Sirve para que ACTUALIZAR nunca deje al usuario fuera en el teléfono:
+ *  - `consumeSoftReload()` (en AuthProvider) restaura el token si el navegador móvil
+ *    descartó localStorage al recargar, y evita volver a exigir la HUELLA en esa
+ *    recarga (antes, cada recarga caía en "🔒 Sesión bloqueada" = parecía cierre de
+ *    sesión).
+ */
+const SOFT_RELOAD_KEY = 'sos_soft_reload';
+const AUTH_BACKUP_KEY = 'sos_auth_backup';
+
+/** Copia el token de Supabase (sb-…-auth-token) de localStorage a sessionStorage y
+ *  deja la marca de recarga blanda. Se llama justo antes de recargar por ACTUALIZAR. */
+function markSoftReload(w: any): void {
+  try {
+    const lsObj = w.localStorage;
+    const entries: [string, string][] = [];
+    if (lsObj) {
+      for (let i = 0; i < lsObj.length; i++) {
+        const k = lsObj.key(i);
+        if (k && k.startsWith('sb-') && k.includes('-auth-token')) {
+          const v = lsObj.getItem(k);
+          if (v != null) entries.push([k, v]);
+        }
+      }
+    }
+    w.sessionStorage?.setItem(SOFT_RELOAD_KEY, '1');
+    if (entries.length) w.sessionStorage?.setItem(AUTH_BACKUP_KEY, JSON.stringify(entries));
+  } catch {}
+}
+
+/**
+ * ¿La carga actual viene de una recarga por ACTUALIZAR (misma pestaña)? Además de
+ * responder, RESTAURA el token de Supabase en localStorage si el navegador lo perdió
+ * y CONSUME la marca (una sola vez). AuthProvider usa el resultado para NO re-exigir
+ * la huella en esta recarga.
+ */
+export function consumeSoftReload(): boolean {
+  if (Platform.OS !== 'web') return false;
+  const w: any = globalThis;
+  try {
+    const flag = w.sessionStorage?.getItem(SOFT_RELOAD_KEY);
+    if (!flag) return false;
+    w.sessionStorage?.removeItem(SOFT_RELOAD_KEY);
+    const raw = w.sessionStorage?.getItem(AUTH_BACKUP_KEY);
+    w.sessionStorage?.removeItem(AUTH_BACKUP_KEY);
+    if (raw) {
+      const entries: [string, string][] = JSON.parse(raw);
+      for (const [k, v] of entries) {
+        // Solo restaura si localStorage lo perdió; no pisa una sesión más nueva.
+        if (v != null && w.localStorage?.getItem(k) == null) w.localStorage.setItem(k, v);
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * ¿Hay una versión más nueva publicada que la que corre el usuario? (para la barra
  * ACTUALIZAR). Solo en web y cuando el bundle trae un BUILD_ID real.
  *
@@ -101,6 +161,9 @@ export function forceReloadLatest(): void {
   const w: any = globalThis;
   // 0) Marca el intento (a qué bundle vamos), para la guarda anti-lazo.
   try { const t = w.localStorage?.getItem?.(UPD_TARGET_KEY); if (t) w.localStorage?.setItem?.(UPD_ATTEMPT_KEY, t); } catch {}
+  // 0b) Recarga BLANDA: respalda la sesión y marca que esta recarga es una
+  //     actualización, para no cerrar sesión ni re-exigir la huella al volver.
+  markSoftReload(w);
   // 1) Limpia caches del navegador / PWA si existen.
   try { w.caches?.keys?.().then((ks: string[]) => ks.forEach((k) => w.caches.delete(k))).catch(() => {}); } catch {}
   // 2) Recarga con cache-buster para bajar un index.html fresco.
