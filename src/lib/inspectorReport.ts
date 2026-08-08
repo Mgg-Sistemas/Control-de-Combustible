@@ -285,8 +285,6 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     //  avería HOY > parada HOY > trabajando > avería ARRASTRADA > parada ARRASTRADA >
     //  finalizada (con horas) > por iniciar. Lo de HOY gana sobre "trabajando"; lo
     //  arrastrado pierde si la máquina inició jornada (se reactivó).
-    const parHoy = paradaHoyByShift.get(id)?.get(turno);
-    const averHoyMot = averiaHoyByShift.get(id)?.get(turno);
     // La arrastrada se suprime si la máquina se REACTIVÓ hoy: sigue abierta AHORA
     // (openForShift) o YA trabajó y cerró con horas (hoursForShift > 0). Antes solo
     // miraba `openForShift`, así que una máquina con avería/parada de días atrás que
@@ -295,8 +293,20 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // "trabajó hoy" para suprimirla) ya no mostraba ninguna marca — la misma máquina
     // se veía distinta en el PDF del jefe y en el teléfono del inspector.
     const reactivadaHoy = openForShift || hoursForShift > 0;
-    const averArrMot = !reactivadaHoy ? averiaArrByShift.get(id)?.get(turno) : undefined;
-    const parArrMot = !reactivadaHoy ? paradaArrByShift.get(id)?.get(turno) : undefined;
+    // BUG (08/08/2026): una máquina AVERIADA que el inspector volvió a "iniciar
+    // jornada" seguía saliendo 🔴 AVERIADA en este reporte. Dos causas: (a) la
+    // consulta trae también las averías RESUELTAS hoy (para la línea de tiempo), y se
+    // contaban como averiada; (b) la avería de HOY ganaba aunque la jornada se
+    // reiniciara DESPUÉS de ella. Regla: una avería/parada cuenta como estado ACTUAL
+    // solo si sigue SIN resolver (end == null) y la jornada NO se reinició después de
+    // ella (si jornada_start_at > la marca, la máquina se reactivó → trabaja).
+    const jStartMs = rd?.jornada_start_at && rd?.jornada_shift === turno ? new Date(rd.jornada_start_at).getTime() : null;
+    const activa = (ev?: EventoParada): EventoParada | undefined =>
+      ev && ev.end == null && !(jStartMs != null && jStartMs > ev.start) ? ev : undefined;
+    const parHoy = activa(paradaHoyByShift.get(id)?.get(turno));
+    const averHoyMot = activa(averiaHoyByShift.get(id)?.get(turno));
+    const averArrMot = !reactivadaHoy ? activa(averiaArrByShift.get(id)?.get(turno)) : undefined;
+    const parArrMot = !reactivadaHoy ? activa(paradaArrByShift.get(id)?.get(turno)) : undefined;
     const estado: EstadoKey =
       averHoyMot != null ? 'averia'
       : parHoy != null ? 'parada'

@@ -236,10 +236,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Jornada por máquina, SEPARADA por turno: `open`/`worked` = global (compatibilidad
   // con visibleParaInspector). `openDay/openNight` y `dayWorked/nightWorked` = por turno
   // → así "iniciada/trabajando" NO se refleja del inspector de día al de noche (ni viceversa).
-  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number }>>({});
+  const [roundsById, setRoundsById] = useState<Record<string, { open: boolean; worked: number; openDay: boolean; openNight: boolean; dayWorked: number; nightWorked: number; openStartDay: number; openStartNight: number }>>({});
   // Paradas VIGENTES (crudas) con su TURNO (día/noche, por hora Caracas de la marca).
   // La parada es POR TURNO: la que marca el inspector de DÍA no le aplica al de NOCHE.
-  const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean }[]>([]);
+  const [paradaRawList, setParadaRawList] = useState<{ id: string; shift: 'day' | 'night'; motivo: string; arrastrada: boolean; createdMs: number }[]>([]);
   // TAREA 1: máquinas con una AVERÍA REAL pendiente hoy (material distinto de
   // 'MÁQUINA PARADA'), para distinguir "Parada" (marcarParadaNoTrabajo) de "Por
   // avería" (marcarParadaAveria / registrarAveria) en los chips de segmento.
@@ -249,7 +249,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [averiaHoyIds, setAveriaHoyIds] = useState<Set<string>>(new Set());
   // Averías VIGENTES (crudas) con su TURNO (por hora Caracas de la marca) — misma regla
   // POR TURNO que las paradas: la avería que marca el de DÍA no le aplica al de NOCHE.
-  const [averiaRawList, setAveriaRawList] = useState<{ id: string; shift: 'day' | 'night'; arrastrada: boolean }[]>([]);
+  const [averiaRawList, setAveriaRawList] = useState<{ id: string; shift: 'day' | 'night'; arrastrada: boolean; createdMs: number }[]>([]);
   const [gasoilId, setGasoilId] = useState<string | null>(null); // surtir gasoil a la máquina del check-in
   const [notice, setNotice] = useState<string | null>(null);
   // ── Cola offline: acciones guardadas en el teléfono porque no había señal, a
@@ -493,7 +493,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
       supabase.from('maintenance_requests').select('machinery_id, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
-    const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0 };
+    const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0, openStartDay: 0, openStartNight: 0 };
     const rmap: Record<string, typeof empty> = {};
     ((rs ?? []) as any[]).forEach((r) => {
       // Una máquina puede tener VARIAS rondas hoy (día/noche, o correcciones). Acumula:
@@ -504,6 +504,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const nh = Number(r.night_hours) || 0;
       const isOpen = !!r.jornada_start_at;
       const openSh = r.jornada_shift === 'night' ? 'night' : r.jornada_shift === 'day' ? 'day' : null;
+      const startMs = isOpen ? new Date(r.jornada_start_at).getTime() : 0;
       rmap[r.machinery_id] = {
         open: prev.open || isOpen,
         worked: Math.max(prev.worked, dh + nh),
@@ -511,12 +512,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         openNight: prev.openNight || (isOpen && openSh === 'night'),
         dayWorked: Math.max(prev.dayWorked, dh),
         nightWorked: Math.max(prev.nightWorked, nh),
+        // Hora de inicio de la jornada ABIERTA por turno (para la regla de reactivación:
+        // si la jornada arrancó DESPUÉS de la avería, la máquina volvió a trabajar).
+        openStartDay: Math.max(prev.openStartDay, isOpen && openSh === 'day' && !isNaN(startMs) ? startMs : 0),
+        openStartNight: Math.max(prev.openStartNight, isOpen && openSh === 'night' && !isNaN(startMs) ? startMs : 0),
       };
     });
     // La noche de ayer aún abierta cuenta como 🟢 trabajando SOLO para el turno noche.
     ((rsNoche ?? []) as any[]).forEach((r) => {
       const prev = rmap[r.machinery_id] ?? empty;
-      rmap[r.machinery_id] = { ...prev, open: true, openNight: true };
+      const startMs = r.jornada_start_at ? new Date(r.jornada_start_at).getTime() : 0;
+      rmap[r.machinery_id] = { ...prev, open: true, openNight: true, openStartNight: Math.max(prev.openStartNight, !isNaN(startMs) ? startMs : 0) };
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -525,7 +531,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // "arrastrada" = parada marcada ANTES de hoy: aplica a TODA la máquina (ambos turnos)
     // hasta marcarla operativa. La de HOY respeta el turno (no pisa al otro inspector).
     const dayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
-    setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim(), arrastrada: new Date(p.created_at).getTime() < dayStartMs })));
+    setParadaRawList(((par ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), motivo: String(p.notes ?? '').trim(), arrastrada: new Date(p.created_at).getTime() < dayStartMs, createdMs: new Date(p.created_at).getTime() })));
     // Avería PENDIENTE: todas (se arrastran) + set de las marcadas HOY (ganan sobre trabajando).
     const avAll = new Set<string>();
     const avHoy = new Set<string>();
@@ -537,7 +543,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setAveriaPendienteIds(avAll);
     setAveriaHoyIds(avHoy);
     // Averías crudas con su TURNO (para la regla por-turno en segmentoDe): igual que paradaRawList.
-    setAveriaRawList(((avPend ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), arrastrada: new Date(p.created_at).getTime() < dayStartMs })));
+    setAveriaRawList(((avPend ?? []) as any[]).map((p) => ({ id: p.machinery_id as string, shift: paradaShiftOf(p.created_at), arrastrada: new Date(p.created_at).getTime() < dayStartMs, createdMs: new Date(p.created_at).getTime() })));
   };
   // Estado (círculo) de una máquina: 🟢 trabajando (jornada abierta) · 🟡 parada
   // (avería pendiente que SE ARRASTRA hasta reactivarla). La jornada FINALIZADA
@@ -820,20 +826,46 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const paHoy = new Map<string, Set<Shift>>();
     const paAny = new Map<string, Set<Shift>>();
     const paMot = new Map<string, Map<Shift, string>>();
+    // Última marca (createdMs) por máquina+turno: para la regla de REACTIVACIÓN — si la
+    // jornada de ese turno arrancó DESPUÉS de la última avería/parada, ya no aplica.
+    const avMax = new Map<string, Map<Shift, number>>();
+    const paMax = new Map<string, Map<Shift, number>>();
     const add = (m: Map<string, Set<Shift>>, id: string, sh: Shift) => {
       let s = m.get(id); if (!s) { s = new Set<Shift>(); m.set(id, s); } s.add(sh);
     };
-    averiaRawList.forEach((a) => { add(avAny, a.id, a.shift); if (!a.arrastrada) add(avHoy, a.id, a.shift); });
+    const bumpMax = (m: Map<string, Map<Shift, number>>, id: string, sh: Shift, ms: number) => {
+      let mm = m.get(id); if (!mm) { mm = new Map(); m.set(id, mm); } mm.set(sh, Math.max(mm.get(sh) ?? 0, ms || 0));
+    };
+    averiaRawList.forEach((a) => { add(avAny, a.id, a.shift); if (!a.arrastrada) add(avHoy, a.id, a.shift); bumpMax(avMax, a.id, a.shift, a.createdMs); });
     paradaRawList.forEach((p) => {
       add(paAny, p.id, p.shift); if (!p.arrastrada) add(paHoy, p.id, p.shift);
+      bumpMax(paMax, p.id, p.shift, p.createdMs);
       if (p.motivo) { let mm = paMot.get(p.id); if (!mm) { mm = new Map(); paMot.set(p.id, mm); } if (!mm.has(p.shift)) mm.set(p.shift, p.motivo); }
     });
-    return { avHoy, avAny, paHoy, paAny, paMot };
+    return { avHoy, avAny, paHoy, paAny, paMot, avMax, paMax };
   }, [averiaRawList, paradaRawList]);
   // ¿El índice tiene la marca para ese id y turno? sh=null (admin/coordinador sin turno) =
   // cualquiera de los dos turnos.
   const hasIn = (m: Map<string, Set<Shift>>, id: string, sh: Shift | null): boolean => {
     const s = m.get(id); if (!s) return false; return sh === null ? s.size > 0 : s.has(sh);
+  };
+  // Hora de inicio de la jornada ABIERTA de un turno (0 = no abierta). sh=null → la más
+  // reciente de cualquiera de los dos turnos.
+  const openStartOf = (id: string, sh: Shift | null): number => {
+    const r = roundsById[id]; if (!r) return 0;
+    if (sh === 'day') return r.openStartDay;
+    if (sh === 'night') return r.openStartNight;
+    return Math.max(r.openStartDay, r.openStartNight);
+  };
+  // REACTIVADA: la máquina volvió a trabajar si su jornada de ese turno arrancó DESPUÉS
+  // (>=) de la última avería/parada marcada — entonces esa avería/parada YA NO cuenta
+  // (fix 08/08/2026: "averiada + en curso" era imposible). Igual criterio en el panel
+  // de Inspecciones (PC) y en el reporte por inspector.
+  const reactivada = (maxMap: Map<string, Map<Shift, number>>, id: string, sh: Shift | null): boolean => {
+    const start = openStartOf(id, sh); if (!start) return false;
+    const mm = maxMap.get(id); if (!mm) return false;
+    const t = sh === null ? Math.max(0, ...mm.values()) : (mm.get(sh) ?? 0);
+    return t > 0 && start >= t;
   };
   // Segmento de estatus de una máquina. REGLA POR-TURNO (confirmada 06-ago-2026): la
   // avería/parada pertenece al turno de la HORA en que se marcó; el OTRO turno la ve como
@@ -842,23 +874,29 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // > avería arrastrada (mi turno) > parada arrastrada (mi turno) > pendiente.
   const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     const sh = shiftOfMine(id);                         // turno del inspector en esta máquina
-    if (hasIn(estadoIndex.avHoy, id, sh)) return 'averia';   // 1) marcado HOY en mi turno gana
-    if (hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
+    // Si la jornada se reinició DESPUÉS de la avería/parada, esa marca ya no cuenta
+    // (la máquina volvió a trabajar) — así no queda "averiada" tras reiniciar jornada.
+    const avOff = reactivada(estadoIndex.avMax, id, sh);
+    const paOff = reactivada(estadoIndex.paMax, id, sh);
+    if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';   // 1) marcado HOY en mi turno gana
+    if (!paOff && hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
     if (openMine(id)) return 'iniciada';                      // 2) jornada ABIERTA ahora mismo
     if (hoursMine(id)) return 'cerrada';                      // 3) finalizó con horas (ya no abierta)
-    if (hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
-    if (hasIn(estadoIndex.paAny, id, sh)) return 'parada';
+    if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
+    if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
   // turno actual): día independiente de noche, misma prioridad.
   const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
-    if (hasIn(estadoIndex.avHoy, id, sh)) return 'averia';
-    if (hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
+    const avOff = reactivada(estadoIndex.avMax, id, sh);
+    const paOff = reactivada(estadoIndex.paMax, id, sh);
+    if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';
+    if (!paOff && hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
     if (openEn(id, sh)) return 'iniciada';
     if (hoursEn(id, sh)) return 'cerrada';
-    if (hasIn(estadoIndex.avAny, id, sh)) return 'averia';
-    if (hasIn(estadoIndex.paAny, id, sh)) return 'parada';
+    if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';
+    if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
     return 'pendiente';
   };
   // Motivo de la PARADA de MI turno (día indep. de noche): el inspector de día NO ve
