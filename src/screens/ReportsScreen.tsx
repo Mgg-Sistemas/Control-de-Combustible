@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigation } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -19,7 +20,6 @@ import { LOGO_DATA_URI } from '../lib/logoData';
 import { COMPANY_NAME } from '../lib/company';
 import { SHIFT_HOURS, workedFromShifts, shiftLabel } from './ControlMaquinariaScreen';
 import { canonTipo } from './EquiposScreen';
-import { fetchActiveGuards } from '../lib/guards';
 import { DateField } from '../components/DateField';
 import { equipCategory } from '../lib/equipos';
 import { cmpText, norm } from '../lib/text';
@@ -66,22 +66,26 @@ type Row = {
   company: string;
 };
 
+// Reporte MAQUINARIA/VEHÍCULO (pestaña "fleet"): SOLO datos operativos/numéricos —
+// sin montos en $ (eso vive exclusivamente en el reporte de Jornada). Depurado
+// 08-ago-2026 a pedido del cliente: antes mezclaba horas/cantidades con precios y
+// fletes; ahora es puramente Totales Generales / Totales por Empresa / Trazabilidad.
+type FleetEstado = 'averia' | 'parada' | 'activo';
 type FleetItem = {
+  id: string;
   name: string;
-  desc: string;
   plate: string | null;
   kind: string;
   marcaModelo: string; // marca / modelo del equipo
   tipo: string;        // clasificación (se usa para agrupar/filtrar)
-  referencia: string | null;
   company: string;
-  liters: number;
-  worked: number; // horas trabajadas acumuladas hasta el 05/07/2026
-  amount: number; // total a pagar por esas horas (horas × precio/hora)
-  pricePerHour: number; // precio por hora = precio jornada ÷ 12
-  guard: string | null; // guardia/militar encargado actual (para el reporte)
+  worked: number;        // horas trabajadas REALES acumuladas en el rango (machine_rounds)
+  diasTrabajados: number; // días distintos del rango con horas > 0
+  estado: FleetEstado;    // estado ACTUAL (ahora mismo, no solo del rango): avería > parada > activo
+  averias: number;        // # de averías marcadas dentro del rango
+  paradas: number;        // # de paradas marcadas dentro del rango
 };
-type FleetCompany = { company: string; count: number; liters: number; items: FleetItem[] };
+type FleetCompany = { company: string; count: number; items: FleetItem[] };
 
 // Período de las jornadas que resume el reporte de flota (horas trabajadas).
 // Exportado: Control de Pagos usa el MISMO piso para que el facturado coincida
@@ -92,8 +96,6 @@ export const FLEET_HOURS_CUTOFF = '2026-07-05';
 // Patrones para los reportes de "camiones" y de "transporte de escombros" (por nombre/tipo/clasificación).
 const TRUCK_RE = /CAMION|CHUTO|VOLQUETA|VOLTEO|TORONTO|CISTERNA|PIPA/;
 const ESCOMBRO_RE = /VOLQUETA|VOLTEO|TORONTO|ESCOMBRO|BATEA/; // equipos de transporte de escombros (volteo)
-// Dinero con 2 decimales y redondeo estándar.
-const money2 = (n: number) => (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function isoDaysAgo(days: number): string {
   const d = new Date();
@@ -417,6 +419,7 @@ function totalsBy<T extends string>(rows: Row[], key: (r: Row) => T): { label: T
 
 export default function ReportsScreen({ route }: any) {
   const { colors } = useTheme();
+  const navigation = useNavigation<any>();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [from, setFrom] = useState(isoDaysAgo(7));
   const [to, setTo] = useState(isoDaysAgo(0));
@@ -509,32 +512,44 @@ export default function ReportsScreen({ route }: any) {
   // Estado de la flota (para el bloque final del informe por jornada).
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
-  const [fleetFletes, setFleetFletes] = useState<{ company: string; viajes: number; usd: number }[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
-  const [showCompanyBtns, setShowCompanyBtns] = useState(false);
-  const [showCountByCompany, setShowCountByCompany] = useState(false); // chips por empresa del reporte "solo cantidad"
-  const [fleetWithPrices, setFleetWithPrices] = useState(true);
 
   const fleetByCompany = useMemo(() => {
     const m = new Map<string, FleetCompany>();
     fleetItems.forEach((it) => {
-      const c = m.get(it.company) ?? { company: it.company, count: 0, liters: 0, items: [] };
+      const c = m.get(it.company) ?? { company: it.company, count: 0, items: [] };
       c.count += 1;
-      c.liters += it.liters;
       c.items.push(it);
       m.set(it.company, c);
     });
     // Orden ALFABÉTICO por empresa (así se ve en el sistema y en los reportes).
     return Array.from(m.values()).sort((a, b) => cmpText(a.company, b.company));
   }, [fleetItems]);
-  // Reporte general: total de equipos por TIPO de maquinaria y por EMPRESA.
-  const fleetByType = useMemo(() => {
-    const m = new Map<string, number>();
-    fleetItems.forEach((it) => { const t = canonTipo(it.tipo) || 'Sin tipo'; m.set(t, (m.get(t) ?? 0) + 1); });
-    return Array.from(m.entries())
-      .map(([tipo, count]) => ({ tipo, count }))
-      .sort((a, b) => (a.tipo === 'Sin tipo' ? 1 : b.tipo === 'Sin tipo' ? -1 : cmpText(a.tipo, b.tipo)));
+  // Totales GENERALES (Bloque 1): activos/iniciados(trabajaron en el rango)/parados/
+  // averiados + horas acumuladas, sobre TODOS los equipos filtrados (empresa/tipo).
+  const fleetTotales = useMemo(() => {
+    const t = { equipos: fleetItems.length, iniciados: 0, parados: 0, averiados: 0, horas: 0 };
+    fleetItems.forEach((it) => {
+      if (it.worked > 0) t.iniciados += 1;
+      if (it.estado === 'parada') t.parados += 1;
+      if (it.estado === 'averia') t.averiados += 1;
+      t.horas += it.worked;
+    });
+    return t;
   }, [fleetItems]);
+  // Totales POR EMPRESA (Bloque 2): mismo desglose que fleetTotales, agrupado.
+  const fleetTotalesPorEmpresa = useMemo(() => {
+    return fleetByCompany.map((c) => {
+      const t = { company: c.company, equipos: c.count, iniciados: 0, parados: 0, averiados: 0, horas: 0 };
+      c.items.forEach((it) => {
+        if (it.worked > 0) t.iniciados += 1;
+        if (it.estado === 'parada') t.parados += 1;
+        if (it.estado === 'averia') t.averiados += 1;
+        t.horas += it.worked;
+      });
+      return t;
+    });
+  }, [fleetByCompany]);
   // Buscador CON CHECKS por tipo de equipo (en el reporte "Conteo de equipos"). Cada tipo
   // (código/modelo del equipo, p. ej. "CAMIÓN VOLTEO TORONTO") es una casilla con su
   // cantidad total; el buscador filtra la lista. Al tildar uno o varios se ve el reporte
@@ -928,106 +943,83 @@ export default function ReportsScreen({ route }: any) {
 
   const generateFleet = async () => {
     setLoading(true);
-    const [{ data: mach }, { data: vehs }, { data: disp }, rnds] = await Promise.all([
-      supabase.from('machinery').select('id, code, description, plate, machinery_type, tipo, clasificacion, referencia, price_per_hour, company:company_id(name)'),
+    const [{ data: mach }, { data: vehs }, rnds, { data: pend }, { data: evRange }] = await Promise.all([
+      supabase.from('machinery').select('id, code, plate, machinery_type, tipo, clasificacion, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
-      supabase
-        .from('dispatches')
-        .select('machinery_id, vehicle_id, liters')
-        .gte('dispatch_date', from)
-        .lte('dispatch_date', to),
-      // Horas trabajadas dentro del rango del reporte (día + noche − parada + extras).
-      // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas (HBS quedaba corto).
-      // Trae frozen_price para calcular el monto con el precio POR RANGO de cada jornada.
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price', (q) => q.gte('round_date', from).lte('round_date', to)),
+      // Horas trabajadas REALES dentro del rango del reporte (día + noche − parada + extras).
+      // Paginado: con >1000 rondas la consulta se truncaba y faltaban horas.
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
+      // Estado ACTUAL (ahora mismo, sin importar el rango): avería/parada pendiente por
+      // resolver. Mismo criterio que Catálogo/Inspecciones: material 'MÁQUINA PARADA' =
+      // parada; cualquier otro material = avería real (gana sobre la parada).
+      supabase.from('maintenance_requests').select('machinery_id, material').eq('status', 'pendiente'),
+      // Eventos (paradas/averías) MARCADOS dentro del rango del reporte, para la Trazabilidad.
+      supabase.from('maintenance_requests').select('machinery_id, material, created_at').gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${addDaysISO(to, 1)}T00:00:00-04:00`),
     ]);
-    const mLit = new Map<string, number>();
-    const vLit = new Map<string, number>();
-    (disp ?? []).forEach((d: any) => {
-      if (d.machinery_id) mLit.set(d.machinery_id, (mLit.get(d.machinery_id) ?? 0) + Number(d.liters));
-      if (d.vehicle_id) vLit.set(d.vehicle_id, (vLit.get(d.vehicle_id) ?? 0) + Number(d.liters));
-    });
-    // Precio efectivo de cada jornada: congelado del rango (frozen_price>0) si existe; si no,
-    // el precio ACTUAL de la máquina. Sin arrastre desde semanas anteriores (era impredecible).
-    const curPrice = new Map<string, number>((mach ?? []).map((m: any) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
-    const effPrice = (mid: string, ownFrozen: any) => {
-      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
-      return curPrice.get(mid) ?? 0;
-    };
-    // Horas y MONTO por máquina (dedupe por máquina+día); el monto usa el precio por rango.
+    // Horas y DÍAS TRABAJADOS por máquina (dedupe por máquina+día).
     const byMD = new Map<string, any>();
     (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
     const mHours = new Map<string, number>();
-    const mAmount = new Map<string, number>();
+    const mDias = new Map<string, number>();
     byMD.forEach((r) => {
       const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (w > 0) {
         mHours.set(r.machinery_id, (mHours.get(r.machinery_id) ?? 0) + w);
-        const p = effPrice(r.machinery_id, r.frozen_price);
-        mAmount.set(r.machinery_id, (mAmount.get(r.machinery_id) ?? 0) + (w / 12) * p);
+        mDias.set(r.machinery_id, (mDias.get(r.machinery_id) ?? 0) + 1);
       }
     });
-    // Guardia/militar actual de cada máquina, para mostrarlo en el reporte.
-    const guardMap = await fetchActiveGuards((mach ?? []).map((m: any) => m.id));
+    // Estado ACTUAL por máquina: avería real gana sobre el marcador "MÁQUINA PARADA".
+    const estadoMap = new Map<string, FleetEstado>();
+    (pend ?? []).forEach((r: any) => {
+      const actual = estadoMap.get(r.machinery_id);
+      if (actual === 'averia') return;
+      estadoMap.set(r.machinery_id, r.material === 'MÁQUINA PARADA' ? 'parada' : 'averia');
+    });
+    // Conteo de eventos (paradas/averías) marcados DENTRO del rango, por máquina.
+    const averiasEnRango = new Map<string, number>();
+    const paradasEnRango = new Map<string, number>();
+    (evRange ?? []).forEach((r: any) => {
+      const m = r.material === 'MÁQUINA PARADA' ? paradasEnRango : averiasEnRango;
+      m.set(r.machinery_id, (m.get(r.machinery_id) ?? 0) + 1);
+    });
     const items: FleetItem[] = [];
     (mach ?? []).forEach((m: any) => {
-      const worked = mHours.get(m.id) ?? 0;
-      // Monto con el precio POR RANGO de cada jornada (frozen/arrastre); el $/hora mostrado
-      // es el efectivo (monto ÷ horas). Si no trabajó, cae al precio actual de la máquina.
-      const amount = mAmount.get(m.id) ?? 0;
-      const gd = guardMap[m.id];
       items.push({
+        id: m.id,
         name: m.code,
-        desc: m.description || '—',
         plate: m.plate,
         kind: m.machinery_type || 'maquinaria',
         marcaModelo: (m.tipo && String(m.tipo).trim()) || '—',
         // El reporte de maquinaria agrupa/filtra por CLASIFICACIÓN (no por modelo).
         tipo: canonTipo(m.clasificacion) || 'Sin clasificación',
-        referencia: m.referencia || null,
         company: m.company?.name || 'Sin empresa',
-        liters: mLit.get(m.id) ?? 0,
-        worked,
-        amount,
-        pricePerHour: worked > 0 ? amount / worked : (m.price_per_hour != null ? Number(m.price_per_hour) / 12 : 0),
-        guard: gd ? `${gd.rank ? gd.rank + ' ' : ''}${gd.guard_name}` : null,
+        worked: mHours.get(m.id) ?? 0,
+        diasTrabajados: mDias.get(m.id) ?? 0,
+        estado: estadoMap.get(m.id) ?? 'activo',
+        averias: averiasEnRango.get(m.id) ?? 0,
+        paradas: paradasEnRango.get(m.id) ?? 0,
       });
     });
     (vehs ?? []).forEach((v: any) =>
       items.push({
+        id: v.id,
         name: v.plate,
-        desc: [v.brand, v.model].filter(Boolean).join(' ') || '—',
         plate: v.plate,
         kind: 'vehiculo',
         marcaModelo: [v.brand, v.model].filter(Boolean).join(' ') || '—',
         tipo: 'Vehículo',
-        referencia: null,
         company: 'Vehículos',
-        liters: vLit.get(v.id) ?? 0,
         worked: 0,
-        amount: 0,
-        pricePerHour: 0,
-        guard: null,
+        diasTrabajados: 0,
+        estado: 'activo',
+        averias: 0,
+        paradas: 0,
       })
     );
     const filtered = items.filter(
       (it) => (repCompanies.length === 0 || repCompanies.includes(it.company)) && (fleetTypes.length === 0 || fleetTypes.includes(it.tipo))
     );
     setFleetItems(filtered);
-    // Fletes/viajes del rango, por empresa (para mostrar el flete también aquí).
-    const fletesRows = await selectAllRows('fletes', 'viajes, precio, flete_date, company:company_id(name)', (q) => q.gte('flete_date', from).lte('flete_date', to));
-    const flByCo = new Map<string, { company: string; viajes: number; usd: number }>();
-    (fletesRows ?? []).forEach((f: any) => {
-      const co = f.company?.name ?? 'Sin empresa';
-      if (repCompanies.length && !repCompanies.includes(co)) return;
-      const v = Number(f.viajes) || 0;
-      const precio = Number(f.precio) || 0;
-      if (v <= 0) return;
-      const a = flByCo.get(co) ?? { company: co, viajes: 0, usd: 0 };
-      a.viajes += v; a.usd += v * precio;
-      flByCo.set(co, a);
-    });
-    setFleetFletes([...flByCo.values()].sort((a, b) => cmpText(a.company, b.company)));
     setLoading(false);
     setFleetPreview(true);
   };
@@ -1704,223 +1696,56 @@ export default function ReportsScreen({ route }: any) {
     await exportPdf(pdfShell('TRANSPORTE DE ESCOMBROS · TURNOS DÍA/NOCHE', subLabel, body), fileLabel);
   };
 
-  const downloadFleetPdf = async (onlyCompany?: string, withPrices: boolean = true) => {
-    const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
-    const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
-    // Encabezados y celdas de precio se incluyen sólo si withPrices.
-    const priceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total</th>' : '';
-    // Fletes/viajes del rango, por empresa (solo con precios). Se suman al total a pagar.
-    const fletesRows = withPrices
-      ? await selectAllRows('fletes', 'code, viajes, precio, flete_date, company:company_id(name)', (q) => q.gte('flete_date', from).lte('flete_date', to))
-      : [];
-    const viajesByCo = new Map<string, { items: { code: string; viajes: number; precio: number }[]; usd: number }>();
-    (fletesRows ?? []).forEach((f: any) => {
-      const co = f.company?.name ?? 'Sin empresa';
-      if (onlyCompany && co !== onlyCompany) return;
-      if (!companies.some((c) => c.company === co)) return;
-      const v = Number(f.viajes) || 0;
-      const precio = Number(f.precio) || 0;
-      if (v <= 0) return;
-      const a = viajesByCo.get(co) ?? { items: [], usd: 0 };
-      a.items.push({ code: f.code || '—', viajes: v, precio }); a.usd += v * precio;
-      viajesByCo.set(co, a);
-    });
-    const grandViajes = [...viajesByCo.values()].reduce((s, a) => s + a.usd, 0);
-    // Bloque de fletes de una empresa: agrupa por precio unitario y detalla los equipos.
-    const renderFletes = (co: string): string => {
-      const a = viajesByCo.get(co);
-      if (!a || !a.items.length) return '';
-      const byPrice = new Map<number, { code: string; viajes: number; precio: number }[]>();
-      a.items.forEach((v) => { const arr = byPrice.get(v.precio) ?? []; arr.push(v); byPrice.set(v.precio, arr); });
-      const rows = [...byPrice.entries()].sort((x, y) => x[0] - y[0]).map(([precio, items]) => {
-        const tot = items.reduce((s, v) => s + v.viajes, 0);
-        const kinds = new Map<string, number>();
-        items.forEach((v) => { const k = (v.code.split(/\s+/)[0] || v.code).toUpperCase(); kinds.set(k, (kinds.get(k) ?? 0) + 1); });
-        const detalle = [...kinds.entries()].map(([k, n]) => `${n} ${k}`).join(' · ');
-        return `<tr><td style="padding:4px 8px">TOTAL POR <b>${tot}</b> VIAJE${tot === 1 ? '' : 'S'}: ${detalle} <span style="color:#666">($${money2(precio)} c/u)</span></td><td style="text-align:right;font-weight:700;padding:4px 8px">$${money2(tot * precio)}</td></tr>`;
-      }).join('');
-      return `<table style="margin-top:-4px;margin-bottom:4px"><tbody>${rows}</tbody></table>`;
-    };
-    // "Sin precios": agrupa los equipos IGUALES de la empresa (todos los JUMBO, todos los
-    // CAMIÓN DE SERVICIO…) por nombre, con su CANTIDAD y horas sumadas. Marca/Clasificación
-    // muestran el valor común o "Varios" si difieren. A→Z por nombre.
-    const groupItemsByName = (items: typeof companies[number]['items']) => {
-      const g = new Map<string, { name: string; marcas: Set<string>; tipos: Set<string>; count: number; worked: number }>();
-      items.forEach((i) => {
-        const key = norm(i.name);
-        const cur = g.get(key) ?? { name: i.name, marcas: new Set<string>(), tipos: new Set<string>(), count: 0, worked: 0 };
-        cur.count += 1; cur.worked += i.worked; cur.marcas.add(i.marcaModelo || '—'); cur.tipos.add(i.tipo || '—');
-        g.set(key, cur);
-      });
-      return [...g.values()].sort((a, b) => cmpText(a.name, b.name)).map((x) => ({
-        name: x.name,
-        marca: x.marcas.size === 1 ? [...x.marcas][0] : 'Varios',
-        tipo: x.tipos.size === 1 ? [...x.tipos][0] : 'Varios',
-        count: x.count,
-        worked: x.worked,
-      }));
-    };
-    const companyBlocks = companies
-      .map((c) => {
-        const machTot = c.items.reduce((s, i) => s + i.amount, 0);
-        const fl = viajesByCo.get(c.company);
-        const fletesBlock = withPrices && fl
-          ? renderFletes(c.company) +
-            `<table style="margin-bottom:12px"><tbody><tr><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">TOTAL POR PAGAR ${c.company} (equipos + fletes)</td><td style="text-align:right;font-weight:800;background:#1E3A5F;color:#fff;padding:6px 8px">$${money2(machTot + fl.usd)}</td></tr></tbody></table>`
-          : '';
-        const head = `<h3 style="margin:12px 0 2px">${c.company}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${companyRif[c.company]}</span>` : ''} — ${c.count} equipo(s)</h3>`;
-        const totalHoras = c.items.reduce((s, i) => s + i.worked, 0);
-        // SIN PRECIOS → tabla agrupada (Equipo · Marca/Modelo · Clasificación · Cantidad · Horas).
-        if (!withPrices) {
-          const rows = groupItemsByName(c.items)
-            .map((g) => `<tr><td>${g.name}</td><td>${g.marca}</td><td>${g.tipo}</td><td style="text-align:right;font-weight:700">${g.count}</td><td style="text-align:right">${g.worked} h</td></tr>`)
-            .join('');
-          return head +
-            `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th></tr></thead><tbody>${rows}</tbody>` +
-            `<tfoot><tr><td style="text-align:right" colspan="3">TOTAL ${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right;font-weight:700">${totalHoras} h</td></tr></tfoot></table>`;
-        }
-        // CON PRECIOS → detalle por unidad (para facturar), como antes.
-        return head +
-          `<table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th style="text-align:left">Guardia</th><th style="text-align:right">Horas</th>${priceHead}</tr></thead><tbody>${c.items
-            .slice()
-            .sort((a, b) => cmpText(a.name, b.name))
-            .map(
-              (i) =>
-                `<tr><td>${i.name}</td><td>${i.marcaModelo}</td><td>${i.tipo}</td><td>${i.guard ? '🪖 ' + i.guard : '—'}</td><td style="text-align:right">${i.worked} h</td><td style="text-align:right">${i.pricePerHour ? '$' + money2(i.pricePerHour) : '—'}</td><td style="text-align:right;font-weight:700">${i.amount ? '$' + money2(i.amount) : '—'}</td></tr>`
-            )
-            .join('')}</tbody><tfoot><tr><td style="text-align:right" colspan="4">${fl ? 'SUB TOTAL' : 'TOTAL'} ${c.company}</td><td style="text-align:right;font-weight:700">${totalHoras} h</td><td></td><td style="text-align:right;font-weight:700">$${money2(machTot)}</td></tr></tfoot></table>${fletesBlock}`;
-      })
-      .join('');
-    const priceTag = withPrices ? ' (con precios)' : ' (sin precios)';
-    const sub = (onlyCompany ? `Empresa: ${onlyCompany}` : 'Resumen general') + priceTag;
-    // Reporte general (solo en el reporte completo, no cuando se filtra una empresa).
-    const typeAgg = new Map<string, { count: number; worked: number; amount: number }>();
-    companies.forEach((c) =>
-      c.items.forEach((i) => {
-        const a = typeAgg.get(i.tipo) ?? { count: 0, worked: 0, amount: 0 };
-        a.count += 1; a.worked += i.worked; a.amount += i.amount;
-        typeAgg.set(i.tipo, a);
-      })
-    );
-    const grandWorked = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.worked, 0), 0);
-    const grandAmount = companies.reduce((s, c) => s + c.items.reduce((t, i) => t + i.amount, 0), 0);
-    const phStr = (amount: number, worked: number) => (worked > 0 ? '$' + money2(amount / worked) : '—');
-    const genPriceHead = withPrices ? '<th style="text-align:right">Precio/hora</th><th style="text-align:right">Total a pagar</th>' : '';
-    const genColspan = withPrices ? 5 : 3;
-    const typeRows = Array.from(typeAgg.entries())
-      .sort((a, b) => (a[0] === 'Sin clasificación' ? 1 : b[0] === 'Sin clasificación' ? -1 : cmpText(a[0], b[0])))
-      .map(
-        ([tipo, a]) =>
-          `<tr><td>${tipo}</td><td style="text-align:right;font-weight:700">${a.count}</td><td style="text-align:right">${a.worked} h</td>${withPrices ? `<td style="text-align:right">${phStr(a.amount, a.worked)}</td><td style="text-align:right;font-weight:700">${a.amount ? '$' + money2(a.amount) : '—'}</td>` : ''}</tr>`
-      )
-      .join('');
-    const companyCountRows = companies
-      .map((c) => {
-        const w = c.items.reduce((s, i) => s + i.worked, 0);
-        const am = c.items.reduce((s, i) => s + i.amount, 0);
-        return `<tr><td>${c.company}</td><td style="text-align:right;font-weight:700">${c.count}</td><td style="text-align:right">${w} h</td>${withPrices ? `<td style="text-align:right">${phStr(am, w)}</td><td style="text-align:right;font-weight:700">${am ? '$' + money2(am) : '—'}</td>` : ''}</tr>`;
-      })
-      .join('');
-    const generalBlock = `
-      <h2>Reporte general</h2>
-      <h3 style="margin:12px 0 2px">Total por clasificación</h3>
-      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
-      <tbody>${typeRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>
-      <h3 style="margin:12px 0 2px">Totales de equipos por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Horas</th>${genPriceHead}</tr></thead>
-      <tbody>${companyCountRows || `<tr><td colspan="${genColspan}" style="text-align:center">Sin datos</td></tr>`}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${totalEquipos}</td><td style="text-align:right">${grandWorked} h</td>${withPrices ? `<td style="text-align:right">${phStr(grandAmount, grandWorked)}</td><td style="text-align:right">$${money2(grandAmount)}</td>` : ''}</tr></tfoot></table>`;
-    // Resumen de FLETES por empresa + total general (equipos + fletes).
-    const fletesGeneralBlock =
-      withPrices && grandViajes > 0
-        ? `<h3 style="margin:12px 0 2px">Fletes / viajes por empresa</h3>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Monto fletes</th></tr></thead>
-      <tbody>${[...viajesByCo.entries()].sort((a, b) => (a[0] === 'Sin empresa' ? 1 : b[0] === 'Sin empresa' ? -1 : cmpText(a[0], b[0]))).map(([co, a]) => `<tr><td>${co}</td><td style="text-align:right;font-weight:700">$${money2(a.usd)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL FLETES</td><td style="text-align:right;font-weight:800">$${money2(grandViajes)}</td></tr></tfoot></table>
-      <div style="margin-top:10px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">TOTAL GENERAL A PAGAR (equipos + fletes): $${money2(grandAmount + grandViajes)}</div>`
-        : '';
-    // GENERAL = resumen (por tipo + por empresa) + DETALLE agrupado por empresa.
-    // POR EMPRESA = detalle de esa empresa.
-    const body = onlyCompany
-      ? `
-      <div class="muted">Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
-      <div class="summary">
-        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
-        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
-      </div>
-      <h2>Detalle de la empresa</h2>
-      ${companyBlocks || '<span class="muted">Sin datos</span>'}`
-      : `
-      <div class="muted">Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
-      <div class="summary">
-        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
-        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
-      </div>
-      ${generalBlock}
-      ${fletesGeneralBlock}
-      <h2>Detalle por empresa</h2>
-      ${companyBlocks || '<span class="muted">Sin datos</span>'}`;
-    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', sub, body), 'Reportes - Maquinaria-Vehículo');
-  };
-
-  // Reporte SOLO CANTIDAD de equipos: sin horas ni precio. Es GENERAL (todas las
-  // empresas) o de UNA empresa si arriba filtras por empresa. Incluye el DETALLE
-  // equipo por equipo en orden alfabético, más los totales por clasificación y empresa.
-  const downloadFleetCountPdf = async (onlyCompany?: string) => {
+  // PDF único de Maquinaria/Vehículo: SOLO 3 bloques, 100% operativo/numérico
+  // (sin $ — los montos viven exclusivamente en el reporte de Jornada). Depurado
+  // 08-ago-2026 a pedido del cliente.
+  const downloadFleetPdf = async () => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const companies = onlyCompany ? fleetByCompany.filter((c) => c.company === onlyCompany) : fleetByCompany;
-    const totalEquipos = companies.reduce((s, c) => s + c.count, 0);
-    const alcance = onlyCompany ? `Empresa: ${onlyCompany}` : repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
-    // Cantidad por clasificación DENTRO del alcance elegido (general o una empresa).
-    const typeAgg = new Map<string, number>();
-    companies.forEach((c) => c.items.forEach((it) => { const t = it.tipo || 'Sin clasificación'; typeAgg.set(t, (typeAgg.get(t) ?? 0) + 1); }));
-    const typeRows = [...typeAgg.entries()]
-      .sort((a, b) => cmpText(a[0], b[0]))
-      .map(([tipo, count]) => `<tr><td>${esc(tipo)}</td><td style="text-align:right;font-weight:700">${count}</td></tr>`)
+    const alcance = repCompanies.length === 1 ? `Empresa: ${repCompanies[0]}` : repCompanies.length > 1 ? `Empresas: ${repCompanies.join(', ')}` : 'General · todas las empresas';
+    const t = fleetTotales;
+
+    const totalesGeneralesBlock = `
+      <h2>Totales generales</h2>
+      <table><thead><tr><th style="text-align:left">Indicador</th><th style="text-align:right">Cantidad</th></tr></thead>
+      <tbody>
+        <tr><td>Equipos</td><td style="text-align:right;font-weight:700">${t.equipos}</td></tr>
+        <tr><td>Trabajando en el rango</td><td style="text-align:right;font-weight:700">${t.iniciados}</td></tr>
+        <tr><td>Parados (estado actual)</td><td style="text-align:right;font-weight:700">${t.parados}</td></tr>
+        <tr><td>Averiados (estado actual)</td><td style="text-align:right;font-weight:700">${t.averiados}</td></tr>
+        <tr><td>Horas acumuladas</td><td style="text-align:right;font-weight:700">${t.horas.toFixed(1)} h</td></tr>
+      </tbody></table>`;
+
+    const empresaRows = fleetTotalesPorEmpresa
+      .map((c) => `<tr><td>${esc(c.company)}</td><td style="text-align:right">${c.equipos}</td><td style="text-align:right">${c.iniciados}</td><td style="text-align:right">${c.parados}</td><td style="text-align:right">${c.averiados}</td><td style="text-align:right;font-weight:700">${c.horas.toFixed(1)} h</td></tr>`)
       .join('');
-    const companyRows = companies
-      .map((c) => `<tr><td>${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''}</td><td style="text-align:right;font-weight:700">${c.count}</td></tr>`)
+    const totalesPorEmpresaBlock = `
+      <h2 style="margin-top:16px">Totales por empresa</h2>
+      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th><th style="text-align:right">Trabajando</th><th style="text-align:right">Parados</th><th style="text-align:right">Averiados</th><th style="text-align:right">Horas</th></tr></thead>
+      <tbody>${empresaRows || '<tr><td colspan="6" style="text-align:center">Sin datos</td></tr>'}</tbody>
+      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right">${t.equipos}</td><td style="text-align:right">${t.iniciados}</td><td style="text-align:right">${t.parados}</td><td style="text-align:right">${t.averiados}</td><td style="text-align:right;font-weight:700">${t.horas.toFixed(1)} h</td></tr></tfoot></table>`;
+
+    const ESTADO_LABEL: Record<FleetEstado, string> = { averia: '🔴 Averiada', parada: '🟡 Parada', activo: '🟢 Activo' };
+    const trazaRows = fleetItems
+      .slice()
+      .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
+      .map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.company)}</td><td style="text-align:right">${it.diasTrabajados}</td><td style="text-align:right">${it.worked.toFixed(1)} h</td><td style="text-align:right">${it.averias}</td><td style="text-align:right">${it.paradas}</td><td>${ESTADO_LABEL[it.estado]}</td></tr>`)
       .join('');
-    // DETALLE por EMPRESA (A→Z): dentro de cada empresa, los equipos se muestran
-    // EN CONJUNTO — agrupados por su nombre con la CANTIDAD (p. ej. "CAMIÓN VOLTEO
-    // TORONTO · 19"), no una fila por unidad. Ordenado alfabéticamente.
-    const detailBlocks = companies
-      .map((c) => {
-        const g = new Map<string, { name: string; clas: string; count: number }>();
-        c.items.forEach((it) => {
-          const key = norm(it.name);
-          const e = g.get(key) ?? { name: it.name, clas: it.tipo, count: 0 };
-          e.count += 1; g.set(key, e);
-        });
-        const rows = [...g.values()]
-          .sort((a, b) => cmpText(a.name, b.name))
-          .map((it, i) => `<tr><td class="c">${i + 1}</td><td>${esc(it.name)}</td><td>${esc(it.clas)}</td><td style="text-align:right;font-weight:700">${it.count}</td></tr>`)
-          .join('');
-        return `<h3 style="margin:12px 0 2px">${esc(c.company)}${companyRif[c.company] ? ` <span style="color:#666;font-weight:400;font-size:12px">· RIF ${esc(companyRif[c.company])}</span>` : ''} — ${c.count} equipo(s)</h3>
-          <table><thead><tr><th style="width:34px;text-align:center">#</th><th style="text-align:left">Equipo</th><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
-      })
-      .join('');
-    // Orden del reporte: primero los RESÚMENES (por clasificación y por empresa),
-    // y al final el detalle por empresa con los equipos agrupados.
+    const trazabilidadBlock = `
+      <h2 style="margin-top:16px">Trazabilidad de maquinaria</h2>
+      <p class="muted">Días/horas trabajadas y # de averías/paradas MARCADAS dentro del rango; el estado es el ACTUAL (ahora mismo).</p>
+      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Empresa</th><th style="text-align:right">Días trab.</th><th style="text-align:right">Horas</th><th style="text-align:right">Averías</th><th style="text-align:right">Paradas</th><th style="text-align:left">Estado actual</th></tr></thead>
+      <tbody>${trazaRows || '<tr><td colspan="7" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+
     const body = `
-      <div class="muted">${esc(alcance)}</div>
+      <div class="muted">${esc(alcance)} · Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
       <div class="summary">
-        <div><span class="k">Equipos</span><b>${totalEquipos}</b></div>
-        <div><span class="k">Empresas</span><b>${companies.length}</b></div>
+        <div><span class="k">Equipos</span><b>${t.equipos}</b></div>
+        <div><span class="k">Empresas</span><b>${fleetTotalesPorEmpresa.length}</b></div>
       </div>
-      <h2>Cantidad de equipos por clasificación</h2>
-      <table><thead><tr><th style="text-align:left">Clasificación</th><th style="text-align:right">Cantidad</th></tr></thead>
-      <tbody>${typeRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
-      <h2 style="margin-top:16px">Cantidad de equipos por empresa</h2>
-      <table><thead><tr><th style="text-align:left">Empresa</th><th style="text-align:right">Equipos</th></tr></thead>
-      <tbody>${companyRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
-      <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${totalEquipos}</td></tr></tfoot></table>
-      <h2 style="margin-top:16px">Detalle de equipos por empresa (A→Z)</h2>
-      ${detailBlocks || '<span class="muted">Sin datos</span>'}`;
-    await exportPdf(pdfShell('CANTIDAD DE EQUIPOS', `${alcance} · detalle A→Z (sin horas ni precio)`, body), onlyCompany ? `Reportes - Cantidad ${onlyCompany}` : 'Reportes - Cantidad de equipos');
+      ${totalesGeneralesBlock}
+      ${totalesPorEmpresaBlock}
+      ${trazabilidadBlock}`;
+    await exportPdf(pdfShell('REPORTE DE MAQUINARIA/VEHÍCULOS', alcance, body), 'Reportes - Maquinaria-Vehículo');
   };
 
   // PDF del conteo por tipo TILDADO: total (solo número) + cantidad por tipo y por empresa.
@@ -3148,7 +2973,8 @@ export default function ReportsScreen({ route }: any) {
         </Screen>
       </Modal>
 
-      {/* Vista previa: flota / inventario por empresa */}
+      {/* Vista previa: Maquinaria/Vehículo — SOLO 3 bloques operativos/numéricos (sin $,
+          eso vive en el reporte de Jornada). Depurado 08-ago-2026 a pedido del cliente. */}
       <Modal visible={fleetPreview} animationType="slide" onRequestClose={() => setFleetPreview(false)}>
         <Screen>
           <TouchableOpacity
@@ -3158,154 +2984,72 @@ export default function ReportsScreen({ route }: any) {
           >
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>← Volver</Text>
           </TouchableOpacity>
-          <SectionTitle>Maquinaria/Vehículo por empresa</SectionTitle>
+          <SectionTitle>Maquinaria/Vehículo</SectionTitle>
           <ReportHeader title="REPORTE DE MAQUINARIA/VEHÍCULOS" colors={colors} />
-          <Card>
-            <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
-            <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs }}>
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetItems.length}</Text>
-              </View>
-              <View>
-                <Text style={{ color: colors.muted, fontSize: 12 }}>Empresas</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetByCompany.length}</Text>
-              </View>
-            </View>
-          </Card>
+          <Text style={{ color: colors.muted, fontSize: 13 }}>Del {from} al {to}</Text>
 
-          {/* Interruptor: con / sin precios en $ (aplica a General y Por empresa) */}
-          <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.xs }}>
-            <TouchableOpacity
-              style={[styles.quick, { backgroundColor: fleetWithPrices ? colors.brand : colors.surfaceAlt, borderColor: fleetWithPrices ? colors.brand : colors.border }]}
-              onPress={() => setFleetWithPrices(true)}
-            >
-              <Text style={{ color: fleetWithPrices ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>💲 Con precios</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.quick, { backgroundColor: !fleetWithPrices ? colors.brand : colors.surfaceAlt, borderColor: !fleetWithPrices ? colors.brand : colors.border }]}
-              onPress={() => setFleetWithPrices(false)}
-            >
-              <Text style={{ color: !fleetWithPrices ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>Sin precios</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent, marginTop: spacing.sm }]} onPress={downloadFleetPdf}>
+            <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ Descargar PDF</Text>
+          </TouchableOpacity>
 
-          {/* Botones de descarga arriba */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: colors.accent }]} onPress={() => downloadFleetPdf(undefined, fleetWithPrices)}>
-              <Text style={{ color: colors.accentContrast, fontWeight: '700' }}>⬇️ General</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: showCompanyBtns ? colors.brand : colors.surfaceAlt }]}
-              onPress={() => setShowCompanyBtns((v) => !v)}
-            >
-              <Text style={{ color: showCompanyBtns ? colors.brandContrast : colors.text, fontWeight: '700' }}>🏢 Por empresa</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Reporte solo con la CANTIDAD de equipos (sin horas ni precio). */}
-          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }]}
-              onPress={() => downloadFleetCountPdf()}
-            >
-              <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 13 }}>🔢 Cantidad · General</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: showCountByCompany ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: colors.brand }]}
-              onPress={() => setShowCountByCompany((v) => !v)}
-            >
-              <Text style={{ color: showCountByCompany ? colors.brandContrast : colors.brandText, fontWeight: '800', fontSize: 13 }}>🏢 Cantidad · Por empresa</Text>
-            </TouchableOpacity>
-          </View>
-          {showCountByCompany ? (
-            <View style={{ marginTop: spacing.xs }}>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Toca una empresa para descargar SOLO su cantidad de equipos (detalle A→Z):</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {fleetByCompany.map((c) => (
-                  <TouchableOpacity
-                    key={c.company}
-                    onPress={() => downloadFleetCountPdf(c.company)}
-                    style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
-                  >
-                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>{c.company} ({c.count})</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
-          {showCompanyBtns ? (
-            <View>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>
-                Toca una empresa para descargar su informe:
-              </Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
-                {fleetByCompany.map((c) => (
-                  <TouchableOpacity
-                    key={c.company}
-                    onPress={() => downloadFleetPdf(c.company, fleetWithPrices)}
-                    style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
-                  >
-                    <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>
-                      {c.company} ({c.count})
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {/* Reporte general: total por tipo de maquinaria + totales de equipos por empresa. */}
-          {fleetItems.length > 0 ? (
-            <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📋 Reporte general</Text>
-              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>Total por clasificación</Text>
-              {fleetByType.map((t) => (
-                <View key={t.tipo} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>{t.tipo}</Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{t.count}</Text>
-                </View>
-              ))}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{fleetItems.length}</Text>
-              </View>
-
-              <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: spacing.sm, marginBottom: 2 }}>Totales de equipos por empresa</Text>
-              {fleetByCompany.map((c) => (
-                <View key={c.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13 }}>{c.company}</Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{c.count}</Text>
-                </View>
-              ))}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
-                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{fleetItems.length}</Text>
-              </View>
-            </Card>
-          ) : null}
-
-          {/* Fletes / viajes por empresa (mismo dato que en el reporte de jornada). */}
-          {fleetWithPrices && fleetFletes.length > 0 ? (
-            <Card>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🚚 Fletes / viajes por empresa</Text>
-              {fleetFletes.map((f) => (
-                <View key={f.company} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                  <Text style={{ color: colors.text, fontSize: 13, flex: 1, paddingRight: spacing.sm }}>{f.company} <Text style={{ color: colors.muted, fontSize: 11 }}>· {f.viajes} viaje(s)</Text></Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{usd(f.usd)}</Text>
-                </View>
-              ))}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL FLETES</Text>
-                <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] as any }}>{usd(fleetFletes.reduce((s, f) => s + f.usd, 0))}</Text>
-              </View>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>En el PDF, cada empresa muestra sus viajes y el "TOTAL POR PAGAR (equipos + fletes)".</Text>
-            </Card>
-          ) : null}
-
-          {fleetByCompany.length === 0 ? (
+          {fleetItems.length === 0 ? (
             <Card><Text style={{ color: colors.muted }}>Sin equipos registrados.</Text></Card>
-          ) : null}
+          ) : (
+            <>
+              {/* Bloque 1: Totales generales */}
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>📊 Totales generales</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg }}>
+                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Equipos</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotales.equipos}</Text></View>
+                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Trabajando</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.success }}>{fleetTotales.iniciados}</Text></View>
+                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Parados</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.warning }}>{fleetTotales.parados}</Text></View>
+                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Averiados</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.danger }}>{fleetTotales.averiados}</Text></View>
+                  <View><Text style={{ color: colors.muted, fontSize: 12 }}>Horas acumuladas</Text><Text style={{ fontSize: 20, fontWeight: '700', color: colors.text }}>{fleetTotales.horas.toFixed(1)} h</Text></View>
+                </View>
+              </Card>
+
+              {/* Bloque 2: Totales por empresa */}
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: spacing.xs }}>🏢 Totales por empresa</Text>
+                {fleetTotalesPorEmpresa.map((c) => (
+                  <View key={c.company} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{c.company}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>
+                      {c.equipos} equipo(s) · 🟢 {c.iniciados} trabajando · 🟡 {c.parados} parados · 🔴 {c.averiados} averiados · {c.horas.toFixed(1)} h
+                    </Text>
+                  </View>
+                ))}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>TOTAL</Text>
+                  <Text style={{ color: colors.brandText, fontSize: 13, fontWeight: '800' }}>{fleetTotales.equipos} equipos · {fleetTotales.horas.toFixed(1)} h</Text>
+                </View>
+              </Card>
+
+              {/* Bloque 3: Trazabilidad de maquinaria */}
+              <Card>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, marginBottom: 2 }}>🧭 Trazabilidad de maquinaria</Text>
+                <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Días/horas trabajadas y # de averías/paradas del rango. El estado es el ACTUAL (ahora mismo).</Text>
+                {fleetItems
+                  .slice()
+                  .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
+                  .map((it) => (
+                    <View key={it.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
+                          {it.name} {it.estado === 'averia' ? '🔴' : it.estado === 'parada' ? '🟡' : '🟢'}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 11 }}>
+                          {it.company} · {it.diasTrabajados} día(s) trab. · {it.worked.toFixed(1)} h · {it.averias} avería(s) · {it.paradas} parada(s)
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => navigation?.navigate?.('MachineTraceability', { machineId: it.id })} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+              </Card>
+            </>
+          )}
 
           <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surfaceAlt, marginTop: spacing.md }]} onPress={() => setFleetPreview(false)}>
             <Text style={{ color: colors.text, fontWeight: '700' }}>Cerrar</Text>

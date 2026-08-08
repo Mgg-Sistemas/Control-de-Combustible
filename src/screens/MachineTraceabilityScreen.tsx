@@ -43,7 +43,7 @@ const fmtDuration = (ms: number) => {
   return d > 0 ? `${d}d ${h2}h` : `${Math.round(totalH)}h`;
 };
 
-export default function MachineTraceabilityScreen() {
+export default function MachineTraceabilityScreen({ route }: any) {
   const { colors } = useTheme();
   const today = caracasTodayISO();
 
@@ -55,7 +55,10 @@ export default function MachineTraceabilityScreen() {
     return m;
   }, [companies]);
 
-  const [machineId, setMachineId] = useState('');
+  // Preselección: si se llega desde otro reporte (p. ej. "Ver detalle" en la
+  // Trazabilidad de Maquinaria/Vehículo) con un `machineId` ya elegido, arranca
+  // directo en esa máquina en vez de pedir que la busquen de nuevo.
+  const [machineId, setMachineId] = useState(route?.params?.machineId ?? '');
   const [machineOpen, setMachineOpen] = useState(false);
   const [machineQuery, setMachineQuery] = useState('');
   const machineInfo = machineId ? machinery.find((m) => m.id === machineId) : undefined;
