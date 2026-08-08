@@ -17,6 +17,8 @@ export type MapPin = {
   clasificacion?: string | null; // clasificación
   plate?: string | null;         // placa
   serial?: string | null;        // serial
+  identifier?: string | null;    // identificador (muchas máquinas guardan su serial aquí)
+  encargado?: string | null;     // encargado responsable de la máquina
   utm?: string | null;           // coordenadas en formato UTM (ya formateadas)
   route: [number, number][];
 };
@@ -109,7 +111,9 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     if (p.route && p.route.length > 1){ allRoutes.push({ layer: L.polyline(p.route, {color:color, weight:3, opacity:0.7}), company: co }); }
     var mk = L.marker([p.lat, p.lng], {icon: pin(color)});
     var esc = function(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-    var placaSerial = [p.plate ? 'Placa: '+esc(p.plate) : '', p.serial ? 'Serial: '+esc(p.serial) : ''].filter(Boolean).join(' · ');
+    // Placa / Serial / ID: muchas máquinas guardan su serial en "identifier", así que
+    // incluimos los tres (el que falte se omite) para que SIEMPRE salga el identificador.
+    var placaSerial = [p.plate ? 'Placa: '+esc(p.plate) : '', p.serial ? 'Serial: '+esc(p.serial) : '', p.identifier ? 'ID: '+esc(p.identifier) : ''].filter(Boolean).join(' · ');
     var z = zoneOf(p.lat, p.lng);
     var zoneTxt = z ? (esc(z.name) + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores';
     var div = document.createElement('div');
@@ -117,6 +121,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
       + (p.tipo ? '<br/>🏷️ Modelo: '+esc(p.tipo) : '')
       + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
       + (placaSerial ? '<br/>🔖 '+placaSerial : '')
+      + (p.encargado ? '<br/>👤 Encargado: '+esc(p.encargado) : '')
       + '<br/>🗺️ Zona: <b>'+zoneTxt+'</b>'
       + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
@@ -399,9 +404,10 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
             <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
             {p.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {p.tipo}</Text> : null}
             {p.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {p.clasificacion}</Text> : null}
-            {p.plate || p.serial ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`].filter(Boolean).join(' · ')}</Text>
+            {p.plate || p.serial || p.identifier ? (
+              <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`, p.identifier && `ID: ${p.identifier}`].filter(Boolean).join(' · ')}</Text>
             ) : null}
+            {p.encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {p.encargado}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 13 }}>{p.lat}, {p.lng} · Activa {p.active}</Text>
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity

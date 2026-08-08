@@ -248,26 +248,82 @@ export default function EquiposScreen({ navigation, route }: any) {
   // que una máquina averiada en el teléfono del inspector seguía viéndose "● Operativa"
   // aquí. Se lee de maintenance_requests (mismo criterio que SupervisorScreen/Inspecciones,
   // NO se toca `operational`) y se refresca en vivo.
-  const [averiaCat, setAveriaCat] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null }>>({});
+  // `createdMs` = instante en que se marcó la avería/parada (para la regla de reactivación:
+  // si la jornada abierta arrancó DESPUÉS de la marca, la máquina volvió a trabajar).
+  const [averiaCat, setAveriaCat] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }>>({});
   const loadAveriaCat = () => {
     Promise.all([
-      supabase.from('maintenance_requests').select('machinery_id, material, notes').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
-      supabase.from('maintenance_requests').select('machinery_id, notes').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]).then(([averias, paradas]) => {
-      const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null }> = {};
-      (paradas.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'parada', motivo: r.notes }; });
+      const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }> = {};
+      const ms = (iso: any) => (iso ? new Date(iso).getTime() : 0);
+      (paradas.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'parada', motivo: r.notes, createdMs: ms(r.created_at) }; });
       // Avería real tiene prioridad sobre el marcador genérico "MÁQUINA PARADA" (mismo orden que en SupervisorScreen).
-      (averias.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material }; });
+      (averias.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material, createdMs: ms(r.created_at) }; });
       setAveriaCat(m);
     }).catch(() => {});
   };
   useEffect(() => { loadAveriaCat(); }, [machinery.data]);
+
+  // Estatus EN VIVO por jornada (machine_rounds): horas trabajadas hoy + jornada abierta.
+  // Se lee la ronda de HOY (día de negocio Caracas) y la de ANOCHE si es una jornada de
+  // NOCHE aún abierta (round_date = ayer). Por máquina: dayH/nightH ya trabajadas y el
+  // instante de inicio (ms) de la jornada abierta, separado por turno.
+  const [jornadaCat, setJornadaCat] = useState<Record<string, { dayH: number; nightH: number; openStartDay: number | null; openStartNight: number | null }>>({});
+  const loadJornadaCat = () => {
+    const now = new Date();
+    const today = caracasParts(now).iso;
+    const yesterday = caracasParts(new Date(now.getTime() - 86400000)).iso;
+    Promise.all([
+      supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift').eq('round_date', today),
+      supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+    ]).then(([todayRes, nightRes]) => {
+      const m: Record<string, { dayH: number; nightH: number; openStartDay: number | null; openStartNight: number | null }> = {};
+      const ensure = (id: string) => (m[id] ??= { dayH: 0, nightH: 0, openStartDay: null, openStartNight: null });
+      // Turno del inicio: el declarado; si falta, se infiere por la hora Caracas (07–18:59 = día).
+      const inferShift = (iso: string, shift: 'day' | 'night' | null): 'day' | 'night' => {
+        if (shift) return shift;
+        const h = caracasParts(new Date(iso)).hour;
+        return h >= 7 && h < 19 ? 'day' : 'night';
+      };
+      (todayRes.data ?? []).forEach((r: any) => {
+        const e = ensure(r.machinery_id);
+        e.dayH = Math.max(e.dayH, Number(r.day_hours) || 0);
+        e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
+        if (r.jornada_start_at) {
+          const t = new Date(r.jornada_start_at).getTime();
+          if (inferShift(r.jornada_start_at, r.jornada_shift) === 'day') e.openStartDay = e.openStartDay == null ? t : Math.min(e.openStartDay, t);
+          else e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
+        }
+      });
+      // Jornada de NOCHE de anoche aún abierta → cuenta como noche de hoy.
+      (nightRes.data ?? []).forEach((r: any) => {
+        const e = ensure(r.machinery_id);
+        e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
+        if (r.jornada_start_at) {
+          const t = new Date(r.jornada_start_at).getTime();
+          e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
+        }
+      });
+      setJornadaCat(m);
+    }).catch(() => {});
+  };
+  useEffect(() => { loadJornadaCat(); }, [machinery.data]);
+
+  // "Tick" en vivo: cada 60s re-renderiza para que las horas en curso crezcan solas.
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
   // machinery/vehicles/companies ya se refrescan solos (useTable se suscribe a su propia
   // tabla). Estas fuentes auxiliares (custodia, inspector del check-in, asignación por
   // turno y avería/parada) viven en OTRAS tablas y no se refrescaban si otro dispositivo las cambiaba.
   useRealtimeRefresh(['machine_guards'], loadGuards);
   useRealtimeRefresh(['supervisor_visits', 'machine_inspectors'], () => { loadInspectors(); loadInspByShift(); });
   useRealtimeRefresh(['maintenance_requests'], loadAveriaCat);
+  useRealtimeRefresh(['machine_rounds'], loadJornadaCat);
   const refreshGuard = async (machineId: string) => {
     const map = await fetchActiveGuards([machineId]);
     setGuards((p) => {
@@ -843,16 +899,70 @@ export default function EquiposScreen({ navigation, route }: any) {
   const reportTitle = titleForScope(reportCompany);
   const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
   const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
-  // Insignia de avería/parada (independiente de Operativa/No operativa) — sincronizada
-  // con lo que marcó el inspector desde su teléfono.
-  const AveriaBadge = ({ id }: { id: string }) => {
+  // Estatus EN VIVO de una máquina, con horas, combinando jornada (machine_rounds) y
+  // avería/parada (maintenance_requests). Todo derivado; NO toca `operational`.
+  //  - elapsedDia/Noche: horas transcurridas de la jornada abierta de cada turno (cap 12).
+  //  - workedDia/Noche: horas ya trabajadas + en curso de cada turno (cap 12).
+  //  - total: acumulado del día = día + noche (regla del cliente: de noche muestra el acumulado del día).
+  //  - enCurso: lo que corre ahora mismo; trabajadas = total − enCurso (banqueado).
+  //  - reactivación: si la jornada abierta arrancó en el mismo instante o DESPUÉS de la
+  //    marca de avería/parada, esa marca ya NO cuenta (la máquina volvió a trabajar).
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const liveStatusOf = (id: string) => {
+    const j = jornadaCat[id];
     const a = averiaCat[id];
-    if (!a) return null;
-    const isAveria = a.tipo === 'averia';
+    const dayH = j?.dayH ?? 0;
+    const nightH = j?.nightH ?? 0;
+    const openStartDay = j?.openStartDay ?? null;
+    const openStartNight = j?.openStartNight ?? null;
+    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
+    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
+    const workedDia = Math.min(12, dayH + elapsedDia);
+    const workedNoche = Math.min(12, nightH + elapsedNoche);
+    const total = workedDia + workedNoche;
+    const enCurso = elapsedDia + elapsedNoche;
+    const trabajadas = Math.max(0, total - enCurso);
+    const hasOpen = openStartDay != null || openStartNight != null;
+    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
+    const averiaVigente = !!a && !(hasOpen && openStart >= a.createdMs);
+    let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
+    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
+    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
+    else if (hasOpen) estado = 'trabajando';
+    else if (total > 0) estado = 'trabajo_hoy';
+    else estado = 'ninguno';
+    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
+  };
+  // Insignia de estatus EN VIVO (independiente de Operativa/No operativa) — sincronizada
+  // con lo que marcó el inspector desde su teléfono y con la jornada abierta.
+  const AveriaBadge = ({ id }: { id: string }) => {
+    const s = liveStatusOf(id);
+    if (s.estado === 'ninguno') return null;
+    const h = (n: number) => n.toFixed(2);
+    if (s.estado === 'averiada' || s.estado === 'parada') {
+      const isAveria = s.estado === 'averiada';
+      return (
+        <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+          <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={2}>
+            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''} · Trabajó {h(s.trabajadas)}h · En curso 0h · Total {h(s.total)}h
+          </Text>
+        </View>
+      );
+    }
+    if (s.estado === 'trabajando') {
+      return (
+        <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: '#DCFCE7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+          <Text style={{ color: '#166534', fontWeight: '700', fontSize: 11 }} numberOfLines={1}>
+            🟢 Trabajando · Total {h(s.total)}h · En curso {h(s.enCurso)}h
+          </Text>
+        </View>
+      );
+    }
+    // trabajo_hoy: trabajó y cerró (sin jornada abierta, sin avería/parada vigente).
     return (
-      <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-        <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={1}>
-          {isAveria ? '🔴 Averiada' : '🟡 Parada'}{a.motivo ? ` · ${a.motivo}` : ''}
+      <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 11 }} numberOfLines={1}>
+          🏁 Trabajó hoy · Total {h(s.total)}h
         </Text>
       </View>
     );
