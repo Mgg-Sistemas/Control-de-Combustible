@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { exportPdf, pdfDocument } from '../lib/pdf';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const SHIFT_LBL: Record<string, string> = { day: '☀️ Día', night: '🌙 Noche' };
@@ -88,6 +89,9 @@ export default function OperadoresScreen() {
     }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [ws]);
+  // Los operadores inician/cierran jornada escaneando el QR desde el teléfono —
+  // sin esto, la PC no veía las horas nuevas hasta recargar.
+  useRealtimeRefresh(['operator_assignments'], () => { load(); });
 
   const groups = useMemo<OperatorGroup[]>(() => {
     const term = norm(q.trim());

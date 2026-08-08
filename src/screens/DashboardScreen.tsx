@@ -92,6 +92,8 @@ export default function DashboardScreen({ navigation }: any) {
 
   // Gráfica de ingreso por empresa + modo (día / mes / año).
   const [chartMode, setChartMode] = useState<'dia' | 'mes' | 'anio'>('mes');
+  const chartModeRef = useRef(chartMode);
+  chartModeRef.current = chartMode;
   const [chart, setChart] = useState<{ label: string; value: number; color: string }[] | null>(null);
   const [chartTotal, setChartTotal] = useState(0);
 
@@ -171,13 +173,16 @@ export default function DashboardScreen({ navigation }: any) {
   useEffect(() => {
     loadCounts();
     let timer: any;
-    const bump = () => { clearTimeout(timer); timer = setTimeout(loadCounts, 300); };
+    // También refresca la gráfica de jornadas: sin esto, una ronda registrada desde
+    // otro dispositivo no aparecía en el gráfico hasta cambiar de pestaña día/mes/año.
+    const bump = () => { clearTimeout(timer); timer = setTimeout(() => { loadCounts(); loadChart(chartModeRef.current); }, 300); };
     const ch = supabase.channel(`rt-dashboard-counts-${rtId.current}`);
     ['machine_rounds', 'machinery', 'vehicles'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();
     return () => { clearTimeout(timer); supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadCounts]);
 
   useEffect(() => { setChart(null); loadChart(chartMode); }, [chartMode, loadChart]);

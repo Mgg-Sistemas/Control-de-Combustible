@@ -407,8 +407,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         load(true);
       }, 300);
     };
-    const ch = supabase.channel('rt-control-maquinaria');
-    ['machine_rounds', 'machinery', 'machine_guards', 'fletes'].forEach((t) =>
+    const ch = supabase.channel(`rt-control-maquinaria-${rtId.current}`);
+    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     // Resync al (re)conectar el canal (señal intermitente): recupera cambios perdidos.

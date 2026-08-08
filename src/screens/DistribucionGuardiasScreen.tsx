@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { cmpText } from '../lib/text';
 import { DateField } from '../components/DateField';
 import { generateGuardiasReport, GuardInspector, GuardShift } from '../lib/guardiasReport';
+import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 const CARGOS = ['Coordinador', 'Nocturno', 'Inspector'];
 const GRUPO_COLOR: Record<string, string> = { A: '#9AA3AB', B: '#4BB477', C: '#E0A040' };
@@ -74,6 +75,10 @@ export default function DistribucionGuardiasScreen() {
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
+  // Sin esto, un descanso/grupo asignado desde otro dispositivo no aparecía hasta
+  // recargar — riesgo de que dos inspectores del mismo grupo quedaran "descansando"
+  // el mismo día por estar viendo datos viejos.
+  useRealtimeRefresh(['guard_inspector_meta', 'guard_shifts'], () => { load(); });
 
   const days = useMemo(() => daysBetween(from, to), [from, to]);
   const shiftsByName = useMemo(() => {
