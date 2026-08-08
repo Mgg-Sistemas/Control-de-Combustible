@@ -42,6 +42,11 @@ export type QueuedParada = {
     auditDetail: string;
     machineryId: string;
     machineCode: string;
+    /** Sub-pasos ya confirmados con éxito (se persiste tras cada uno). Si un
+     *  reintento falla a mitad de camino, el próximo `replayOne` retoma desde
+     *  aquí en vez de repetir pasos que ya se aplicaron en el servidor
+     *  (evita duplicar la visita, banca horas dos veces o duplicar tickets). */
+    progress?: { visitaHecha?: boolean; horasBancadas?: boolean; maintenanceDone?: number };
   };
 };
 
@@ -80,6 +85,20 @@ async function writeAll(items: QueuedAction[]): Promise<void> {
   cache = items;
   try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch { /* best-effort */ }
   listeners.forEach((l) => l(items));
+}
+
+/** Persiste el progreso de sub-pasos de un ítem `parada` (por id) sin tocar el
+ *  resto de la cola. Se llama tras cada sub-paso exitoso de `replayOne` para
+ *  que un fallo posterior en el MISMO ítem no repita lo ya confirmado. */
+async function persistParadaProgress(id: string, progress: NonNullable<QueuedParada['payload']['progress']>): Promise<void> {
+  const items = await readAll();
+  const idx = items.findIndex((it) => it.id === id);
+  if (idx === -1) return;
+  const item = items[idx];
+  if (item.kind !== 'parada') return;
+  const updated = [...items];
+  updated[idx] = { ...item, payload: { ...item.payload, progress } };
+  await writeAll(updated);
 }
 
 /** Suscribe a cambios en la cola (para el contador/insignia en la UI). Devuelve función para des-suscribir. */
@@ -140,18 +159,31 @@ async function replayOne(item: QueuedAction): Promise<void> {
   }
   if (item.kind === 'parada') {
     const { visita, maintenance, hourBanking, auditDetail, machineryId } = item.payload;
-    const v = await saveVisit(visita);
-    if (v.error) throw new Error(v.error);
-    if (hourBanking) {
+    // Idempotencia por sub-paso: retoma desde lo último confirmado (ver
+    // `progress`) para que un reintento tras fallo parcial no repita la
+    // visita, banque las horas dos veces ni duplique tickets ya insertados.
+    const progress = { ...(item.payload.progress ?? {}) };
+    if (!progress.visitaHecha) {
+      const v = await saveVisit(visita);
+      if (v.error) throw new Error(v.error);
+      progress.visitaHecha = true;
+      await persistParadaProgress(item.id, progress);
+    }
+    if (hourBanking && !progress.horasBancadas) {
       const prev = await getMachineRound(hourBanking.machineryId, hourBanking.roundDate);
       const base = Number((prev as any)?.[hourBanking.shiftKey] ?? 0);
       const total = Math.round((base + hourBanking.horas) * 100) / 100;
       const res = await upsertMachineRound(hourBanking.machineryId, hourBanking.roundDate, { [hourBanking.shiftKey]: total, jornada_start_at: null } as any, visita.supervisorId);
       if (res.error) throw new Error(res.error);
+      progress.horasBancadas = true;
+      await persistParadaProgress(item.id, progress);
     }
-    for (const m of maintenance) {
-      const { error } = await supabase.from('maintenance_requests').insert(m);
+    const desde = progress.maintenanceDone ?? 0;
+    for (let mi = desde; mi < maintenance.length; mi++) {
+      const { error } = await supabase.from('maintenance_requests').insert(maintenance[mi]);
       if (error) throw new Error(error.message);
+      progress.maintenanceDone = mi + 1;
+      await persistParadaProgress(item.id, progress);
     }
     logAudit('PARADA', 'machinery', machineryId, auditDetail);
     return;
@@ -187,7 +219,13 @@ export async function flushQueue(): Promise<{ synced: number; remaining: number 
         synced++;
         rest = items.slice(i + 1);
       } catch {
-        rest = items.slice(i);
+        // El ítem que falló pudo haber persistido progreso parcial (ver
+        // `persistParadaProgress` en `replayOne`) mientras este bucle corría;
+        // se relee la cola en vez de usar el snapshot `items` de más arriba
+        // para no pisar ese progreso con la versión sin confirmar.
+        const freshItems = await readAll();
+        const idx = freshItems.findIndex((it) => it.id === items[i].id);
+        rest = idx === -1 ? freshItems : freshItems.slice(idx);
         break;
       }
     }

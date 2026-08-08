@@ -23,6 +23,11 @@ import { isoYesterday } from './caracasDay';
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
+/** Día ISO (AAAA-MM-DD) + n días (n puede ser negativo). */
+const addDaysISO = (iso: string, n: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
 
 const CARACAS_TZ = 'America/Caracas';
 /** Hora (0-23) en Caracas de un instante ISO. */
@@ -111,11 +116,16 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
 
   // 2) Averías PENDIENTES vigentes hasta ese día (se arrastran de un día a otro,
   //    igual que en el teléfono, hasta que el inspector las reactive). Por TURNO.
+  // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
+  // noche va de 19:00 a 07:00+1, así que una avería/parada marcada a la 1am cae
+  // dentro del turno noche de HOY — igual criterio que inspectorReport.ts
+  // (`nightEndBound`); cortar en medianoche la dejaba fuera de la consulta.
+  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
   const { data: mr } = await supabase
     .from('maintenance_requests')
     .select('machinery_id, material, notes, created_at')
     .eq('status', 'pendiente')
-    .lte('created_at', `${date}T23:59:59.999-04:00`)
+    .lte('created_at', nightEndBound)
     .order('created_at', { ascending: false });
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
   // Parada / avería pendiente por máquina (la más reciente; viene ordenado desc). Se

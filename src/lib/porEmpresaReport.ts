@@ -22,6 +22,11 @@ import { isoYesterday } from './caracasDay';
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
+/** Día ISO (AAAA-MM-DD) + n días (n puede ser negativo). */
+const addDaysISO = (iso: string, n: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
 const dash = (v: any) => { const s = String(v ?? '').trim(); return s || '—'; };
 const n2 = (n: number) => Math.round(n * 100) / 100;
 /** Hora (Caracas) "HH:MM am/pm" de un instante ISO, o '—'. */
@@ -126,12 +131,19 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Trae PENDIENTES vigentes (arrastradas) + las que se RESOLVIERON justo este día
   // (para poder mostrar la hora de reactivación en la línea de tiempo). Una parada
   // resuelta otro día distinto no entra acá (no corresponde a la jornada de este día).
+  // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
+  // noche va de 19:00 a 07:00+1, así que una avería/parada marcada (o reactivada) a
+  // la 1am cae dentro del turno noche de HOY — igual criterio que inspectorReport.ts
+  // (`nightEndBound`); cortar en medianoche la dejaba fuera de la consulta y la
+  // máquina podía desaparecer del reporte (ver el `return` de abajo si no tuvo otra
+  // actividad ese día).
+  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
   const { data: mr } = await supabase
     .from('maintenance_requests')
     .select('machinery_id, material, notes, created_at, status, resolved_at')
     .in('machinery_id', ids)
-    .lte('created_at', `${date}T23:59:59.999-04:00`)
-    .or(`status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${date}T23:59:59.999-04:00)`)
+    .lte('created_at', nightEndBound)
+    .or(`status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`)
     .order('created_at', { ascending: false });
   // Deja SOLO el motivo: quita la Ubicación (GPS) y el Edificio de la nota — el
   // reporte no debe mostrar dónde está, solo POR QUÉ no trabajó/paró.

@@ -434,9 +434,12 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // InspectionsSummary, que usa solo `assignments.filter(shift)`). Antes había un bloque
   // (b) que además metía máquinas por `recorded_by` (quien inició la ronda) aunque no le
   // estuvieran asignadas (escaneo suelto) → el reporte contaba MÁS equipos que las
-  // tarjetas para TODOS los inspectores ("no sé de dónde salen 6, son 4"). Se eliminó: si
-  // una máquina no está asignada por CHECK a un inspector, NO cuenta en su reporte (ni en
-  // sus tarjetas). El trabajo suelto sigue en Control y en el reporte por empresa.
+  // tarjetas para TODOS los inspectores ("no sé de dónde salen 6, son 4"), y además podía
+  // DUPLICAR una máquina reasignada de B a A el mismo día (A por la sección a, B por
+  // recorded_by en la sección b, con sus horas sumadas dos veces en los totales). Se
+  // eliminó: si una máquina no está asignada por CHECK a un inspector, NO cuenta en su
+  // reporte (ni en sus tarjetas). El trabajo suelto sigue en Control y en el reporte por
+  // empresa.
 
   return { data, machineLocs, machCoords, coordTxt };
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, TextInput, Modal, Pressable } from 'react-native';
 import { Screen, Card, Loading, EmptyState, SkeletonList } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
@@ -118,6 +118,22 @@ export default function SupervisionScreen({ navigation }: any) {
   // calendario — antes de las 7am la jornada de noche en curso sigue viva bajo
   // round_date = AYER, y con la fecha de calendario pura se veía vacía.
   const [date, setDate] = useState(caracasBusinessToday());
+  // El día de negocio "de hoy" cambia solo (7am/medianoche) aunque la pantalla se
+  // quede abierta toda la noche (uso típico de dashboard de patio). Sin esto,
+  // `date` quedaba congelado en el día con el que se montó el componente hasta un
+  // F5 manual. Revisa cada minuto y solo pisa `date` si seguía en el día viejo
+  // (si el usuario navegó manualmente a otra fecha, esa navegación se respeta).
+  const bizDayRef = useRef(caracasBusinessToday());
+  useEffect(() => {
+    const t = setInterval(() => {
+      const biz = caracasBusinessToday();
+      if (biz !== bizDayRef.current) {
+        setDate((prev) => (prev === bizDayRef.current ? biz : prev));
+        bizDayRef.current = biz;
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [visits, setVisits] = useState<VisitRow[]>([]);

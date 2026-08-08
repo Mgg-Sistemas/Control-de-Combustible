@@ -947,6 +947,12 @@ export interface MaintenanceRequest {
   created_at: string;
   resolved_by: string | null;
   resolved_at: string | null;
+  /** Turno ('day' | 'night') fijado por trigger en el servidor al crear el ticket
+   *  (ver supabase/maintenance_requests_shift_round_date.sql). Opcional porque las
+   *  consultas existentes no siempre lo seleccionan y filas viejas pueden no tenerlo. */
+  shift?: 'day' | 'night' | null;
+  /** Día de negocio Caracas al que pertenece el ticket, fijado por el mismo trigger. */
+  round_date?: string | null;
 }
 
 export type RepairTipo = 'preventivo' | 'correctivo';

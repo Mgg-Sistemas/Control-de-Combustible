@@ -18,6 +18,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
+import { caracasBusinessToday } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID } from '../lib/machineInspectors';
@@ -120,6 +121,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // esto, al pasar las 12 la vista solo miraba "hoy" y la jornada de noche desaparecía
   // (parecía cerrada a medianoche). Se usa para rescatar la noche de ayer aún abierta.
   const yesterday = useMemo(() => { const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 1); return caracasParts(d).iso; }, [today]);
+  // Límite para "rescatar" jornadas abiertas de días anteriores (ver reloadEstados):
+  // cubre el caso de que auto_close_jornadas() falle varios días seguidos sin dejar
+  // rondas huérfanas invisibles para siempre en el teléfono.
+  const rescueCutoff = useMemo(() => { const d = new Date(`${today}T12:00:00-04:00`); d.setUTCDate(d.getUTCDate() - 7); return caracasParts(d).iso; }, [today]);
   const consumedRef = useRef(false);
   // Solo los usuarios con permiso del módulo 'asistencia' pueden marcar la
   // asistencia del personal desde esta vista (botón + modal más abajo).
@@ -478,11 +483,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina para el círculo de color: rondas del día
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
-    const [{ data: rs }, { data: rsNoche }, { data: par }, { data: avPend }] = await Promise.all([
+    const [{ data: rs }, { data: rsRescue }, { data: par }, { data: avPend }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', today),
-      // Jornadas de NOCHE de AYER aún ABIERTAS (cruzan la medianoche): sin esto el
-      // círculo 🟢 se apagaba al pasar las 12 (parecía cierre a medianoche en el tlf).
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+      // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
+      // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
+      // esto el círculo 🟢 se apagaba al pasar las 12) como una jornada de DÍA que
+      // quedó abierta más de un día porque el cron auto_close_jornadas() no corrió
+      // (caída del servidor/cron) — antes solo se rescataba 'night', así que un DÍA
+      // huérfano desaparecía silenciosamente del teléfono y el inspector podía volver
+      // a iniciar jornada sobre la misma máquina.
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').gte('round_date', rescueCutoff).lt('round_date', today).not('jornada_start_at', 'is', null),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -525,11 +535,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         openStartNight: Math.max(prev.openStartNight, isOpen && openSh === 'night' && !isNaN(startMs) ? startMs : 0),
       };
     });
-    // La noche de ayer aún abierta cuenta como 🟢 trabajando SOLO para el turno noche.
-    ((rsNoche ?? []) as any[]).forEach((r) => {
+    // Cualquier jornada de un día anterior aún abierta cuenta como 🟢 trabajando,
+    // respetando SU turno (día o noche) — no pisa el turno contrario.
+    ((rsRescue ?? []) as any[]).forEach((r) => {
       const prev = rmap[r.machinery_id] ?? empty;
       const startMs = r.jornada_start_at ? new Date(r.jornada_start_at).getTime() : 0;
-      rmap[r.machinery_id] = { ...prev, open: true, openNight: true, openStartNight: Math.max(prev.openStartNight, !isNaN(startMs) ? startMs : 0) };
+      const ms = !isNaN(startMs) ? startMs : 0;
+      if (r.jornada_shift === 'day') {
+        rmap[r.machinery_id] = { ...prev, open: true, openDay: true, openStartDay: Math.max(prev.openStartDay, ms) };
+      } else {
+        rmap[r.machinery_id] = { ...prev, open: true, openNight: true, openStartNight: Math.max(prev.openStartNight, ms) };
+      }
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -1086,7 +1102,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!fixedShift || receiptBusy) return;
     setReceiptBusy(true);
     try {
-      await generateMyShiftReceipt({ date: today, shift: fixedShift, inspectorName: fullName || 'Inspector' });
+      // "día de negocio" (no calendario): un cierre de turno NOCHE puede pulsarse
+      // después de medianoche, cuando `today` (calendario) ya rodó — pero el round
+      // real (y lo que ve computeInspectorData) sigue perteneciendo al día en que
+      // arrancó. Sin esto el PDF salía vacío/con el día equivocado.
+      await generateMyShiftReceipt({ date: caracasBusinessToday(), shift: fixedShift, inspectorName: fullName || 'Inspector' });
     } catch {
       setNotice('❌ No se pudo generar el PDF del reporte.');
     } finally {
@@ -1408,19 +1428,16 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
     setJornadaStart(declaredIso);
-    // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, así
-    // que se CIERRAN (resuelven) sus paradas/averías PENDIENTES. Sin esto, la máquina
-    // seguía mostrándose 🔴 AVERIADA / 🟡 PARADA aunque reiniciaran la jornada: la
-    // avería pendiente se arrastra y en el clasificador (segmentoDe) `avHoy`/`avAny`
-    // ganaban sobre "iniciada". Mismo criterio que `volverOperativa`. Best-effort:
-    // no debe tumbar el inicio de jornada (se hace después del upsert exitoso).
-    try {
-      await supabase
-        .from('maintenance_requests')
-        .update({ status: 'realizado', resolved_by: uid || null, resolved_at: new Date().toISOString() })
-        .eq('machinery_id', ci.id)
-        .eq('status', 'pendiente');
-    } catch { /* si falla, el realtime/refresh posterior lo reintenta al reactivar de nuevo */ }
+    // REACTIVACIÓN: iniciar la jornada implica que la máquina VUELVE a trabajar, pero
+    // eso es SOLO una reclasificación en memoria (ver `reactivada()`/`segmentoDe`, que
+    // comparan jornada_start_at contra la avería/parada por TURNO) — NO se toca el
+    // status real del ticket en `maintenance_requests`, que sigue "pendiente" en la BD
+    // y visible en Mantenimiento de Maquinaria hasta que se resuelva de verdad (regla
+    // confirmada 08-ago-2026). Antes este bloque marcaba TODO ticket pendiente de la
+    // máquina como "realizado" sin filtrar por turno, cerrando también los del OTRO
+    // turno (p.ej. el inspector de día cerraba la avería real marcada de noche). Si se
+    // necesita cerrar un ticket de verdad, es la acción explícita "Volver a OPERATIVA"
+    // (`volverOperativa`), no el simple inicio de jornada.
     // HORÓMETRO (solo mantenimiento · NO toca pagos): refleja el horómetro inicial como
     // horómetro VIVO de la máquina, y —la PRIMERA vez— fija la base de mantenimiento en
     // ese inicial para empezar a contar desde 0 (horas acum. = last_horometro − base,
@@ -1574,15 +1591,26 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!vis) return false;
     if (jornadaStart) {
       const horas = Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100);
-      const prevRound = await getMachineRound(ci.id, today);
+      // El bancado se hace contra el round_date en que se INICIÓ la jornada (no el
+      // "hoy" de calendario): mismo criterio que finalizarJornada (ver su comentario)
+      // para que una parada marcada después de medianoche, en una jornada de noche
+      // que sigue abierta, no cree un round huérfano en el día equivocado.
+      const roundDate = caracasParts(new Date(jornadaStart)).iso;
+      const prevRound = await getMachineRound(ci.id, roundDate);
       const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
       const base = Number((prevRound as any)?.[key] ?? 0);
       const total = Math.round((base + horas) * 100) / 100;
-      await upsertMachineRound(ci.id, today, { [key]: total, jornada_start_at: null }, uid || null);
+      const res = await upsertMachineRound(ci.id, roundDate, { [key]: total, jornada_start_at: null }, uid || null);
+      // Si el bancado de horas falla, NO seguimos como si hubiera ido bien: se
+      // devuelve false para que marcarParadaAveria/marcarParadaNoTrabajo encolen
+      // la operación completa (mismo camino que usan para el resto de fallos de
+      // red), evitando perder las horas trabajadas y dejar jornada_start_at
+      // huérfano en la BD (ver iniciarJornada/finalizarJornada: mismo chequeo).
+      if (res.error) return false;
       // 📋 Log auditable del tramo trabajado (best-effort: no debe bloquear ni
       // romper el registro de la parada si falla).
       supabase.from('machine_work_segments').insert({
-        machinery_id: ci.id, round_date: today, shift: jornadaShift,
+        machinery_id: ci.id, round_date: roundDate, shift: jornadaShift,
         started_at: jornadaStart, ended_at: new Date().toISOString(), hours: horas,
         source, recorded_by: uid || null,
       }).then(() => {}, () => {});
@@ -1605,8 +1633,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // abierta) + las 2 solicitudes de Mantenimiento, tal cual — se reproducen en el
     // mismo orden al reconectar (ver replayOne en offlineQueue.ts).
     const encolar = async () => {
+      // roundDate: día en que ARRANCÓ la jornada abierta (no "hoy"), mismo criterio
+      // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
+      // parada se encola después de medianoche con una jornada de noche abierta.
       const hourBanking = jornadaStart
-        ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        ? { machineryId: ci.id, roundDate: caracasParts(new Date(jornadaStart)).iso, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
       await enqueueParada({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
@@ -1665,8 +1696,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const edifRef = ((ci as any)?.referencia ?? '').trim();
       const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
       const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+      // roundDate: día en que ARRANCÓ la jornada abierta (no "hoy"), mismo criterio
+      // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
+      // parada se encola después de medianoche con una jornada de noche abierta.
       const hourBanking = jornadaStart
-        ? { machineryId: ci.id, roundDate: today, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        ? { machineryId: ci.id, roundDate: caracasParts(new Date(jornadaStart)).iso, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
       await enqueueParada({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
