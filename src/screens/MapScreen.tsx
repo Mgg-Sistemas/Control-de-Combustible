@@ -453,6 +453,130 @@ export default function MapScreen({ navigation, route }: any) {
   const showAll = () => { setHiddenCats(new Set()); setHiddenIds(new Set()); };
   const hideAll = () => { setHiddenCats(new Set(presentCats)); };
 
+  // Tipo de maquinaria (capas): tarjeta colapsable con los tipos, su conteo y las que
+  // faltan por ubicar. Se define aquí como variable para renderizarla DEBAJO del mapa.
+  const tipoMaqCard = !focus && pins && pins.length > 0 ? (
+    <Card>
+      <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text style={{ color: colors.text, fontWeight: '800' }}>🚜 Tipo de maquinaria</Text>
+        <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
+      </TouchableOpacity>
+
+      {layersOpen ? (
+        <View style={{ marginTop: spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <TouchableOpacity onPress={showAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✅ Mostrar todas</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={hideAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
+            </TouchableOpacity>
+          </View>
+
+          {totalMachines > 0 ? (
+            <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm }}>
+              📍 Ubicadas: {totalLocated}/{totalMachines}
+              {totalPending ? <Text style={{ color: colors.danger }}>  ·  faltan {totalPending} por ubicar</Text> : null}
+            </Text>
+          ) : null}
+
+          {presentCats.map((k) => {
+            const list = groups.get(k) ?? [];
+            const catHidden = hiddenCats.has(k);
+            const meta = { icon: iconFor(k), label: k };
+            const expanded = expandedCat === k;
+            const isCam = k === CAMIONETA_CAT;
+            return (
+              <View key={k} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <TouchableOpacity onPress={() => toggleCat(k)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: catHidden ? colors.border : colors.success, justifyContent: 'center', paddingHorizontal: 2 }}>
+                    <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: catHidden ? 'flex-start' : 'flex-end' }} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{isCam ? '🚙' : meta.icon} {meta.label}</Text>
+                    {(() => {
+                      const total = catTotal.get(k) ?? list.length;
+                      if (isCam) {
+                        return <Text style={{ color: colors.muted, fontSize: 12 }}>🚙 {total} asignada{total === 1 ? '' : 's'}  {expanded ? '▲' : '▼'}</Text>;
+                      }
+                      const pend = Math.max(0, total - list.length);
+                      return (
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>
+                          📍 {list.length}/{total}{pend ? <Text style={{ color: colors.danger }}> · faltan {pend}</Text> : null}  {expanded ? '▲' : '▼'}
+                        </Text>
+                      );
+                    })()}
+                  </TouchableOpacity>
+                </View>
+
+                {expanded && isCam ? (
+                  <View style={{ marginTop: 6, paddingLeft: 42 }}>
+                    <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>🚙 En constante movimiento · abarcan TODAS las zonas · se ubican por su encargado</Text>
+                    {camionetas.map((a) => {
+                      const ps = placaSerial(a.plate, a.serial);
+                      return (
+                        <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
+                          <Text style={{ fontSize: 15 }}>🚙</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{a.code}</Text>
+                            <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
+                            {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
+                        </View>
+                      );
+                    })}
+                    {camionetas.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>Sin camionetas en el catálogo.</Text> : null}
+                  </View>
+                ) : expanded ? (
+                  <View style={{ marginTop: 6, paddingLeft: 42 }}>
+                    {list.map((p) => {
+                      const off = catHidden || hiddenIds.has(p.id);
+                      const ps = placaSerial(p.plate, p.serial);
+                      return (
+                        <TouchableOpacity key={p.id} onPress={() => toggleId(p.id)} disabled={catHidden} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
+                          <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
+                            {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                          </View>
+                          <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{p.company}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    {(() => {
+                      const miss = missingByCat.get(k) ?? [];
+                      if (miss.length === 0) return null;
+                      return (
+                        <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
+                          <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>⛔ Faltan por ubicar ({miss.length})</Text>
+                          {miss.map((a) => {
+                            const ps = placaSerial(a.plate, a.serial);
+                            return (
+                              <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
+                                <Text style={{ fontSize: 15 }}>📍</Text>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '800' }}>{a.code}</Text>
+                                  {ps ? <Text style={{ color: colors.danger, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                                </View>
+                                <Text style={{ color: colors.danger, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      );
+                    })()}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </Card>
+  ) : null;
+
   return (
     <Screen scrollRef={scrollRef}>
       <ConfigBanner />
@@ -468,145 +592,7 @@ export default function MapScreen({ navigation, route }: any) {
         </TouchableOpacity>
       ) : null}
 
-      <Card>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
-          <Text style={{ color: colors.success, fontSize: 12 }}>● Operativa</Text>
-          <Text style={{ color: colors.danger, fontSize: 12 }}>● No operativa</Text>
-          <Text style={{ color: '#2563EB', fontSize: 12 }}>— Ruta</Text>
-        </View>
-        <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>
-          Toca un punto y usa “🗑️ Eliminar ubicación” para quitarlo del mapa. Se sincroniza con todos.
-        </Text>
-      </Card>
-
-      {/* Capas: prender/apagar puntos por categoría (camiones, grúas…) o por máquina. */}
-      {!focus && pins && pins.length > 0 ? (
-        <Card>
-          <TouchableOpacity onPress={() => setLayersOpen((v) => !v)} activeOpacity={0.8} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{ color: colors.text, fontWeight: '800' }}>🚜 Tipo de maquinaria</Text>
-            <Text style={{ color: colors.brandText, fontWeight: '800' }}>{layersOpen ? '▲' : `▼  (${shownPins?.length ?? 0}/${pins.length})`}</Text>
-          </TouchableOpacity>
-
-          {layersOpen ? (
-            <View style={{ marginTop: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-                <TouchableOpacity onPress={showAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>✅ Mostrar todas</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={hideAll} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>🚫 Ocultar todas</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Resumen: cuántas máquinas están ubicadas del total (pendientes por ubicar). */}
-              {totalMachines > 0 ? (
-                <Text style={{ color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: spacing.sm }}>
-                  📍 Ubicadas: {totalLocated}/{totalMachines}
-                  {totalPending ? <Text style={{ color: colors.danger }}>  ·  faltan {totalPending} por ubicar</Text> : null}
-                </Text>
-              ) : null}
-
-              {presentCats.map((k) => {
-                const list = groups.get(k) ?? [];
-                const catHidden = hiddenCats.has(k);
-                const shownInCat = catHidden ? 0 : list.filter((p) => !hiddenIds.has(p.id)).length;
-                const meta = { icon: iconFor(k), label: k };
-                const expanded = expandedCat === k;
-                const isCam = k === CAMIONETA_CAT;
-                return (
-                  <View key={k} style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                      {/* Interruptor de la categoría */}
-                      <TouchableOpacity onPress={() => toggleCat(k)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: catHidden ? colors.border : colors.success, justifyContent: 'center', paddingHorizontal: 2 }}>
-                        <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: catHidden ? 'flex-start' : 'flex-end' }} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{isCam ? '🚙' : meta.icon} {meta.label}</Text>
-                        {(() => {
-                          const total = catTotal.get(k) ?? list.length; // total de esa categoría (con y sin ubicar)
-                          // Camionetas: no se "ubican" (van por encargado, todas las zonas).
-                          if (isCam) {
-                            return <Text style={{ color: colors.muted, fontSize: 12 }}>🚙 {total} asignada{total === 1 ? '' : 's'}  {expanded ? '▲' : '▼'}</Text>;
-                          }
-                          const pend = Math.max(0, total - list.length); // list = ubicadas de la categoría
-                          return (
-                            <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              📍 {list.length}/{total}{pend ? <Text style={{ color: colors.danger }}> · faltan {pend}</Text> : null}  {expanded ? '▲' : '▼'}
-                            </Text>
-                          );
-                        })()}
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* CAMIONETAS PICK-UP: no llevan pin. Se listan como ASIGNADAS a su
-                        encargado y en constante movimiento (abarcan todas las zonas). */}
-                    {expanded && isCam ? (
-                      <View style={{ marginTop: 6, paddingLeft: 42 }}>
-                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>🚙 En constante movimiento · abarcan TODAS las zonas · se ubican por su encargado</Text>
-                        {camionetas.map((a) => {
-                          const ps = placaSerial(a.plate, a.serial);
-                          return (
-                            <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
-                              <Text style={{ fontSize: 15 }}>🚙</Text>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{a.code}</Text>
-                                <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
-                                {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
-                              </View>
-                              <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
-                            </View>
-                          );
-                        })}
-                        {camionetas.length === 0 ? <Text style={{ color: colors.muted, fontSize: 12 }}>Sin camionetas en el catálogo.</Text> : null}
-                      </View>
-                    ) : expanded ? (
-                      <View style={{ marginTop: 6, paddingLeft: 42 }}>
-                        {list.map((p) => {
-                          const off = catHidden || hiddenIds.has(p.id);
-                          const ps = placaSerial(p.plate, p.serial);
-                          return (
-                            <TouchableOpacity key={p.id} onPress={() => toggleId(p.id)} disabled={catHidden} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
-                              <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
-                                {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
-                              </View>
-                              <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{p.company}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-
-                        {(() => {
-                          const miss = missingByCat.get(k) ?? [];
-                          if (miss.length === 0) return null;
-                          return (
-                            <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 6 }}>
-                              <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>⛔ Faltan por ubicar ({miss.length})</Text>
-                              {miss.map((a) => {
-                                const ps = placaSerial(a.plate, a.serial);
-                                return (
-                                  <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
-                                    <Text style={{ fontSize: 15 }}>📍</Text>
-                                    <View style={{ flex: 1 }}>
-                                      <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '800' }}>{a.code}</Text>
-                                      {ps ? <Text style={{ color: colors.danger, fontSize: 11 }}>🔖 {ps}</Text> : null}
-                                    </View>
-                                    <Text style={{ color: colors.danger, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
-                                  </View>
-                                );
-                              })}
-                            </View>
-                          );
-                        })()}
-                      </View>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-        </Card>
-      ) : null}
+      {/* Tipo de maquinaria: se renderiza DEBAJO del mapa (variable tipoMaqCard). Leyenda de colores eliminada. */}
 
       {shownPins === null ? <Loading /> : shownPins.length === 0 ? (
         <Card><Text style={{ color: colors.muted }}>{focus ? 'Esta máquina no tiene una ubicación actual en el mapa.' : 'No hay puntos visibles. Revisa las 🗂️ Capas (quizás están todas ocultas).'}</Text></Card>
@@ -621,6 +607,9 @@ export default function MapScreen({ navigation, route }: any) {
           </TouchableOpacity>
 
           <VenezuelaMap pins={shownPins} onDelete={deleteLocation} selectedCompany={selectedCompany} zones={zonesOn} height={340} canEdit={isAdmin} locateMode={isAdmin && !!locateFor} zoneOffsets={zoneOffsets} zoneEdit={isAdmin && zoneEdit} showRoutes={showRoutes} />
+
+          {/* Tipo de maquinaria (capas) — DEBAJO del mapa. */}
+          {tipoMaqCard}
 
           {/* Rutas: mostrar/ocultar desde FUERA del mapa (por defecto OCULTAS). */}
           <TouchableOpacity
@@ -642,48 +631,6 @@ export default function MapScreen({ navigation, route }: any) {
               <Text style={{ color: colors.brandText, fontWeight: '800' }}>{refBusy ? '…' : 'PDF ›'}</Text>
             </Card>
           </TouchableOpacity>
-
-          {/* Ubicación MANUAL — solo administradores pueden reubicar máquinas. DEBAJO del mapa. */}
-          {isAdmin && !focus ? (
-            <Card style={locateFor ? { borderColor: colors.accent, borderWidth: 1 } : undefined}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.text, fontWeight: '800' }}>📍 Ubicar manualmente (admin)</Text>
-                {locateFor ? (
-                  <TouchableOpacity onPress={() => { setLocateFor(null); setNotice(null); }}>
-                    <Text style={{ color: colors.danger, fontWeight: '800' }}>✕ Cancelar</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Elige una máquina y toca el mapa donde está. Solo administradores pueden reubicar.</Text>
-              <TouchableOpacity onPress={() => setPickerOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
-                <Text style={{ color: locateFor ? colors.text : colors.muted, fontWeight: '700' }}>{locateFor ? `🎯 ${locateFor.code}` : 'Elegir máquina…'}</Text>
-                {locateFor ? (
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{[placaSerial(locateFor.plate, locateFor.serial), `🏢 ${locateFor.company}`].filter(Boolean).join('  ·  ')}</Text>
-                ) : null}
-              </TouchableOpacity>
-              {locateFor ? (
-                <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
-              ) : null}
-              {notice ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 6 }}>{notice}</Text> : null}
-            </Card>
-          ) : null}
-
-          {/* Mover SECTORES — solo administradores pueden reubicar las zonas del mapa. DEBAJO del mapa. */}
-          {isAdmin && !focus ? (
-            <Card style={zoneEdit ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Mover sectores (admin)</Text>
-                <TouchableOpacity onPress={() => setZoneEdit((v) => !v)} style={{ backgroundColor: zoneEdit ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: zoneEdit ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                  <Text style={{ color: zoneEdit ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{zoneEdit ? '✓ Activado' : 'Activar'}</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                {zoneEdit
-                  ? 'Prende los sectores en “🗺️ Sectores (zonas)” y arrastra el marcador ✋ de cada uno hasta su lugar. Se guarda solo.'
-                  : 'Actívalo para arrastrar los sectores a su posición correcta. Los cambios quedan guardados para todos.'}
-              </Text>
-            </Card>
-          ) : null}
 
           {/* Leyenda por empresa — FUERA del mapa (filtra el mapa al tocar). */}
           {!focus ? (
@@ -747,6 +694,47 @@ export default function MapScreen({ navigation, route }: any) {
                   })}
                 </View>
               ) : null}
+            </Card>
+          ) : null}
+
+          {/* Paneles ADMIN al FINAL (pedido cliente): ubicar manualmente + mover sectores. */}
+          {isAdmin && !focus ? (
+            <Card style={locateFor ? { borderColor: colors.accent, borderWidth: 1 } : undefined}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>📍 Ubicar manualmente (admin)</Text>
+                {locateFor ? (
+                  <TouchableOpacity onPress={() => { setLocateFor(null); setNotice(null); }}>
+                    <Text style={{ color: colors.danger, fontWeight: '800' }}>✕ Cancelar</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>Elige una máquina y toca el mapa donde está. Solo administradores pueden reubicar.</Text>
+              <TouchableOpacity onPress={() => setPickerOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: locateFor ? colors.text : colors.muted, fontWeight: '700' }}>{locateFor ? `🎯 ${locateFor.code}` : 'Elegir máquina…'}</Text>
+                {locateFor ? (
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{[placaSerial(locateFor.plate, locateFor.serial), `🏢 ${locateFor.company}`].filter(Boolean).join('  ·  ')}</Text>
+                ) : null}
+              </TouchableOpacity>
+              {locateFor ? (
+                <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '800', marginTop: 8 }}>👉 Toca el mapa en el punto donde está {locateFor.code}.</Text>
+              ) : null}
+              {notice ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700', marginTop: 6 }}>{notice}</Text> : null}
+            </Card>
+          ) : null}
+
+          {isAdmin && !focus ? (
+            <Card style={zoneEdit ? { borderColor: colors.brand, borderWidth: 1 } : undefined}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>🗺️ Mover sectores (admin)</Text>
+                <TouchableOpacity onPress={() => setZoneEdit((v) => !v)} style={{ backgroundColor: zoneEdit ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: zoneEdit ? colors.brand : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: zoneEdit ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{zoneEdit ? '✓ Activado' : 'Activar'}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
+                {zoneEdit
+                  ? 'Prende los sectores en “🗺️ Sectores (zonas)” y arrastra el marcador ✋ de cada uno hasta su lugar. Se guarda solo.'
+                  : 'Actívalo para arrastrar los sectores a su posición correcta. Los cambios quedan guardados para todos.'}
+              </Text>
             </Card>
           ) : null}
         </>
