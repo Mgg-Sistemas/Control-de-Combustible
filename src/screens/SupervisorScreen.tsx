@@ -614,17 +614,19 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // averiadas (operational=false) o en espera de recepción NO cuentan aquí — no están
   // trabajando, así que no necesitan un inspector asignado ahora mismo.
   //
-  // pendMode: 'sin_nadie' = la fila NO tiene NINGÚN inspector (ni humano ni el usuario
-  // de sistema MAQUINAS FALTANTES) — el caso estricto de siempre. 'sin_real' (default)
-  // AMPLÍA la búsqueda: también cuenta las que el cron ya cubrió con MAQUINAS FALTANTES
-  // (acumulan horas automáticas, pero nadie real las está inspeccionando) — es la vista
-  // que reproduce el reporte externo "Máquinas pendientes por asignar" (76, 04/08/2026).
+  // pendMode: 'sin_nadie' (default) = la fila NO tiene NINGÚN inspector (ni humano
+  // ni el usuario de sistema MAQUINAS FALTANTES/SOS LA GUAIRA) — el caso estricto.
+  // 'sin_real' AMPLÍA la búsqueda: también cuenta las que el cron ya cubrió con
+  // MAQUINAS FALTANTES. CONFIRMADO por el cliente (07/08/2026): el usuario SOS LA
+  // GUAIRA SÍ cuenta como inspector real (no debe salir como "pendiente"), así que
+  // el default vuelve a 'sin_nadie' — 'sin_real' queda solo como filtro opcional
+  // para quien quiera ubicar máquinas cubiertas solo por el sistema.
   const faltaTurno = (m: Mach) => {
     if (!necesitaInspector(m)) return { day: false, night: false };
     const s = assignMap[m.id] || {};
     return { day: !s.day?.id, night: !s.night?.id };
   };
-  const [pendMode, setPendMode] = useState<'sin_nadie' | 'sin_real'>('sin_real');
+  const [pendMode, setPendMode] = useState<'sin_nadie' | 'sin_real'>('sin_nadie');
   const faltaEncargadoReal = (m: Mach) => {
     if (!necesitaInspector(m)) return { day: false, night: false };
     const s = assignMap[m.id] || {};
