@@ -61,6 +61,9 @@ export type Field =
       dropdown?: boolean;
       placeholder?: string;
       showIf?: ShowIf;
+      /** Valor inicial (id) al CREAR un registro nuevo — p. ej. preseleccionar el
+       *  tanque del encargado logueado. Se aplica solo en creación (line ~130). */
+      defaultValue?: string;
     };
 
 type Option = { label: string; value: string };
