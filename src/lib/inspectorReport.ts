@@ -429,36 +429,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       lng: a.longitude != null ? Number(a.longitude) : null,
     });
   });
-  // b) Máquinas con ronda iniciada por un inspector real aunque NO le estén
-  //    asignadas (escaneo suelto). SOLO si la máquina NO está asignada a NADIE: si ya
-  //    tiene inspector asignado (aunque la haya scaneado otro), va SOLO bajo su inspector
-  //    asignado en (a) — igual que las tarjetas, que agrupan por asignación. Sin este
-  //    filtro, una máquina asignada a otro inspector pero iniciada por ARTURO se sumaba
-  //    a ARTURO y el reporte mostraba 6 equipos cuando las tarjetas (solo asignadas)
-  //    mostraban 4. (08/08/2026: "no sé de dónde salen 6 equipos, son 4").
-  const assignedIds = new Set(assignments.map((a) => a.machinery_id));
-  ((rounds ?? []) as any[]).forEach((r) => {
-    const rb = (r.recorded_by ?? null) as string | null;
-    if (!rb || adminIds.has(rb)) return;
-    if (assignedIds.has(r.machinery_id)) return; // ya sale bajo su inspector asignado (a)
-    const dayH = Number(r.day_hours) || 0;
-    const nightH = Number(r.night_hours) || 0;
-    if (!(r.jornada_start_at || dayH > 0 || nightH > 0)) return;
-    const turno: Turno = r.jornada_shift === 'night' ? 'night'
-      : r.jornada_shift === 'day' ? 'day'
-      : (nightH > 0 && dayH === 0 ? 'night' : 'day');
-    const mm = r.machine || {};
-    putMach(turno, nameById[rb] || '—', r.machinery_id, {
-      code: mm.code ?? '—',
-      serial: mm.serial ?? null,
-      plate: mm.plate ?? null,
-      company: mm.company?.name ?? 'Sin empresa',
-      sector: (mm.sector && String(mm.sector).trim()) || 'Sin sector',
-      referencia: (mm.referencia && String(mm.referencia).trim()) || '',
-      lat: mm.latitude != null ? Number(mm.latitude) : null,
-      lng: mm.longitude != null ? Number(mm.longitude) : null,
-    });
-  });
+  // NOTA (08/08/2026): el reporte por inspector agrupa EXCLUSIVAMENTE por ASIGNACIÓN
+  // (machine_inspectors), IGUAL que las tarjetas en vivo (`perInspector` en
+  // InspectionsSummary, que usa solo `assignments.filter(shift)`). Antes había un bloque
+  // (b) que además metía máquinas por `recorded_by` (quien inició la ronda) aunque no le
+  // estuvieran asignadas (escaneo suelto) → el reporte contaba MÁS equipos que las
+  // tarjetas para TODOS los inspectores ("no sé de dónde salen 6, son 4"). Se eliminó: si
+  // una máquina no está asignada por CHECK a un inspector, NO cuenta en su reporte (ni en
+  // sus tarjetas). El trabajo suelto sigue en Control y en el reporte por empresa.
 
   return { data, machineLocs, machCoords, coordTxt };
 }
