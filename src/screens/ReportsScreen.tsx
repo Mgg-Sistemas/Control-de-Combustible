@@ -15,7 +15,7 @@ import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/u
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { nextRtInstanceId } from '../hooks/useRealtime';
-import { exportPdf, dateRangeLabel } from '../lib/pdf';
+import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
 import { BCV_LOGO_DATA_URI } from '../lib/logoBcvData';
 import { COMPANY_NAME } from '../lib/company';
@@ -239,10 +239,10 @@ function pdfShell(title: string, sub: string, body: string): string {
     </div>
     <div class="rule"></div>
     <div class="meta">
-      <div class="company"><b>${COMPANY_NAME}</b><br/>Sistema de control interno</div>
+      <div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>
     </div>
     ${body}
-    <div class="foot">${COMPANY_NAME} · Documento generado por el sistema de control interno</div>
+    <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
   </body></html>`;
 }
 

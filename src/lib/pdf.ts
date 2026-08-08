@@ -28,6 +28,9 @@ export function dateRangeLabel(fromISO?: string, toISO?: string): string {
 }
 
 const PDF_ACCENT = '#1E3A5F';
+/** Marca institucional de los reportes: ambos entes juntos (BCV + SOS La Guaira).
+ *  Aparece en la línea de empresa y el pie de TODOS los reportes con membrete. */
+export const REPORT_BRAND = 'Banco Central de Venezuela / SOS La Guaira';
 /** CSS común del membrete. `@page{margin:2cm}` da 2 cm en todos los lados de
  *  CADA página; el `<title>` vacío evita el título del navegador. */
 export const PDF_BASE_CSS = `
@@ -84,9 +87,9 @@ export function pdfDocument(opts: { title: string; subtitle?: string; body: stri
       </div>
     </div>
     <div class="rule"></div>
-    <div class="company"><b>${COMPANY_NAME}</b><br/>Sistema de control interno</div>
+    <div class="company"><b>${REPORT_BRAND}</b><br/>Sistema de control interno</div>
     ${body}
-    <div class="foot">${COMPANY_NAME} · Documento generado por el sistema de control interno</div>
+    <div class="foot">${REPORT_BRAND} · Documento generado por el sistema de control interno</div>
   </body></html>`;
 }
 
