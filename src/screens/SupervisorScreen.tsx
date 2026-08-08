@@ -179,7 +179,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // no se le quita nada) y, ADEMÁS, cualquiera con el módulo 'coordinador_inspectores'
   // (permiso nuevo, por defecto 'none') también puede. Es ADITIVO: no toca ninguna otra
   // acción del inspector normal (marcar máquina parada, iniciar/finalizar jornada, etc.).
-  const puedeCoordinar = isAdmin || esCoordInsp || canSee('coordinador_inspectores');
+  // Incluye a TODOS los coordinadores: el de inspectores (rol fijo o permiso), el de
+  // PATIO y el de QR. Antes estos dos últimos podían iniciar jornadas de cualquier
+  // máquina pero NO reasignar inspectores (CHECK MÁQUINA) — pedido del cliente: los
+  // coordinadores pueden REASIGNAR las máquinas.
+  const puedeCoordinar = isAdmin || esCoordInsp || canSee('coordinador_inspectores')
+    || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
   // ADMIN/COORDINADOR EN EL TELÉFONO: arranca viendo TODAS las máquinas (con buscador),
   // no la lista vacía "Mis máquinas". Se activa UNA sola vez al detectarse el permiso
   // (puede llegar async); luego puede tocar "Solo las mías" sin que se vuelva a forzar.
@@ -722,7 +727,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // iniciarle jornada. Excepción: admin y coordinador (pueden con cualquiera).
   const maquinaDeOtro = useMemo(() => {
     if (!ci) return false;
-    if (puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr') return false;
+    if (puedeCoordinar) return false;
     const s = assignMap[ci.id] || {};
     const mia = s.day?.id === uid || s.night?.id === uid;
     const deOtro = (!!s.day?.id && s.day.id !== uid) || (!!s.night?.id && s.night.id !== uid);
@@ -746,7 +751,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     });
     return set;
   }, [assignMap, uid]);
-  const puedeCualquierTurno = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+  const puedeCualquierTurno = puedeCoordinar;
   // PARADAS de la máquina. SINCRONIZADO CON EL SISTEMA (admin/InspectionsSummary):
   // una parada pendiente cuenta para la máquina SIN importar el turno en que se marcó.
   // ANTES se filtraba por el turno del inspector (una parada de noche no la veía el de
@@ -1102,7 +1107,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // tocar máquinas asignadas a ÉL (día o noche) o SIN asignar; NO las de otro inspector.
   // Admin y coordinadores (patio / QR), cualquiera.
   const puedeMarcar = (m: Mach): boolean => {
-    const puedeCualquiera = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = puedeCoordinar;
     if (puedeCualquiera) return true;
     const slots = assignMap[m.id] || {};
     const mia = slots.day?.id === uid || slots.night?.id === uid;
@@ -1294,7 +1299,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (!isOnline()) { setNotice('📶 Sin conexión: para iniciar jornada hace falta señal (valida datos contra el servidor). El check-in de parada/avería sí funciona sin conexión.'); return; }
     // Regla: NO puedes iniciar la jornada de una máquina asignada a OTRO inspector.
     // Excepción: admin y coordinador (pueden iniciar cualquier máquina).
-    const puedeCualquiera = puedeCoordinar || role === 'coordinador_patio' || appRole?.panel_type === 'coordinador_qr';
+    const puedeCualquiera = puedeCoordinar;
     if (!puedeCualquiera) {
       const slots = assignMap[ci.id] || {};
       const mia = slots.day?.id === uid || slots.night?.id === uid;
@@ -1943,14 +1948,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               onScanPress={() => setScanOpen(true)}
               secondaryActions={[
                 ...(canAsistencia ? [{ key: 'asistencia', label: 'MARCAR ASISTENCIA', icon: '🕒', color: '#0EA5E9', onPress: () => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); } }] : []),
-                ...(puedeCoordinar ? [{ key: 'check', label: 'CHECK MÁQUINA', icon: '✅', color: colors.primary, onPress: () => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); } }] : []),
               ]}
             />
-            <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
-              {puedeCoordinar
-                ? 'CHECK MÁQUINA asigna las máquinas a cada inspector (día / noche).'
-                : 'Toca una máquina de la lista o escanea su QR para marcarla.'}
-            </Text>
+            {/* ✅ CHECK MÁQUINA: AFUERA del hero card (pedido del cliente) — botón propio,
+                bien visible en la pantalla de inspectores (en PC se acota el ancho). */}
+            {puedeCoordinar ? (
+              <>
+                <TouchableOpacity
+                  onPress={() => { setCheckQuery(''); setInspQuery(''); setCheckInspector(null); setPendSelected(new Set()); setCheckOpen(true); }}
+                  activeOpacity={0.85}
+                  style={[{ marginTop: spacing.sm, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.xs, borderWidth: 2, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.md },
+                    Platform.OS === 'web' ? { maxWidth: 360, width: '100%', alignSelf: 'center' } : null]}
+                >
+                  <Text style={{ fontSize: 20 }}>✅</Text>
+                  <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }}>CHECK MÁQUINA</Text>
+                </TouchableOpacity>
+                <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
+                  Asigna y REASIGNA las máquinas a cada inspector (día / noche).
+                </Text>
+              </>
+            ) : (
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>
+                Toca una máquina de la lista o escanea su QR para marcarla.
+              </Text>
+            )}
           </View>
         </>
       ) : (
