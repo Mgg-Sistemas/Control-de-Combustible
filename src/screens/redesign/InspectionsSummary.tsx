@@ -1985,9 +1985,9 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <TouchableOpacity
                             onPress={() => { setListModal(null); navigation.navigate('Map', { focus: { id: r.id, code: r.code } }); }}
                             activeOpacity={0.85}
-                            style={{ marginTop: spacing.sm, backgroundColor: '#0D9488', borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}
+                            style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}
                           >
-                            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12.5 }}>🗺️ Ver ubicación en el mapa</Text>
+                            <Text style={{ color: colors.primaryContrast, fontWeight: '900', fontSize: 12.5 }}>🗺️ Ver ubicación en el mapa</Text>
                           </TouchableOpacity>
                         </View>
                       ) : null}
