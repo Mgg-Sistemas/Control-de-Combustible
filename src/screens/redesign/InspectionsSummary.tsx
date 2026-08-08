@@ -1191,7 +1191,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // ahora mismo, sin contar las ya cerradas) — así ambas vistas dan el mismo
       // número, sin tocar el cálculo interno de eficiencia/horas.
       const iniActivas = ini.filter((id) => !closedSet.has(id));
-      return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
+      // TODAS las máquinas asignadas visibles (todos los estados), ordenadas por código —
+      // para el botón "🔍 Ver todas" que abre la lista buscable con todos los datos.
+      const todas = s(visibleIds.slice());
+      return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), todas, total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
   }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, allHoursByMachine]);
 
@@ -1778,6 +1781,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
                 <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'dia')} />
               </View>
+              {/* Ver TODAS las máquinas asignadas de este inspector (todos los estados),
+                  en la lista buscable con todos los datos (código, placa, serial,
+                  ubicación, empresa, encargado, horas, motivo…). */}
+              <TouchableOpacity onPress={() => openList(`🚜 Todas las máquinas · ${sel.name}`, sel.todas)} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12.5 }}>🔍 Ver todas las máquinas asignadas ({sel.total}) · buscable</Text>
+              </TouchableOpacity>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
                 <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === sel.name ? 'Generando…' : `📄 Reporte de ${sel.name} (con firma)`}</Text>
