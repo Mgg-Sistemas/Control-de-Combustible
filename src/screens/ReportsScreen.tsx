@@ -566,16 +566,24 @@ export default function ReportsScreen({ route }: any) {
       m.set(key, e);
     });
     return m;
-  }, [conteo]);
+    // Dep CORRECTA: `machinesPorEstado` (no `conteo`). Antes con `[conteo]` no se
+    // recomputaba al cambiar el filtro Todas/Activas/Inactivas → conteos por tipo
+    // desfasados respecto al estado elegido.
+  }, [machinesPorEstado]);
   const tipoKey = (code: string) => norm(code).replace(/\s+/g, ' ').trim();
   // Opciones (tipos de equipo unificados) con su cantidad total, filtradas por el buscador.
+  // Lista base ORDENADA una sola vez (no en cada tecla). Solo se reordena si cambia tipoMap.
+  const tipoOpcionesBase = useMemo(
+    () => [...tipoMap.entries()]
+      .map(([key, v]) => ({ key, name: v.name, count: v.count, clas: v.clas }))
+      .sort((a, b) => cmpText(a.name, b.name)),
+    [tipoMap],
+  );
+  // En cada tecla solo se FILTRA la base ya ordenada (sin volver a ordenar).
   const tipoOpciones = useMemo(() => {
     const nq = norm(tipoQ.trim());
-    return [...tipoMap.entries()]
-      .map(([key, v]) => ({ key, name: v.name, count: v.count, clas: v.clas }))
-      .filter((o) => !nq || norm(`${o.name} ${o.clas}`).includes(nq))
-      .sort((a, b) => cmpText(a.name, b.name));
-  }, [tipoMap, tipoQ]);
+    return nq ? tipoOpcionesBase.filter((o) => norm(`${o.name} ${o.clas}`).includes(nq)) : tipoOpcionesBase;
+  }, [tipoOpcionesBase, tipoQ]);
   // Reporte de los tipos TILDADOS: total + desglose por empresa (A→Z) + LISTADO de los
   // equipos seleccionados (código, empresa, serial/placa, estado), acotado al estado elegido.
   const tipoResultado = useMemo(() => {
