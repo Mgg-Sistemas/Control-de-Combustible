@@ -221,14 +221,22 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // Color según el % de eficiencia: verde 100%, ámbar 50-99%, rojo <50%.
   const efiColor = (e: number): string => (e >= 100 ? '#1E9E4A' : e >= 50 ? '#D9A200' : '#D22B2B');
 
+  // El usuario de sistema "inspector máquinas faltantes"/SOS LA GUAIRA (cubre
+  // automáticamente máquinas sin inspector humano) no tiene un % de eficiencia
+  // real — cuenta como inspector válido (no está "sin asignar"), pero un %
+  // de eficiencia no tiene sentido para él. Misma regla que ya usa la pantalla
+  // en vivo (InspectionsSummary.tsx `sinInspectorReal`) — antes este PDF no la
+  // aplicaba y mostraba un % contradictorio con lo que se ve en pantalla.
+  const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
   const inspectoresConEficiencia = inspectores.map(([name, list]) => {
     const iniciadas = list.filter((r) => r.enCurso || r.finalizada).length;
     const averiadas = list.filter((r) => r.averiada);
     const paradas = list.filter((r) => r.parada).length;
     const pendientes = list.filter((r) => r.pendiente);
     const chequeadas = list.length - pendientes.length;
-    const eficiencia = list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
-    return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, eficiencia };
+    const esVirtual = sinInspReal(name);
+    const eficiencia = !esVirtual && list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
+    return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, eficiencia, esVirtual };
   });
 
   const secciones = inspectoresConEficiencia.map(({ name, list, iniciadas, averiadas, paradas, pendientes, eficiencia }) => {
@@ -250,8 +258,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   }).join('');
 
   // Tabla-resumen de eficiencia por inspector, ordenada de menor a mayor eficiencia
-  // (los más bajos primero, para que el jefe los identifique de un vistazo).
-  const efiRankeados = inspectoresConEficiencia.slice().sort((a, b) => (a.eficiencia ?? -1) - (b.eficiencia ?? -1));
+  // (los más bajos primero, para que el jefe los identifique de un vistazo). El
+  // usuario de sistema (esVirtual) queda FUERA de este ranking — no compite con
+  // inspectores reales, igual que en la pantalla en vivo.
+  const efiRankeados = inspectoresConEficiencia.filter((e) => !e.esVirtual).slice().sort((a, b) => (a.eficiencia ?? -1) - (b.eficiencia ?? -1));
   const filasEficiencia = efiRankeados.map(({ name, list, chequeadas, pendientes, eficiencia }, i) => {
     const efiTxt = eficiencia === null ? '—' : `${eficiencia}%`;
     const efiColorTxt = eficiencia === null ? '#6B7280' : efiColor(eficiencia);
