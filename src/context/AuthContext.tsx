@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { consumeSoftReload } from '../lib/version';
 import { nameToEmail, validateName } from '../lib/username';
 import { UserRole, AppRole } from '../types/database';
 import { PermLevel, defaultLevel, maxLevel } from '../lib/permissions';
@@ -87,13 +88,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     (async () => {
+      // Recarga por ACTUALIZAR: restaura el token si el navegador móvil lo descartó
+      // y evita re-exigir la huella en esta recarga (así ACTUALIZAR no "cierra la
+      // sesión" en el teléfono). Debe correr ANTES de leer la sesión.
+      const softReload = consumeSoftReload();
       const { data } = await supabase.auth.getSession();
       setSession(data.session);
       const enabled = await isBiometricEnabled();
       // Si hay sesión persistida y el usuario activó la huella, exigir desbloqueo.
+      // Excepción: si venimos de una recarga por ACTUALIZAR, NO re-bloqueamos (el
+      // usuario acaba de pulsar el botón, está presente).
       if (data.session) {
         const supported = await isBiometricSupported();
-        if (enabled && supported) setLocked(true);
+        if (enabled && supported && !softReload) setLocked(true);
       } else if (enabled) {
         // No hay sesión (venció o se limpió) pero la huella está activa y guardamos
         // el refresh token: ofrecer "Entrar con huella" en el login.
