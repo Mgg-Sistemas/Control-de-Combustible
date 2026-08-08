@@ -55,7 +55,7 @@ export function notaEntregaHtml(d: NotaData): string {
 
   return `<!doctype html><html><head><meta charset="utf-8"/><title></title>
   <style>
-    @page{ margin:1.6cm; size:letter }
+    @page{ margin:2cm; size:letter }
     *{ box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact }
     html,body{ margin:0; padding:0 }
     body{ font-family:Tahoma, Geneva, Verdana, sans-serif; color:#1a1a1a; font-size:11.5pt; display:flex; flex-direction:column; min-height:100vh }

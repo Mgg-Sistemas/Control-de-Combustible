@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { AppRole, UserRole } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import NotificationBell from '../components/NotificationBell';
-import HeaderSettings from '../components/HeaderSettings';
+import HeaderSettings, { UpdateAppButton } from '../components/HeaderSettings';
 import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/redesign/LoginPilot'; // PILOTO rediseño (Sesión); original en ../screens/LoginScreen
 import BiometricLockScreen from '../screens/BiometricLockScreen';
@@ -179,6 +179,7 @@ function useScreenHeader() {
     headerTitle: ({ children }: any) => <HeaderBrand title={typeof children === 'string' ? children : undefined} />,
     headerRight: () => (
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <UpdateAppButton />
         <HeaderSettings />
         <NotificationBell />
         <HeaderSignOutButton />
