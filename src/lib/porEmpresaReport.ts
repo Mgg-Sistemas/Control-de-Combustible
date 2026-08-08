@@ -348,7 +348,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   const empresas = Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
 
-  const tabla = (filas: Fila[]): string => {
+  // Tabla de un GRUPO (activas o inactivas) con su fila de TOTAL etiquetada.
+  const tabla = (filas: Fila[], totalLabel: string): string => {
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) =>
       `<tr${f.inactiva ? ' class="inact"' : ''}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
@@ -365,11 +366,24 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">Total · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="4">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
   };
 
-  const secciones = empresas.map(([name, filas]) =>
-    `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>${tabla(filas)}`).join('');
+  // Por empresa: PRIMERO las activas (con "Total activas"), luego, aparte, las
+  // inactivas agrupadas (con "Total inactivas"). Si no hay inactivas, no se muestra
+  // ese bloque.
+  const secciones = empresas.map(([name, filas]) => {
+    const activas = filas.filter((f) => !f.inactiva);
+    const inactivas = filas.filter((f) => f.inactiva);
+    let out = `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>`;
+    out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
+    out += activas.length ? tabla(activas, 'Total activas') : '<p class="vacio">Sin máquinas activas con actividad este día.</p>';
+    if (inactivas.length) {
+      out += `<div class="grp grp-inact">🚫 Inactivas · ${inactivas.length}</div>`;
+      out += tabla(inactivas, 'Total inactivas');
+    }
+    return out;
+  }).join('');
 
   const totMach = empresas.reduce((s, [, f]) => s + f.length, 0);
   const totTrab = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.trabajadas, 0), 0));
@@ -404,6 +418,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     td.par{color:#B42318;font-weight:700}
     table.ir tr.inact td.par{color:#B42318}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
+    .grp{margin:10px 0 2px;font-size:11px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:6px;display:inline-block}
+    .grp-ok{color:#067647;background:#ECFDF3;border:1px solid #ABEFC6}
+    .grp-inact{color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB}
+    .vacio{font-size:10.5px;color:#9CA3AF;margin:2px 0 10px}
     .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
     .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
     .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
