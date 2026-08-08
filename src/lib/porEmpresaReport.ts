@@ -264,15 +264,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averia = averBy.get(id) || '';
     if (trab <= 0 && par <= 0 && !averia) return; // sin nada que reportar ese día
-    // Acumular totales por turno (solo de las máquinas reportadas).
+    // Acumular totales por turno (solo de las máquinas reportadas). Las paradas
+    // usan el MISMO reparto por episodio (paradasDia/paradasNoche) que la tabla
+    // de abajo, para que las tarjetas de arriba y las columnas coincidan siempre.
     const dh = n2((Number(r?.day_hours) || 0) + (Number(r?.overtime_hours) || 0)); // extra = día
     const nh = n2(Number(r?.night_hours) || 0);
-    let parDay = 0, parNight = 0;
-    if (dh > 0 && nh > 0) { parDay = n2((par * dh) / (dh + nh)); parNight = n2(par - parDay); }
-    else if (nh > 0 && dh === 0) { parNight = par; }
-    else { parDay = par; }
     totDayH = n2(totDayH + dh); totNightH = n2(totNightH + nh);
-    totParDay = n2(totParDay + parDay); totParNight = n2(totParNight + parNight);
+    totParDay = n2(totParDay + paradasDia); totParNight = n2(totParNight + paradasNoche);
     const m = machById.get(id);
     const empresa = m?.company?.name || 'Sin empresa';
     const fila: Fila = {
@@ -320,6 +318,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const totParNoche = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasNoche, 0), 0));
 
   // TOTAL DE JORNADA = horas trabajando − horas paradas (pedido del cliente).
+  const totPar = n2(totParDay + totParNight);
   const totJornada = n2(totTrab - totPar);
   // Tarjetas de TOTALES arriba: HRS DÍA · PARADAS DÍA · HRS NOCHE · PARADA NOCHE · JORNADA.
   const kpis = `
