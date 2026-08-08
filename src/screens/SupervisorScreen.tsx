@@ -610,11 +610,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // pendientesList/resumenInspectores), que siguen viendo TODO el catálogo para
   // poder asignar/reactivar máquinas inactivas.
   const visibleParaInspector = (m: Mach) => {
-    // INACTIVA desde el catálogo (active=false): NUNCA se muestra en la lista del
-    // inspector, ni siquiera con jornada abierta (pedido cliente 08/08/2026). Solo
-    // aparece en el reporte por empresa y en Control. El auto-cierre del servidor cierra
-    // cualquier jornada que quedara abierta.
-    if (m.active === false) return false;
+    // INACTIVA desde el catálogo: máquina marcada NO OPERATIVA con "⛔ Inactiva"
+    // (operational=false) o desactivada (active=false). NUNCA se muestra en la lista del
+    // inspector, ni siquiera con jornada abierta (pedido cliente 08/08/2026). Solo aparece
+    // en el reporte por empresa y en Control. `operational` solo lo cambia ese botón del
+    // admin; la avería/parada de campo NO toca operational (vive en maintenance_requests),
+    // así que una máquina averiada pero OPERATIVA sí se sigue viendo con su estado.
+    if (m.active === false || (m as any).operational === false) return false;
     // EN ESPERA (recepción/traslado): oculta salvo que tenga una jornada abierta.
     return m.en_espera !== true || roundsById[m.id]?.open === true;
   };

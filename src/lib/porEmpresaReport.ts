@@ -307,7 +307,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // se refleja en la columna "Avería/motivo" vía averiaTxt) — ya no se agrupa como
     // "🚫 INACTIVA" solo por operational=false (antes sí, y eso la sacaba del bloque
     // de Activas aunque siguiera trabajando/asignada).
-    const inactiva = m?.active === false;
+    // INACTIVA = NO OPERATIVA (botón "⛔ Inactiva" del catálogo, operational=false) o
+    // desactivada (active=false). Estas SÍ salen acá (con 🚫 INACTIVA y 0 horas) y en
+    // Control — pero NO en la vista de inspectores ni en el reporte por inspector.
+    const inactiva = m?.active === false || m?.operational === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
     // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
