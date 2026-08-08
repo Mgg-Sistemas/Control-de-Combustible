@@ -1001,6 +1001,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const [listQ, setListQ] = useState('');
   const [listExpanded, setListExpanded] = useState<string | null>(null);
   const openList = (title: string, ids: string[]) => { setListQ(''); setListExpanded(null); setListModal({ title, ids }); };
+  // Reloj que "tictaquea" cada 60s para que las horas EN VIVO (jornadas abiertas)
+  // crezcan/actualicen solas en pantalla sin recargar (TOTAL y Transcurrido).
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 60000); return () => clearInterval(t); }, []);
   // Filas enriquecidas del modal (código + estado + ficha + horas/litros del día).
   const listRows = useMemo(() => {
     if (!listModal) return [];
@@ -1008,30 +1012,34 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const info = machineInfo.get(id) ?? null;
       const rd = roundDetail.get(id) ?? null;
       const fuel = fuelDay[id] ?? null;
-      const worked = rd ? rd.dayH + rd.nightH : 0;
       const inspector = inspectorByMachine.get(id) ?? null;
       // Hora de inicio / hora final del día (de los tramos trabajados). Si la jornada
       // sigue abierta (hoy), el inicio cae al arranque de la jornada y el fin queda
-      // "En curso" (aún no cerró). Horas totales = lo trabajado (worked).
+      // "En curso" (aún no cerró).
       const seg = segDay[id] ?? null;
       const openNow = selDay === caracasToday() && !!rd?.openStartAt;
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
-      // Transcurrido: mientras la jornada sigue ABIERTA, `worked` es el total ya
-      // guardado (puede ser 0 o un valor fijo pre-cargado), no el tiempo real que
-      // lleva corriendo — se calcula aparte (ahora − hora de inicio real).
-      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
+      // Transcurrido EN VIVO: mientras la jornada sigue ABIERTA, cuánto lleva corriendo
+      // (ahora − inicio real). Tope 12h = duración del turno. Usa nowTick para tictaquear.
+      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
       // Máquina "corrido" (trabajó/trabaja AMBOS turnos el mismo día): se muestran
       // los DOS por separado (cada uno con su propia hora real), en vez del
       // inicio/fin de arriba que solo alcanza para un turno a la vez.
       const sd = shiftDetail.get(id) ?? null;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
-      const dayElapsedH = sd?.day.openNow ? Math.max(0, (Date.now() - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'day')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
-      const nightElapsedH = sd?.night.openNow ? Math.max(0, (Date.now() - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'night')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      const dayElapsedH = sd?.day.openNow ? Math.max(0, (nowTick - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'day')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      const nightElapsedH = sd?.night.openNow ? Math.max(0, (nowTick - new Date((rounds.find((r) => r.machinery_id === id && r.round_date === selDay && roundShift(r) === 'night')?.jornada_start_at) || 0).getTime()) / 3600000) : null;
+      // TOTAL: si trabajó AMBOS turnos, día+noche completos (+ lo transcurrido del que
+      // siga abierto). Si no, solo el TURNO de la jornada (noche muestra noche) + en vivo.
+      const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
+      const worked = bothShifts
+        ? Math.round(((sd!.day.hours + sd!.night.hours) + (elapsedH ?? 0)) * 100) / 100
+        : Math.round((bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
     });
-  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds]);
+  }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick]);
   const listShown = useMemo(() => {
     const nq = norm(listQ.trim());
     if (!nq) return listRows;
@@ -1064,13 +1072,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const rows = Array.from(machineInfo.keys()).map((id) => {
       const info = machineInfo.get(id) ?? null;
       const rd = roundDetail.get(id) ?? null;
-      const worked = rd ? rd.dayH + rd.nightH : 0;
       const seg = segDay[id] ?? null;
       const openNow = selDay === caracasToday() && !!rd?.openStartAt;
       const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(seg.minStart)
         : rd?.openStartAt ? horaCaracas(new Date(rd.openStartAt).getTime()) : '—';
       const horaFin = openNow ? 'En curso' : (seg && seg.maxEnd !== -Infinity ? horaCaracas(seg.maxEnd) : '—');
-      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, (Date.now() - new Date(rd.openStartAt).getTime()) / 3600000) : null;
+      const elapsedH = openNow && rd?.openStartAt ? Math.max(0, Math.min(12, (nowTick - new Date(rd.openStartAt).getTime()) / 3600000)) : null;
+      // Horas del TURNO de la jornada (noche muestra noche) + EN VIVO si sigue abierta.
+      const bankedShiftH = rd ? (rd.shift === 'night' ? rd.nightH : rd.shift === 'day' ? rd.dayH : rd.dayH + rd.nightH) : 0;
+      const worked = Math.round((bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
       const dn = inspByShift.get(id) ?? {};
       const sd = shiftDetail.get(id) ?? null;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
@@ -1081,7 +1091,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
         .some((v) => norm(v).includes(nq));
     }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
-  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail]);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail, nowTick]);
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
@@ -1217,8 +1227,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const t = map[tone];
     const Comp: any = onPress ? TouchableOpacity : View;
     return (
-      <Comp onPress={onPress} activeOpacity={0.7} style={{ flex: 1, backgroundColor: t.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
-        <Text style={{ color: t.fg, fontWeight: '900', fontSize: 24, fontVariant: ['tabular-nums'] as any }}>{value}</Text>
+      <Comp onPress={onPress} activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: 84, minWidth: 84, backgroundColor: t.bg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
+        <Text style={{ color: t.fg, fontWeight: '900', fontSize: 20, fontVariant: ['tabular-nums'] as any }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>{value}</Text>
         <Text style={{ color: colors.muted, fontSize: 10, fontWeight: '700', textAlign: 'center', marginTop: 2 }} numberOfLines={2}>{label}{onPress ? ' ›' : ''}</Text>
       </Comp>
     );
@@ -1277,7 +1287,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           </View>
 
           {/* KPIs del día elegido. */}
-          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
             <KpiCard label={`Activas ahora ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Activas ahora (jornada abierta) · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
             <KpiCard label="Cerradas (finalizadas)" value={top.cerradas} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.cer)} />
             <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topIds.pend)} />
@@ -1705,7 +1715,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           {sel ? (
             <View style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, backgroundColor: colors.background }}>
               <Text style={{ color: colors.text, fontWeight: '900', fontSize: 14, marginBottom: spacing.sm }}>👷 {sel.name} <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>· {sel.total} asignada(s)</Text></Text>
-              <View style={{ flexDirection: 'row', gap: spacing.xs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, paddingBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                 <KpiCard label="Iniciadas" value={sel.ini.length} tone="brand" onPress={() => openList(`✅ Iniciadas · ${sel.name}`, sel.ini)} />
                 <KpiCard label="Cerradas" value={sel.cer.length} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${sel.name}`, sel.cer)} />
                 <KpiCard label="Pendientes" value={sel.pend.length} tone="muted" onPress={() => openList(`⏳ Pendientes · ${sel.name}`, sel.pend)} />
