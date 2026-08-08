@@ -532,7 +532,12 @@ export default function EquiposScreen({ navigation, route }: any) {
   const toggleOp = (m: Machinery) =>
     run(m.id + '-op', async () => {
       const activando = !m.operational; // pasa a OPERATIVA (true)
-      const { error } = await supabase.from('machinery').update({ operational: !m.operational }).eq('id', m.id);
+      // Guardamos la FECHA del cambio: al inactivar → inactivated_at; al reactivar →
+      // reactivated_at (y limpiamos inactivated_at para no confundir). Se muestra en el
+      // catálogo, en el listado de inactivas y en los reportes.
+      const nowIso = new Date().toISOString();
+      const stamp = activando ? { reactivated_at: nowIso } : { inactivated_at: nowIso, reactivated_at: null };
+      const { error } = await supabase.from('machinery').update({ operational: !m.operational, ...stamp }).eq('id', m.id);
       if (error) return { ok: false, error: error.message };
       // Al ACTIVAR (volver operativa) se limpia la etiqueta de avería/parada: se resuelven
       // las maintenance_requests pendientes de la máquina (mismo criterio que
@@ -905,6 +910,24 @@ export default function EquiposScreen({ navigation, route }: any) {
   const reportTitle = titleForScope(reportCompany);
   const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
   const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
+  // Fecha (DD/MM/YYYY) de un timestamp ISO; null si no hay.
+  const fmtEstadoFecha = (iso?: string | null) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+  };
+  // Línea con la fecha del último cambio de estado: inactivada (NO operativa) o
+  // reactivada (volvió operativa). Se muestra en el catálogo, listado de inactivas y reportes.
+  const EstadoFechaLine = ({ m }: { m: Machinery }) => {
+    if (!m.operational) {
+      const f = fmtEstadoFecha((m as any).inactivated_at);
+      return f ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🔴 Inactivada el {f}</Text> : null;
+    }
+    const f = fmtEstadoFecha((m as any).reactivated_at);
+    return f ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>🟢 Reactivada el {f}</Text> : null;
+  };
   // Estatus EN VIVO de una máquina, con horas, combinando jornada (machine_rounds) y
   // avería/parada (maintenance_requests). Todo derivado; NO toca `operational`.
   //  - elapsedDia/Noche: horas transcurridas de la jornada abierta de cada turno (cap 12).
@@ -1097,6 +1120,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
               </Text>
             </View>
+            <EstadoFechaLine m={m} />
             <AveriaBadge id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
             {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
@@ -1840,6 +1864,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                               {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
                             </Text>
                           </View>
+                          <EstadoFechaLine m={m} />
                           <AveriaBadge id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}

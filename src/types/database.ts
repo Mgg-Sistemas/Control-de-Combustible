@@ -153,6 +153,8 @@ export interface Machinery {
   active: boolean;
   operational: boolean;
   en_espera: boolean; // 3er estado: "En espera por recepción" (aún no recibida en control)
+  inactivated_at?: string | null; // fecha en que se marcó NO OPERATIVA (inactivó)
+  reactivated_at?: string | null; // fecha en que se volvió a marcar OPERATIVA (reactivó)
   con_tapa?: boolean | null; // ¿el equipo cuenta con tapa? (check Sí/No en el Catálogo)
   tapa_doble?: boolean | null; // ¿la tapa es doble? (solo aplica si con_tapa)
   qr_blocked?: boolean; // QR bloqueado: al escanear solo se muestra el logo (sin datos ni acciones)
