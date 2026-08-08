@@ -54,6 +54,8 @@ export function TanksScreen() {
         { key: 'location', label: 'Ubicación', type: 'text' },
         { key: 'fuel', label: 'Combustible', type: 'select', options: FUEL_OPTIONS, required: true },
         { key: 'capacity_l', label: 'Capacidad (L)', type: 'number', required: true },
+        // Encargado a cargo del tanque (se muestra en la pantalla de Tanques).
+        { key: 'responsable', label: 'Responsable / encargado', type: 'text' },
         // Vínculo con la CISTERNA del catálogo (camión cisterna) y su CHOFER.
         { key: 'machinery_id', label: 'Cisterna del catálogo (opcional)', type: 'lookup', table: 'machinery', labelCol: 'code' },
         { key: 'chofer', label: 'Chofer de la cisterna', type: 'text' },
@@ -66,6 +68,7 @@ export function TanksScreen() {
           </View>
           {t.location ? <Row label="Ubicación" value={t.location} /> : null}
           <Row label="Capacidad" value={`${Number(t.capacity_l).toLocaleString()} L`} />
+          {t.responsable ? <Row label="Responsable" value={`👤 ${t.responsable}`} /> : null}
           {t.chofer ? <Row label="Chofer" value={`🧑‍✈️ ${t.chofer}`} /> : null}
           {t.is_mobile ? <Badge label="Móvil" tone="warning" /> : null}
         </>

@@ -61,6 +61,12 @@ export type Field =
       dropdown?: boolean;
       placeholder?: string;
       showIf?: ShowIf;
+      /** Valor inicial (id) al CREAR un registro nuevo — p. ej. preseleccionar el
+       *  tanque del encargado logueado. Se aplica solo en creación (line ~130). */
+      defaultValue?: string;
+      /** Columnas extra para distinguir opciones homónimas: se agregan al label como
+       *  " · valor" (p. ej. ['location','responsable'] para tanques con igual nombre). */
+      subLabelCols?: string[];
     };
 
 type Option = { label: string; value: string };
@@ -150,17 +156,27 @@ export function RecordForm({
     // Cargar opciones de los campos lookup y las sugerencias de los campos "suggest".
     fields.forEach(async (f) => {
       if (f.type === 'lookup') {
-        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${f.activeCol ? `, ${f.activeCol}` : ''}`);
+        // Columnas extra para DISTINGUIR opciones con el mismo nombre (p. ej. dos tanques
+        // "TANQUE DE COMBUSTIBLE"): se agregan al label como " · valor" (ubicación,
+        // responsable…). Solo se muestran las que tengan valor.
+        const subCols = f.subLabelCols ?? [];
+        const extra = [f.activeCol, ...subCols].filter(Boolean).join(', ');
+        let qb: any = supabase.from(f.table).select(`id, ${f.labelCol}${extra ? `, ${extra}` : ''}`);
         if (f.filter) Object.entries(f.filter).forEach(([col, val]) => { qb = qb.eq(col, val); });
         const { data } = await qb;
         const activeCol = f.activeCol;
         setLookups((prev) => ({
           ...prev,
           [f.key]: (data ?? [])
-            .map((r: any) => ({
-              label: activeCol && r[activeCol] === false ? `${String(r[f.labelCol])} (Inactiva)` : String(r[f.labelCol]),
-              value: r.id,
-            }))
+            .map((r: any) => {
+              const sub = subCols.map((c) => String(r[c] ?? '').trim()).filter(Boolean).join(' · ');
+              const base = String(r[f.labelCol]);
+              const withSub = sub ? `${base} · ${sub}` : base;
+              return {
+                label: activeCol && r[activeCol] === false ? `${withSub} (Inactiva)` : withSub,
+                value: r.id,
+              };
+            })
             .sort((a: any, b: any) => cmpText(a.label, b.label)),
         }));
       } else if (f.type === 'suggest') {

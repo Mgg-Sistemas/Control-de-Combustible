@@ -513,7 +513,14 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       const dh = Number(r.day_hours) || 0;
       const nh = Number(r.night_hours) || 0;
       const isOpen = !!r.jornada_start_at;
-      const openSh = r.jornada_shift === 'night' ? 'night' : r.jornada_shift === 'day' ? 'day' : null;
+      // Turno de la jornada ABIERTA: si `jornada_shift` viene nulo se INFIERE por la hora
+      // de inicio (Caracas 7am–7pm = día), igual que la pantalla (InspectionsSummary
+      // `openShiftOf`) y el reporte por inspector. Sin esta inferencia, una jornada
+      // reabierta sin turno explícito dejaba openStartDay/Night en 0 → `reactivada`
+      // nunca se activaba y la máquina reactivada seguía saliendo 🔴/🟡 en el teléfono.
+      const openSh = r.jornada_shift === 'night' ? 'night'
+        : r.jornada_shift === 'day' ? 'day'
+        : (isOpen ? (caracasParts(new Date(r.jornada_start_at)).hour >= 7 && caracasParts(new Date(r.jornada_start_at)).hour < 19 ? 'day' : 'night') : null);
       const startMs = isOpen ? new Date(r.jornada_start_at).getTime() : 0;
       rmap[r.machinery_id] = {
         open: prev.open || isOpen,
@@ -619,8 +626,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // pendientesList/resumenInspectores), que siguen viendo TODO el catálogo para
   // poder asignar/reactivar máquinas inactivas.
   const visibleParaInspector = (m: Mach) => {
-    const inactiva = m.active === false || m.en_espera === true;
-    return !inactiva || roundsById[m.id]?.open === true;
+    // INACTIVA desde el catálogo: máquina marcada NO OPERATIVA con "⛔ Inactiva"
+    // (operational=false) o desactivada (active=false). NUNCA se muestra en la lista del
+    // inspector, ni siquiera con jornada abierta (pedido cliente 08/08/2026). Solo aparece
+    // en el reporte por empresa y en Control. `operational` solo lo cambia ese botón del
+    // admin; la avería/parada de campo NO toca operational (vive en maintenance_requests),
+    // así que una máquina averiada pero OPERATIVA sí se sigue viendo con su estado.
+    if (m.active === false || (m as any).operational === false) return false;
+    // EN ESPERA (recepción/traslado): oculta salvo que tenga una jornada abierta.
+    return m.en_espera !== true || roundsById[m.id]?.open === true;
   };
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
   const matchQuery = (m: Mach, q: string) => !q

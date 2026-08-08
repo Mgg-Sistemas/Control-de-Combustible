@@ -106,6 +106,14 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
 export async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
   const cos = companies && companies.length ? companies : null;
 
+  // INACTIVAS del catálogo (NO OPERATIVA `operational=false`, botón "⛔ Inactiva", o
+  // desactivada `active=false`): NUNCA entran a este reporte de inspectores — igual que
+  // las tarjetas en vivo (`machHardInactiveSet` de InspectionsSummary) y el teléfono
+  // (`visibleParaInspector`). Solo salen en el reporte por empresa y en Control. Así el
+  // PDF firmado y la pantalla muestran EXACTAMENTE las mismas máquinas.
+  const { data: inactRows } = await supabase.from('machinery').select('id').or('operational.eq.false,active.eq.false');
+  const inactiveIds = new Set(((inactRows ?? []) as any[]).map((m) => m.id as string));
+
   // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
   const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
   const nameById: Record<string, string> = {};
@@ -195,6 +203,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
+  const nowMs = Date.now();
   ((maint ?? []) as any[]).forEach((m) => {
     const id = m.machinery_id as string;
     const start = new Date(m.created_at).getTime();
@@ -269,6 +278,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
   const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
     if (cos && !cos.includes(base.company)) return;
+    if (inactiveIds.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
     data.set(turno, tMap);
     const iMap = tMap.get(insp) ?? new Map<string, Mach>();
@@ -280,7 +290,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;
-    const openForShift = !!rd?.jornada_start_at && rd?.jornada_shift === turno;
+    // Turno de la jornada ABIERTA: si `jornada_shift` viene nulo se INFIERE por la hora
+    // de inicio (Caracas 7am–7pm = día), EXACTAMENTE igual que las tarjetas en vivo
+    // (`openShiftOf` en InspectionsSummary). Antes el reporte exigía
+    // `jornada_shift === turno` sin inferir, así que una jornada reabierta sin turno
+    // explícito NO se detectaba como reactivación → el PDF firmado seguía diciendo
+    // "🔴/🟡" mientras las tarjetas ya la mostraban en curso ("el reporte dice una
+    // cosa y las tarjetas otra").
+    const openShift: Turno | null = rd?.jornada_start_at
+      ? (rd.jornada_shift === 'night' ? 'night' : rd.jornada_shift === 'day' ? 'day' : paradaShiftOf(rd.jornada_start_at))
+      : null;
+    const openForShift = !!rd?.jornada_start_at && openShift === turno;
     // Prioridad UNIFICADA (igual que el teléfono `segmentoDe` y el admin):
     //  avería HOY > parada HOY > trabajando > avería ARRASTRADA > parada ARRASTRADA >
     //  finalizada (con horas) > por iniciar. Lo de HOY gana sobre "trabajando"; lo
@@ -300,9 +320,12 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     // reiniciara DESPUÉS de ella. Regla: una avería/parada cuenta como estado ACTUAL
     // solo si sigue SIN resolver (end == null) y la jornada NO se reinició después de
     // ella (si jornada_start_at > la marca, la máquina se reactivó → trabaja).
-    const jStartMs = rd?.jornada_start_at && rd?.jornada_shift === turno ? new Date(rd.jornada_start_at).getTime() : null;
+    const jStartMs = openForShift ? new Date(rd.jornada_start_at).getTime() : null;
+    // `>=` (no `>`) para IGUALAR el criterio de las tarjetas/tlf (`reactivadaTras` /
+    // `reactivada`): si la jornada arrancó en el mismo instante o DESPUÉS de la marca,
+    // la máquina volvió a trabajar y la avería/parada ya no cuenta.
     const activa = (ev?: EventoParada): EventoParada | undefined =>
-      ev && ev.end == null && !(jStartMs != null && jStartMs > ev.start) ? ev : undefined;
+      ev && ev.end == null && !(jStartMs != null && jStartMs >= ev.start) ? ev : undefined;
     const parHoy = activa(paradaHoyByShift.get(id)?.get(turno));
     const averHoyMot = activa(averiaHoyByShift.get(id)?.get(turno));
     const averArrMot = !reactivadaHoy ? activa(averiaArrByShift.get(id)?.get(turno)) : undefined;
@@ -335,8 +358,8 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     }
     evs.sort((a, b) => a.t - b.t);
     // HORAS PARADA de ESTE turno: duración del episodio de parada/avería vigente,
-    // acotada a la ventana del turno (día 7am–7pm; noche 7pm–7am+1). Si sigue parada
-    // sin reactivar, se cuenta hasta el fin del turno. Reemplaza la "línea de tiempo".
+    // acotada a la ventana del turno (día 7am–7pm; noche 7pm–7am+1). Reemplaza la
+    // "línea de tiempo".
     const shiftStartMs = turno === 'night'
       ? new Date(date + 'T19:00:00-04:00').getTime()
       : new Date(date + 'T07:00:00-04:00').getTime();
@@ -345,8 +368,14 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       : new Date(date + 'T19:00:00-04:00').getTime();
     let horasParada = 0;
     if (evParada) {
+      // Si SIGUE parada (sin reactivar) el "fin" es AHORA cuando el turno todavía está
+      // en curso (no el fin del turno): una máquina parada a las 7am, a las 12:46pm
+      // lleva ~5.7h paradas, NO 12h. Solo se topa al fin del turno cuando el turno ya
+      // terminó (día pasado, o ya son >7pm/>7am). Una parada ya resuelta usa su hora
+      // real de reactivación (evParada.end).
+      const abierto = evParada.end == null ? Math.min(nowMs, shiftEndMs) : evParada.end;
       const pStart = Math.max(evParada.start, shiftStartMs);
-      const pEnd = Math.min(evParada.end ?? shiftEndMs, shiftEndMs);
+      const pEnd = Math.min(abierto, shiftEndMs);
       horasParada = Math.max(0, r2((pEnd - pStart) / 3600000));
     }
     // Horas EN VIVO para una jornada que sigue "en curso" (estado === 'encurso'):
@@ -400,38 +429,17 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       lng: a.longitude != null ? Number(a.longitude) : null,
     });
   });
-  // Pares turno|máquina que YA están cubiertos por una asignación vigente (CHECK):
-  // la sección (b) es solo para máquinas SIN asignación en ese turno — si no se
-  // excluyen aquí, una máquina reasignada de B a A (assignInspector reemplaza la
-  // fila de machine_inspectors, pero NO toca `recorded_by` de rondas ya creadas)
-  // sale DOS VECES: una bajo A (asignación vigente, sección a) y otra bajo B (quien
-  // grabó la ronda antes de la reasignación, sección b), duplicando también las
-  // horas en los totales del reporte.
-  const asignadaEnTurno = new Set<string>(assignments.map((a) => `${a.shift}|${a.machinery_id}`));
-  // b) Máquinas con ronda iniciada por un inspector real aunque NO le estén
-  //    asignadas (escaneo suelto / reasignación) → bajo quien la registró.
-  ((rounds ?? []) as any[]).forEach((r) => {
-    const rb = (r.recorded_by ?? null) as string | null;
-    if (!rb || adminIds.has(rb)) return;
-    const dayH = Number(r.day_hours) || 0;
-    const nightH = Number(r.night_hours) || 0;
-    if (!(r.jornada_start_at || dayH > 0 || nightH > 0)) return;
-    const turno: Turno = r.jornada_shift === 'night' ? 'night'
-      : r.jornada_shift === 'day' ? 'day'
-      : (nightH > 0 && dayH === 0 ? 'night' : 'day');
-    if (asignadaEnTurno.has(`${turno}|${r.machinery_id}`)) return;
-    const mm = r.machine || {};
-    putMach(turno, nameById[rb] || '—', r.machinery_id, {
-      code: mm.code ?? '—',
-      serial: mm.serial ?? null,
-      plate: mm.plate ?? null,
-      company: mm.company?.name ?? 'Sin empresa',
-      sector: (mm.sector && String(mm.sector).trim()) || 'Sin sector',
-      referencia: (mm.referencia && String(mm.referencia).trim()) || '',
-      lat: mm.latitude != null ? Number(mm.latitude) : null,
-      lng: mm.longitude != null ? Number(mm.longitude) : null,
-    });
-  });
+  // NOTA (08/08/2026): el reporte por inspector agrupa EXCLUSIVAMENTE por ASIGNACIÓN
+  // (machine_inspectors), IGUAL que las tarjetas en vivo (`perInspector` en
+  // InspectionsSummary, que usa solo `assignments.filter(shift)`). Antes había un bloque
+  // (b) que además metía máquinas por `recorded_by` (quien inició la ronda) aunque no le
+  // estuvieran asignadas (escaneo suelto) → el reporte contaba MÁS equipos que las
+  // tarjetas para TODOS los inspectores ("no sé de dónde salen 6, son 4"), y además podía
+  // DUPLICAR una máquina reasignada de B a A el mismo día (A por la sección a, B por
+  // recorded_by en la sección b, con sus horas sumadas dos veces en los totales). Se
+  // eliminó: si una máquina no está asignada por CHECK a un inspector, NO cuenta en su
+  // reporte (ni en sus tarjetas). El trabajo suelto sigue en Control y en el reporte por
+  // empresa.
 
   return { data, machineLocs, machCoords, coordTxt };
 }

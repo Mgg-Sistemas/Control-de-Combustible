@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Modal, TextInput, Pressable } from 'react-native';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { useTable } from '../../hooks/useTable';
@@ -7,6 +7,7 @@ import { TankLevel as TankLevelType } from '../../types/database';
 import { TankLevel, tankStatus } from '../../components/TankLevel';
 import { cmpText } from '../../lib/text';
 import { family, useBrandFonts } from '../../components/redesign/fonts';
+import { supabase } from '../../lib/supabase';
 
 // Umbral mínimo por defecto (la vista tank_levels aún no expone umbral por tanque).
 const LOW_PCT = 20;
@@ -25,6 +26,21 @@ export default function TanksShowcase() {
   const fontsReady = useBrandFonts();
   const { data, loading } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
   const [filter, setFilter] = useState<'all' | 'diesel' | 'gasolina' | 'low'>('all');
+  // Edición del RESPONSABLE del tanque directamente desde la tarjeta (toca el renglón
+  // "Responsable"). Actualiza `tanks.responsable` (la vista tank_levels es de solo
+  // lectura, pero el id coincide). El realtime de `tanks` refresca la tarjeta sola.
+  const [editTank, setEditTank] = useState<{ id: string; name: string } | null>(null);
+  const [respInput, setRespInput] = useState('');
+  const [savingResp, setSavingResp] = useState(false);
+  const openEditResp = (t: TankLevelType) => { setEditTank({ id: t.id, name: t.name }); setRespInput(String(t.responsable ?? '')); };
+  const saveResp = async () => {
+    if (!editTank || savingResp) return;
+    setSavingResp(true);
+    const clean = respInput.trim();
+    const { error } = await supabase.from('tanks').update({ responsable: clean || null }).eq('id', editTank.id);
+    setSavingResp(false);
+    if (!error) setEditTank(null);
+  };
 
   const tanks = useMemo(() => {
     const list = [...(data ?? [])].sort((a, b) => cmpText(a.name, b.name));
@@ -122,9 +138,21 @@ export default function TanksShowcase() {
                         <Text style={[{ color: tone.fg, fontSize: 10, letterSpacing: 0.5 }, f(family.bodySemi)]}>{st.label.toUpperCase()}</Text>
                       </View>
                     </View>
-                    <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: spacing.sm, textTransform: 'capitalize' }, f(family.body)]}>
+                    <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2, textTransform: 'capitalize' }, f(family.body)]}>
                       {t.fuel} · cap. {Number(t.capacity_l).toLocaleString()} L · umbral {LOW_PCT}%
                     </Text>
+                    {/* Ubicación del tanque (si la tiene) — ayuda a distinguir tanques con
+                        el mismo nombre. */}
+                    {t.location && String(t.location).trim() ? (
+                      <Text style={[{ color: colors.muted, fontSize: 12, marginTop: 2 }, f(family.body)]}>📍 {t.location}</Text>
+                    ) : null}
+                    {/* Responsable / encargado — EDITABLE: toca el renglón para asignarlo. */}
+                    <TouchableOpacity onPress={() => openEditResp(t)} activeOpacity={0.6} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, marginBottom: spacing.sm }}>
+                      <Text style={[{ color: t.responsable ? colors.text : colors.muted, fontSize: 12, fontWeight: t.responsable ? '700' : '400', flexShrink: 1 }, f(family.bodySemi)]}>
+                        👤 Responsable: {t.responsable && String(t.responsable).trim() ? t.responsable : 'sin asignar'}
+                      </Text>
+                      <Text style={[{ color: colors.brandText, fontSize: 11, fontWeight: '800' }, f(family.bodySemi)]}>✏️ {t.responsable ? 'cambiar' : 'asignar'}</Text>
+                    </TouchableOpacity>
 
                     {/* Cifra grande en mono + % a la derecha. */}
                     <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -146,6 +174,32 @@ export default function TanksShowcase() {
           </Text>
         </ScrollView>
       )}
+
+      {/* Modal para asignar/cambiar el RESPONSABLE del tanque (escribe el nombre). */}
+      <Modal visible={editTank != null} transparent animationType="fade" onRequestClose={() => setEditTank(null)}>
+        <Pressable onPress={() => setEditTank(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm }}>
+            <Text style={[{ color: colors.text, fontSize: 16, fontWeight: '900' }, f(family.displayBold)]}>Responsable del tanque</Text>
+            <Text style={[{ color: colors.muted, fontSize: 12.5 }, f(family.body)]}>{editTank?.name}</Text>
+            <TextInput
+              value={respInput}
+              onChangeText={setRespInput}
+              placeholder="Nombre del encargado…"
+              placeholderTextColor={colors.muted}
+              autoFocus
+              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, color: colors.text, fontSize: 15 }}
+            />
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+              <TouchableOpacity onPress={() => setEditTank(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={saveResp} disabled={savingResp} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center', opacity: savingResp ? 0.6 : 1 }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '900' }}>{savingResp ? 'Guardando…' : 'Guardar'}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

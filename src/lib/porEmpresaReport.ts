@@ -246,13 +246,28 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // infla el día) y cada turno se topa en 12h.
   const paradasDiaNoche = (id: string): { dia: number; noche: number } => {
     const eps = paradasByMachine.get(id) || [];
+    const r = roundBy.get(id);
+    const jOpenMs = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
+    const jOpenShift: 'day' | 'night' | null = jOpenMs != null
+      ? (r.jornada_shift === 'night' ? 'night' : r.jornada_shift === 'day' ? 'day' : paradaShiftOf(jOpenMs))
+      : null;
     let dia = 0, noche = 0;
     eps.forEach((p) => {
+      // Turno de la MARCA (no la franja horaria): el episodio completo pertenece al turno
+      // en que se paró, igual que el reporte por inspector y las tarjetas en vivo.
+      const sh = paradaShiftOf(p.start);
+      // REACTIVADA: si la jornada de ESE turno arrancó en el mismo instante o DESPUÉS de
+      // la parada, la máquina volvió a trabajar → el episodio ya no cuenta (mismo criterio
+      // que `reactivadaTras` de las tarjetas y `activa` del reporte por inspector).
+      if (jOpenMs != null && jOpenShift === sh && jOpenMs >= p.start) return;
       const start = Math.max(p.start, dayBoundStart);
       const end = Math.min(p.end ?? nowMs, dayBoundEnd);
       if (end <= start) return;
-      dia += overlapH(start, end, day7, day19);
-      noche += overlapH(start, end, dayBoundStart, day7) + overlapH(start, end, day19, dayBoundEnd);
+      // Acota a la ventana del turno de la marca (día 7am–7pm; noche 00:00–7am + 7pm–24:00).
+      // Antes se repartía por franja horaria, así una parada arrastrada aún abierta sumaba
+      // ~12h fantasma (7h de "noche" 00:00–7am + 5h de "día") — la queja de "12h paradas".
+      if (sh === 'day') dia += overlapH(start, end, day7, day19);
+      else noche += overlapH(start, end, dayBoundStart, day7) + overlapH(start, end, day19, dayBoundEnd);
     });
     return { dia: n2(Math.min(12, dia)), noche: n2(Math.min(12, noche)) };
   };
@@ -304,7 +319,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // se refleja en la columna "Avería/motivo" vía averiaTxt) — ya no se agrupa como
     // "🚫 INACTIVA" solo por operational=false (antes sí, y eso la sacaba del bloque
     // de Activas aunque siguiera trabajando/asignada).
-    const inactiva = m?.active === false;
+    // INACTIVA = NO OPERATIVA (botón "⛔ Inactiva" del catálogo, operational=false) o
+    // desactivada (active=false). Estas SÍ salen acá (con 🚫 INACTIVA y 0 horas) y en
+    // Control — pero NO en la vista de inspectores ni en el reporte por inspector.
+    const inactiva = m?.active === false || m?.operational === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
     // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
@@ -340,11 +358,13 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       par = n2(Number(r?.hours_stopped) || 0);
     }
     const epSplit = paradasDiaNoche(id);
-    const hayEpisodios = epSplit.dia > 0 || epSplit.noche > 0;
-    // Fallback sin episodios (solo hours_stopped/span): se topa también a 12h de día.
+    const hadEps = (paradasByMachine.get(id)?.length ?? 0) > 0;
+    // Si la máquina TUVO episodios de parada (aunque queden en 0 por reactivación), se usa
+    // el desglose por episodio; el fallback (span/hours_stopped) solo aplica cuando NO hubo
+    // ningún episodio registrado — así una máquina reactivada no "resucita" horas paradas.
     // Inactiva: sin paradas (0) — está fuera de servicio, no en jornada.
-    const paradasDia = inactiva ? 0 : (hayEpisodios ? epSplit.dia : n2(Math.min(12, par)));
-    const paradasNoche = inactiva ? 0 : (hayEpisodios ? epSplit.noche : 0);
+    const paradasDia = inactiva ? 0 : (hadEps ? epSplit.dia : n2(Math.min(12, par)));
+    const paradasNoche = inactiva ? 0 : (hadEps ? epSplit.noche : 0);
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averiaBase = averiaTxt(id);

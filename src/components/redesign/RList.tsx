@@ -4,6 +4,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius, AppColors } from '../../theme';
 import { useTable } from '../../hooks/useTable';
 import { norm } from '../../lib/text';
+import { caracasParts } from '../../lib/jornada';
 import { figFont, figFontStyle } from '../../lib/figFont';
 import { RecordForm, Field } from '../RecordForm';
 
@@ -181,6 +182,11 @@ type RListProps<T> = {
    *  (concatena todas las características por las que se pueda buscar). */
   searchText?: (item: T) => string;
   searchPlaceholder?: string;
+  /** Si es true, la lista arranca mostrando SOLO los movimientos de HOY (por
+   *  `dateField`), mientras no se elija un rango de fecha ni se busque. Evita que un
+   *  movimiento recién hecho "no aparezca" en una lista larga y que el histórico
+   *  completo cargue de golpe. El usuario puede ampliar el rango cuando quiera. */
+  defaultToday?: boolean;
 };
 
 /** Lista genérica restilizada. Misma API que ListScreen; look del rediseño. */
@@ -188,7 +194,7 @@ export function RList<T extends { id: string }>({
   title, table, orderBy = 'created_at', ascending, select = '*',
   editable = false, dateField, formFields, formTitle, autoUserField,
   addLabel = '+ Nuevo', emptyTitle, emptySubtitle, emptyIcon,
-  renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…',
+  renderItem, subtitle, headerExtra, searchText, searchPlaceholder = 'Buscar…', defaultToday = false,
 }: RListProps<T>) {
   const { colors } = useTheme();
   const { data, loading, refetch } = useTable<T>(table, { orderBy, select, ...(ascending != null ? { ascending } : {}) });
@@ -197,20 +203,27 @@ export function RList<T extends { id: string }>({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [q, setQ] = useState('');
+  const todayIso = caracasParts(new Date()).iso;
 
   const shown = useMemo(() => {
     const nq = norm(q.trim());
+    // Vista por defecto = SOLO HOY (si defaultToday y no hay rango ni búsqueda). Así un
+    // movimiento recién registrado se ve de una y no se carga todo el histórico.
+    const soloHoy = defaultToday && !!dateField && !from && !to && !nq;
     return data.filter((item) => {
       if (dateField && (from || to)) {
         const v = String((item as any)[dateField] ?? '').slice(0, 10);
         if (!v) return false;
         if (from && v < from) return false;
         if (to && v > to) return false;
+      } else if (soloHoy) {
+        const v = String((item as any)[dateField as string] ?? '').slice(0, 10);
+        if (v !== todayIso) return false;
       }
       if (nq && searchText && !norm(searchText(item)).includes(nq)) return false;
       return true;
     });
-  }, [data, dateField, from, to, q, searchText]);
+  }, [data, dateField, from, to, q, searchText, defaultToday, todayIso]);
 
   const openNew = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (item: T) => { setEditing(item); setFormOpen(true); };

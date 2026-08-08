@@ -631,6 +631,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     machList.forEach((m) => { if (m.active === false || m.en_espera === true) s.add(m.id); });
     return s;
   }, [machList]);
+  // INACTIVAS "duras" del catálogo: la máquina marcada NO OPERATIVA con el botón
+  // "⛔ Inactiva" del Catálogo (operational=false) — o desactivada (active=false).
+  // NUNCA se muestran en la vista de inspectores, ni siquiera con jornada abierta (pedido
+  // cliente 08/08/2026) — solo en el reporte por empresa y en Control. IMPORTANTE:
+  // `operational` SOLO lo cambia ese botón del admin; la avería/parada de campo NO toca
+  // `operational` (vive en maintenance_requests), así que una máquina averiada pero
+  // OPERATIVA sí sigue viéndose con su estado. Las EN ESPERA mantienen la excepción de
+  // jornada abierta (van en `machInactiveSet`).
+  const machHardInactiveSet = useMemo(() => {
+    const s = new Set<string>();
+    machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
+    return s;
+  }, [machList]);
 
   // Conjuntos de estado para el DÍA + TURNO elegidos. TODO va SEPARADO por turno:
   //  - Iniciada/cerrada = trabajó/abrió jornada EN ESE turno (por horas del turno u
@@ -743,7 +756,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet). Sin jornada abierta,
     // aunque tenga horas viejas, el teléfono la OCULTA → el admin no debe contarla (bug:
     // "los inspectores tienen menos máquinas, aquí salen de más").
-    const visibleOk = (id: string) => !machInactiveSet.has(id) || anyOpenSet.has(id);
+    const visibleOk = (id: string) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id));
     // Universo del turno: asignadas al turno + las que trabajaron el turno, ambas filtradas
     // por el mismo criterio de visibilidad del teléfono.
     const universe = new Set<string>();
@@ -785,7 +798,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       pendSet.add(id);
     });
     return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
-  }, [rounds, selDay, maint, assignments, machInactiveSet]);
+  }, [rounds, selDay, maint, assignments, machInactiveSet, machHardInactiveSet]);
   // Ambos turnos calculados de una vez (misma fuente que `daySets`, sin drift) —
   // lo usa el panel "Gestionar" para clasificar filas de día Y de noche a la vez.
   const daySetsByShift = useMemo(
@@ -816,6 +829,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // (anyOpenSet) — si no, el teléfono y el dashboard la ocultan, así que
       // Gestionar tampoco debe mostrarla como si estuviera "Pendiente" (estaría
       // mintiendo: puede seguir averiada/parada/cerrada, solo que oculta a propósito).
+      if (machHardInactiveSet.has(a.machinery_id)) return; // active=false: nunca en inspecciones
       if (machInactiveSet.has(a.machinery_id) && !ds.anyOpenSet.has(a.machinery_id)) return;
       const nm = a.inspector_name || '—';
       const e = byName.get(nm) ?? { name: nm, items: [] };
@@ -833,7 +847,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     return [...byName.values()]
       .map((g) => ({ ...g, items: g.items.sort((x, y) => cmpText(x.code, y.code) || x.shift.localeCompare(y.shift)) }))
       .sort((a, b) => cmpText(a.name, b.name));
-  }, [assignments, daySetsByShift, machInactiveSet]);
+  }, [assignments, daySetsByShift, machInactiveSet, machHardInactiveSet]);
   // Grupos ya filtrados por turno/estado/paradas-averiadas/búsqueda (lo que realmente se ve y se selecciona).
   const bulkGroups = useMemo(() => {
     const q = norm(bulkQuery.trim());
@@ -1148,11 +1162,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
     });
     return rows.filter((r) => {
+      // SOLO máquinas OPERATIVAS: fuera las INACTIVAS del catálogo (NO OPERATIVA
+      // operational=false o desactivada active=false) — igual que el resto de la vista de
+      // inspectores. Las averiadas/paradas OPERATIVAS sí siguen apareciendo.
+      if (machHardInactiveSet.has(r.id)) return false;
       const i = r.info;
       return [r.code, i?.plate, i?.serial, i?.identifier, i?.company, i?.encargado, i?.location, i?.referencia, i?.sector, i?.zona, i?.tipo, i?.clasificacion, i?.machinery_type, r.dayInsp, r.nightInsp]
         .some((v) => norm(v).includes(nq));
     }).sort((a, b) => cmpText(a.code, b.code)).slice(0, 50);
-  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail, nowTick]);
+  }, [inspQ, machineInfo, roundDetail, segDay, selDay, codeById, estadoOf, inspByShift, shiftDetail, nowTick, machHardInactiveSet]);
 
   // Desglose por INSPECTOR (asignaciones del turno como columna vertebral).
   const perInspector = useMemo(() => {
@@ -1171,7 +1189,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
       // Excluye máquinas inactivas/no-operativas SIN jornada de hoy (machInactiveSet),
       // igual que el teléfono — si no, no cuenta en el total ("N asignada(s)").
-      const visibleIds = [...e.ids].filter((id) => !machInactiveSet.has(id) || anyOpenSet.has(id));
+      const visibleIds = [...e.ids].filter((id) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id)));
       visibleIds.forEach((id) => {
         if (averSet.has(id)) ave.push(id);
         else if (paradaSet.has(id)) par.push(id);
@@ -1208,9 +1226,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // ahora mismo, sin contar las ya cerradas) — así ambas vistas dan el mismo
       // número, sin tocar el cálculo interno de eficiencia/horas.
       const iniActivas = ini.filter((id) => !closedSet.has(id));
-      return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
+      // TODAS las máquinas asignadas visibles (todos los estados), ordenadas por código —
+      // para el botón "🔍 Ver todas" que abre la lista buscable con todos los datos.
+      const todas = s(visibleIds.slice());
+      return { name: e.name, ini: s(ini), iniActivas: s(iniActivas), pend: s(pend), par: s(par), ave: s(ave), cer: s(cer), todas, total: visibleIds.length, eficiencia, isFaltantes, horas, horasTotales };
     }).sort((a, b) => b.iniActivas.length - a.iniActivas.length || cmpText(a.name, b.name));
-  }, [assignments, shift, daySets, machInactiveSet, liveHorasOf, allHoursByMachine]);
+  }, [assignments, shift, daySets, machInactiveSet, machHardInactiveSet, liveHorasOf, allHoursByMachine]);
 
   // Filas del modal de horas por máquina: TODAS las máquinas visibles del inspector
   // abierto (las mismas que suman "Horas reales"/"Horas reales totales"), con su
@@ -1795,6 +1816,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                 <KpiCard label="Eficiencia" value={sel.eficiencia ?? 0} tone={sel.eficiencia === 100 ? 'brand' : sel.eficiencia != null && sel.eficiencia >= 50 ? 'warn' : 'crit'} />
                 <KpiCard label="Horas reales" value={`${sel.horas.toFixed(1)}h`} tone="brand" onPress={() => openHorasModal(sel.name, 'dia')} />
               </View>
+              {/* Ver TODAS las máquinas asignadas de este inspector (todos los estados),
+                  en la lista buscable con todos los datos (código, placa, serial,
+                  ubicación, empresa, encargado, horas, motivo…). */}
+              <TouchableOpacity onPress={() => openList(`🚜 Todas las máquinas · ${sel.name}`, sel.todas)} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '900', fontSize: 12.5 }}>🔍 Ver todas las máquinas asignadas ({sel.total}) · buscable</Text>
+              </TouchableOpacity>
               {/* Reporte OFICIAL con FIRMA de SOLO este inspector. */}
               <TouchableOpacity onPress={() => makeReport(sel.name)} disabled={pdfBusy !== null} activeOpacity={0.85} style={{ marginTop: spacing.sm, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: pdfBusy !== null ? 0.6 : 1 }}>
                 <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === sel.name ? 'Generando…' : `📄 Reporte de ${sel.name} (con firma)`}</Text>
