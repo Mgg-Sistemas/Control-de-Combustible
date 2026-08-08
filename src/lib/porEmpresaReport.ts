@@ -50,7 +50,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // 1) Máquinas de las empresas elegidas.
   const machs = await selectAllRows(
     'machinery',
-    'id, code, serial, plate, active, company_id, company:company_id(name)',
+    'id, code, serial, plate, active, operational, company_id, company:company_id(name)',
     (q) => q.in('company_id', companyIds),
   );
   const ids = ((machs ?? []) as any[]).map((m) => m.id);
@@ -267,7 +267,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   ids.forEach((id) => {
     const m = machById.get(id);
     const empresa = m?.company?.name || 'Sin empresa';
-    const inactiva = m?.active === false;
+    // Inactiva = fuera de servicio en el catálogo (active=false O operational=false).
+    // Antes solo miraba `active`, así que las inactivas por `operational` no salían.
+    const inactiva = m?.active === false || m?.operational === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
     // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
@@ -287,6 +289,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
       if (jShift === 'day') dh = n2(dh + elapsed); else nh = n2(nh + elapsed);
     }
+    // Inactiva: 0 horas (fuera de servicio). Aparece SIEMPRE con su status, sin horas.
+    if (inactiva) { dh = 0; nh = 0; }
     // Tope por turno: DÍA máx 12h, NOCHE máx 12h (una máquina "corrida" puede tener
     // ambos → hasta 24h de jornada, pero nunca >12 en un mismo turno).
     dh = n2(Math.min(12, dh));
@@ -303,8 +307,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const epSplit = paradasDiaNoche(id);
     const hayEpisodios = epSplit.dia > 0 || epSplit.noche > 0;
     // Fallback sin episodios (solo hours_stopped/span): se topa también a 12h de día.
-    const paradasDia = hayEpisodios ? epSplit.dia : n2(Math.min(12, par));
-    const paradasNoche = hayEpisodios ? epSplit.noche : 0;
+    // Inactiva: sin paradas (0) — está fuera de servicio, no en jornada.
+    const paradasDia = inactiva ? 0 : (hayEpisodios ? epSplit.dia : n2(Math.min(12, par)));
+    const paradasNoche = inactiva ? 0 : (hayEpisodios ? epSplit.noche : 0);
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averiaBase = averiaTxt(id);
@@ -334,7 +339,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       `<tr${f.inactiva ? ' class="inact"' : ''}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
-        <td class="r b">${f.trabajadas > 0 ? f.trabajadas : '—'}</td>
+        <td class="r b">${f.inactiva ? '0' : (f.trabajadas > 0 ? f.trabajadas : '—')}</td>
         <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ -${f.paradasDia}` : '—'}</td>
         <td class="r${f.paradasNoche > 0 ? ' par' : ''}">${f.paradasNoche > 0 ? `🌙 -${f.paradasNoche}` : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
