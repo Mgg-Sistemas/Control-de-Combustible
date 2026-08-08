@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList, Modal, Pressable } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -86,6 +86,38 @@ async function resolveTarget(table: string, rowId: string | null): Promise<strin
     return null;
   } catch { return null; }
 }
+
+/**
+ * Fila de la bitácora, MEMOIZADA. Al virtualizar con FlatList (la bitácora puede
+ * traer hasta 2000–5000 filas) solo se montan las visibles; además React.memo evita
+ * re-render de las filas que no cambian. `colors` y `onPress` son estables entre
+ * renders (tema / setState), así el memo es efectivo. */
+const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { r: AuditLog; colors: any; onPress: (r: AuditLog) => void }) {
+  const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
+  return (
+    <TouchableOpacity activeOpacity={0.7} onPress={() => onPress(r)}>
+      <Card>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <Text style={{ fontSize: 22 }}>{a.icon}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.text, fontSize: 14 }}>
+              <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
+              <Text style={{ color: a.color, fontWeight: '700' }}> {a.label}</Text>
+              {EVENT_ACTIONS.has(r.action)
+                ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
+                : <Text style={{ fontWeight: '700' }}> {tableLabel(r.table_name)}</Text>}
+              {/* Para creó/modificó/eliminó, mostrar CUÁL registro (código de máquina, etc.). */}
+              {!EVENT_ACTIONS.has(r.action) && (r.row_label || r.detail) ? <Text style={{ color: colors.muted, fontWeight: '700' }}> · {r.row_label || r.detail}</Text> : null}
+              {r.action === 'UPDATE' && r.changes ? <Text style={{ color: colors.muted, fontSize: 12 }}> ({Object.keys(r.changes).length} cambio{Object.keys(r.changes).length === 1 ? '' : 's'})</Text> : null}
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
+        </View>
+      </Card>
+    </TouchableOpacity>
+  );
+});
 
 /**
  * AUDITORÍA / BITÁCORA (solo para quien tenga can_audit): muestra quién creó, modificó
@@ -250,8 +282,10 @@ export default function AuditScreen() {
     </TouchableOpacity>
   );
 
-  return (
-    <Screen>
+  // Cabecera (banner, rango, búsqueda, chips) como ListHeaderComponent del FlatList.
+  // Se pasa como ELEMENTO (no función) para que el TextInput no pierda el foco al escribir.
+  const listHeader = (
+    <View style={{ gap: spacing.md }}>
       <ConfigBanner />
       <SectionTitle>🕵️ Auditoría — quién hace qué</SectionTitle>
 
@@ -309,39 +343,28 @@ export default function AuditScreen() {
           {tables.map((t) => <Chip key={t} label={tableLabel(t)} on={tableFilter === t} onPress={() => setTableFilter(t)} />)}
         </ScrollView>
       ) : null}
+    </View>
+  );
 
-      {loading ? (
-        <Loading />
-      ) : shown.length === 0 ? (
-        <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoTxt}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />
-      ) : (
-        shown.map((r) => {
-          const a = ACTION_META[r.action] ?? { icon: '•', label: r.action.toLowerCase(), color: colors.muted };
-          return (
-            <TouchableOpacity key={r.id} activeOpacity={0.7} onPress={() => setDetail(r)}>
-              <Card>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                  <Text style={{ fontSize: 22 }}>{a.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.text, fontSize: 14 }}>
-                      <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
-                      <Text style={{ color: a.color, fontWeight: '700' }}> {a.label}</Text>
-                      {EVENT_ACTIONS.has(r.action)
-                        ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
-                        : <Text style={{ fontWeight: '700' }}> {tableLabel(r.table_name)}</Text>}
-                      {/* Para creó/modificó/eliminó, mostrar CUÁL registro (código de máquina, etc.). */}
-                      {!EVENT_ACTIONS.has(r.action) && (r.row_label || r.detail) ? <Text style={{ color: colors.muted, fontWeight: '700' }}> · {r.row_label || r.detail}</Text> : null}
-                      {r.action === 'UPDATE' && r.changes ? <Text style={{ color: colors.muted, fontSize: 12 }}> ({Object.keys(r.changes).length} cambio{Object.keys(r.changes).length === 1 ? '' : 's'})</Text> : null}
-                    </Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }}>{caracasDT(r.at)}{r.device ? ` · ${r.device}` : ''}</Text>
-                  </View>
-                  <Text style={{ color: colors.muted, fontSize: 18 }}>›</Text>
-                </View>
-              </Card>
-            </TouchableOpacity>
-          );
-        })
-      )}
+  return (
+    <Screen scroll={false}>
+      {/* Bitácora VIRTUALIZADA: puede traer hasta 2000–5000 filas; FlatList monta solo
+          las visibles (antes un ScrollView pintaba TODAS de golpe → lento y pesado). */}
+      <FlatList
+        data={loading ? [] : shown}
+        keyExtractor={(r) => String(r.id)}
+        renderItem={({ item }) => <AuditRowCard r={item} colors={colors} onPress={setDetail} />}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={loading
+          ? <Loading />
+          : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoTxt}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />}
+        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        initialNumToRender={15}
+        maxToRenderPerBatch={20}
+        windowSize={11}
+      />
 
       {/* Detalle de una acción */}
       <Modal visible={!!detail} transparent animationType="fade" onRequestClose={() => setDetail(null)}>
