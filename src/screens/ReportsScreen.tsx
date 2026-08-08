@@ -1334,20 +1334,25 @@ export default function ReportsScreen({ route }: any) {
     }
   };
 
-  const downloadTacticalPdf = async (conPersonal = false) => {
+  // conPersonal = incluye personal (operadores/inspectores). ficticio = versión
+  // SIMULADA: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para
+  // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
+  const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     const all = (mach ?? []) as any[];
-    // ⚠️ REPORTE FICTICIO / SIMULADO: incluye TODAS las máquinas de la flota
-    // (excepto las dadas de baja). Las inoperativas y en espera se muestran como
-    // OPERATIVAS (ver estadoOf) y todas se distribuyen AL AZAR entre Este y Oeste
-    // (ver randSectorById / ubicOf), sin usar el GPS real. Solo aplica a ESTE reporte.
-    const list = all.filter((m) => m.active !== false);
-    // Sector aleatorio (fijo por máquina durante el armado del reporte): se elige un
-    // subsector al azar del catálogo de zonas → reparte Este/Oeste de forma pareja.
+    // REAL: solo activas/operativas (excluye inoperativas, en espera y dadas de baja),
+    //   sincronizado con el conteo por zona del mapa.
+    // FICTICIO: TODAS las máquinas de la flota (solo excluye dadas de baja); las
+    //   inoperativas/en espera se muestran como OPERATIVAS y se reparten al azar.
+    const list = ficticio
+      ? all.filter((m) => m.active !== false)
+      : all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
+    // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
+    // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
-    list.forEach((m) => { const s = SUBSECTORS[Math.floor(Math.random() * SUBSECTORS.length)]; randSectorById.set(m.id, s.n); });
+    if (ficticio) list.forEach((m) => { const s = SUBSECTORS[Math.floor(Math.random() * SUBSECTORS.length)]; randSectorById.set(m.id, s.n); });
     // Personal de la nómina (solo cuando se pide "con personal"): operadores por
     // máquina, coordinadores e inspectores repartidos por zona (Este/Oeste).
     const empsRaw = conPersonal ? (((await selectAllRows('employees', 'first_name, last_name, cargo, department, status')) ?? []) as any[]) : [];
@@ -1358,19 +1363,18 @@ export default function ReportsScreen({ route }: any) {
     const coordinadores = byCargo(/coordinador/i);
     const inspectores = byCargo(/inspector/i);
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
-    // Reporte ficticio: TODAS se muestran como OPERATIVAS (ACTIVAS).
-    const estadoOf = (_m: any) => 'Operativo';
+    // REAL: estado según catálogo. FICTICIO: TODAS como OPERATIVAS (ACTIVAS).
+    const estadoOf = (m: any) => (ficticio ? 'Operativo' : m.en_espera === true ? 'En espera / Mantenimiento' : m.operational === false ? 'Inoperativo' : 'Operativo');
     // "A cargo de": el campo zona guarda la institución (Gobernación/FANB/CVM…); Propias/null = SOS La Guaira.
     const enteOf = (m: any) => { const z = (m.zona && String(m.zona).trim()) || ''; return !z || /^propias?$/i.test(z) ? 'SOS La Guaira' : z; };
     const ubicOf = (m: any) => {
       const rawRef = (m.referencia && String(m.referencia).trim()) || (m.location && String(m.location).trim()) || '';
       // Ignora referencias que son SOLO números (ej. "46564.0"): mejor mostrar el sector.
       const ref = /^[\d.,\s-]+$/.test(rawRef) ? '' : rawRef;
-      // Ubicación SIMULADA: sector asignado al azar (no GPS). sectorLabel → "Este · Macuto".
-      const sec = randSectorById.get(m.id) ?? null;
-      const label = sectorLabel(sec);
-      const macro = sectorMacro(sec) === 'OESTE' ? 'Oeste' : 'Este';
-      const sub = label.replace(/^(Este|Oeste)\s*·\s*/, '');
+      // REAL: sector por GPS. FICTICIO: sector asignado al azar. sectorLabel → "Este · Macuto".
+      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
+      const macro = sec ? (sec.startsWith('Oeste') ? 'Oeste' : 'Este') : '';
+      const sub = sec ? sectorLabel(sec).replace(/^(Este|Oeste)\s*·\s*/, '') : '';
       const parts: string[] = [];
       if (macro) parts.push(macro);
       if (sub) parts.push(sub);
@@ -1434,9 +1438,13 @@ export default function ReportsScreen({ route }: any) {
       <tbody>${[...countByCo.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([co, n]) => `<tr><td>${esc(co)}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
-    // Conteo por zona SIMULADO: según el sector aleatorio asignado a cada máquina.
+    // REAL: por GPS (puede haber "sin ubicación"). FICTICIO: según el sector al azar.
     let este = 0, oeste = 0, sinUbic = 0;
-    list.forEach((m) => { if (sectorMacro(randSectorById.get(m.id) ?? null) === 'OESTE') oeste++; else este++; });
+    list.forEach((m) => {
+      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
+      if (!sec) { sinUbic++; return; }
+      if (sectorMacro(sec) === 'OESTE') oeste++; else este++;
+    });
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
@@ -1497,7 +1505,10 @@ export default function ReportsScreen({ route }: any) {
         secs.push({ icon: '📝', title: 'Observaciones y novedades', html: obsHtml });
         return secs.map((s, i) => `<div class="sect">${s.icon} ${i + 1}. ${s.title}</div>${s.html}`).join('');
       })()}`;
-    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', conPersonal ? 'Operación Rescate y Esperanza – La Guaira · Con personal' : 'Operación Rescate y Esperanza – La Guaira', body), conPersonal ? 'Reporte - Ubicaciones tácticas con personal' : 'Reporte - Ubicaciones tácticas');
+    const subBase = 'Operación Rescate y Esperanza – La Guaira';
+    const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
+    const fileName = `Reporte - Ubicaciones tácticas${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', subtitle, body), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts
@@ -2358,6 +2369,10 @@ export default function ReportsScreen({ route }: any) {
               </View>
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal)}>
                 <Text style={{ color: colors.brandText, fontWeight: '800' }}>📍 Ubicaciones tácticas{tacConPersonal ? ' · con personal' : ''}</Text>
+              </TouchableOpacity>
+              {/* Versión SIMULADA/ficticia: todas las máquinas OPERATIVAS y repartidas al azar Este/Oeste (para presentaciones). */}
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true)}>
+                <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
               {/* "👥 Personal por departamento" se movió a Nómina · Personal (pedido del cliente). */}
               {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
