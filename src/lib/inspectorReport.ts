@@ -449,7 +449,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     let tWork = 0, tPar = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
-      const jornada = r2(Math.max(0, shiftH - m.horasParada));       // jornada = turno − paradas
+      const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
       tWork = r2(tWork + shiftH); tPar = r2(tPar + m.horasParada); tJor = r2(tJor + jornada);
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
@@ -553,7 +553,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       });
     });
   });
-  const tJornada = r2((tDayH + tNightH) - (tParDay + tParNight));
+  const tJornada = r2(tDayH + tNightH); // Total de jornada = solo horas ACTIVAS (trabajadas)
   // Solo se muestran las tarjetas del/los turno(s) del reporte: un reporte de DÍA no
   // enseña las de noche y viceversa (pedido del cliente). En "ambos" salen las 5.
   const showDay = turnos.includes('day');
@@ -566,7 +566,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${r2(tParNight)} H</div></div>` : ''}
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${tJornada} H</div></div>
     </div>
-    <div class="kpi-note">Total de jornada = horas trabajando − horas paradas.</div>`;
+    <div class="kpi-note">Total de jornada = total de horas ACTIVAS (trabajadas).</div>`;
   const body = hasAny
     ? (kpis + turnos.map(renderTurno).join(''))
     : `<p class="none">Sin jornadas de inspección para el día ${dmy(date)}${shift === 'both' ? '' : ` (${shift === 'day' ? 'turno día' : 'turno noche'})`}.</p>`;
@@ -633,7 +633,7 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
   let tH = 0, tPar = 0, tJor = 0;
   const rows = list.map((m) => {
     const shiftH = r2(shift === 'day' ? m.dayH : m.nightH);       // horas de SU turno
-    const jornada = r2(Math.max(0, shiftH - m.horasParada));       // jornada = turno − paradas
+    const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
     tH += shiftH; tPar += m.horasParada; tJor += jornada;
     const em = ESTADO_META[m.estado];
     const motivo = (m.estado === 'averia' || m.estado === 'parada') && m.motivo
@@ -658,7 +658,7 @@ export async function generateMyShiftReceipt(opts: { date: string; shift: 'day' 
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${!isDay ? r2(tPar) : 0} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${r2(tJor)} H</div></div>
     </div>
-    <div class="kpi-note">Máquinas: ${list.length} · Jornada = horas trabajando − horas paradas.</div>`;
+    <div class="kpi-note">Máquinas: ${list.length} · Jornada = total de horas ACTIVAS (trabajadas).</div>`;
   // Antes se descargaba como IMAGEN PNG (exportReceiptImage) y en algunos teléfonos se
   // veía cortada/borrosa. Ahora es un PDF con el mismo formato que el resto del sistema.
   const body = `

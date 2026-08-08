@@ -1822,7 +1822,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                                 </>) : null}
                               </Text>
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
-                                <Text style={{ color: colors.muted }}>⏱️ Total del día </Text>
+                                <Text style={{ color: colors.muted }}>⏱️ Total de jornada </Text>
                                 <Text style={{ color: colors.success, fontWeight: '800' }}>{r.worked} h</Text>
                               </Text>
                             </>
