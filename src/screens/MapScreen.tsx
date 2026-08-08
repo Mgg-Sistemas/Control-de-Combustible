@@ -95,7 +95,7 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null; activa: boolean }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
   const [locateFor, setLocateFor] = useState<{ id: string; code: string; plate: string | null; serial: string | null; company: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -141,12 +141,15 @@ export default function MapScreen({ navigation, route }: any) {
 
     // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
     // LISTAR las que faltan por ubicar con su placa/serial y empresa.
-    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude, encargado, referencia, company:company_id(name)');
+    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude, encargado, referencia, active, operational, en_espera, company:company_id(name)');
     setAllMachines((every ?? []).map((m: any) => ({
       id: m.id, code: m.code ?? '', located: m.latitude != null,
       plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
       encargado: m.encargado ?? null, referencia: m.referencia ?? null,
       lat: m.latitude != null ? Number(m.latitude) : null, lng: m.longitude != null ? Number(m.longitude) : null,
+      // Activa/operativa = cuenta para el conteo por zona (Este/Oeste). Excluye
+      // inoperativas del catálogo, en espera / mantenimiento y dadas de baja.
+      activa: m.active !== false && m.operational !== false && m.en_espera !== true,
     })));
 
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
@@ -187,7 +190,9 @@ export default function MapScreen({ navigation, route }: any) {
       const inspectors = await latestInspectorByMachine(); // machinery_id → inspector del último check-in
       // Máquinas UBICADAS → agrupadas por sector geográfico (Este/Oeste). Las que
       // NO están en el mapa se listan aparte como "SIN UBICACIÓN" (con placa/serial).
-      const relevant = allMachines.map((m) => {
+      // SOLO se cuentan/listan las activas/operativas (sincronizado con el reporte
+      // diario de operaciones); las inoperativas siguen viéndose como pines en el mapa.
+      const relevant = allMachines.filter((m) => m.activa).map((m) => {
         const sec = m.located ? sectorOf(m.lat, m.lng) : null;
         return { ...m, macro: m.located ? sectorMacro(sec) : null, sub: m.located ? sectorLabel(sec) : 'SIN UBICACIÓN' };
       });
