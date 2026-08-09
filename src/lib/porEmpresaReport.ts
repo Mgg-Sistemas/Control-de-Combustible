@@ -400,7 +400,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
       horaIni, horaFin,
-      trabajadas: n2(trab), paradasDia, paradasNoche, averia,
+      // Horas trabajadas REDONDEADAS HACIA ARRIBA a entero (pedido cliente: 9,8 → 10).
+      // La base es la misma fórmula del informe (workedFromShifts); acá solo el DISPLAY
+      // del reporte por empresa se muestra en horas enteras.
+      trabajadas: Math.ceil(trab), paradasDia, paradasNoche, averia,
       timeline: buildTimeline(id),
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
