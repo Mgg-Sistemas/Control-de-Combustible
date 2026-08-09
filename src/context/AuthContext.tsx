@@ -380,6 +380,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    // Bitácora: ANTES de cerrar sesión (auth.signOut ya invalida auth.uid() en el
+    // servidor, así que si se llamara después quedaría sin usuario asociado).
+    await logAudit('LOGOUT', 'profiles', session?.user?.id ?? null);
     await supabase.auth.signOut();
     await clearBiometricSession(); // salir explícito: la huella ya no reautentica esta cuenta
     setLocked(false);

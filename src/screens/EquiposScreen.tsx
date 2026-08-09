@@ -436,17 +436,23 @@ export default function EquiposScreen({ navigation, route }: any) {
     savedTimer.current = setTimeout(() => setJustSaved(null), 3500);
   };
 
-  // Conteo de maquinaria por estado (3 cubos exclusivos, igual que el dashboard):
-  //  · OPERATIVAS: operativas SIN avería.
+  // Conteo de maquinaria por estado (4 cubos exclusivos, igual que el dashboard):
+  //  · OPERATIVAS: operativas, SIN avería y SIN estar esperando instrucciones.
   //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
   //  · RETIRADAS: operational=false (sacadas de servicio).
-  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && averiaCat[m.id]?.tipo === 'averia');
-  const activeMachines = machinery.data.filter((m) => m.operational && averiaCat[m.id]?.tipo !== 'averia');
+  //  · ESPERANDO INSTRUCCIONES: en_espera=true — máquinas ya cargadas en el sistema
+  //    pero que todavía NO se decidió si van a Operativa o a Parada. Reusa el campo
+  //    `en_espera` (antes solo "en espera por recepción"): ya está probado y excluido
+  //    en todo el flujo de inspectores (SupervisorScreen/SupervisionScreen/Reportes) —
+  //    no requiere tocar esa lógica, solo hacerlo visible aquí como su propio estado.
+  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && !m.en_espera && averiaCat[m.id]?.tipo === 'averia');
+  const activeMachines = machinery.data.filter((m) => m.operational && !m.en_espera && averiaCat[m.id]?.tipo !== 'averia');
   const retiradaMachines = machinery.data.filter((m) => !m.operational);
+  const esperaMachines = machinery.data.filter((m) => m.operational && m.en_espera);
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
-  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada'>(null);
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada' | 'espera'>(null);
   const [detailQuery, setDetailQuery] = useState(''); // buscador del detalle (por todas las características)
   useEffect(() => { setDetailQuery(''); }, [detailStatus]); // limpia el buscador al abrir/cerrar el detalle
 
@@ -467,8 +473,8 @@ export default function EquiposScreen({ navigation, route }: any) {
     setQuery(String(term));
     navigation.setParams?.({ q: undefined });
   }, [route?.params?.q]);
-  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : [];
-  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : '✅ Maquinaria operativa';
+  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : detailStatus === 'espera' ? esperaMachines : [];
+  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : detailStatus === 'espera' ? '⏳ Esperando instrucciones' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
   // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
   // referencia y nombre de empresa). Vacío = toda la lista.
@@ -1177,8 +1183,8 @@ export default function EquiposScreen({ navigation, route }: any) {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
-              <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                {m.operational ? '● Operativa' : '● Retirada'}
+              <Text style={{ color: m.en_espera ? colors.brandText : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                {m.en_espera ? '⏳ Esperando' : m.operational ? '● Operativa' : '● Retirada'}
               </Text>
             </View>
             <EstadoFechaLine m={m} />
@@ -1256,6 +1262,19 @@ export default function EquiposScreen({ navigation, route }: any) {
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
         <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
+        {/* Esperando instrucciones: máquina cargada en el sistema pero SIN decidir aún si
+            va a Operativa o a Parada. No factura, no le sale a los inspectores (mismo
+            criterio ya usado en todo el flujo de inspección/reportes). Solo aplica a
+            máquinas operativas (no tiene sentido "esperar" una ya retirada). */}
+        {m.operational ? (
+          <BigBtn
+            label={m.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
+            onPress={() => toggleEspera(m)}
+            color={m.en_espera ? colors.success : colors.brand}
+            textColor={colors.brandContrast}
+            disabled={busy === m.id + '-esp'}
+          />
+        ) : null}
       </View>
     </Card>
     );
@@ -1334,9 +1353,9 @@ export default function EquiposScreen({ navigation, route }: any) {
         </TouchableOpacity>
       ) : null}
 
-      {/* Tarjetas de estado: operativas / averiadas / retiradas (clickeables → detalle) */}
-      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('active')}>
+      {/* Tarjetas de estado: operativas / averiadas / retiradas / esperando instrucciones (clickeables → detalle) */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('active')}>
           <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.success }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Operativas</Text>
@@ -1345,7 +1364,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : activeMachines.length}</Text>
           </Card>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('averiada')}>
+        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('averiada')}>
           <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.warning }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Averiadas</Text>
@@ -1354,13 +1373,22 @@ export default function EquiposScreen({ navigation, route }: any) {
             <Text style={{ fontSize: 22, fontWeight: '800', color: colors.warning, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : averiadaMachines.length}</Text>
           </Card>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('retirada')}>
+        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('retirada')}>
           <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Retiradas</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
             </View>
             <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : retiradaMachines.length}</Text>
+          </Card>
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} style={{ flexGrow: 1, flexBasis: '47%' }} onPress={() => setDetailStatus('espera')}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.brand }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Esperando instrucciones</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+            </View>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.brandText, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : esperaMachines.length}</Text>
           </Card>
         </TouchableOpacity>
       </View>
@@ -1879,7 +1907,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {detailQuery ? <TouchableOpacity onPress={() => setDetailQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
           {detailList.length === 0 ? (
-            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : 'No hay maquinaria retirada.'} />
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : detailStatus === 'espera' ? 'No hay máquinas esperando instrucciones.' : 'No hay maquinaria retirada.'} />
           ) : detailFiltered.length === 0 ? (
             <EmptyState title="Sin coincidencias" subtitle={`No hay máquinas que coincidan con "${detailQuery.trim()}".`} />
           ) : (
@@ -1930,8 +1958,8 @@ export default function EquiposScreen({ navigation, route }: any) {
                         <View style={{ flex: 1 }}>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
-                            <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                              {m.operational ? '● Operativa' : '● Retirada'}
+                            <Text style={{ color: m.en_espera ? colors.brandText : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
+                              {m.en_espera ? '⏳ Esperando' : m.operational ? '● Operativa' : '● Retirada'}
                             </Text>
                           </View>
                           <EstadoFechaLine m={m} />
@@ -1965,6 +1993,17 @@ export default function EquiposScreen({ navigation, route }: any) {
                         {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⬛ Retirar (sacar de servicio)' : '✅ Activar (Operativa)'}
                       </Text>
                     </TouchableOpacity>
+                    {m.operational ? (
+                      <TouchableOpacity
+                        onPress={() => toggleEspera(m)}
+                        disabled={busy === m.id + '-esp'}
+                        style={{ marginTop: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.en_espera ? colors.success : colors.brand, opacity: busy === m.id + '-esp' ? 0.6 : 1 }}
+                      >
+                        <Text style={{ color: colors.brandContrast, fontWeight: '700', fontSize: 13 }}>
+                          {busy === m.id + '-esp' ? 'Guardando…' : m.en_espera ? '✅ Ya se decidió (quitar espera)' : '⏳ Esperando instrucciones'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </Card>
                       ))}
                     </View>

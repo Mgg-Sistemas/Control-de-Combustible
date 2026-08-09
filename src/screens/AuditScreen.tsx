@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, TextInput, ScrollView, FlatList, SectionList, Modal, Pressable } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { DateField } from '../components/DateField';
@@ -21,6 +22,19 @@ function caracasToday(): string {
 function caracasDT(iso: string): string {
   return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso));
 }
+// Fecha (YYYY-MM-DD) en huso Caracas de un timestamp, para agrupar "por día" sin que
+// una acción de madrugada UTC caiga en el día equivocado.
+function caracasDateISO(iso: string): string {
+  const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date(iso)).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+// Lunes de la semana (Caracas) de una fecha ISO — para el filtro rápido "Esta semana".
+function weekStartISO(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=domingo..6=sábado
+  return addDaysISO(iso, dow === 0 ? -6 : -(dow - 1));
+}
 // Suma/resta N días a una fecha ISO (YYYY-MM-DD) sin problemas de zona horaria.
 function addDaysISO(iso: string, n: number): string {
   const [y, m, d] = iso.split('-').map(Number);
@@ -29,10 +43,19 @@ function addDaysISO(iso: string, n: number): string {
   return `${nd.getUTCFullYear()}-${p(nd.getUTCMonth() + 1)}-${p(nd.getUTCDate())}`;
 }
 const dmy = (iso: string) => iso.split('-').reverse().join('/');
-// Valor legible para la sección "Cambios" (null/objeto/booleano → texto).
+// Valor legible para la sección "Cambios" (null/objeto/booleano/fecha → texto).
 function fmtVal(x: any): string {
   if (x === null || x === undefined || x === '') return '∅';
   if (typeof x === 'boolean') return x ? 'sí' : 'no';
+  if (typeof x === 'string') {
+    // Fecha+hora completa (ej. created_at, resolved_at) → hora Caracas legible,
+    // no el ISO crudo con "T" y offset que nadie entiende de un vistazo.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(x)) { try { return caracasDT(x); } catch { return x; } }
+    // Fecha simple sin hora (ej. round_date, dispatch_date) → DD/MM/AAAA, SIN pasar
+    // por Date/zona horaria (evita que un "09" se corra a "08" por el huso horario).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return dmy(x);
+    return x;
+  }
   if (typeof x === 'object') { try { return JSON.stringify(x); } catch { return String(x); } }
   return String(x);
 }
@@ -56,6 +79,30 @@ const TABLE_LABEL: Record<string, string> = {
   purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal', vehicles: 'Vehículo', fletes: 'Flete',
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
+
+// Agrupación de las tablas de negocio en MÓDULOS (áreas para el dueño del negocio,
+// no para un programador): alimenta el filtro "por módulo" y el "agrupar por módulo".
+// Cubre exactamente las tablas que el trigger audit_row() vigila (supabase/audit.sql);
+// si un día se agrega una tabla ahí, agregarla también aquí (si no, cae en "Otro").
+type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
+const MODULES: ModuleDef[] = [
+  { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs'] },
+  { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs'] },
+  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments'] },
+  { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'aliados'] },
+  { key: 'empresas', label: 'Empresas y facturación', icon: '🏢', tables: ['companies', 'company_payments'] },
+  { key: 'inventario', label: 'Inventario y compras', icon: '📦', tables: ['inventory_items', 'inventory_movements', 'inventory_transfers', 'purchase_orders', 'purchase_requests'] },
+  { key: 'alimentacion', label: 'Alimentación', icon: '🍽️', tables: ['food_distributions', 'food_company_meals'] },
+  { key: 'usuarios', label: 'Usuarios y permisos', icon: '🔑', tables: ['profiles', 'app_roles', 'module_permissions'] },
+];
+const TABLE_TO_MODULE = new Map<string, ModuleDef>();
+MODULES.forEach((mod) => mod.tables.forEach((t) => TABLE_TO_MODULE.set(t, mod)));
+const moduleOf = (t: string) => TABLE_TO_MODULE.get(t) ?? null;
+
+// Tablas relacionadas con DINERO (pagos, tarifas, compras): cruzan varios módulos, por
+// eso van aparte y alimentan solo el filtro rápido "💰 Solo cambios de dinero".
+const MONEY_TABLES = new Set(['company_payments', 'staff_pay_payments', 'price_tariffs', 'company_price_tariffs', 'purchase_orders', 'purchase_requests']);
+
 const ACTION_META: Record<string, { icon: string; label: string; color: string }> = {
   INSERT: { icon: '➕', label: 'creó', color: '#15803D' },
   UPDATE: { icon: '✏️', label: 'modificó', color: '#2563EB' },
@@ -72,10 +119,35 @@ const ACTION_META: Record<string, { icon: string; label: string; color: string }
 // Eventos de la app: el "objeto" de la acción es el detalle (código de máquina),
 // no el nombre de la tabla; y no llevan preposición ("creó Máquina" vs "escaneó CARGADOR 01").
 const EVENT_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SCAN', 'CHECK', 'JORNADA_INICIO', 'JORNADA_FIN', 'PARADA']);
+// "Cajón" de tipo de acción para el filtro (agrupa los 7 eventos de app en uno solo:
+// a un dueño de negocio no le sirve elegir entre LOGIN/SCAN/PARADA por separado aquí).
+const actionBucket = (r: AuditLog): string => (EVENT_ACTIONS.has(r.action) ? 'EVENTOS' : r.action);
+const ACTION_BUCKETS: { key: string; label: string }[] = [
+  { key: 'INSERT', label: '➕ Creó' },
+  { key: 'UPDATE', label: '✏️ Modificó' },
+  { key: 'DELETE', label: '🗑️ Eliminó' },
+  { key: 'EVENTOS', label: '📋 Eventos de app' },
+];
+
+// Favorito de auditoría: una combinación COMPLETA de filtros guardada con nombre, para
+// re-aplicarla luego con un toque (patrón "Favoritos" tipo Odoo). Se persiste LOCAL
+// (AsyncStorage, ya usado en el resto de la app — ThemeContext, offlineQueue —, y
+// funciona igual en web y nativo): es personal del dispositivo, no hace falta Supabase.
+type AuditFavorite = {
+  id: string; name: string;
+  from: string; to: string; fullHistory: boolean; q: string;
+  userFilter: string; tableFilter: string;
+  moduleFilter: string[]; actionFilter: string[]; moneyOnly: boolean;
+  groupBy: string;
+};
+const FAVORITES_KEY = 'audit_favorites_v1';
 
 // Nombre legible del registro afectado (según su tabla) a partir del row_id, para
 // mostrar en el detalle "a qué apunta" la acción (ej. cuál usuario, cuál máquina).
-const NAME_COLS = ['full_name', 'name', 'code', 'title', 'descripcion', 'sku'];
+// Mismas columnas que resuelve el trigger audit_row() en la BD (audit_detalle.sql):
+// si un día se agrega una columna ahí, agregarla también aquí para no desalinear
+// el "en vivo" (filas viejas sin row_label) del que ya quedó guardado en la bitácora.
+const NAME_COLS = ['full_name', 'name', 'code', 'title', 'descripcion', 'sku', 'plate', 'company_name'];
 async function resolveTarget(table: string, rowId: string | null): Promise<string | null> {
   if (!rowId) return null;
   try {
@@ -149,15 +221,64 @@ export default function AuditScreen() {
   const [targetLoading, setTargetLoading] = useState(false);
   const [rtNonce, setRtNonce] = useState(0); // se incrementa al llegar un cambio en tiempo real, para forzar la recarga de abajo
 
+  // Filtro AMPLIADO (menú ▾ tipo Odoo: Filtrar / Agrupar por / Favoritos). Todo esto se
+  // combina en AND con la búsqueda libre y el rango de fechas de arriba, que NO se tocan.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuTab, setMenuTab] = useState<'filtrar' | 'agrupar' | 'favoritos'>('filtrar');
+  const [moduleFilter, setModuleFilter] = useState<Set<string>>(new Set()); // vacío = todos los módulos
+  const [actionFilter, setActionFilter] = useState<Set<string>>(new Set()); // vacío = todos los tipos
+  const [moneyOnly, setMoneyOnly] = useState(false); // filtro rápido "solo cambios de dinero"
+  const [groupBy, setGroupBy] = useState<'none' | 'modulo' | 'usuario' | 'dia'>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<AuditFavorite[]>([]);
+  const [favName, setFavName] = useState('');
+
+  // Favoritos guardados en este dispositivo (se cargan una sola vez al entrar).
+  useEffect(() => {
+    AsyncStorage.getItem(FAVORITES_KEY).then((raw) => {
+      if (!raw) return;
+      try { setFavorites(JSON.parse(raw)); } catch {}
+    });
+  }, []);
+  const persistFavorites = (list: AuditFavorite[]) => {
+    setFavorites(list);
+    AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(list)).catch(() => {});
+  };
+  // Guarda la combinación ACTUAL de filtros (texto + módulos + acciones + usuario +
+  // rango + agrupación) con el nombre escrito en "favName".
+  const saveFavorite = () => {
+    const name = favName.trim();
+    if (!name) return;
+    const fav: AuditFavorite = {
+      id: `${Date.now()}`, name, from, to, fullHistory, q,
+      userFilter, tableFilter, moduleFilter: Array.from(moduleFilter),
+      actionFilter: Array.from(actionFilter), moneyOnly, groupBy,
+    };
+    persistFavorites([fav, ...favorites]);
+    setFavName('');
+  };
+  const applyFavorite = (fav: AuditFavorite) => {
+    setFrom(fav.from); setTo(fav.to); setFullHistory(fav.fullHistory); setQ(fav.q);
+    setUserFilter(fav.userFilter); setTableFilter(fav.tableFilter);
+    setModuleFilter(new Set(fav.moduleFilter)); setActionFilter(new Set(fav.actionFilter));
+    setMoneyOnly(fav.moneyOnly); setGroupBy((fav.groupBy as any) ?? 'none');
+    setMenuOpen(false);
+  };
+  const deleteFavorite = (id: string) => persistFavorites(favorites.filter((f) => f.id !== id));
+  const toggleModule = (key: string) => setModuleFilter((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleActionBucket = (key: string) => setActionFilter((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggleCollapsed = (key: string) => setCollapsedGroups((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
   // Al cambiar Desde por encima de Hasta (o viceversa), se emparejan para no invertir.
   const setFromSafe = (v: string) => { setFrom(v); if (v > to) setTo(v); };
   const setToSafe = (v: string) => { setTo(v); if (v < from) setFrom(v); };
   // Atajos de rango.
   const today = caracasToday();
-  const setPreset = (kind: 'hoy' | '7' | '30' | 'mes') => {
+  const setPreset = (kind: 'hoy' | '7' | '30' | 'mes' | 'semana') => {
     if (kind === 'hoy') { setFrom(today); setTo(today); }
     else if (kind === '7') { setFrom(addDaysISO(today, -6)); setTo(today); }
     else if (kind === '30') { setFrom(addDaysISO(today, -29)); setTo(today); }
+    else if (kind === 'semana') { setFrom(weekStartISO(today)); setTo(today); }
     else { setFrom(`${today.slice(0, 7)}-01`); setTo(today); }
   };
   // Mueve la ventana completa (Desde y Hasta) un día (◀ / ▶), conservando su tamaño.
@@ -261,14 +382,44 @@ export default function AuditScreen() {
   }, [rows]);
 
   // La búsqueda libre ya la aplicó el servidor; aquí solo refinamos por los CHIPS
-  // (usuario / tipo) sobre lo cargado, para no ocultar filas que coincidieron por detalle.
-  const shown = rows.filter((r) =>
-    (userFilter === '__all__' || r.user_name === userFilter) &&
-    (tableFilter === '__all__' || r.table_name === tableFilter)
-  );
+  // (usuario / tipo) y el menú ▾ (módulos / tipo de acción / solo dinero) sobre lo
+  // cargado, para no ocultar filas que coincidieron por detalle. Todo se combina en AND.
+  const shown = rows.filter((r) => {
+    if (userFilter !== '__all__' && r.user_name !== userFilter) return false;
+    if (tableFilter !== '__all__' && r.table_name !== tableFilter) return false;
+    if (moduleFilter.size > 0) {
+      const mod = moduleOf(r.table_name);
+      if (!mod || !moduleFilter.has(mod.key)) return false;
+    }
+    if (actionFilter.size > 0 && !actionFilter.has(actionBucket(r))) return false;
+    if (moneyOnly && !MONEY_TABLES.has(r.table_name)) return false;
+    return true;
+  });
   const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
   const searchAllTimeActive = fullHistory && !!q.trim();
   const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
+  // Cuántos filtros del menú ▾ están activos (además de búsqueda/usuario/tipo/rango),
+  // para el "badge" del botón "Filtros ▾".
+  const extraFilterCount = moduleFilter.size + actionFilter.size + (moneyOnly ? 1 : 0);
+
+  // Resultados agrupados (Agrupar por: módulo / usuario / día), sobre lo YA filtrado.
+  // Un Map preserva el orden de inserción: como `shown` viene ordenado por fecha
+  // descendente, agrupar "por día" conserva el orden cronológico entre grupos.
+  const groupedSections = useMemo(() => {
+    if (groupBy === 'none') return null;
+    const titleOf = (r: AuditLog): string => {
+      if (groupBy === 'modulo') { const m = moduleOf(r.table_name); return m ? `${m.icon} ${m.label}` : '📁 Otro'; }
+      if (groupBy === 'usuario') return r.user_name || 'Alguien';
+      return dmy(caracasDateISO(r.at));
+    };
+    const map = new Map<string, AuditLog[]>();
+    shown.forEach((r) => { const k = titleOf(r); if (!map.has(k)) map.set(k, []); map.get(k)!.push(r); });
+    let entries = Array.from(map.entries());
+    // Por módulo/usuario ordenamos por actividad (más acciones primero) — le importa más
+    // al dueño del negocio que el orden alfabético. Por día se respeta el orden cronológico.
+    if (groupBy !== 'dia') entries = entries.sort((a, b) => b[1].length - a[1].length || cmpText(a[0], b[0]));
+    return entries.map(([title, data]) => ({ title, data }));
+  }, [shown, groupBy]);
 
   // Resumen por categoría de lo que está VISIBLE ahora (respeta búsqueda + chips + rango),
   // para tener un vistazo rápido sin tener que generar el PDF. Mismo dato que usa el PDF.
@@ -300,6 +451,10 @@ export default function AuditScreen() {
       q.trim() ? `Búsqueda: "${q.trim()}"` : '',
       userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
       tableFilter !== '__all__' ? `Tipo: ${tableLabel(tableFilter)}` : '',
+      moduleFilter.size ? `Módulos: ${MODULES.filter((m) => moduleFilter.has(m.key)).map((m) => m.label).join(', ')}` : '',
+      actionFilter.size ? `Acciones: ${ACTION_BUCKETS.filter((b) => actionFilter.has(b.key)).map((b) => b.label.replace(/^\S+\s/, '')).join(', ')}` : '',
+      moneyOnly ? 'Solo cambios de dinero' : '',
+      groupBy !== 'none' ? `Agrupado por ${groupBy === 'modulo' ? 'módulo' : groupBy === 'usuario' ? 'usuario' : 'día'}` : '',
     ].filter(Boolean).join(' · ');
 
     // Registro afectado, en texto legible: nombre/código (row_label) si existe, si no
@@ -385,7 +540,7 @@ export default function AuditScreen() {
       <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{label}</Text>
     </TouchableOpacity>
   );
-  const Preset = ({ label, kind }: { label: string; kind: 'hoy' | '7' | '30' | 'mes' }) => (
+  const Preset = ({ label, kind }: { label: string; kind: 'hoy' | '7' | '30' | 'mes' | 'semana' }) => (
     <TouchableOpacity onPress={() => setPreset(kind)} style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
       <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 11 }}>{label}</Text>
     </TouchableOpacity>
@@ -422,14 +577,20 @@ export default function AuditScreen() {
           <Preset label="30 días" kind="30" />
           <Preset label="Este mes" kind="mes" />
         </ScrollView>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm, gap: spacing.xs }}>
           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
             {shown.length} acción(es) · {rangoLabel}
-            {userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}
+            {userFilter !== '__all__' || tableFilter !== '__all__' || extraFilterCount > 0 ? ' (filtradas)' : ''}
             {truncated ? ` · ⚠️ tope ${rows.length}, acota el rango o afina la búsqueda` : ''}
           </Text>
+          {/* Menú ▾ tipo Odoo: Filtrar / Agrupar por / Favoritos (se combina con lo de arriba). */}
+          <TouchableOpacity onPress={() => setMenuOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: extraFilterCount > 0 || groupBy !== 'none' ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: extraFilterCount > 0 || groupBy !== 'none' ? colors.primary : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+            <Text style={{ color: extraFilterCount > 0 || groupBy !== 'none' ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 12 }}>
+              🔽 Filtros{extraFilterCount > 0 ? ` (${extraFilterCount})` : ''}
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={generarPdf} disabled={shown.length === 0} style={{ backgroundColor: shown.length === 0 ? colors.surfaceAlt : colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, opacity: shown.length === 0 ? 0.5 : 1 }}>
-            <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF (vista previa)</Text>
+            <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF</Text>
           </TouchableOpacity>
         </View>
         {/* Resumen rápido por categoría, sin tener que generar el PDF. */}
@@ -486,25 +647,52 @@ export default function AuditScreen() {
     </View>
   );
 
+  const emptyEl = loading
+    ? <Loading />
+    : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoLabel}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />;
+
   return (
     <Screen scroll={false}>
-      {/* Bitácora VIRTUALIZADA: puede traer hasta 2000–5000 filas; FlatList monta solo
-          las visibles (antes un ScrollView pintaba TODAS de golpe → lento y pesado). */}
-      <FlatList
-        data={loading ? [] : shown}
-        keyExtractor={(r) => String(r.id)}
-        renderItem={({ item }) => <AuditRowCard r={item} colors={colors} onPress={setDetail} />}
-        ListHeaderComponent={listHeader}
-        ListEmptyComponent={loading
-          ? <Loading />
-          : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoLabel}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />}
-        contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        initialNumToRender={15}
-        maxToRenderPerBatch={20}
-        windowSize={11}
-      />
+      {/* Bitácora VIRTUALIZADA: puede traer hasta 2000–5000 filas; FlatList/SectionList
+          montan solo las visibles (antes un ScrollView pintaba TODAS de golpe → lento). */}
+      {groupBy === 'none' ? (
+        <FlatList
+          data={loading ? [] : shown}
+          keyExtractor={(r) => String(r.id)}
+          renderItem={({ item }) => <AuditRowCard r={item} colors={colors} onPress={setDetail} />}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyEl}
+          contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          initialNumToRender={15}
+          maxToRenderPerBatch={20}
+          windowSize={11}
+        />
+      ) : (
+        // "Agrupar por" activo: encabezados PLEGABLES con el conteo de cada grupo, sobre
+        // los resultados ya filtrados (mismo `shown` que usa la lista plana y el PDF).
+        <SectionList
+          sections={loading ? [] : (groupedSections ?? [])}
+          keyExtractor={(r) => String(r.id)}
+          renderItem={({ item, section }) => (collapsedGroups.has(section.title) ? null : <AuditRowCard r={item} colors={colors} onPress={setDetail} />)}
+          renderSectionHeader={({ section }) => {
+            const collapsed = collapsedGroups.has(section.title);
+            return (
+              <TouchableOpacity onPress={() => toggleCollapsed(section.title)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.xs }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>{collapsed ? '▸' : '▾'} {section.title}</Text>
+                <Text style={{ color: colors.muted, fontWeight: '700', fontSize: 12 }}>{section.data.length}</Text>
+              </TouchableOpacity>
+            );
+          }}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyEl}
+          contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          stickySectionHeadersEnabled={false}
+        />
+      )}
 
       {/* Detalle de una acción */}
       <Modal visible={!!detail} transparent animationType="fade" onRequestClose={() => setDetail(null)}>
@@ -524,7 +712,7 @@ export default function AuditScreen() {
                     <Text style={{ fontSize: 26 }}>{a.icon}</Text>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>Detalle de la acción</Text>
                   </View>
-                  <Row k="Quién" v={detail.user_name || 'No registrado (acción del servidor · gestión de usuarios)'} />
+                  <Row k="Quién" v={detail.user_name || 'Sin usuario asociado (acción automática del sistema o registro anterior a activar este dato)'} />
                   <Row k="Qué hizo" v={EVENT_ACTIONS.has(detail.action) ? a.label.toUpperCase() : `${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
                   <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? detail.row_label ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
                   <Row k="Cuándo" v={caracasDT(detail.at)} />
@@ -557,7 +745,9 @@ export default function AuditScreen() {
                   ) : null}
                   {detail.user_name ? null : (
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                      ℹ️ Las ediciones de usuario hechas antes de esta actualización no guardaron quién las hizo. De ahora en adelante sí queda registrado el admin.
+                      ℹ️ Esta acción no tiene un usuario asociado: puede ser un proceso automático del
+                      sistema (ej. cierre de jornada por cron) o un registro de antes de activar el
+                      seguimiento de usuario en esta tabla.
                     </Text>
                   )}
                   <TouchableOpacity onPress={() => setDetail(null)} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
@@ -566,6 +756,130 @@ export default function AuditScreen() {
                 </>
               );
             })() : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Menú ▾ "Filtros" (patrón tipo Odoo): Filtrar / Agrupar por / Favoritos. Todo lo
+          que se elige aquí se combina en AND con la búsqueda libre y el rango de arriba,
+          que quedan intactos. */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} onPress={() => setMenuOpen(false)}>
+          <Pressable onPress={(e) => e.stopPropagation?.()} style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, borderWidth: 1, borderColor: colors.border, maxHeight: '85%' }}>
+            {/* Pestañas */}
+            <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              {([
+                { key: 'filtrar', label: '🔎 Filtrar' },
+                { key: 'agrupar', label: '📚 Agrupar por' },
+                { key: 'favoritos', label: `⭐ Favoritos${favorites.length ? ` (${favorites.length})` : ''}` },
+              ] as const).map((t) => (
+                <TouchableOpacity key={t.key} onPress={() => setMenuTab(t.key)} style={{ flex: 1, paddingVertical: spacing.md, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: menuTab === t.key ? colors.primary : 'transparent' }}>
+                  <Text style={{ color: menuTab === t.key ? colors.primary : colors.muted, fontWeight: '800', fontSize: 12 }}>{t.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.md }}>
+              {menuTab === 'filtrar' ? (
+                <>
+                  {/* Filtros predeterminados: criterios rápidos ya armados, un toque y listo. */}
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>FILTROS RÁPIDOS</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      <Chip label="📅 Hoy" on={from === today && to === today} onPress={() => setPreset('hoy')} />
+                      <Chip label="🗓️ Esta semana" on={from === weekStartISO(today) && to === today} onPress={() => setPreset('semana')} />
+                      <Chip label="🗑️ Solo eliminaciones" on={actionFilter.size === 1 && actionFilter.has('DELETE')}
+                        onPress={() => setActionFilter((prev) => (prev.size === 1 && prev.has('DELETE') ? new Set() : new Set(['DELETE'])))} />
+                      <Chip label="💰 Solo cambios de dinero" on={moneyOnly} onPress={() => setMoneyOnly((v) => !v)} />
+                    </View>
+                  </View>
+
+                  {/* Filtros personalizados: se pueden combinar varios módulos/acciones a la vez. */}
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>MÓDULO (uno o varios)</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {MODULES.map((m) => <Chip key={m.key} label={`${m.icon} ${m.label}`} on={moduleFilter.has(m.key)} onPress={() => toggleModule(m.key)} />)}
+                    </View>
+                  </View>
+
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>TIPO DE ACCIÓN (uno o varios)</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                      {ACTION_BUCKETS.map((b) => <Chip key={b.key} label={b.label} on={actionFilter.has(b.key)} onPress={() => toggleActionBucket(b.key)} />)}
+                    </View>
+                  </View>
+
+                  <Text style={{ color: colors.muted, fontSize: 11 }}>
+                    ℹ️ El usuario específico se elige con los chips de "Usuario" debajo de la búsqueda; también queda guardado si armas un favorito.
+                  </Text>
+
+                  {(moduleFilter.size > 0 || actionFilter.size > 0 || moneyOnly) ? (
+                    <TouchableOpacity onPress={() => { setModuleFilter(new Set()); setActionFilter(new Set()); setMoneyOnly(false); }} style={{ alignSelf: 'flex-start' }}>
+                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Limpiar filtros de este menú</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </>
+              ) : null}
+
+              {menuTab === 'agrupar' ? (
+                <View>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>AGRUPAR RESULTADOS POR</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+                    <Chip label="Sin agrupar (lista)" on={groupBy === 'none'} onPress={() => setGroupBy('none')} />
+                    <Chip label="📂 Módulo" on={groupBy === 'modulo'} onPress={() => setGroupBy('modulo')} />
+                    <Chip label="👤 Usuario" on={groupBy === 'usuario'} onPress={() => setGroupBy('usuario')} />
+                    <Chip label="📅 Día" on={groupBy === 'dia'} onPress={() => setGroupBy('dia')} />
+                  </View>
+                  <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.sm }}>
+                    Toca el encabezado de cada grupo en la lista para plegarlo/desplegarlo.
+                  </Text>
+                </View>
+              ) : null}
+
+              {menuTab === 'favoritos' ? (
+                <>
+                  {/* Guarda la combinación ACTUAL (texto + módulos + acciones + usuario + rango
+                      + agrupación) con un nombre corto, para aplicarla luego con un toque. */}
+                  <View>
+                    <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: spacing.xs }}>GUARDAR FILTRO ACTUAL</Text>
+                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                      <TextInput value={favName} onChangeText={setFavName} placeholder="Nombre (ej. Eliminaciones de esta semana)" placeholderTextColor={colors.muted}
+                        style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
+                      <TouchableOpacity onPress={saveFavorite} disabled={!favName.trim()} style={{ backgroundColor: favName.trim() ? colors.primary : colors.surfaceAlt, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center', opacity: favName.trim() ? 1 : 0.5 }}>
+                        <Text style={{ color: favName.trim() ? colors.primaryContrast : colors.muted, fontWeight: '800', fontSize: 12 }}>💾 Guardar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {favorites.length > 0 ? (
+                    <View style={{ gap: spacing.xs }}>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>GUARDADOS EN ESTE DISPOSITIVO</Text>
+                      {favorites.map((f) => (
+                        <View key={f.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
+                          <TouchableOpacity onPress={() => applyFavorite(f)} style={{ flex: 1 }}>
+                            <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>⭐ {f.name}</Text>
+                            <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
+                              {f.from === f.to ? dmy(f.from) : `${dmy(f.from)} → ${dmy(f.to)}`}
+                              {f.q ? ` · "${f.q}"` : ''}
+                              {f.moduleFilter.length ? ` · ${f.moduleFilter.length} módulo(s)` : ''}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => deleteFavorite(f.id)}>
+                            <Text style={{ color: colors.danger, fontSize: 16 }}>🗑️</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={{ color: colors.muted, fontSize: 12 }}>Todavía no guardaste ningún favorito en este dispositivo.</Text>
+                  )}
+                </>
+              ) : null}
+            </ScrollView>
+
+            <TouchableOpacity onPress={() => setMenuOpen(false)} style={{ margin: spacing.lg, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>Aplicar / cerrar</Text>
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>

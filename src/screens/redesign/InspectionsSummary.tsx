@@ -7,7 +7,8 @@ import { cmpText, norm } from '../../lib/text';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
-import { listInspectorAssignments, assignInspector, inspectorSiempreActivo } from '../../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, sinInspectorReal } from '../../lib/machineInspectors';
+import { computeMachineVisibilitySets, buildDaySets as buildDaySetsCore, classifyInspectorMachines, paradaShiftOf } from '../../lib/inspectorDaySets';
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
 import { generatePorAsignarReport } from '../../lib/porAsignarReport';
@@ -70,8 +71,8 @@ const EFICIENCIA_KEY = '__eficiencia__';
 // Token de pdfBusy para el reporte del día POR EMPRESA.
 const EMPRESA_KEY = '__empresa_dia__';
 const HORAS_KEY = '__horas_mant__';
-// Turno de una PARADA por la hora (Caracas) en que se marcó: día 7-19, resto noche.
-const paradaShiftOf = (iso: string): 'day' | 'night' => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h >= 7 && h < 19 ? 'day' : 'night'; };
+// `paradaShiftOf` ahora vive en src/lib/inspectorDaySets.ts (compartido con el
+// PDF de eficiencia, ver import de arriba) — antes había una copia local acá.
 
 type Round = {
   machinery_id: string; round_date: string; day_hours: number | null; night_hours: number | null;
@@ -645,24 +646,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // operational=false, así que el dashboard mostraba menos máquinas que el reporte
   // impreso para el mismo inspector (ej. 72 vs 76) — el reporte estaba bien, el dashboard
   // las escondía de más.
-  const machInactiveSet = useMemo(() => {
-    const s = new Set<string>();
-    machList.forEach((m) => { if (m.active === false || m.en_espera === true) s.add(m.id); });
-    return s;
-  }, [machList]);
-  // INACTIVAS "duras" del catálogo: la máquina marcada NO OPERATIVA con el botón
-  // "⛔ Inactiva" del Catálogo (operational=false) — o desactivada (active=false).
-  // NUNCA se muestran en la vista de inspectores, ni siquiera con jornada abierta (pedido
-  // cliente 08/08/2026) — solo en el reporte por empresa y en Control. IMPORTANTE:
-  // `operational` SOLO lo cambia ese botón del admin; la avería/parada de campo NO toca
-  // `operational` (vive en maintenance_requests), así que una máquina averiada pero
-  // OPERATIVA sí sigue viéndose con su estado. Las EN ESPERA mantienen la excepción de
-  // jornada abierta (van en `machInactiveSet`).
-  const machHardInactiveSet = useMemo(() => {
-    const s = new Set<string>();
-    machList.forEach((m) => { if (m.active === false || m.operational === false) s.add(m.id); });
-    return s;
-  }, [machList]);
+  // INACTIVAS "duras" del catálogo (machHardInactiveSet): la máquina marcada NO
+  // OPERATIVA con el botón "⛔ Inactiva" del Catálogo (operational=false) — o
+  // desactivada (active=false). NUNCA se muestran en la vista de inspectores, ni
+  // siquiera con jornada abierta (pedido cliente 08/08/2026) — solo en el reporte
+  // por empresa y en Control. IMPORTANTE: `operational` SOLO lo cambia ese botón
+  // del admin; la avería/parada de campo NO toca `operational` (vive en
+  // maintenance_requests), así que una máquina averiada pero OPERATIVA sí sigue
+  // viéndose con su estado. Las EN ESPERA (machInactiveSet) mantienen la
+  // excepción de jornada abierta. Cálculo movido a `computeMachineVisibilitySets`
+  // (src/lib/inspectorDaySets.ts) para que el PDF de eficiencia use el MISMO
+  // criterio — antes tenía su propio filtro de "inactiva" que no distinguía
+  // duras/blandas y se desincronizó de esta regla.
+  const { machInactiveSet, machHardInactiveSet } = useMemo(() => computeMachineVisibilitySets(machList), [machList]);
 
   // Conjuntos de estado para el DÍA + TURNO elegidos. TODO va SEPARADO por turno:
   //  - Iniciada/cerrada = trabajó/abrió jornada EN ESE turno (por horas del turno u
@@ -679,169 +675,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // paralelo (bulkAverSet/isParada/startedTodayByShift) que se desincronizaba del
   // real (ej.: no veía averías arrastradas de días anteriores, o nunca detectaba
   // "cerrada" porque su propio `started` ya contaba las cerradas-con-horas).
-  const buildDaySets = useCallback((shiftArg: 'day' | 'night') => {
-    // Turno REAL de la ronda. Para una jornada ABIERTA con jornada_shift nulo, se
-    // infiere por la HORA DE INICIO (Caracas: 7am–7pm día, resto noche) — así una
-    // jornada de noche recién abierta no cae por defecto en "día" (bug: "aparece una
-    // de día") ni se cuenta como "cerrada". Cerrada: por las horas registradas.
-    // Turno de una jornada ABIERTA (jornada_shift nulo → se infiere por la hora inicio).
-    const openShiftOf = (r: Round): 'day' | 'night' =>
-      r.jornada_shift === 'night' ? 'night'
-        : r.jornada_shift === 'day' ? 'day'
-        : paradaShiftOf(r.jornada_start_at as string);
-    // ¿La ronda tuvo actividad en ESTE turno? Una máquina "corrido" (12h día + N noche)
-    // cuenta en AMBOS turnos: en DÍA por sus day_hours, en NOCHE por sus night_hours.
-    // Por eso NO se clasifica la ronda en un único turno (bug: al ponerle 12h de día a
-    // las corrido, desaparecían de NOCHE).
-    const workedInShift = (r: Round, sh: 'day' | 'night'): boolean => {
-      if (sh === 'day' && (Number(r.day_hours) || 0) > 0) return true;
-      if (sh === 'night' && (Number(r.night_hours) || 0) > 0) return true;
-      return !!r.jornada_start_at && openShiftOf(r) === sh; // jornada abierta de ese turno
-    };
-    const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
-    const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
-    const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
-    const openStartMs = new Map<string, number>(); // hora de inicio de la jornada ABIERTA de ESTE turno
-    rounds.forEach((r) => {
-      if (r.round_date !== selDay) return;
-      if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
-      if (r.jornada_start_at) {
-        anyOpenSet.add(r.machinery_id);
-        if (openShiftOf(r) === shiftArg) {
-          openSet.add(r.machinery_id);
-          const ms = new Date(r.jornada_start_at as string).getTime();
-          if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
-        }
-      }
-    });
-    // NOTA: ya NO hay "rescate" de la jornada de noche de ayer hacia la vista de
-    // HOY — antes esto hacía que la misma máquina apareciera "activa" en DOS días
-    // a la vez (ayer Y hoy). Ahora `selDay` por defecto YA es el día de negocio
-    // correcto (ver caracasBusinessToday) — antes de las 7am, `selDay` ya ES ayer,
-    // así que la jornada de noche en curso se encuentra sola, sin rescate.
-    const dayStartMs = new Date(selDay + 'T00:00:00-04:00').getTime();
-    // El turno NOCHE cruza la medianoche (19:00 → 07:00 del día siguiente): una
-    // avería/parada marcada a las 2am, por ejemplo, tiene `created_at` del día
-    // SIGUIENTE en el calendario pero por horario (paradaShiftOf) sigue siendo
-    // del turno de noche de ESTE día. Antes el corte era siempre 23:59:59 de
-    // `selDay`, así que esas marcas de madrugada quedaban FUERA — el turno
-    // noche del panel/reporte no las mostraba aunque el PDF firmado (que ya
-    // usa este mismo criterio, ver inspectorReport.ts nightEndBound) sí. Se
-    // extiende el corte hasta las 7am del día siguiente SOLO para el turno noche.
-    const nightNextDay = (() => { const d = new Date(selDay + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
-    const dayEndMs = shiftArg === 'night'
-      ? new Date(`${nightNextDay}T07:00:00-04:00`).getTime()
-      : new Date(selDay + 'T23:59:59.999-04:00').getTime();
-    // Averías de ESTE turno. REGLA (confirmada 06-ago-2026): el estado avería/parada es
-    // POR TURNO — pertenece al turno de la HORA en que se marcó (paradaShiftOf). Solo ese
-    // turno la ve averiada; el OTRO turno ve la máquina como pendiente/iniciada. Arrastra
-    // dentro de SU mismo turno hasta resolverla (si es de un día anterior, cuenta salvo
-    // que la máquina haya trabajado ese turno).
-    // REACTIVACIÓN (fix 08/08/2026): si la jornada de ESTE turno se (re)inició DESPUÉS
-    // de la avería/parada, la máquina volvió a trabajar → NO cuenta como averiada/parada
-    // (antes salía 🔴 AVERIADA y a la vez "EN CURSO / transcurrido" — imposible). Mismo
-    // criterio que el teléfono (iniciar jornada reactiva) y el reporte por inspector.
-    // BUG (08/08/2026): `openStartMs` solo tiene jornadas que siguen ABIERTAS ahora
-    // mismo. En cuanto `auto_close_jornadas()` cierra el turno (7am/7pm) pone
-    // `jornada_start_at = null`, así que una máquina reactivada tras la avería/parada
-    // y que YA trabajó y cerró su turno completo volvía a contar como averiada/parada
-    // (el ticket de mantenimiento sigue "pendiente" por diseño). Igual que
-    // inspectorReport.ts (`reactivadaHoy = openForShift || hoursForShift > 0`), se
-    // suma un fallback a `workedSet` para el caso YA CERRADO (banco horas de este
-    // turno y ya no tiene jornada abierta).
-    // BUG (08/08/2026, corregido el mismo día): la primera versión de este fallback
-    // usaba `|| workedSet.has(id)` como un OR plano — pero `workedSet` también es
-    // true para CUALQUIER jornada actualmente ABIERTA (workedInShift la marca así
-    // aunque lleve 0h bancadas), así que ese OR volvía SIEMPRE verdadero mientras
-    // hubiera jornada abierta, sin importar si la avería/parada se marcó ANTES o
-    // DESPUÉS de abrirla — una máquina que se averió DESPUÉS de iniciar jornada (avería
-    // real, vigente ahora mismo) se mostraba "🟢 iniciada" en vez de "🔴 averiada"
-    // (confirmado con datos reales: REMBERTO ROJAS, JUMBO 330 con jornada abierta a las
-    // 12:20pm y avería marcada después, dashboard la contaba "iniciada" con 100% de
-    // eficiencia mientras el reporte por inspector — que sí compara tiempos — la
-    // marcaba correctamente "sin chequear"/averiada). Con jornada ABIERTA, la única
-    // comparación válida es la de tiempos (`js >= t`); el fallback a `workedSet` solo
-    // aplica cuando NO hay jornada abierta (js === null), es decir, ya cerró con horas.
-    const reactivadaTras = (id: string, t: number) => {
-      const js = openStartMs.get(id);
-      if (js != null) return js >= t;
-      return workedSet.has(id);
-    };
-    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca entran a avería/parada
-    // — caen a iniciada/cerrada/pendiente según su jornada (se ignora el ticket).
-    const siempreActivoSet = new Set(
-      assignments.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id),
-    );
-    const averAll = new Set<string>();
-    maint.forEach((m) => {
-      if (m.material === 'MÁQUINA PARADA') return;
-      if (siempreActivoSet.has(m.machinery_id)) return;
-      const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs || paradaShiftOf(m.created_at) !== shiftArg) return;
-      if (reactivadaTras(m.machinery_id, t)) return;
-      const arr = t < dayStartMs;
-      if (arr ? !workedSet.has(m.machinery_id) : true) averAll.add(m.machinery_id);
-    });
-    // Paradas de ESTE turno (misma regla por-turno que las averías).
-    const paradaAll = new Set<string>();
-    maint.forEach((m) => {
-      if (m.material !== 'MÁQUINA PARADA') return;
-      if (siempreActivoSet.has(m.machinery_id)) return;
-      const t = new Date(m.created_at).getTime();
-      if (t > dayEndMs || averAll.has(m.machinery_id) || paradaShiftOf(m.created_at) !== shiftArg) return;
-      if (reactivadaTras(m.machinery_id, t)) return;
-      const arr = t < dayStartMs;
-      const applies = arr ? !workedSet.has(m.machinery_id) : true;
-      if (applies) paradaAll.add(m.machinery_id);
-    });
-    const assignedShift = new Set(assignments.filter((a) => a.shift === shiftArg).map((a) => a.machinery_id));
-    // MISMO criterio que el teléfono (visibleParaInspector): una máquina INACTIVA/averiada
-    // solo cuenta si tiene una jornada ABIERTA ahora (anyOpenSet). Sin jornada abierta,
-    // aunque tenga horas viejas, el teléfono la OCULTA → el admin no debe contarla (bug:
-    // "los inspectores tienen menos máquinas, aquí salen de más").
-    const visibleOk = (id: string) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id));
-    // Universo del turno: asignadas al turno + las que trabajaron el turno, ambas filtradas
-    // por el mismo criterio de visibilidad del teléfono.
-    const universe = new Set<string>();
-    assignedShift.forEach((id) => { if (visibleOk(id)) universe.add(id); });
-    workedSet.forEach((id) => { if (visibleOk(id)) universe.add(id); });
-    averAll.forEach((id) => { if ((assignedShift.has(id) || workedSet.has(id)) && visibleOk(id)) universe.add(id); });
-    // Clasificación por prioridad (igual que el teléfono): avería > parada > iniciada > pendiente.
-    const startedSet = new Set<string>();
-    const paradaSet = new Set<string>();
-    const averSet = new Set<string>();
-    const closedSet = new Set<string>();
-    const pendSet = new Set<string>();
-    // activeNowSet: subconjunto de startedSet que SIGUE con la jornada abierta ahora
-    // mismo (jornada_start_at no nulo) — a diferencia de startedSet (que también
-    // incluye las ya cerradas con horas, usado por el desglose por inspector y la
-    // eficiencia, donde SÍ debe seguir contando una máquina que ya terminó su
-    // turno), esto es solo para la tarjeta "Activas ahora" de arriba, que debe caer
-    // a 0 en cuanto el cierre automático de las 7am/7pm las cierra — así no se
-    // queda pegada en el número del día entero y confunde con "hay que cerrarlas".
-    //
-    // IMPORTANTE: closedSet NO depende de `shiftEnded`. Antes (bug encontrado en
-    // auditoría) una máquina que ya trabajó y cerró TEMPRANO (ej. de noche antes de
-    // las 7am) no entraba ni en activeNowSet (no está abierta) ni en closedSet (el
-    // turno seleccionado técnicamente no había terminado) — quedaba sin clasificar
-    // en NINGUNA tarjeta de arriba, y `estadoOf` la mostraba "Pendiente" a pesar de
-    // ya tener horas trabajadas. openSet ya tiene prioridad (si sigue abierta, entra
-    // a activeNowSet primero), así que basta con "trabajó y no está abierta" para
-    // contarla como cerrada — sin esperar a que termine el reloj del turno.
-    const activeNowSet = new Set<string>();
-    universe.forEach((id) => {
-      if (averAll.has(id)) { averSet.add(id); return; }
-      if (paradaAll.has(id)) { paradaSet.add(id); return; }
-      if (workedSet.has(id)) {
-        startedSet.add(id);
-        if (openSet.has(id)) activeNowSet.add(id);
-        else closedSet.add(id);
-        return;
-      }
-      pendSet.add(id);
-    });
-    return { startedSet, paradaSet, averSet, assignedShift, closedSet, pendSet, anyOpenSet, activeNowSet };
-  }, [rounds, selDay, maint, assignments, machInactiveSet, machHardInactiveSet]);
+  // Implementación real en src/lib/inspectorDaySets.ts (`buildDaySets`, importada
+  // como `buildDaySetsCore`) — extraída ahí para que el PDF de eficiencia
+  // (inspectorSummaryReport.ts) use EXACTAMENTE el mismo cálculo (reactivación,
+  // ventana del turno noche, "SIEMPRE ACTIVO", visibilidad dura/blanda, etc.);
+  // antes tenía su propia copia y se desincronizaba con cada ajuste de reglas.
+  const buildDaySets = useCallback(
+    (shiftArg: 'day' | 'night') => buildDaySetsCore({
+      rounds, maint, assignments, selDay, shiftArg, machInactiveSet, machHardInactiveSet,
+    }),
+    [rounds, selDay, maint, assignments, machInactiveSet, machHardInactiveSet],
+  );
   // Ambos turnos calculados de una vez (misma fuente que `daySets`, sin drift) —
   // lo usa el panel "Gestionar" para clasificar filas de día Y de noche a la vez.
   const daySetsByShift = useMemo(
@@ -1085,7 +929,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     assignments.filter((a) => a.shift === shift).forEach((a) => { if (a.inspector_name) m.set(a.machinery_id, a.inspector_name); });
     return m;
   }, [assignments, shift]);
-  const sinInspectorReal = (name: string | null) => !name || /faltant/i.test(name);
+  // `sinInspectorReal` ahora vive en src/lib/machineInspectors.ts (compartida con
+  // el PDF de eficiencia) — antes había una copia local acá.
 
   // IDs de máquina por estado (para la lista al tocar una KPI de arriba). Ordenados por código.
   const cmpId = useCallback((a: string, b: string) => cmpText(codeById.get(a) || '', codeById.get(b) || ''), [codeById]);
@@ -1240,45 +1085,25 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       byName.set(nm, e);
     });
     return [...byName.values()].map((e) => {
-      const ini: string[] = [], pend: string[] = [], par: string[] = [], ave: string[] = [];
-      // MISMA prioridad que el teléfono (segmentoDe): avería > parada > iniciada >
-      // pendiente. Una máquina averiada/parada NO se cuenta como iniciada aunque haya
-      // arrancado jornada. La eficiencia no cambia (depende solo de `pend`).
-      // Excluye máquinas inactivas/no-operativas SIN jornada de hoy (machInactiveSet),
-      // igual que el teléfono — si no, no cuenta en el total ("N asignada(s)").
-      const visibleIds = [...e.ids].filter((id) => !machHardInactiveSet.has(id) && (!machInactiveSet.has(id) || anyOpenSet.has(id)));
-      visibleIds.forEach((id) => {
-        if (averSet.has(id)) ave.push(id);
-        else if (paradaSet.has(id)) par.push(id);
-        else if (startedSet.has(id)) ini.push(id);
-        else pend.push(id);
-      });
-      // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
-      const s = (a: string[]) => a.sort((x, y) => cmpText(e.code.get(x) || '', e.code.get(y) || ''));
       // El cajón MAQUINAS FALTANTES no es un inspector real: no le calculamos
       // eficiencia (no tiene sentido "premiar/penalizar" al usuario de sistema) — en
       // su lugar se ofrece un desplegable para asignar sus máquinas a alguien real.
       const isFaltantes = sinInspectorReal(e.name);
-      // Eficiencia REAL (corrección 08-ago-2026, pedido cliente): antes era "% de
-      // asignadas chequeadas" — trabajando, parada Y avería contaban IGUAL (100%),
-      // solo penalizaba lo pendiente (sin tocar), lo que distorsionaba el indicador
-      // (una máquina averiada/parada todo el turno sumaba lo mismo que una que
-      // trabajó completo). Ahora pondera por HORAS REALES de este turno: horas
-      // trabajadas ÷ horas de turno esperadas (máquinas asignadas × horas YA
-      // TRANSCURRIDAS del turno). Misma fórmula que el PDF de generateSummaryReport
-      // (inspectorSummaryReport.ts).
-      // FIX 08-ago-2026 (reportado por cliente): el denominador dividía SIEMPRE entre
-      // 12h fijas, aunque el turno recién hubiera empezado — a los pocos minutos de
-      // turno noche eso hacía que la eficiencia saliera pegada en ~0% toda la noche
-      // ("dañado"). Ahora el denominador también usa las horas transcurridas del
-      // turno (shiftElapsedHours), igual que el numerador, que ya es en vivo.
-      // EFICIENCIA (versión final, pedido cliente 09-ago-2026): % de máquinas asignadas
-      // sobre las que el inspector YA ACTUÓ. Cuentan como hechas iniciadas, cerradas,
-      // PARADAS y AVERIADAS (marcarlas también es su trabajo); SOLO las PENDIENTES (sin
-      // tocar) bajan el %. NO depende de horas ni del reloj → cerrar una jornada o marcar
-      // parada/avería NUNCA baja el indicador (antes era por horas y al cerrar caía con
-      // el reloj: numerador congelado, denominador seguía creciendo).
-      const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
+      // Clasificación (avería/parada/iniciada/pendiente) + % de eficiencia: MISMA
+      // función que usa el PDF "Reporte de eficiencia" (generateSummaryReport, ver
+      // inspectorSummaryReport.ts) — src/lib/inspectorDaySets.ts. Un solo cálculo,
+      // para que pantalla y PDF NUNCA vuelvan a desincronizarse (bug reportado por
+      // el cliente 09-ago-2026: mismo día/turno, % y "asignadas" distintos entre
+      // ambos). EFICIENCIA = % de máquinas asignadas sobre las que el inspector YA
+      // ACTUÓ (iniciada, cerrada, parada y averiada cuentan como "hecha"; solo las
+      // PENDIENTES sin tocar bajan el %).
+      const { visibleIds, ini, pend, par, ave, eficiencia } = classifyInspectorMachines({
+        machineryIds: e.ids,
+        daySets: { startedSet, paradaSet, averSet, anyOpenSet },
+        machInactiveSet, machHardInactiveSet, isVirtual: isFaltantes,
+      });
+      // Ordena por CÓDIGO (los arreglos guardan IDs; el detalle se resuelve en el modal).
+      const s = (a: string[]) => a.sort((x, y) => cmpText(e.code.get(x) || '', e.code.get(y) || ''));
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
