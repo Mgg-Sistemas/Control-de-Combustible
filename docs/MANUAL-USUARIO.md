@@ -86,12 +86,27 @@ Cuando una máquina o un vehículo **carga** combustible:
 Es la lista de **todas las máquinas**. Cada una tiene su ficha: nombre, empresa, foto,
 serial y estado.
 
-Cada máquina puede estar en **uno de tres estados**:
+Cada máquina puede estar en **uno de cuatro estados**:
 - 🟢 **Operativa** — trabajando normal.
 - 🔴 **No operativa** — dañada o parada.
 - 🕓 **En espera** — llegó pero **todavía no se ha recibido** en el control.
+- ⏳ **Esperando instrucciones** — se cargó en el sistema pero **todavía no se decidió** si va a
+  Operativa o a Parada.
 
 Para cambiar el estado, abre la máquina y toca el botón del estado que quieras.
+
+> **⏳ Esperando instrucciones (08/08/2026):** sirve para máquinas que se cargan en el sistema pero
+> aún no se sabe si van a quedar Operativas o Paradas. Mientras una máquina está en este estado,
+> **no le sale a los inspectores** para chequeo ni le piden jornada, y **no genera horas ni
+> consumo** — queda en pausa hasta que alguien decida qué hacer con ella. Se activa/desactiva con
+> un botón en el **detalle** de la máquina: **"⏳ Esperando instrucciones"** para ponerla en espera,
+> o **"✅ Ya se decidió (quitar espera)"** cuando ya se sabe si va Operativa o No operativa. En el
+> **Catálogo** aparece como una **4ta tarjeta** junto a Operativas / Averiadas / Retiradas.
+>
+> **Al AGREGAR una máquina nueva:** el formulario trae el check **"⏳ Dejar 'Esperando
+> instrucciones' (aún no decidida)"** **activado por defecto** — toda máquina nueva entra
+> directo a este estado, salvo que **destildes** esa casilla al crearla (si ya sabes que va
+> operativa de una vez).
 
 > **Máquinas inactivas (No operativa):** al marcar una máquina como **No operativa (⛔)**, sale
 > del **catálogo** y de la **lista semanal de Control de maquinaria**; solo aparece en la tarjeta
@@ -245,7 +260,9 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   3. **Trazabilidad de Maquinaria:** una fila por **cada equipo**, con su **empresa**, **días
      trabajados** en el rango, **horas trabajadas**, cantidad de **averías** y **paradas**, y su
      **estado** actual. Cada fila tiene un botón **"Ver detalle"** que abre el **historial
-     completo de esa máquina** (ver **Trazabilidad e Historial por Equipo** más abajo).
+     completo de esa máquina** (ver **Trazabilidad e Historial por Equipo** más abajo). *Nota:* la
+     trazabilidad por ahora solo existe para **maquinaria** — las filas de **vehículos** de este
+     mismo reporte no muestran el botón.
   El botón **⬇️ PDF** genera el mismo reporte, en 3 secciones, para imprimir o compartir.
 - **🧭 Trazabilidad e Historial por Equipo (nuevo):** pantalla propia dentro de **Reportes →
   Maquinaria/Vehículo** (o tocando **"Ver detalle"** desde cualquier fila del bloque de arriba, que
@@ -263,6 +280,14 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   **"volqueta toronto"**— para filtrar la lista y **tilda** uno o varios tipos; abajo aparece un
   **número grande** con el **total de equipos** y el **desglose por empresa**. Botón
   **"⬇️ PDF de este conteo"** para imprimir el total, la cantidad por tipo y por empresa.
+
+- **🗺️ Zona real por GPS — igual al Mapa (botón en 📊 Conteo de equipos, 08/08/2026):** el conteo
+  normal por zona **reparte 50/50** las máquinas que no tienen GPS cargado (para que el total de
+  Este/Oeste cuadre con el total general). Este botón, en cambio, genera un **PDF que solo cuenta
+  Este/Oeste con la ubicación GPS real** de cada máquina —el mismo cálculo que usa la pantalla del
+  **Mapa**, sin adivinar—, y **lista aparte** las máquinas **sin GPS** en vez de repartirlas al azar.
+  Úsalo cuando necesites el conteo por zona 100% real; usa el conteo normal cuando necesites que el
+  total cuadre siempre con la cantidad de equipos.
 
 - **📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos):** genera el **"Reporte Diario de
   Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira"** en PDF. Trae las máquinas
@@ -926,6 +951,14 @@ máquina, el inspector puede arrancar la jornada del operador con **su** teléfo
    mismas reglas: 1 máquina por operador al día y máximo 2 operadores por turno) y la marca de
    quién la registró (el inspector). La ubicación del inspector queda como punto de inicio.
 
+> **🔒 No se puede iniciar jornada en una máquina averiada, parada o "Esperando instrucciones":**
+> el sistema lo bloquea **tanto si el operador escanea desde su teléfono como si lo hace el
+> inspector con el carnet** (ambos caminos usan la misma regla). Si la máquina tiene una avería o
+> parada **pendiente**, avisa que primero hay que **resolverla** (marcarla ✅ Operativa desde el
+> Catálogo o Control de maquinaria); si está en **⏳ Esperando instrucciones**, avisa que primero
+> hay que **sacarla de ese estado** (botón "✅ Ya se decidió" en su detalle, ver 4.4). Cualquiera de
+> los dos caminos saca a la máquina del bloqueo.
+
 > El inspector marca desde **"Mis máquinas asignadas"** (las que se asignó con **✅ CHECK MÁQUINA**)
 > o escaneando el QR físico. El check-in aparece de inmediato en el módulo **Inspecciones**
 > (Traza por inspector) y **valida la jornada**.
@@ -1345,11 +1378,37 @@ que antes no quedaban:
 
 - **🔑 Inició sesión** — quién entró y **desde qué dispositivo** (📱 teléfono o 💻 PC, con el
   sistema: Android/iPhone/Windows).
+- **🚪 Cerró sesión (08/08/2026)** — antes no quedaba registrado; ahora el cierre de sesión también
+  aparece en la bitácora.
 - **📷 Escaneó** — qué **máquina** se escaneó (código) y a qué hora.
 - **🟢 Inició jornada / 🏁 Finalizó jornada / 🟡 Parada** — la máquina, las horas y el motivo.
 
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
+
+> **🔎 A qué se le hizo — más contexto (08/08/2026):** además de máquinas, empleados y usuarios, la
+> auditoría ahora también reconoce por **nombre** (no solo por ID) los **pagos de empresa** (nombre
+> de la empresa), los **ingresos de combustible** (proveedor), los **traslados** por **vehículo/
+> placa** y los **movimientos de tanque** (nombre del tanque) — así ya no queda ningún registro
+> mostrando solo un ID crudo sin explicar a qué corresponde. Las **fechas** dentro del detalle de
+> "qué cambió" (antes → después) ahora se muestran **legibles y con hora** (ej. 08/08/2026 03:15
+> p.m.), en vez del formato crudo de la base de datos.
+
+> **🔽 Filtros avanzados (08/08/2026):** junto al buscador hay un botón **"🔽 Filtros"** que abre un
+> panel con **3 pestañas**:
+> - **🔎 Filtrar:** accesos rápidos — **📅 Hoy**, **🗓️ Esta semana**, **🗑️ Solo eliminaciones**,
+>   **💰 Solo cambios de dinero** — más selección **múltiple** de **MÓDULO** (⛽ Combustible, 🚜
+>   Maquinaria y flota, 📋 Inspecciones y jornadas, 👷 Nómina y personal, 🏢 Empresas y facturación,
+>   📦 Inventario y compras, 🍽️ Alimentación, 🔑 Usuarios y permisos) y **tipo de acción** (➕ Creó ·
+>   ✏️ Modificó · 🗑️ Eliminó · 📋 Eventos de app). Se pueden combinar varios módulos y varias
+>   acciones a la vez, y se suman al buscador de texto y al rango de fechas de arriba.
+> - **📚 Agrupar por:** **Módulo**, **Usuario** o **Día** — en vez de una lista plana, los resultados
+>   salen agrupados con encabezados **plegables** (toca uno para abrir/cerrar ese grupo).
+> - **⭐ Favoritos:** guarda la combinación **actual** de filtros (texto + módulos + acciones +
+>   usuario + rango + agrupación) con un **nombre**, para volver a aplicarla luego **con un toque**.
+>   Se guarda **en este dispositivo** (no se comparte entre usuarios).
+>
+> El **PDF** de auditoría ahora también indica **qué filtros estaban activos** cuando se generó.
 
 > **🕘 Historial COMPLETO de una máquina, inspector o usuario (08/08/2026):** escribe en el
 > buscador el código de la máquina, el nombre del inspector, del usuario o lo que necesites
