@@ -917,13 +917,33 @@ export default function EquiposScreen({ navigation, route }: any) {
   const machineryByCompany = useMemo(() => groupByCompany(machineryList), [machineryList, companyName]);
 
   // Datos del reporte: total GENERAL, conteo POR EMPRESA y DETALLE por empresa (cada
-  // equipo con sus datos reales). Aplica el filtro de CLASIFICACIÓN tildada (vacío = todas).
-  // El CONTEO cuenta SOLO equipos ACTIVOS (en ubicaciones/servicio): se excluyen los
-  // INACTIVOS del catálogo (active=false / NO OPERATIVA operational=false) y los que están
-  // EN ESPERA (stand by). Mismo criterio que el reporte de Conteo del módulo Reportes.
-  const esActivoConteo = (m: Machinery) => m.en_espera !== true && (m as any).active !== false && m.operational !== false;
+  // equipo con sus datos reales). Aplica el filtro de CLASIFICACIÓN tildada (vacío = todas)
+  // y el de ESTADO tildado (vacío = todos). Antes el conteo solo incluía Operativas +
+  // Averiadas (sin poder ver ni imprimir Retiradas/Esperando instrucciones); ahora es un
+  // filtro de verdad, con los MISMOS 4 estados excluyentes que las tarjetas del Catálogo.
+  type EstadoConteo = 'operativa' | 'averiada' | 'retirada' | 'espera';
+  const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'retirada', 'espera'];
+  const ESTADO_CONTEO_META: Record<EstadoConteo, { label: string; icon: string; color: string; hex: string }> = {
+    operativa: { label: 'Operativa', icon: '✅', color: colors.success, hex: '#15803D' },
+    averiada: { label: 'Averiada', icon: '🔴', color: colors.danger, hex: '#B91C1C' },
+    retirada: { label: 'Retirada', icon: '⬛', color: colors.muted, hex: '#4B5563' },
+    espera: { label: 'Esperando instrucciones', icon: '⏳', color: colors.warning, hex: '#B45309' },
+  };
+  // Mismo criterio EXCLUYENTE que las 4 tarjetas del Catálogo (averiadaMachines/
+  // activeMachines/retiradaMachines/esperaMachines más arriba): retirada > espera >
+  // averiada (según maintenance_requests, no un campo fijo) > operativa.
+  const estadoConteoOf = (m: Machinery): EstadoConteo => {
+    if (!m.operational) return 'retirada';
+    if (m.en_espera) return 'espera';
+    if (averiaCat[m.id]?.tipo === 'averia') return 'averiada';
+    return 'operativa';
+  };
+  const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
+  const toggleReportEstado = (e: EstadoConteo) =>
+    setReportEstados((prev) => { const n = new Set(prev); n.has(e) ? n.delete(e) : n.add(e); return n; });
+  const matchEstadoConteo = (m: Machinery) => reportEstados.size === 0 || reportEstados.has(estadoConteoOf(m));
   const buildReportData = (scope: string, sel: Set<string>) => {
-    const base = scopedMachines(scope).filter(esActivoConteo);
+    const base = scopedMachines(scope).filter(matchEstadoConteo);
     const src = sel.size === 0 ? base : base.filter((m) => sel.has(repClasifKey(m)));
     const byCo = new Map<string, { name: string; items: Machinery[] }>();
     src.forEach((it) => {
@@ -942,20 +962,27 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
     const m = new Map<string, { key: string; tipo: string; count: number }>();
-    scopedMachines(reportCompany).filter(esActivoConteo).forEach((it) => {
+    scopedMachines(reportCompany).filter(matchEstadoConteo).forEach((it) => {
       const k = repClasifKey(it);
       const e = m.get(k) ?? { key: k, tipo: repClasifLabel(it), count: 0 };
       e.count += 1;
       m.set(k, e);
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
-  }, [reportCompany, machinery.data]);
+  }, [reportCompany, reportEstados, machinery.data, averiaCat]);
+  // Conteo por ESTADO dentro del alcance elegido (empresa), para los chips del filtro —
+  // NO se filtra por el propio reportEstados, así los 4 números siempre se ven completos.
+  const reportEstadoCounts = useMemo(() => {
+    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, retirada: 0, espera: 0 };
+    scopedMachines(reportCompany).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
+    return counts;
+  }, [reportCompany, machinery.data, averiaCat]);
   const reportTotal = reportData.total;
   const titleForScope = (scope: string) =>
     scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
   const reportTitle = titleForScope(reportCompany);
-  const estadoTxt = (m: Machinery) => (m.operational ? 'Operativa' : 'Retirada');
-  const estadoColor = (m: Machinery) => (m.operational ? colors.success : colors.danger);
+  const estadoTxt = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].label;
+  const estadoColor = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].color;
   // Fecha (DD/MM/YYYY) de un timestamp ISO; null si no hay.
   const fmtEstadoFecha = (iso?: string | null) => {
     if (!iso) return null;
@@ -1085,7 +1112,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   const buildReportHtml = (scope: string) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const { total, empresas } = buildReportData(scope, reportTypes);
-    const estColor = (m: Machinery) => (m.en_espera ? '#B45309' : m.operational ? '#15803D' : '#B91C1C');
+    const estColor = (m: Machinery) => ESTADO_CONTEO_META[estadoConteoOf(m)].hex;
     const resumenRows = empresas
       .map((c) => `<tr><td>${esc(c.name)}</td><td style="text-align:right;font-weight:700">${c.items.length}</td></tr>`)
       .join('');
@@ -1137,7 +1164,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       .join('');
     return pdfDocument({
       title: titleForScope(scope),
-      subtitle: `Total general de equipos: ${total}${reportTypes.size > 0 ? ' · filtro de clasificación aplicado' : ''}`,
+      subtitle: `Total general de equipos: ${total}${reportEstados.size > 0 ? ` · estado: ${ESTADO_CONTEO_ORDER.filter((e) => reportEstados.has(e)).map((e) => ESTADO_CONTEO_META[e].label).join(', ')}` : ''}${reportTypes.size > 0 ? ' · filtro de clasificación aplicado' : ''}`,
       extraCss: `
         .muted{color:#666;font-size:12px}
         table{width:100%;border-collapse:collapse;margin-top:2px;font-size:9.5px}
@@ -2062,6 +2089,32 @@ export default function EquiposScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 );
               })}
+          </View>
+
+          {/* Filtro por ESTADO: multi-selección (vacío = todos los estados). Antes el
+              conteo excluía en silencio Retiradas y Esperando instrucciones, sin forma de
+              incluirlas — ahora es un filtro real, con los mismos 4 estados del Catálogo. */}
+          <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 4 }}>Filtrar por estado{reportEstados.size > 0 ? ` (${reportEstados.size})` : ' (todos)'}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {ESTADO_CONTEO_ORDER.map((e) => {
+              const meta = ESTADO_CONTEO_META[e];
+              const on = reportEstados.has(e);
+              return (
+                <TouchableOpacity
+                  key={e}
+                  onPress={() => toggleReportEstado(e)}
+                  style={{ borderRadius: radius.pill, borderWidth: 1, borderColor: on ? meta.color : colors.border, backgroundColor: on ? meta.color : colors.surfaceAlt, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                >
+                  <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{meta.icon} {meta.label}</Text>
+                  <Text style={{ color: on ? colors.brandContrast : colors.muted, fontSize: 12 }}>({reportEstadoCounts[e]})</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {reportEstados.size > 0 ? (
+              <TouchableOpacity onPress={() => setReportEstados(new Set())} style={{ alignSelf: 'center', paddingHorizontal: spacing.xs }}>
+                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>✕ Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {/* Filtro por TIPO de equipo: LISTA DESPLEGABLE con buscador y casillas. */}
