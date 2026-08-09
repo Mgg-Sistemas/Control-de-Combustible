@@ -968,7 +968,12 @@ export default function EquiposScreen({ navigation, route }: any) {
   //  - reactivación: si la jornada abierta arrancó en el mismo instante o DESPUÉS de la
   //    marca de avería/parada, esa marca ya NO cuenta (la máquina volvió a trabajar).
   const round2 = (n: number) => Math.round(n * 100) / 100;
+  // Máquinas RETIRADAS (operational=false): fuera de servicio → su estatus EN VIVO es
+  // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
+  // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
+  const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
   const liveStatusOf = (id: string) => {
+    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
     const j = jornadaCat[id];
     const a = averiaCat[id];
     const dayH = j?.dayH ?? 0;
