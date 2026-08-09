@@ -232,29 +232,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [averiaNota, setAveriaNota] = useState('');
   const [averiaBusy, setAveriaBusy] = useState(false);
 
-  // Operador por turno: máquina + fecha + turno (día/noche) que se está editando.
-  const [opFor, setOpFor] = useState<{ m: Machinery; d: string; which: 'day' | 'night' } | null>(null);
-  const [opFirst, setOpFirst] = useState('');
-  const [opLast, setOpLast] = useState('');
-  const [opCedula, setOpCedula] = useState('');
-  // Al escribir la C.I del operador, se busca en NÓMINA y se autocompleta nombre/apellido.
-  const [opLookup, setOpLookup] = useState<'idle' | 'searching' | 'found' | 'none'>('idle');
-  useEffect(() => {
-    if (!opFor) { setOpLookup('idle'); return; }
-    const ci = opCedula.trim();
-    if (ci.length < 6) { setOpLookup('idle'); return; }
-    let cancel = false;
-    setOpLookup('searching');
-    const t = setTimeout(async () => {
-      const { data } = await supabase.from('employees').select('first_name, last_name').eq('cedula', ci).limit(1);
-      if (cancel) return;
-      const emp = data && (data[0] as any);
-      if (emp) { setOpFirst((emp.first_name || '').trim()); setOpLast((emp.last_name || '').trim()); setOpLookup('found'); }
-      else setOpLookup('none');
-    }, 400);
-    return () => { cancel = true; clearTimeout(t); };
-  }, [opCedula, opFor]);
-
   // Visor de tramos (solo lectura): muestra el detalle auditable de machine_work_segments
   // para la máquina + día elegidos, en paralelo a day_hours/night_hours (que no se tocan).
   const [segmentsFor, setSegmentsFor] = useState<{ m: Machinery; d: string } | null>(null);
@@ -585,7 +562,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // tiene día u noche, no puede agregar el otro turno, ni modificar, ni borrar.
     const curTurno = which === 'day' ? Number(ex?.day_hours ?? 0) : Number(ex?.night_hours ?? 0);
     if (analistaMaqConHoras(ex)) { toast.error('Esta máquina ya tiene horas ese día. Como analista solo puedes cargar horas a máquinas SIN horas; para modificar o borrar, pide a un administrador.'); return; }
-    const hadOp = which === 'day' ? ex?.day_operator : ex?.night_operator;
     // Arrastra lo que el usuario haya escrito en parada/extra pero aún no guardó
     // (si tocó el turno sin salir del campo), para no perder esas horas.
     const patch: Record<string, any> = which === 'day' ? { day_hours: hoursVal } : { night_hours: hoursVal };
@@ -603,8 +579,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         notes: `Ajuste manual: ${curTurno}h → ${hoursVal}h`,
       }).then(() => {}, () => {});
     }
-    // Al asignar un turno y si aún no hay operador de esa jornada, pedir sus datos.
-    if (hoursVal > 0 && !hadOp) openOperator(m, dISO, which);
   };
 
   const setHours = async (m: Machinery, dISO: string, val: string) => {
@@ -616,29 +590,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const ex = rounds[rkey(m.id, dISO)];
     if (analistaMaqConHoras(ex) || bloqueadoAnalista(Number(ex?.overtime_hours ?? 0))) { toast.error('Como analista no puedes modificar/borrar horas ya cargadas (extra). Pide a un administrador.'); setOvertimeInput((p) => { const n = { ...p }; delete n[`${m.id}|${dISO}`]; return n; }); return; }
     await upsertRound(m, dISO, { overtime_hours: Math.max(0, Number(val.replace(',', '.')) || 0) });
-  };
-
-  // ── Operador por turno (cada jornada puede tener uno distinto) ────────────────
-  const openOperator = (m: Machinery, dISO: string, which: 'day' | 'night') => {
-    const ex = rounds[rkey(m.id, dISO)];
-    const name = (which === 'day' ? ex?.day_operator : ex?.night_operator) ?? '';
-    const ci = (which === 'day' ? ex?.day_operator_ci : ex?.night_operator_ci) ?? '';
-    const parts = name.trim().split(' ');
-    setOpFor({ m, d: dISO, which });
-    setOpFirst(parts[0] ?? '');
-    setOpLast(parts.slice(1).join(' '));
-    setOpCedula(ci);
-  };
-
-  const saveOperator = async () => {
-    if (!opFor) return;
-    const full = `${opFirst.trim()} ${opLast.trim()}`.trim().toUpperCase();
-    const patch =
-      opFor.which === 'day'
-        ? { day_operator: full || null, day_operator_ci: opCedula.trim() || null }
-        : { night_operator: full || null, night_operator_ci: opCedula.trim() || null };
-    await upsertRound(opFor.m, opFor.d, patch);
-    setOpFor(null);
   };
 
   // ── Cerrar control → archiva TODO lo pendiente (todas las fechas) en el histórico.
@@ -2009,8 +1960,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
                         const lockTurno = analistaMaqConHoras(b); // analista: máquina con horas → bloqueada (no agregar/modificar/borrar)
-                        const opName = which === 'day' ? b?.day_operator : b?.night_operator;
-                        const opCi = which === 'day' ? b?.day_operator_ci : b?.night_operator_ci;
                         return (
                           <View key={which} style={{ marginBottom: 4 }}>
                             <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
@@ -2034,13 +1983,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                               })}
                               {lockTurno ? <Text style={{ fontSize: 11 }}>🔒</Text> : null}
                             </View>
-                            {cur > 0 ? (
-                              <TouchableOpacity onPress={() => openOperator(m, dISO, which)} style={{ marginTop: 2, marginLeft: 24 }}>
-                                <Text style={{ fontSize: 11, color: opName ? colors.text : colors.warning }}>
-                                  👷 {opName ? `${opName}${opCi ? ` · C.I ${opCi}` : ''}` : 'Sin operador · toca'} <Text style={{ color: colors.brandText }}>✎</Text>
-                                </Text>
-                              </TouchableOpacity>
-                            ) : null}
                           </View>
                         );
                       })}
@@ -2449,44 +2391,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 </>
               );
             })() : null}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal: datos del operador (nombre, apellido, cédula) */}
-      <Modal visible={!!opFor} transparent animationType="fade" onRequestClose={() => setOpFor(null)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: spacing.lg }}>
-          <View style={{ backgroundColor: colors.background, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
-            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>
-              Operador · {opFor?.which === 'day' ? '☀️ Turno de día' : '🌙 Turno de noche'}
-            </Text>
-            {opFor ? <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>{opFor.m.code} · {dayLabel(opFor.d)}</Text> : null}
-
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Cédula (se busca en nómina)</Text>
-            <TextInput value={opCedula} onChangeText={(t) => setOpCedula(onlyDigits(t))} placeholder="C.I del operador" placeholderTextColor={colors.muted} keyboardType="numeric" inputMode="numeric"
-              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4 }} />
-            {opLookup === 'searching' ? (
-              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Buscando en nómina…</Text>
-            ) : opLookup === 'found' ? (
-              <Text style={{ color: colors.success, fontSize: 12, marginTop: 4, fontWeight: '700' }}>✓ {`${opFirst} ${opLast}`.trim()} · encontrado en nómina</Text>
-            ) : opLookup === 'none' ? (
-              <Text style={{ color: colors.warning, fontSize: 12, marginTop: 4 }}>No está en nómina. Escribe el nombre y apellido a mano.</Text>
-            ) : null}
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nombre</Text>
-            <TextInput value={opFirst} onChangeText={setOpFirst} placeholder="Nombre" placeholderTextColor={colors.muted} autoCapitalize="words"
-              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
-            <Text style={{ color: colors.muted, fontSize: 12 }}>Apellido</Text>
-            <TextInput value={opLast} onChangeText={setOpLast} placeholder="Apellido" placeholderTextColor={colors.muted} autoCapitalize="words"
-              style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.text, marginTop: 4, marginBottom: spacing.sm }} />
-
-            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }} onPress={() => setOpFor(null)}>
-                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand }} onPress={saveOperator}>
-                <Text style={{ color: colors.brandContrast, fontWeight: '700' }}>Guardar</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
