@@ -64,6 +64,16 @@ function fmtVal(x: any): string {
 const LIMIT_BASE = 2000;
 const LIMIT_SEARCH = 5000;
 const LIMIT_FULL_HISTORY = 8000;
+// Con 1 letra suelta, casi cualquier tabla/máquina/persona "coincide" — degenera en
+// una consulta prácticamente sin filtro (y con "todo el historial" activo, sin
+// límite de fecha). Se pide un mínimo antes de resolver nada contra la BD.
+const MIN_SEARCH_LEN = 3;
+// Tope duro combinado de ids resueltos (máquina+persona+empleado) para el IN() de
+// la consulta — cada tabla ya trae hasta 200, pero sumadas podrían pasar de 600
+// ids en la URL (riesgo real de "URI demasiado larga"). Con esto de sobra alcanza:
+// si una búsqueda de verdad resuelve a cientos de coincidencias, no es una
+// búsqueda específica y el respaldo de nivel 2 (texto) igual la cubre.
+const MAX_MATCH_IDS = 150;
 
 // Nombre legible de cada tabla y su ícono.
 const TABLE_LABEL: Record<string, string> = {
@@ -292,8 +302,13 @@ export default function AuditScreen() {
 
   useEffect(() => {
     if (!detail) { setTargetName(null); return; }
+    let alive = true;
     setTargetLoading(true);
-    resolveTarget(detail.table_name, detail.row_id).then((n) => { setTargetName(n); setTargetLoading(false); });
+    resolveTarget(detail.table_name, detail.row_id).then((n) => {
+      if (!alive) return; // se cambió de fila antes de que llegara esta respuesta
+      setTargetName(n); setTargetLoading(false);
+    });
+    return () => { alive = false; };
   }, [detail]);
 
   // Carga con debounce cuando hay búsqueda (para no pegarle a la BD en cada tecla).
@@ -306,17 +321,21 @@ export default function AuditScreen() {
       const nq = norm(q.trim());
       // Texto seguro para el .or() de PostgREST (coma y paréntesis son separadores).
       const safe = q.trim().replace(/[,()%]/g, ' ').trim();
+      // Con 1-2 letras, "coincide" casi cualquier tabla/máquina/persona — degenera en
+      // una consulta prácticamente sin filtro (y con "todo el historial" activo, sin
+      // límite de fecha). Por debajo del mínimo, se trata como si no hubiera búsqueda.
+      const hasQuery = nq.length >= MIN_SEARCH_LEN && !!safe;
       // Con búsqueda + "todo el historial" activado, se ignora el rango de fechas: sirve
       // para encontrar TODO lo que le pasó a una máquina/inspector/usuario puntual sin
       // tener que adivinar en qué fecha ocurrió. Sin texto de búsqueda no aplica (evita
       // traer la bitácora completa sin ningún filtro).
-      const searchAllTime = fullHistory && !!(nq && safe);
+      const searchAllTime = fullHistory && hasQuery;
 
-      const limit = searchAllTime ? LIMIT_FULL_HISTORY : nq ? LIMIT_SEARCH : LIMIT_BASE;
+      const limit = searchAllTime ? LIMIT_FULL_HISTORY : hasQuery ? LIMIT_SEARCH : LIMIT_BASE;
       // Tipos cuyo NOMBRE legible coincide con el texto (ej. "máquina" → machinery).
-      const matchTables = Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t);
+      const matchTables = hasQuery ? Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t) : [];
       // Acciones cuyo verbo coincide (ej. "modificó" → UPDATE).
-      const matchActions = Object.entries(ACTION_META).filter(([, m]) => norm(m.label).includes(nq)).map(([a]) => a);
+      const matchActions = hasQuery ? Object.entries(ACTION_META).filter(([, m]) => norm(m.label).includes(nq)).map(([a]) => a) : [];
       // Resuelve el texto contra CARACTERÍSTICAS reales de máquinas y personas (placa,
       // serial, modelo, cédula, usuario…), no solo lo que quedó escrito literalmente en
       // el detalle del log. Así "buscar por placa" (o serial, cédula, encargado…)
@@ -324,7 +343,7 @@ export default function AuditScreen() {
       // en la bitácora — se resuelve su id y se busca por id (row_id / user_id).
       let matchRowIds: string[] = [];
       let matchUserIds: string[] = [];
-      if (nq && safe) {
+      if (hasQuery) {
         const [{ data: mach }, { data: profs }, { data: emps }] = await Promise.all([
           supabase.from('machinery').select('id')
             .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,serial.ilike.%${safe}%,identifier.ilike.%${safe}%,encargado.ilike.%${safe}%,tipo.ilike.%${safe}%,clasificacion.ilike.%${safe}%,referencia.ilike.%${safe}%`)
@@ -343,8 +362,11 @@ export default function AuditScreen() {
         const machIds = (mach ?? []).map((m: any) => m.id as string);
         const profIds = (profs ?? []).map((p: any) => p.id as string);
         const empIds = (emps ?? []).map((e: any) => e.id as string);
-        matchRowIds = [...machIds, ...profIds, ...empIds]; // row_id: la máquina, el perfil o el empleado fue el AFECTADO
-        matchUserIds = profIds;                             // user_id: el perfil fue quien HIZO la acción
+        // Tope combinado: una búsqueda que resuelve a cientos de máquinas/personas ya
+        // no es específica — un IN() de 600 ids es una URL enorme (riesgo de "URI
+        // demasiado larga"). El respaldo de nivel 2 (texto) igual cubre esos casos.
+        matchRowIds = [...machIds, ...profIds, ...empIds].slice(0, MAX_MATCH_IDS); // row_id: la máquina, el perfil o el empleado fue el AFECTADO
+        matchUserIds = profIds.slice(0, MAX_MATCH_IDS);                            // user_id: el perfil fue quien HIZO la acción
       }
       // ── Consulta en DOS NIVELES para no tumbar la base de datos ──────────────
       // `audit_log` ya pasó los 60 mil registros: un ILIKE de texto libre sobre
@@ -386,7 +408,7 @@ export default function AuditScreen() {
       };
       let data: any[] | null = null;
       let error: any = null;
-      if (nq && safe) {
+      if (hasQuery) {
         if (structuredOrs.length) {
           ({ data, error } = await buildStructured());
         }
@@ -443,7 +465,7 @@ export default function AuditScreen() {
   // La búsqueda libre ya la aplicó el servidor; aquí solo refinamos por los CHIPS
   // (usuario / tipo) y el menú ▾ (módulos / tipo de acción / solo dinero) sobre lo
   // cargado, para no ocultar filas que coincidieron por detalle. Todo se combina en AND.
-  const shown = rows.filter((r) => {
+  const shown = useMemo(() => rows.filter((r) => {
     if (userFilter !== '__all__' && r.user_name !== userFilter) return false;
     if (tableFilter !== '__all__' && r.table_name !== tableFilter) return false;
     if (moduleFilter.size > 0) {
@@ -453,9 +475,9 @@ export default function AuditScreen() {
     if (actionFilter.size > 0 && !actionFilter.has(actionBucket(r))) return false;
     if (moneyOnly && !MONEY_TABLES.has(r.table_name)) return false;
     return true;
-  });
+  }), [rows, userFilter, tableFilter, moduleFilter, actionFilter, moneyOnly]);
   const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
-  const searchAllTimeActive = fullHistory && !!q.trim();
+  const searchAllTimeActive = fullHistory && norm(q.trim()).length >= MIN_SEARCH_LEN;
   const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
   // Cuántos filtros del menú ▾ están activos (además de búsqueda/usuario/tipo/rango),
   // para el "badge" del botón "Filtros ▾".
@@ -706,7 +728,13 @@ export default function AuditScreen() {
     </View>
   );
 
-  const emptyEl = loading
+  // Solo se muestra el esqueleto de carga en la PRIMERA carga (sin filas todavía).
+  // Un refresco posterior (búsqueda, filtro, o el "en vivo" de audit_log) NO debe
+  // vaciar la lista mientras llega la respuesta — antes lo hacía y la pantalla
+  // "parpadeaba" en blanco y el scroll saltaba arriba cada vez, aunque la persona
+  // estuviera leyendo algo en ese momento.
+  const initialLoading = loading && rows.length === 0;
+  const emptyEl = initialLoading
     ? <Loading />
     : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoLabel}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />;
 
@@ -716,7 +744,7 @@ export default function AuditScreen() {
           montan solo las visibles (antes un ScrollView pintaba TODAS de golpe → lento). */}
       {groupBy === 'none' ? (
         <FlatList
-          data={loading ? [] : shown}
+          data={initialLoading ? [] : shown}
           keyExtractor={(r) => String(r.id)}
           renderItem={({ item }) => <AuditRowCard r={item} colors={colors} onPress={setDetail} />}
           ListHeaderComponent={listHeader}
@@ -732,7 +760,7 @@ export default function AuditScreen() {
         // "Agrupar por" activo: encabezados PLEGABLES con el conteo de cada grupo, sobre
         // los resultados ya filtrados (mismo `shown` que usa la lista plana y el PDF).
         <SectionList
-          sections={loading ? [] : (groupedSections ?? [])}
+          sections={initialLoading ? [] : (groupedSections ?? [])}
           keyExtractor={(r) => String(r.id)}
           renderItem={({ item, section }) => (collapsedGroups.has(section.title) ? null : <AuditRowCard r={item} colors={colors} onPress={setDetail} />)}
           renderSectionHeader={({ section }) => {
