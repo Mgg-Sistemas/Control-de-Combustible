@@ -866,7 +866,9 @@ export default function EquiposScreen({ navigation, route }: any) {
     if (error) {
       const msg = `${error.message} ${(error as any).details ?? ''}`.toLowerCase();
       if (msg.includes('uq_machinery_serial') || (msg.includes('serial') && msg.includes('duplicate'))) {
-        setBatchError('YA EXISTE una máquina con uno de esos seriales. Revisa el lote y quita los repetidos.');
+        setBatchError('YA EXISTE una máquina con uno de esos SERIALES. Revisa el lote y quita los repetidos.');
+      } else if (msg.includes('uq_machinery_plate') || ((msg.includes('plate') || msg.includes('placa')) && msg.includes('duplicate'))) {
+        setBatchError('YA EXISTE una máquina con una de esas PLACAS. Revisa el lote y quita las repetidas.');
       } else {
         setBatchError(`${error.message}${(error as any).details ? ' — ' + (error as any).details : ''}`);
       }
