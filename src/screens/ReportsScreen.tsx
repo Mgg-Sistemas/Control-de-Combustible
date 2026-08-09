@@ -940,15 +940,6 @@ export default function ReportsScreen({ route }: any) {
       ${generalBlockJ}
       ${sections || '<p class="muted">Sin datos en el rango.</p>'}
       <div style="margin-top:16px;padding:10px 14px;background:#1E3A5F;color:#fff;font-weight:800;font-size:14px;border-radius:6px;text-align:right">Total general: ${grandMachines} equipo(s) · ${nH(grandH)} · ${usd(grandUSD)}</div>
-      <h2 style="margin-top:20px">Estado de la flota de maquinaria</h2>
-      <table><tbody>
-        <tr><td style="width:70%"><b>Total de activos</b></td><td style="text-align:right;font-weight:800">${fleetStatus.total} unidades</td></tr>
-        <tr><td><b>Capacidad operativa actual</b><br/><span class="muted">Operativas y en producción (con jornada en el período)</span></td><td style="text-align:right;font-weight:800">${fleetStatus.operativa} unidades${fleetStatus.total > 0 ? ` (${Math.round((fleetStatus.operativa / fleetStatus.total) * 100)}%)` : ''}</td></tr>
-        <tr><td><b>Máquinas en stand by</b><br/><span class="muted">En espera / pendientes de incorporación</span></td><td style="text-align:right;font-weight:800">${fleetStatus.transito} unidades</td></tr>
-        <tr><td><b>Unidades inactivas</b><br/><span class="muted">Fuera de servicio / dadas de baja</span></td><td style="text-align:right;font-weight:800">${fleetStatus.inactivos} unidades</td></tr>
-      </tbody>
-      <tfoot><tr><td style="font-weight:800;border-top:2px solid #1E3A5F">TOTAL DE LA FLOTA <span class="muted" style="font-weight:400">(activas + inactivas)</span></td><td style="text-align:right;font-weight:800;border-top:2px solid #1E3A5F">${fleetStatus.totalFlota} unidades</td></tr></tfoot>
-      </table>
       <p class="muted" style="margin-top:8px">Solo se incluyen equipos que trabajaron (horas > 0). Horas trabajadas = día + noche − parada + extras. Precio/hora = precio de la jornada de 12 h ÷ 12. Total $ = horas trabajadas × precio/hora.</p>`;
     // Nombre del archivo: "Reporte EMPRESA del DD al DD". Si es de una sola empresa lleva su
     // nombre; siempre incluye el rango de fechas.
