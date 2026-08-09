@@ -18,7 +18,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
-import { caracasBusinessToday } from '../lib/caracasDay';
+import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo } from '../lib/machineInspectors';
@@ -497,9 +497,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // "pendiente". En esa franja traemos SOLO las horas de NOCHE de ayer (no las de
     // día, para NO tocar el flujo del turno de día). A las 8am deja de traerse → pasa a
     // pendiente por iniciar, como se pidió.
-    const nowHour = caracasParts(new Date()).hour;
-    const ayer = (() => { const d = new Date(today + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })();
-    const nightGraceDay = nowHour >= 7 && nowHour < 8 ? ayer : null;
+    // Ventana de gracia 7–8am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
+    const nightGraceDay = nightGraceRoundDate();
     const [{ data: rs }, { data: rsRescue }, { data: rsNight }, { data: par }, { data: avPend }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
@@ -792,10 +791,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // GRACIA DE NOCHE (7am–8am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
   // viéndose CERRADA/finalizada hasta las 8am (regla cliente). A las 8am pasa a
   // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
-  const nightGraceActive = useMemo(() => {
-    const h = caracasParts(new Date()).hour;
-    return h >= 7 && h < 8;
-  }, [nowTick]);
+  const nightGraceActive = useMemo(() => inNightGraceWindow(), [nowTick]);
   // CIERRE DE JORNADA: el inspector puede FINALIZAR manualmente en cualquier momento.
   // Las máquinas que queden abiertas las cierra el auto-cierre del servidor (pg_cron)
   // a las 7:00pm (día) / 7:00am (noche), hora Caracas. Ya NO hay bloqueo por hora.
