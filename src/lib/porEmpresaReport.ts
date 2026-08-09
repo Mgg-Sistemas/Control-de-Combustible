@@ -343,16 +343,19 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     let nn = Number(r?.night_hours) || 0;
     const sRaw = Number(r?.hours_stopped) || 0;
     const oRaw = Number(r?.overtime_hours) || 0;
-    // EN VIVO: una jornada ABIERTA suma el tiempo transcurrido (cap 12h) a su turno,
-    // desde su inicio REAL — idéntico al Informe por jornada (no anclado a 7am; anclarlo
-    // solo aquí volvía a descuadrar los dos reportes).
+    // EN VIVO: una jornada ABIERTA cuenta desde el INICIO DE SU TURNO (no desde que la
+    // marcaron): DÍA desde las 7am, NOCHE desde las 7pm (jornadas fijas 7am–7pm / 7pm–7am).
+    // Así, aunque la marquen a las 9am o 9pm, cuenta el turno completo. Si estuvo averiada/
+    // parada y luego la reactivaron, la resta de paradas (workedFromShifts) deja SOLO las
+    // horas ACTIVAS. Mismo anclaje en el Informe por jornada → ambos reportes coinciden.
     const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
     const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
     // La jornada abierta suma en vivo SOLO si estamos viendo HOY y arrancó DENTRO de
     // este día (si arrancó otro día — p. ej. máquina averiada arrastrada — no infla el día).
     const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
     if (isToday && jStart && jShift && jStartHoy) {
-      const elapsed = Math.min(12, Math.max(0, (nowMs - jStart) / 3600000));
+      const shiftStart = jShift === 'night' ? day19 : day7; // 7pm noche · 7am día
+      const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
       if (jShift === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
     }
     // Inactiva: 0 horas (fuera de servicio). Aparece SIEMPRE con su status, sin horas.

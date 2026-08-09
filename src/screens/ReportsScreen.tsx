@@ -730,13 +730,16 @@ export default function ReportsScreen({ route }: any) {
     accs.forEach((a) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
-      a.byDate.forEach(({ d, n, s, o, price, js, jsh }) => {
+      a.byDate.forEach(({ d, n, s, o, price, js, jsh }, dateKey) => {
         // Si hay jornada EN CURSO, sumamos el tiempo transcurrido (cap 12h) al turno
         // abierto para que la máquina APAREZCA aunque no se haya finalizado todavía
         // (sincroniza el informe con lo que el inspector tiene trabajando en vivo).
+        // Se cuenta desde el INICIO DEL TURNO (día 7am · noche 7pm), no desde que la
+        // marcaron — mismo anclaje que el reporte por empresa, para que ambos coincidan.
         let dd = d, nn = n;
         if (js != null) {
-          const elapsed = Math.min(12, Math.max(0, (nowMs - js) / 3600000));
+          const shiftStart = new Date(`${dateKey}T${jsh === 'night' ? '19:00:00' : '07:00:00'}-04:00`).getTime();
+          const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
           if (jsh === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
         }
         const w = workedFromShifts(dd, nn, s, o);
