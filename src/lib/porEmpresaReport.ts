@@ -348,16 +348,25 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // día seleccionado; solo cuenta lo banqueado de esa fecha).
     const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
     if (isToday && jStart && jShift && jStartHoy) {
-      const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
-      if (jShift === 'day') dh = n2(dh + elapsed); else nh = n2(nh + elapsed);
+      // La jornada de DÍA se ANCLA SIEMPRE a las 7am (jornada fija 7am–7pm): aunque el
+      // inspector la marque a las 8 o 9am, las horas se cuentan desde las 7am. La de
+      // NOCHE mantiene su inicio real (no se infla — ver [[noche-no-inflar-hours]]).
+      if (jShift === 'day') {
+        const elapsedDia = Math.max(0, Math.min(12, (nowMs - day7) / 3600000));
+        dh = n2(dh + elapsedDia);
+      } else {
+        const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
+        nh = n2(nh + elapsed);
+      }
     }
     // Inactiva: 0 horas (fuera de servicio). Aparece SIEMPRE con su status, sin horas.
     if (inactiva) { dh = 0; nh = 0; }
     // Tope por turno: DÍA máx 12h, NOCHE máx 12h (una máquina "corrida" puede tener
-    // ambos → hasta 24h de jornada, pero nunca >12 en un mismo turno).
-    dh = n2(Math.min(12, dh));
-    nh = n2(Math.min(12, nh));
-    const trab = n2(dh + nh);
+    // ambos → hasta 24h de jornada, pero nunca >12 en un mismo turno). Se redondean
+    // SIEMPRE HACIA ARRIBA a horas enteras (pedido del cliente: 11,4 → 12; 3,4 → 4).
+    dh = Math.ceil(Math.min(12, dh));
+    nh = Math.ceil(Math.min(12, nh));
+    const trab = dh + nh;
     // Horas paradas totales (fallback sin episodios) + reparto día/noche por episodio.
     let par = 0;
     if (seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
@@ -373,8 +382,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // el desglose por episodio; el fallback (span/hours_stopped) solo aplica cuando NO hubo
     // ningún episodio registrado — así una máquina reactivada no "resucita" horas paradas.
     // Inactiva: sin paradas (0) — está fuera de servicio, no en jornada.
-    const paradasDia = inactiva ? 0 : (hadEps ? epSplit.dia : n2(Math.min(12, par)));
-    const paradasNoche = inactiva ? 0 : (hadEps ? epSplit.noche : 0);
+    const paradasDia = inactiva ? 0 : Math.ceil(hadEps ? epSplit.dia : Math.min(12, par));
+    const paradasNoche = inactiva ? 0 : Math.ceil(hadEps ? epSplit.noche : 0);
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averiaBase = averiaTxt(id);

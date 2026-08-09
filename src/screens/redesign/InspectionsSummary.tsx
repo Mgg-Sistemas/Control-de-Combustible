@@ -243,7 +243,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setEmpresaPickerOpen(false);
     setPdfBusy(EMPRESA_KEY);
     try {
-      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel], encargados: [...encargadoSel].filter((e) => encargadosList.includes(e)) });
+      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel], encargados: selectedEncargadoRaws() });
     } finally {
       setPdfBusy(null);
     }
@@ -255,7 +255,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setEmpresaPickerOpen(false);
     setPdfBusy(HORAS_KEY);
     try {
-      await generateMachineHoursReport({ companyIds: [...empresaSel], encargados: [...encargadoSel].filter((e) => encargadosList.includes(e)) });
+      await generateMachineHoursReport({ companyIds: [...empresaSel], encargados: selectedEncargadoRaws() });
     } finally {
       setPdfBusy(null);
     }
@@ -800,15 +800,30 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // Encargados distintos que tienen máquinas — para el filtro OPCIONAL del reporte
   // (además de las empresas). A→Z, sin vacíos. Si se eligen empresas, solo se ofrecen
   // los encargados de esas empresas (así la lista no muestra encargados irrelevantes).
+  // UNIFICA los repetidos: "ALBERTO", "Alberto", "alberto " son el MISMO (se agrupan
+  // por nombre normalizado y se listan UNA sola vez). `raws` guarda todas las variantes
+  // reales tal como están en la BD, para poder filtrar por todas al generar el reporte.
   const encargadosList = useMemo(() => {
-    const s = new Set<string>();
+    const groups = new Map<string, { label: string; raws: Set<string> }>();
     machList.forEach((x: any) => {
       if (empresaSel.size > 0 && !(x.company_id && empresaSel.has(x.company_id))) return;
-      const enc = (x.encargado ?? '').trim();
-      if (enc) s.add(enc);
+      const raw = (x.encargado ?? '').trim();
+      if (!raw) return;
+      const key = norm(raw);
+      const g = groups.get(key) ?? { label: raw.toUpperCase(), raws: new Set<string>() };
+      g.raws.add(raw);
+      groups.set(key, g);
     });
-    return [...s].sort(cmpText);
+    return [...groups.entries()]
+      .map(([key, g]) => ({ key, label: g.label, raws: [...g.raws] }))
+      .sort((a, b) => cmpText(a.label, b.label));
   }, [machList, empresaSel]);
+  // Variantes reales (BD) de los encargados seleccionados (por clave normalizada) —
+  // se pasan al reporte para que `.in('encargado', …)` matchee todas las grafías.
+  const selectedEncargadoRaws = useCallback((): string[] => {
+    const byKey = new Map(encargadosList.map((e) => [e.key, e.raws]));
+    return [...encargadoSel].flatMap((k) => byKey.get(k) ?? []);
+  }, [encargadosList, encargadoSel]);
 
   // Ficha COMPLETA por máquina (placa, serial, ubicación, empresa, encargado…).
   const machineInfo = useMemo(() => {
@@ -1402,13 +1417,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     </View>
                     <ScrollView style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
                       {encargadosList.map((enc) => {
-                        const on = encargadoSel.has(enc);
+                        const on = encargadoSel.has(enc.key);
                         return (
-                          <TouchableOpacity key={enc} onPress={() => setEncargadoSel((p) => { const s = new Set(p); s.has(enc) ? s.delete(enc) : s.add(enc); return s; })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                          <TouchableOpacity key={enc.key} onPress={() => setEncargadoSel((p) => { const s = new Set(p); s.has(enc.key) ? s.delete(enc.key) : s.add(enc.key); return s; })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                             <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
                               {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
                             </View>
-                            <Text style={{ color: colors.text, fontSize: 13.5, flex: 1 }} numberOfLines={1}>{enc}</Text>
+                            <Text style={{ color: colors.text, fontSize: 13.5, flex: 1 }} numberOfLines={1}>{enc.label}</Text>
                           </TouchableOpacity>
                         );
                       })}
