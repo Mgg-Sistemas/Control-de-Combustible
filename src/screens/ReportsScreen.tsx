@@ -1564,8 +1564,8 @@ export default function ReportsScreen({ route }: any) {
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
     const subtitle = `${subBase}${conPersonal ? ' · Con personal' : ''}${ficticio ? ' · SIMULADO' : ''}`;
-    const fileName = `Reporte - Ubicaciones tácticas${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
-    await exportPdf(pdfShell('REPORTE DIARIO DE OPERACIONES Y MAQUINARIA', subtitle, body), fileName);
+    const fileName = `Reporte - Despliegue de maquinaria${conPersonal ? ' con personal' : ''}${ficticio ? ' (simulado)' : ''}`;
+    await exportPdf(pdfShell('DESPLIEGUE DE MAQUINARIA', subtitle, body), fileName);
   };
 
   // Reporte de PERSONAL COMPLETO: MOVIDO a Nómina · Personal → src/lib/personalReport.ts
