@@ -7,7 +7,7 @@ import { cmpText, norm } from '../../lib/text';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
-import { listInspectorAssignments, assignInspector, sinInspectorReal } from '../../lib/machineInspectors';
+import { listInspectorAssignments, assignInspector, sinInspectorReal, PLACEHOLDER_INSPECTOR_ID } from '../../lib/machineInspectors';
 import { computeMachineVisibilitySets, buildDaySets as buildDaySetsCore, classifyInspectorMachines, paradaShiftOf } from '../../lib/inspectorDaySets';
 import { useToast } from '../../components/ToastProvider';
 import { generateInspectorReport } from '../../lib/inspectorReport';
@@ -110,7 +110,7 @@ const BULK_TOGGLE_CEDULAS = ['27514385'];
 
 export default function InspectionsSummary({ date, onDateChange }: { date?: string; onDateChange?: (d: string) => void } = {}) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, role } = useAuth();
   const toast = useToast();
   const navigation = useNavigation<any>();
   const [shift, setShift] = useState<'day' | 'night'>(caracasNowShift);
@@ -353,12 +353,18 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // conteos por inspector sin recargar a mano.
   useRealtimeRefresh(['machine_rounds', 'maintenance_requests', 'machine_inspectors', 'machinery'], load, { debounceMs: 1200, maxWaitMs: 4000 });
 
-  // Lista de inspectores reales para el desplegable de asignación (una sola vez).
+  // Lista de inspectores reales para el desplegable de asignación. El inspector
+  // VIRTUAL "SOS LA GUAIRA" (cubre máquinas sin inspector humano) solo lo puede
+  // asignar un ADMIN — mismo criterio que en el teléfono (SupervisorScreen).
   useEffect(() => {
     supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name')
-      .then(({ data }) => setRealInspectors(((data ?? []) as any[]).map((p) => ({ id: p.id, full_name: p.full_name || '—' }))))
+      .then(({ data }) => setRealInspectors(
+        ((data ?? []) as any[])
+          .filter((p) => role === 'admin' || p.id !== PLACEHOLDER_INSPECTOR_ID)
+          .map((p) => ({ id: p.id, full_name: p.full_name || '—' }))
+      ))
       .then(undefined, () => {});
-  }, []);
+  }, [role]);
 
   // Asigna una máquina "por asignar" (MAQUINAS FALTANTES) a un inspector real, en el
   // turno elegido. Reemplaza la asignación automática (1 inspector por máquina+turno).

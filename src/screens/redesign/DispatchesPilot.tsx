@@ -119,7 +119,11 @@ export default function DispatchesPilot() {
         formFields={[
           { key: 'dispatch_date', label: 'Fecha', type: 'date', required: true },
           { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
-          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
+          // Oculta los vehículos "Esperando instrucciones" (recién agregados, aún sin
+          // decidir) — no deben poder recibir combustible hasta que se les dé de alta
+          // de verdad. Uno CREADO aquí mismo (createColumn) no entra en esta regla:
+          // nace con en_espera=false (default de la columna), porque se está usando ya.
+          { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
           { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
           { key: 'liters', label: 'Litros', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
