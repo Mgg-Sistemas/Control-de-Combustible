@@ -1351,6 +1351,14 @@ que antes no quedaban:
 Se filtra por **día**, por **usuario** y por **tipo**. Tocando un renglón se ve el detalle
 completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 
+> **🕘 Historial COMPLETO de una máquina, inspector o usuario (08/08/2026):** escribe en el
+> buscador el código de la máquina, el nombre del inspector, del usuario o lo que necesites
+> — y activa el interruptor **"🕘 Buscar en TODO el historial (ignora el rango de fechas)"**
+> que aparece debajo. Así el buscador deja de limitarse al rango Desde–Hasta que tengas puesto
+> y trae **todo** lo que le haya pasado a esa cosa desde siempre, sin tener que adivinar en qué
+> fecha ocurrió. Sin ese interruptor, la búsqueda sigue funcionando igual que antes (dentro del
+> rango de fechas elegido).
+
 ---
 
 ### 4.20. Surtir gasoil (por QR)
