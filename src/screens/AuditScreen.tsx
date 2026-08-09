@@ -40,6 +40,7 @@ function fmtVal(x: any): string {
 // filtro ya lo hace el servidor (no trae "todo el día", solo lo que coincide).
 const LIMIT_BASE = 2000;
 const LIMIT_SEARCH = 5000;
+const LIMIT_FULL_HISTORY = 8000;
 
 // Nombre legible de cada tabla y su ícono.
 const TABLE_LABEL: Record<string, string> = {
@@ -137,6 +138,11 @@ export default function AuditScreen() {
   const [userFilter, setUserFilter] = useState('__all__');
   const [tableFilter, setTableFilter] = useState('__all__');
   const [q, setQ] = useState('');
+  // Buscar en TODO el historial (ignora el rango Desde–Hasta): para encontrar TODO lo
+  // que le pasó a una máquina/inspector/usuario en particular, sin tener que adivinar
+  // en qué fecha ocurrió. Solo tiene efecto si hay texto de búsqueda (si no, buscaría
+  // sin filtro alguno sobre toda la bitácora, que sí puede ser enorme).
+  const [fullHistory, setFullHistory] = useState(false);
   const [truncated, setTruncated] = useState(false); // se alcanzó el tope de filas
   const [detail, setDetail] = useState<AuditLog | null>(null);   // fila abierta en detalle
   const [targetName, setTargetName] = useState<string | null>(null);
@@ -178,8 +184,13 @@ export default function AuditScreen() {
       const nq = norm(q.trim());
       // Texto seguro para el .or() de PostgREST (coma y paréntesis son separadores).
       const safe = q.trim().replace(/[,()%]/g, ' ').trim();
+      // Con búsqueda + "todo el historial" activado, se ignora el rango de fechas: sirve
+      // para encontrar TODO lo que le pasó a una máquina/inspector/usuario puntual sin
+      // tener que adivinar en qué fecha ocurrió. Sin texto de búsqueda no aplica (evita
+      // traer la bitácora completa sin ningún filtro).
+      const searchAllTime = fullHistory && !!(nq && safe);
 
-      const limit = nq ? LIMIT_SEARCH : LIMIT_BASE;
+      const limit = searchAllTime ? LIMIT_FULL_HISTORY : nq ? LIMIT_SEARCH : LIMIT_BASE;
       // Tipos cuyo NOMBRE legible coincide con el texto (ej. "máquina" → machinery).
       const matchTables = Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t);
       // Acciones cuyo verbo coincide (ej. "modificó" → UPDATE).
@@ -187,7 +198,8 @@ export default function AuditScreen() {
       // Arma la consulta. `withRowLabel` incluye row_label en la búsqueda; si esa
       // columna aún no existe (audit_detalle.sql sin correr) reintentamos sin ella.
       const build = (withRowLabel: boolean) => {
-        let query = supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs);
+        let query = supabase.from('audit_log').select('*');
+        if (!searchAllTime) query = query.gte('at', fromTs).lte('at', toTs);
         if (nq && safe) {
           const ors = [`user_name.ilike.%${safe}%`, `detail.ilike.%${safe}%`, `table_name.ilike.%${safe}%`];
           if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
@@ -209,7 +221,7 @@ export default function AuditScreen() {
     };
     const t = setTimeout(run, q ? 350 : 0);
     return () => { alive = false; clearTimeout(t); };
-  }, [from, to, q, rtNonce]);
+  }, [from, to, q, fullHistory, rtNonce]);
 
   // Bitácora en vivo: si otro usuario/dispositivo genera una acción, se refresca sola.
   useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1));
@@ -232,6 +244,8 @@ export default function AuditScreen() {
     (tableFilter === '__all__' || r.table_name === tableFilter)
   );
   const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
+  const searchAllTimeActive = fullHistory && !!q.trim();
+  const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
 
   // PDF de la bitácora (con las filas ya filtradas). En web abre la VISTA PREVIA
   // (modal con Imprimir / Guardar como PDF); en móvil comparte el archivo.
@@ -258,7 +272,7 @@ export default function AuditScreen() {
     }).join('');
     const html = pdfDocument({
       title: 'Auditoría · Bitácora',
-      subtitle: `${rangoTxt} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
+      subtitle: `${rangoLabel} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
       extraCss: `table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left;vertical-align:top}
         th{background:#16324F;color:#fff} tr:nth-child(even) td{background:#f4f7fb}`,
@@ -315,7 +329,7 @@ export default function AuditScreen() {
         </ScrollView>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm }}>
           <Text style={{ color: colors.muted, fontSize: 12, flex: 1 }}>
-            {shown.length} acción(es) · {rangoTxt}
+            {shown.length} acción(es) · {rangoLabel}
             {userFilter !== '__all__' || tableFilter !== '__all__' ? ' (filtradas)' : ''}
             {truncated ? ` · ⚠️ tope ${rows.length}, acota el rango o afina la búsqueda` : ''}
           </Text>
@@ -325,8 +339,23 @@ export default function AuditScreen() {
         </View>
       </Card>
 
-      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina, usuario, tipo o acción… (en todo el rango)" placeholderTextColor={colors.muted}
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina, inspector, usuario o cualquier cosa…" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm }} />
+
+      {/* Historial completo de UNA entidad (máquina/inspector/usuario/cualquier cosa):
+          con texto de búsqueda, este switch ignora el rango Desde–Hasta y trae TODO lo
+          que le haya pasado a esa cosa desde siempre, sin tener que adivinar la fecha. */}
+      {q.trim() ? (
+        <TouchableOpacity
+          onPress={() => setFullHistory((v) => !v)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, alignSelf: 'flex-start', backgroundColor: fullHistory ? colors.primary : colors.surfaceAlt, borderWidth: 1, borderColor: fullHistory ? colors.primary : colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6 }}
+        >
+          <Text style={{ fontSize: 13 }}>{fullHistory ? '☑️' : '⬜'}</Text>
+          <Text style={{ color: fullHistory ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 12 }}>
+            🕘 Buscar en TODO el historial (ignora el rango de fechas)
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Filtro por usuario */}
       {users.length > 0 ? (
@@ -357,7 +386,7 @@ export default function AuditScreen() {
         ListHeaderComponent={listHeader}
         ListEmptyComponent={loading
           ? <Loading />
-          : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoTxt}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />}
+          : <EmptyState title="Sin actividad" subtitle={q.trim() ? `No hay acciones que coincidan con "${q.trim()}" en ${rangoLabel}.` : `No hay acciones registradas en ${rangoTxt} y filtro.`} />}
         contentContainerStyle={{ padding: spacing.md, gap: spacing.md }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
