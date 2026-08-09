@@ -581,6 +581,8 @@ const SECTIONS: Sec[] = [
       { t: 'p', text: 'Registra quién hizo cada acción importante en el sistema (asignar una máquina, cerrar un control, editar un pago, reactivar/inactivar un equipo…), con fecha, hora y quién fue.' },
       { t: 'note', text: 'Sirve para resolver dudas tipo "¿quién cambió esto?" sin tener que preguntarle a cada persona — el registro no se puede borrar ni editar.' },
       { t: 'note', text: 'Historial COMPLETO de una máquina, inspector o usuario: escribe en el buscador el código de la máquina, el nombre de la persona o lo que necesites, y activa "🕘 Buscar en TODO el historial (ignora el rango de fechas)" debajo. Trae todo lo que le haya pasado desde siempre, sin tener que adivinar la fecha.' },
+      { t: 'note', text: 'Buscar por cualquier característica: placa, serial, cédula, encargado, modelo o clasificación — no hace falta que el nombre exacto esté escrito en la bitácora.' },
+      { t: 'note', text: 'PDF con toda la información: trae un resumen (creaciones/modificaciones/eliminaciones/eventos) y, en cada acción, el detalle completo — si fue una modificación, cada campo que cambió (antes → después).' },
     ],
   },
   {
