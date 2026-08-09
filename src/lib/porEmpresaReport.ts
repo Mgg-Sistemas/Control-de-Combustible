@@ -415,9 +415,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       `<tr${f.inactiva ? ' class="inact"' : ''}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
-        <td class="r b">${f.inactiva ? '0' : (f.trabajadas > 0 ? f.trabajadas : '—')}</td>
-        <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ -${f.paradasDia}` : '—'}</td>
-        <td class="r${f.paradasNoche > 0 ? ' par' : ''}">${f.paradasNoche > 0 ? `🌙 -${f.paradasNoche}` : '—'}</td>
+        <td class="r b">${f.trabajadas}</td>
+        <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ ${f.paradasDia}` : '—'}</td>
+        <td class="r${f.paradasNoche > 0 ? ' par' : ''}">${f.paradasNoche > 0 ? `🌙 ${f.paradasNoche}` : '—'}</td>
         <td>${esc(dash(f.averia))}</td>
       </tr>`).join('');
     const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
@@ -427,7 +427,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="5">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="5">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ ${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 ${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
   };
 
   // Por empresa: PRIMERO las activas (con "Total activas"), luego, aparte, las
@@ -459,12 +459,12 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const kpis = `
     <div class="kpis">
       <div class="kpi"><div class="k">Total hrs día</div><div class="v">${totDayH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">☀️ ${totParDay > 0 ? `-${totParDay}` : '0'} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">☀️ ${totParDay > 0 ? totParDay : '0'} H</div></div>
       <div class="kpi"><div class="k">Total hrs noche</div><div class="v">${totNightH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? `-${totParNight}` : '0'} H</div></div>
+      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? totParNight : '0'} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
     </div>
-    <div class="kpi-note">Total de jornada = total de horas ACTIVAS (trabajadas). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
+    <div class="kpi-note">Las horas paradas NO se restan (solo informativas): si una máquina no trabajó por estar parada, sus horas trabajadas quedan en 0. Total de jornada = total de horas ACTIVAS (trabajadas). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
 
   const extraCss = `
     /* Orientación HORIZONTAL (se aprecian mejor los textos largos). Mantiene el
