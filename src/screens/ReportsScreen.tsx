@@ -2015,9 +2015,10 @@ export default function ReportsScreen({ route }: any) {
               key={t.v}
               onPress={() => {
                 setMode(t.v);
-                // Jornada y Maquinaria arrancan en la semana base (26/06 → 05/07);
-                // el usuario puede ampliar el rango (añadir días) con los botones.
-                if (t.v === 'rounds' || t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
+                // Jornada arranca en HOY (fecha del día) por defecto; el usuario amplía el
+                // rango con los botones de abajo. Maquinaria (fleet) sí arranca en la semana base.
+                if (t.v === 'rounds') { setFrom(isoDaysAgo(0)); setTo(isoDaysAgo(0)); }
+                if (t.v === 'fleet') { setFrom(FLEET_HOURS_START); setTo(FLEET_HOURS_CUTOFF); }
                 // Despliegue arranca desde la semana base hasta HOY (editable).
                 if (t.v === 'deploy') { setFrom(FLEET_HOURS_START); setTo(isoDaysAgo(0)); }
                 // Inspectores (jornadas de inspección): reporte de UN día; arranca en HOY.
