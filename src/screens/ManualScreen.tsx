@@ -136,6 +136,8 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Desde el Inicio (dashboard), en "Estado de las máquinas" puedes tocar Operativas, En espera o No operativa: te lleva a Equipos y te muestra esa lista de máquinas.' },
       { t: 'note', text: '📄 Reporte de CONTEO de equipos (desde el Catálogo): es solo conteo + detalle, SIN horas ni precios. Muestra: (1) el TOTAL GENERAL de equipos, (2) la cantidad POR EMPRESA, y (3) el DETALLE por empresa donde cada equipo sale como Equipo (tipo) · Serial · Estado. Eliges el ALCANCE (General o una empresa). El filtro por tipo es una LISTA DESPLEGABLE con buscador y CASILLAS: ábrela, escribe (ej. "volteo toronto") y tilda uno o varios tipos para ver solo esos. Botón ⬇️ Descargar PDF (conteo).' },
       { t: 'note', text: 'Máquinas INACTIVAS (No operativa): al marcar una máquina como No operativa (⛔), SALE del catálogo y de la lista semanal de Control de maquinaria; solo aparece en la tarjeta "🔴 Maquinaria inactiva". Sus horas ya trabajadas NO se borran (siguen en los reportes). Al volverla ✅ Operativa, regresa al catálogo y al control. Los detalles de "inactiva" y "en espera" salen agrupados por empresa, desplegables y colapsables. La lista de INACTIVAS arranca COLAPSADA (se abre al tocar la empresa) y cada máquina muestra su placa y su serial.' },
+      { t: 'note', text: 'Fecha de inactivación/reactivación: cada vez que una máquina pasa a No operativa o vuelve a Operativa, su tarjeta muestra "🔴 Inactivada el DD/MM/AAAA" o "🟢 Reactivada el DD/MM/AAAA". Es un dato aparte de las averías/paradas que reporta un inspector desde el teléfono — este lo mueve el administrador a mano con el botón de estado.' },
+      { t: 'note', text: 'Última parada/avería resuelta: si una máquina tuvo una parada o avería reportada por un inspector y ya se resolvió ("🟢 Volver a OPERATIVA"), su ficha muestra "Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh". Solo se ve cuando la máquina NO está parada/averiada en este momento.' },
     ],
   },
   {
@@ -167,8 +169,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'Al cerrar un corte, el sistema CONGELA el precio de cada máquina de ese corte. Si ya fijaste un precio por RANGO de fechas para ese corte, el cierre lo respeta (no lo pisa); a las jornadas sin precio propio les pone el precio actual de la máquina. Así, aunque después cambie el precio, el corte cerrado sigue mostrando su total original (en el reporte y en el Histórico).' },
       { t: 'note', text: 'Para ver un reporte: toca 📊 Ver reporte, elige el rango de fechas y la empresa. Se abre una ventana con la vista previa del documento y dos botones: 🖨️ Imprimir y Cancelar. Toca Imprimir para mandarlo a la impresora o guardarlo como PDF.' },
       { t: 'note', text: 'El PDF de una empresa se guarda con su nombre y el rango, por ejemplo "Reporte Ferreconstrucciones del 06 al 12". Si al guardar/imprimir el encabezado azul se ve gris, activa la opción "Gráficos de fondo" (Background graphics) en el diálogo de impresión.' },
-      { t: 'note', text: 'Solo cantidad de equipos: en el reporte 🚚 Maquinaria/Vehículo, el botón "🔢 Solo cantidad de equipos (sin horas ni precio)" genera un PDF que arranca con los RESÚMENES (cantidad por clasificación y por empresa) y luego el DETALLE por empresa (A→Z) con los equipos EN CONJUNTO: agrupados por nombre con su cantidad (p. ej. "CAMIÓN VOLTEO TORONTO · 19"), no una fila por unidad. Es GENERAL (todas las empresas); si arriba filtras por una empresa, sale solo de esa. Sin horas ni montos.' },
-      { t: 'note', text: 'Con precios / Sin precios: el reporte 🚚 Maquinaria/Vehículo tiene dos modos. "💲 Con precios" lista cada equipo por unidad (para facturar), con su guardia, horas, precio/hora y total, más los fletes. "Sin precios" AGRUPA dentro de cada empresa los equipos iguales (todos los JUMBO juntos, todos los CAMIÓN DE SERVICIO juntos…) mostrando la CANTIDAD y las horas sumadas, en vez de una fila por unidad. Marca/Clasificación muestran el valor común o "Varios" si difieren. Todo en orden A→Z.' },
+      { t: 'note', text: 'Reporte 🚚 Maquinaria/Vehículo (YA NO muestra montos en $): vive en Reportes, con los mismos filtros de rango de fechas y empresas. Tiene 3 bloques: Totales Generales (equipos, trabajando, parados, averiados, horas), Totales por Empresa (mismo desglose agrupado) y Trazabilidad de Maquinaria (una fila por equipo con botón "Ver detalle" para su historial completo). Ver la sección "Reportes" más abajo.' },
       { t: 'note', text: '🔎 Buscar por tipo de equipo (en 📊 Conteo de equipos): dentro de la vista previa del reporte "Conteo de equipos" hay un buscador CON CASILLAS. Puedes acotar el alcance con los botones Todas / 🟢 Solo activas / 🔴 Solo inactivas. Escribe el tipo (por ejemplo "volqueta toronto") para filtrar la lista y TILDA uno o varios tipos; abajo aparece un NÚMERO grande con el TOTAL y un LISTADO agrupado por empresa (nombre de la máquina, serial/placa y encargado). Botón "⬇️ PDF de este conteo" para imprimir ese listado por empresa (respeta el alcance activas/inactivas).' },
       { t: 'note', text: 'Conteo de equipos: en Reportes, la pestaña 📊 Conteo equipos. Cuenta TODAS las máquinas activas (el total es como siempre) por clasificación y por tipo. Aparte, INDICA las zonas: en el reporte TODOS los equipos quedan ubicados en solo dos grupos, "Este" y "Oeste". Los que marcan GPS toman su lado real; los que AÚN no marcan GPS se reparten 50/50 entre Este y Oeste (solo en el reporte, SIN tocar el mapa). Al tocar Este u Oeste, las tablas se recalculan con ese lado. "A disposición de" indica cuántas están a disposición de Gobernación/FANB/CVM… (cuenta todas, con o sin ubicación) y en qué sector (Este/Oeste) las ubicadas. "Por tipo y zona" muestra, para cada tipo, cuántas hay en cada zona (Este/Oeste). El botón "🗺️ Ver en mapa" abre el mapa de calles con las zonas y los puntos: OJO, el mapa solo muestra los ubicados por GPS de verdad (el reparto 50/50 es solo del reporte, no del mapa). Las tarjetas de arriba muestran el estado de la flota. Se actualiza solo al cambiar una máquina y se descarga en PDF. La "A disposición de" se asigna en el catálogo de Equipos.' },
       { t: 'note', text: '📍 Ubicaciones tácticas (botón en 📊 Conteo de equipos): genera el "Reporte Diario de Operaciones y Maquinaria – Operación Rescate y Esperanza, La Guaira" en PDF. Arriba trae la cantidad de maquinaria por empresa y los EQUIPOS POR ZONA (cuántos en el ESTE y cuántos en el OESTE, solo totales). Trae las máquinas REALES agrupadas por QUIÉN LAS TIENE A CARGO (CVM / Gobernación / FANB / SOS La Guaira, según el campo "a disposición de" del equipo), cada una con su empresa, ubicación real (referencia + sector Este/Oeste y subzona por GPS: Macuto, Caraballeda, Aeropuerto…) y estado (Operativo / Inoperativo / En espera). Incluye una sección con las camionetas PICK-UP del módulo de Vehículos a disposición de SOS La Guaira, y deja campos en blanco para llenar a mano.' },
@@ -183,7 +184,7 @@ const SECTIONS: Sec[] = [
     blocks: [
       { t: 'p', text: 'Aquí se ve cuánto hay que pagar por las horas trabajadas, según los precios. El corte es semanal.' },
       { t: 'note', text: 'La vista arranca VACÍA: escribe el nombre de la empresa en el buscador para ver su cuenta (no se listan todas de golpe).' },
-      { t: 'note', text: 'El facturado cuadra con el Informe por jornada: Control de Pagos usa el MISMO precio del reporte (el del rango/actual, no el snapshot "del cierre") y no cobra rondas ni fletes anteriores al inicio del período. Así el saldo = Facturado − Abonado da igual que el reporte real.' },
+      { t: 'note', text: 'El facturado cuadra con el Informe por jornada: Control de Pagos usa el MISMO precio del reporte (el del rango/actual, no el precio congelado "del cierre") y no cobra rondas ni fletes anteriores al inicio del período. Así el saldo = Facturado − Abonado da igual que el reporte real.' },
       { t: 'note', text: 'Cotejo automático: cada empresa muestra "📊 Reporte de jornada $X" con ✓ cuadra (verde) o ⚠️ difiere (naranja con la diferencia). El monto del reporte se recalcula solo (mismo cálculo del Informe por jornada) para verificar que Control de Pagos coincide. Si algún día sale ⚠️, es que una máquina tuvo precios distintos en la misma semana o quedó un precio "del cierre" viejo.' },
       { t: 'note', text: 'Ver por qué da ese saldo: al abrir una empresa aparece "🔍 Abonos contados" con TODOS los abonos que se le cuentan (fecha, monto, método, semana) y la cuenta explícita Facturado − Abonado = Saldo. Ahí puedes borrar un abono duplicado o mal cargado con 🗑️.' },
       { t: 'bullets', items: [
@@ -353,6 +354,7 @@ const SECTIONS: Sec[] = [
       { t: 'note', text: 'En "Traza por inspector" puedes TOCAR cualquier máquina de la lista y te lleva a su ficha en el Catálogo (con todos sus datos y acciones). El › al final de cada renglón indica que es clickeable.' },
       { t: 'note', text: '📊 Reporte por inspector (día o rango): dentro de Inspecciones hay un reporte con filtro por 📅 un día o 📆 rango de fechas y un filtro de inspectores TIPO CHECK (marcas uno o varios; vacío = todos). Muestra, por inspector, la hora de inicio, la máquina, el serial/placa, el sector y la empresa, y se puede descargar en PDF.' },
       { t: 'p', text: 'Cada supervisor trae un RESUMEN de cercanía (así sabes qué tan confiables fueron sus rondas): ✓ cuántas marcó EN SITIO (estuvo cerca, dentro de ~300 m), ⚠️ cuántas de LEJOS (marcó sin estar al lado) y • cuántas SIN GPS (no se pudo verificar). El botón "📄 Reporte de supervisión (PDF)" genera el informe del día con ese resumen por supervisor, el detalle de cada visita (hora, máquina, empresa, estado y ubicación) y las jornadas sin validar.' },
+      { t: 'note', text: '⚡ Eficiencia por inspector: es por HORAS TRABAJADAS, NO por cuántas máquinas tocó/marcó. En "👷 POR INSPECTOR" cada barra trae su % de eficiencia del turno: se suma el tiempo real que trabajaron sus máquinas asignadas (incluye lo que llevan corriendo AHORA MISMO, en vivo) y se divide entre las horas que ya pasaron desde que arrancó el turno. Por eso, si el turno recién empezó, el % arranca bajo y va subiendo solo — no es que "se dañó". Una máquina averiada o parada todo el turno también le baja el % a su inspector. El botón "📄 Reporte de eficiencia" (arriba de las barras) genera el PDF con la MISMA fórmula que la gráfica.' },
     ],
   },
   {
@@ -544,6 +546,69 @@ const SECTIONS: Sec[] = [
         'Mapa · Mover sectores (solo administradores): en el panel "🗺️ Sectores (zonas)" prende los sectores que quieras mover; luego, en "🗺️ Mover sectores (admin)" toca Activar. Cada sector muestra un marcador ✋ con su nombre en el centro: arrástralo hasta su lugar y se guarda solo (para todos). Funciona igual en pantalla completa.',
         'Mapa · Zonas: el nombre de cada zona aparece al PASAR EL CURSOR por encima (en computadora) o al TOCAR la zona (en el teléfono); ya no salen todos los nombres a la vez.',
         'Mapa · Monitoreo (solo administradores): el panel "🕵️ Monitoreo · quién ubica" (colapsable, igual que Sectores) muestra QUIÉN colocó cada ubicación, con su fecha y hora. Toca una fila para ver esa máquina en el mapa. Sirve para vigilar quién está haciendo las ubicaciones.',
+      ] },
+    ],
+  },
+  {
+    icon: '📄',
+    title: 'Reportes',
+    blocks: [
+      { t: 'p', text: 'Genera documentos PDF para imprimir o compartir, eligiendo el rango de fechas y la empresa. Al generarlos se abre una vista previa con los botones 🖨️ Imprimir y Cancelar.' },
+      { t: 'bullets', items: [
+        '👷 Inspectores: agrupado por inspector, sus máquinas asignadas con estado, horas de día/noche/total y las ubicaciones donde cambiaron de sitio.',
+        '📊 Conteo equipos: total de equipos por clasificación/tipo y por empresa, con el reporte "📍 Despliegue de maquinaria" (antes "Ubicaciones tácticas") y el detalle por zona Este/Oeste.',
+        '🚚 Maquinaria/Vehículo: YA NO muestra montos en $. Tiene 3 bloques — Totales Generales (equipos, trabajando, parados, averiados, horas), Totales por Empresa (mismo desglose por empresa) y Trazabilidad de Maquinaria (una fila por equipo, con botón "Ver detalle").',
+      ] },
+      { t: 'note', text: '🧭 Trazabilidad e Historial por Equipo: se abre desde "Ver detalle" en la Trazabilidad de Maquinaria (o eligiendo la máquina a mano). Elige la máquina y un rango de fechas y toca "🔎 Consultar historial": muestra un resumen (días trabajados, horas totales, averías, paradas, tiempo inactivo), la lista de paradas/averías (inicio, fin o "vigente", y su duración) y los días trabajados con sus horas. "📄 Exportar PDF" descarga ese historial.' },
+    ],
+  },
+  {
+    icon: '👤',
+    title: 'Usuarios y roles (solo administrador)',
+    blocks: [
+      { t: 'p', text: 'Para crear a las personas que usan el sistema y decidir qué puede ver/hacer cada una.' },
+      { t: 'bullets', items: [
+        'Cada usuario tiene UN rol (Administrador, Supervisor, Operador, Conductor, o uno de los roles personalizados creados en 🏷️ Roles del sistema).',
+        'Si te equivocas 3 veces la contraseña, el usuario se BLOQUEA — solo un administrador lo desbloquea desde aquí.',
+        'Permisos por módulo: además del rol, a un usuario le puedes dar acceso EXTRA a un módulo puntual (Lectura / Escritura / Full control) desde su ficha, sin cambiarle el rol.',
+      ] },
+    ],
+  },
+  {
+    icon: '📜',
+    title: 'Auditoría (bitácora — quién hace qué)',
+    blocks: [
+      { t: 'p', text: 'Registra quién hizo cada acción importante en el sistema (asignar una máquina, cerrar un control, editar un pago, reactivar/inactivar un equipo…), con fecha, hora y quién fue.' },
+      { t: 'note', text: 'Sirve para resolver dudas tipo "¿quién cambió esto?" sin tener que preguntarle a cada persona — el registro no se puede borrar ni editar.' },
+    ],
+  },
+  {
+    icon: '🏢',
+    title: 'Empresas',
+    blocks: [
+      { t: 'p', text: 'Lista de las empresas/contratistas que usan el sistema (dueñas de máquinas, personal, etc.).' },
+      { t: 'bullets', items: [
+        '🚫 Ocultar: desactiva la empresa en TODO el sistema (no sale en ningún selector, lista ni reporte).',
+        '🍽️ Solo comidas: la empresa aparece ÚNICAMENTE en Distribución de comida y en ningún otro lado.',
+      ] },
+    ],
+  },
+  {
+    icon: '🏭',
+    title: 'Fabricación (MRP)',
+    blocks: [
+      { t: 'p', text: 'Módulo aparte para el taller de mangueras hidráulicas y manufactura: maestros de producción, centros de trabajo, recetas (BoM), rutas, Órdenes de Fabricación (MO) y de Trabajo (WO), el kiosco de planta y sus propios reportes.' },
+      { t: 'note', text: 'Es un módulo grande e independiente del resto del sistema — descarga su guía propia en "Más → Manual → Guías descargables → 🏭 Fabricación (MRP)" para el paso a paso completo.' },
+    ],
+  },
+  {
+    icon: '⚙️',
+    title: 'Ajustes',
+    blocks: [
+      { t: 'p', text: 'Se llega desde Más → Ajustes. La apariencia (modo oscuro/claro) y la seguridad (contraseña, huella/Face ID) viven en la tuerca ⚙️ del encabezado, no aquí.' },
+      { t: 'bullets', items: [
+        'Cerrar sesión.',
+        '⬇️ Descargar backup (solo administradores puntuales, en computadora): descarga un archivo con TODOS los datos del sistema, por si hace falta un respaldo manual. Acceso restringido a las cuentas designadas.',
       ] },
     ],
   },

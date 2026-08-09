@@ -19,8 +19,6 @@ import {
   Tank,
   FuelIntake,
   Dispatch,
-  Vehicle,
-  Transfer,
 } from '../types/database';
 
 const Row = ({ label, value }: { label: string; value: React.ReactNode }) => {
@@ -278,62 +276,3 @@ export function DispatchesScreen() {
   );
 }
 
-export function VehiclesScreen() {
-  return (
-    <ListScreen<Vehicle>
-      title="Vehículos"
-      table="vehicles"
-      orderBy="plate"
-      emptyTitle="Sin vehículos"
-      emptySubtitle="Registra las placas de tu flota."
-      formTitle="Nuevo vehículo"
-      formFields={[
-        { key: 'plate', label: 'Placa', type: 'text', required: true },
-        { key: 'brand', label: 'Marca', type: 'text' },
-        { key: 'model', label: 'Modelo', type: 'text' },
-        { key: 'vehicle_type', label: 'Tipo', type: 'text' },
-        { key: 'tank_capacity_l', label: 'Capacidad tanque (L)', type: 'number' },
-        { key: 'expected_kml', label: 'Rendimiento (km/L)', type: 'number' },
-      ]}
-      renderItem={(v) => (
-        <>
-          <ItemTitle>{v.plate}</ItemTitle>
-          {v.brand || v.model ? (
-            <Row label="Modelo" value={`${v.brand ?? ''} ${v.model ?? ''}`.trim()} />
-          ) : null}
-          {v.vehicle_type ? <Row label="Tipo" value={v.vehicle_type} /> : null}
-          {v.expected_kml != null ? <Row label="Rendimiento" value={`${v.expected_kml} km/L`} /> : null}
-        </>
-      )}
-    />
-  );
-}
-
-export function TransfersScreen() {
-  return (
-    <ListScreen<Transfer>
-      title="Traslados"
-      table="transfers"
-      orderBy="transfer_date"
-      editable
-      dateField="transfer_date"
-      emptyTitle="Sin traslados"
-      emptySubtitle="Registra movimientos de combustible entre tanques."
-      formTitle="Nuevo traslado"
-      formFields={[
-        { key: 'transfer_date', label: 'Fecha', type: 'date', required: true },
-        { key: 'from_tank_id', label: 'Tanque origen', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
-        { key: 'to_tank_id', label: 'Tanque destino', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
-        { key: 'liters', label: 'Litros', type: 'number', required: true },
-        { key: 'notes', label: 'Observaciones', type: 'text' },
-      ]}
-      renderItem={(t) => (
-        <>
-          <ItemTitle>{Number(t.liters).toLocaleString()} L</ItemTitle>
-          <Row label="Fecha" value={t.transfer_date} />
-          {t.notes ? <Row label="Notas" value={t.notes} /> : null}
-        </>
-      )}
-    />
-  );
-}

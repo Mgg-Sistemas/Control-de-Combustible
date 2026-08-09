@@ -360,14 +360,39 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       // Averías PENDIENTES → en la tarjeta sale "🔴 MÁQUINA PARADA".
       // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiadas — se
       // excluyen del set aunque tengan tickets pendientes (se ignora su mantenimiento).
+      // REGLA "REACTIVACIÓN" (igual que Catálogo/Inspecciones): si la máquina ya inició una
+      // jornada DESPUÉS de que se marcó la avería/parada, ya volvió a trabajar — el ticket
+      // pendiente en la BD queda "vencido" hasta que alguien lo resuelva a mano, pero acá
+      // debe dejar de contar como parada (si no, Control la muestra parada indefinidamente
+      // aunque Catálogo/Inspecciones ya la vean operativa).
       (async () => {
         try {
-          const [{ data }, { rows }] = await Promise.all([
-            supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente'),
+          const today = todayISO();
+          const yesterday = caracasParts(new Date(Date.now() - 86400000)).iso;
+          const [{ data }, { rows }, { data: todayRounds }, { data: nightRounds }] = await Promise.all([
+            supabase.from('maintenance_requests').select('machinery_id, created_at').eq('status', 'pendiente'),
             listInspectorAssignments(),
+            supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', today).not('jornada_start_at', 'is', null),
+            supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
           ]);
           const sos = new Set(rows.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
-          setAveriadas(new Set(((data ?? []) as any[]).map((r) => r.machinery_id as string).filter((id) => !sos.has(id))));
+          const openStartByMachine: Record<string, number> = {};
+          [...(todayRounds ?? []), ...(nightRounds ?? [])].forEach((row: any) => {
+            if (!row.jornada_start_at) return;
+            const t = new Date(row.jornada_start_at).getTime();
+            const prev = openStartByMachine[row.machinery_id];
+            openStartByMachine[row.machinery_id] = prev == null ? t : Math.max(prev, t);
+          });
+          const next = new Set<string>();
+          ((data ?? []) as any[]).forEach((r) => {
+            const id = r.machinery_id as string;
+            if (sos.has(id)) return;
+            const openStart = openStartByMachine[id];
+            const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
+            if (openStart != null && openStart >= createdMs) return; // reactivada: jornada abierta después de la marca
+            next.add(id);
+          });
+          setAveriadas(next);
         } catch {}
       })();
       const cmap: Record<string, string> = {};
