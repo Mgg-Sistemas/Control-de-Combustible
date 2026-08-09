@@ -136,15 +136,22 @@ export async function latestInspectorByMachine(): Promise<Record<string, Inspect
       const cur = (per[a.machinery_id] ||= {})[slot];
       if (!cur || String(a.assigned_at) > String(cur.ts)) per[a.machinery_id][slot] = { name: a.inspector_name || '—', ts: a.assigned_at || '' };
     });
+    // Fecha de asignación de CADA turno, en su propia etiqueta: antes se mostraba
+    // una sola fecha (la más reciente de las dos) pegada a AMBOS nombres, lo que
+    // hacía parecer que el inspector de día y el de noche se asignaron el mismo
+    // día aunque fuera falso — "se solapaba" el día con la noche.
+    const dmyOf = (ts?: string) => { const [y, mo, d] = (ts || '').slice(0, 10).split('-'); return y && mo && d ? `${d}/${mo}/${y}` : ''; };
     Object.entries(per).forEach(([mid, s]) => {
       const parts: string[] = [];
-      if (s.day) parts.push(`☀️ ${s.day.name}`);
-      if (s.night) parts.push(`🌙 ${s.night.name}`);
+      if (s.day) parts.push(`☀️ ${s.day.name}${dmyOf(s.day.ts) ? ` (${dmyOf(s.day.ts)})` : ''}`);
+      if (s.night) parts.push(`🌙 ${s.night.name}${dmyOf(s.night.ts) ? ` (${dmyOf(s.night.ts)})` : ''}`);
       if (parts.length === 0) return;
-      const ts = [s.day?.ts, s.night?.ts].filter(Boolean).sort().pop() || '';
       out[mid] = {
         name: parts.join(' · '),
-        date: ts.slice(0, 10) || out[mid]?.date || '',
+        // La fecha por turno ya va dentro de `name`; se deja vacía para que quien
+        // solo imprima "name · date" (EquiposScreen) no repita/mezcle una fecha
+        // única que ya no aplica a ambos turnos por igual.
+        date: '',
         status: out[mid]?.status ?? 'trabajando',
         near: out[mid]?.near ?? null,
       };
