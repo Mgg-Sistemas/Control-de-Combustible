@@ -475,7 +475,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // nadie más se puede asignar.
     if (puedeCoordinar) {
       const { data: insp } = await supabase.from('profiles').select('id, full_name, role').in('role', ['supervisor', 'coordinador_patio']).order('full_name');
-      setInspectors(((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim()).map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
+      // El inspector VIRTUAL "SOS LA GUAIRA" (cubre máquinas sin inspector humano) solo
+      // lo puede asignar un ADMIN — pedido del cliente: coordinadores/analistas asignan
+      // inspectores reales, pero decidir "que quede sin inspector real" es decisión del admin.
+      const rows = ((insp ?? []) as any[]).filter((p) => (p.full_name || '').trim() && (isAdmin || p.id !== PLACEHOLDER_INSPECTOR_ID));
+      setInspectors(rows.map((p) => ({ id: p.id as string, name: p.full_name as string, role: (p.role ?? null) as string | null })));
     }
     setLoading(false);
   };

@@ -48,6 +48,10 @@ const KINDS: { value: Kind; label: string; icon: string }[] = [
 
 const VEHICLE_FIELDS: Field[] = [
   { key: 'plate', label: 'Placa', type: 'text', required: true },
+  // Mismo criterio que en maquinaria: un vehículo recién agregado queda "Esperando
+  // instrucciones" por defecto (no disponible para despachar combustible) hasta que
+  // se decida qué hacer con él. Se destilda aquí si ya va disponible de una vez.
+  { key: 'en_espera', label: '⏳ Dejar "Esperando instrucciones" (aún no decidido)', type: 'switch', defaultValue: true },
   { key: 'brand', label: 'Marca', type: 'text' },
   { key: 'model', label: 'Modelo', type: 'text' },
   { key: 'vehicle_type', label: 'Tipo', type: 'text' },
@@ -1566,7 +1570,10 @@ export default function EquiposScreen({ navigation, route }: any) {
                       {vehicleList.map((v) => (
                         <TouchableOpacity key={v.id} onPress={() => { setKind('vehiculo'); openEdit(v); }} activeOpacity={0.7}>
                           <Card>
-                            <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>🚗 {v.plate}</Text>
+                              {(v as any).en_espera ? <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text> : null}
+                            </View>
                             {v.brand || v.model ? (
                               <Text style={{ color: colors.muted, fontSize: 13 }}>{`${v.brand ?? ''} ${v.model ?? ''}`.trim()}</Text>
                             ) : null}
