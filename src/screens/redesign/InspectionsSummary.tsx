@@ -161,6 +161,23 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     }, 60000);
     return () => clearInterval(t);
   }, []);
+  // Mismo problema que `internalDay` pero con el TURNO: si la pantalla queda abierta
+  // cruzando las 7am/7pm, `shift` se quedaba congelado en el turno de cuando se montó
+  // — un supervisor que la deja abierta toda la noche seguía viendo la eficiencia y
+  // las tarjetas de los inspectores de DÍA (otros responsables) en vez de los de
+  // NOCHE. Solo pisa `shift` si seguía en el turno viejo (respeta si el usuario ya
+  // lo cambió a mano para revisar el otro turno a propósito).
+  const shiftAutoRef = useRef(caracasNowShift());
+  useEffect(() => {
+    const t = setInterval(() => {
+      const real = caracasNowShift();
+      if (real !== shiftAutoRef.current) {
+        setShift((prev) => (prev === shiftAutoRef.current ? real : prev));
+        shiftAutoRef.current = real;
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
   // Navegar ±1 día (sin pasar de hoy). Al cambiar el día se limpia el inspector abierto.
   const shiftDay = (delta: number) => {
     const d = new Date(selDay + 'T12:00:00');
