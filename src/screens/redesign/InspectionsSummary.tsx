@@ -1272,9 +1272,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // turno noche eso hacía que la eficiencia saliera pegada en ~0% toda la noche
       // ("dañado"). Ahora el denominador también usa las horas transcurridas del
       // turno (shiftElapsedHours), igual que el numerador, que ya es en vivo.
-      const horasEficiencia = visibleIds.reduce((sum, id) => sum + liveHorasShiftOf(id), 0);
-      const horasEsperadasEficiencia = visibleIds.length * shiftElapsedHours(selDay, shift);
-      const eficiencia = isFaltantes || horasEsperadasEficiencia === 0 ? null : Math.round((horasEficiencia / horasEsperadasEficiencia) * 100);
+      // EFICIENCIA (versión final, pedido cliente 09-ago-2026): % de máquinas asignadas
+      // sobre las que el inspector YA ACTUÓ. Cuentan como hechas iniciadas, cerradas,
+      // PARADAS y AVERIADAS (marcarlas también es su trabajo); SOLO las PENDIENTES (sin
+      // tocar) bajan el %. NO depende de horas ni del reloj → cerrar una jornada o marcar
+      // parada/avería NUNCA baja el indicador (antes era por horas y al cerrar caía con
+      // el reloj: numerador congelado, denominador seguía creciendo).
+      const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
@@ -1362,7 +1366,6 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     const base = perInspector.filter((i) => !i.isFaltantes);
     return nq ? base.filter((i) => norm(i.name).includes(nq)) : base;
   }, [perInspector, inspQ]);
-  const maxInsp = Math.max(1, ...inspShown.map((i) => i.iniActivas.length));
   const sel = selInsp ? perInspector.find((i) => i.name === selInsp) ?? null : null;
   // Cajón MAQUINAS FALTANTES del turno: sus máquinas son, por definición, las que
   // no tienen inspector real — se ofrecen para asignar directo desde aquí.
@@ -1786,14 +1789,20 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
               {inspShown.map((ins) => {
                 const on = ins.name === selInsp;
-                const h = Math.max(6, (ins.iniActivas.length / maxInsp) * 96);
+                // El medidor representa la EFICIENCIA (%): la barra se llena según el % y se
+                // colorea igual (verde/ámbar/rojo). Arriba el ⚡% y debajo cuántas están
+                // trabajando ahora (🟢 activas). Antes la barra usaba las jornadas ABIERTAS
+                // y no cuadraba con el % de abajo (barra casi vacía con % alto al cerrar).
+                const efi = ins.eficiencia;
+                const h = Math.max(6, ((efi ?? 0) / 100) * 96);
+                const barColor = efi === null ? colors.tankTrack : efiColor(efi);
                 return (
                   <TouchableOpacity key={ins.name} onPress={() => setSelInsp(on ? null : ins.name)} activeOpacity={0.7} style={{ width: 58, alignItems: 'center' }}>
-                    <Text style={{ color: on ? colors.brandText : colors.text, fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{ins.iniActivas.length}</Text>
+                    <Text style={{ color: efiColor(efi), fontWeight: '900', fontSize: 12, marginBottom: 2, fontVariant: ['tabular-nums'] as any }}>{efi !== null ? `⚡${efi}%` : '—'}</Text>
                     <View style={{ height: 96, width: 26, backgroundColor: colors.tankTrack, borderRadius: 6, justifyContent: 'flex-end', overflow: 'hidden', borderWidth: on ? 2 : 0, borderColor: colors.accent }}>
-                      <View style={{ height: h, width: '100%', backgroundColor: on ? colors.accent : colors.tankFill }} />
+                      <View style={{ height: h, width: '100%', backgroundColor: barColor }} />
                     </View>
-                    <Text style={{ color: efiColor(ins.eficiencia), fontWeight: '800', fontSize: 9.5, marginTop: 2 }}>{ins.eficiencia !== null ? `⚡${ins.eficiencia}%` : '—'}</Text>
+                    <Text style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: '700', marginTop: 2, fontVariant: ['tabular-nums'] as any }}>🟢 {ins.iniActivas.length}</Text>
                     <Text numberOfLines={2} style={{ color: on ? colors.brandText : colors.muted, fontSize: 9.5, fontWeight: on ? '800' : '600', textAlign: 'center', marginTop: 2, height: 24 }}>{ins.name}</Text>
                   </TouchableOpacity>
                 );

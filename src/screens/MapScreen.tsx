@@ -452,6 +452,8 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleId = (id: string) => setHiddenIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const showAll = () => { setHiddenCats(new Set()); setHiddenIds(new Set()); };
   const hideAll = () => { setHiddenCats(new Set(presentCats)); };
+  // Aislar un grupo del catálogo: el mapa muestra SOLO ese tipo (oculta el resto).
+  const isolateCat = (k: string) => { setHiddenCats(new Set(presentCats.filter((c) => c !== k))); setHiddenIds(new Set()); };
 
   // Tipo de maquinaria (capas): tarjeta colapsable con los tipos, su conteo y las que
   // faltan por ubicar. Se define aquí como variable para renderizarla DEBAJO del mapa.
@@ -492,7 +494,7 @@ export default function MapScreen({ navigation, route }: any) {
                   <TouchableOpacity onPress={() => toggleCat(k)} style={{ width: 34, height: 22, borderRadius: 11, backgroundColor: catHidden ? colors.border : colors.success, justifyContent: 'center', paddingHorizontal: 2 }}>
                     <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', alignSelf: catHidden ? 'flex-start' : 'flex-end' }} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setExpandedCat(expanded ? null : k)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <TouchableOpacity onPress={() => { if (expanded) { setExpandedCat(null); showAll(); } else { setExpandedCat(k); isolateCat(k); } }} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{isCam ? '🚙' : meta.icon} {meta.label}</Text>
                     {(() => {
                       const total = catTotal.get(k) ?? list.length;

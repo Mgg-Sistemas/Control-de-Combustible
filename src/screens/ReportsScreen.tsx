@@ -1368,13 +1368,10 @@ export default function ReportsScreen({ route }: any) {
     const esTorontoOVolqueta = (m: any) => /toronto|volqueta/i.test(`${m.code ?? ''} ${m.clasificacion ?? ''}`);
     const inactivaM = (m: any) => m.operational === false || m.en_espera === true || m.active === false;
     const all = ((mach ?? []) as any[]).filter((m) => !(esTorontoOVolqueta(m) && inactivaM(m)));
-    // REAL: solo activas/operativas (excluye inoperativas, en espera y dadas de baja),
-    //   sincronizado con el conteo por zona del mapa.
-    // FICTICIO: TODAS las máquinas de la flota (solo excluye dadas de baja); las
-    //   inoperativas/en espera se muestran como OPERATIVAS y se reparten al azar.
-    const list = ficticio
-      ? all.filter((m) => m.active !== false)
-      : all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
+    // Ni el REAL ni el FICTICIO muestran/cuentan máquinas INACTIVAS (inoperativas, en
+    // espera o dadas de baja): en ambos reportes solo aparecen equipos activos y
+    // operativos. El ficticio solo cambia el reparto de zona (Este/Oeste al azar).
+    const list = all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
@@ -1550,17 +1547,6 @@ export default function ReportsScreen({ route }: any) {
       <table class="tac"><thead><tr><th>A cargo de</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody>${enteSorted.map(([e, n]) => `<tr><td>${esc(enteLabel(e))}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
-    // Estado REAL de la flota (siempre desde 'all', aunque el ficticio muestre todo
-    // operativo): activos (operativos) vs inactivos (inoperativas + en espera).
-    // Se excluyen las dadas de baja (active === false).
-    const flota = all.filter((m) => m.active !== false);
-    const nActivos = flota.filter((m) => m.operational !== false && m.en_espera !== true).length;
-    const nInactivos = flota.length - nActivos;
-    const resumenEstadoHtml = `<div class="sect">🚦 Estado de la flota (activos / inactivos)</div>
-      <table class="tac"><thead><tr><th>Estado</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
-      <tbody><tr><td style="color:#0B7A3B;font-weight:700">🟢 Activos (operativos)</td><td style="text-align:right;font-weight:700">${nActivos}</td></tr>
-      <tr><td style="color:#B91C1C;font-weight:700">🔴 Inactivos (inoperativas / en espera)</td><td style="text-align:right;font-weight:700">${nInactivos}</td></tr></tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL FLOTA</td><td style="text-align:right;font-weight:800">${flota.length}</td></tr></tfoot></table>`;
     // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
     const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
     const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
@@ -1592,7 +1578,6 @@ export default function ReportsScreen({ route }: any) {
         .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
-      ${resumenEstadoHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
