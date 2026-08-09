@@ -44,20 +44,24 @@ const NIVEL_META: Record<Nivel, { label: string; bg: string }> = {
 };
 
 type Fila = {
-  code: string; serialPlaca: string; encargado: string; empresa: string;
+  code: string; modelo: string; serialPlaca: string; encargado: string; empresa: string;
   horas: number | null;     // horas del horómetro (last_horometro − base); null = sin horómetro
   restante: number | null;  // 250 − horas (negativo = pasada del límite)
   nivel: Nivel;
 };
 
-export async function generateMachineHoursReport(opts: { companyIds?: string[] }): Promise<boolean> {
+export async function generateMachineHoursReport(opts: { companyIds?: string[]; encargados?: string[] }): Promise<boolean> {
   const companyIds = opts.companyIds ?? [];
+  const encargados = opts.encargados ?? [];
 
-  // 1) Máquinas (todas o de las empresas elegidas), con su horómetro vivo y base.
+  // 1) Máquinas (todas o de las empresas/encargados elegidos), con su horómetro vivo y
+  //    base. `tipo` = MODELO de la máquina (CAT 320, Komatsu PC200…).
   const machs = await selectAllRows(
     'machinery',
-    'id, code, serial, plate, encargado, active, last_horometro, horometro_base, company_id, company:company_id(name)',
-    companyIds.length ? (q) => q.in('company_id', companyIds) : undefined,
+    'id, code, serial, plate, tipo, encargado, active, last_horometro, horometro_base, company_id, company:company_id(name)',
+    (companyIds.length || encargados.length)
+      ? (q) => { let qq = q; if (companyIds.length) qq = qq.in('company_id', companyIds); if (encargados.length) qq = qq.in('encargado', encargados); return qq; }
+      : undefined,
   );
   const rows = ((machs ?? []) as any[]).filter((m) => m.active !== false);
   if (!rows.length) return false;
@@ -69,6 +73,7 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[] }
     const horas = lh != null && base != null ? Math.max(0, n1(lh - base)) : null;
     return {
       code: m.code || '—',
+      modelo: (m.tipo && String(m.tipo).trim()) || '—',
       serialPlaca: m.serial || m.plate || '—',
       encargado: dash(m.encargado),
       empresa: m.company?.name || 'Sin empresa',
@@ -93,14 +98,14 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[] }
     const bg = NIVEL_META[f.nivel].bg;
     const empresaCol = conEmpresa ? `<td>${esc(f.empresa)}</td>` : '';
     return `<tr${bg ? ` style="background:${bg}"` : ''}>
-      <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
+      <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
       <td>${esc(f.encargado)}</td>${empresaCol}
       ${celdaHoras(f)}${celdaRestante(f)}
       <td>${NIVEL_META[f.nivel].label}</td>
     </tr>`;
   };
   const encabezado = (conEmpresa: boolean): string => `<thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Encargado</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo</th><th>Serial/Placa</th><th>Encargado</th>
       ${conEmpresa ? '<th>Empresa</th>' : ''}
       <th class="r">Horas horómetro</th><th class="r">Faltan p/${LIMITE}</th><th>Estado</th>
     </tr></thead>`;
@@ -120,7 +125,7 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[] }
   const secciones = empresas.map(([name, fs]) => {
     const ordenadas = fs.slice().sort((a, b) => (b.horas ?? -1) - (a.horas ?? -1) || cmpText(a.code, b.code));
     const tHoras = n1(fs.reduce((s, f) => s + (f.horas ?? 0), 0));
-    const foot = `<tfoot><tr><td colspan="4">Total · ${fs.length} equipo(s)</td><td class="r b">${tHoras}</td><td colspan="2"></td></tr></tfoot>`;
+    const foot = `<tfoot><tr><td colspan="5">Total · ${fs.length} equipo(s)</td><td class="r b">${tHoras}</td><td colspan="2"></td></tr></tfoot>`;
     return `<h3>🏢 ${esc(name)} · ${fs.length} máquina(s)</h3>
       <table class="ir">${encabezado(false)}<tbody>${ordenadas.map((f, i) => filaHtml(f, i, false)).join('')}</tbody>${foot}</table>`;
   }).join('');
@@ -143,7 +148,8 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[] }
     Al confirmar el mantenimiento el contador vuelve a 0. "— sin horómetro" = máquina sin lectura registrada aún.
   </div>`;
 
-  const subtitle = `${empresas.length} empresa(s) · ${filas.length} máquina(s) · `
+  const filtroEnc = encargados.length ? ` · 👤 ${encargados.length} encargado(s): ${encargados.join(', ')}` : '';
+  const subtitle = `${empresas.length} empresa(s) · ${filas.length} máquina(s)${filtroEnc} · `
     + `🔴 ${cnt.limite} límite · 🟠 ${cnt.media} media · 🟡 ${cnt.alerta} alerta · 🟢 ${cnt.ok} ok`
     + (cnt.sin ? ` · — ${cnt.sin} sin horómetro` : '')
     + ` · ⏱️ ${totHoras} h horómetro en total`;
