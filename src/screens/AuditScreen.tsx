@@ -337,25 +337,54 @@ export default function AuditScreen() {
         matchRowIds = [...machIds, ...profIds]; // row_id: la máquina o el perfil fue el AFECTADO
         matchUserIds = profIds;                 // user_id: el perfil fue quien HIZO la acción
       }
-      // Arma la consulta. `withRowLabel` incluye row_label en la búsqueda; si esa
-      // columna aún no existe (audit_detalle.sql sin correr) reintentamos sin ella.
-      const build = (withRowLabel: boolean) => {
+      // ── Consulta en DOS NIVELES para no tumbar la base de datos ──────────────
+      // `audit_log` ya pasó los 60 mil registros: un ILIKE de texto libre sobre
+      // sus columnas (user_name/detail/row_label) obliga a Postgres a REVISAR
+      // FILA POR FILA (no hay índice que sirva para "contiene" en una tabla así
+      // de grande) — eso es lo que tardaba 8-20s y saturaba el servidor. Confirmado
+      // 09-ago-2026 con EXPLAIN ANALYZE en la BD real.
+      //
+      // NIVEL 1 (rápido, con índice): busca por máquina/persona/tabla/acción ya
+      // RESUELTA a id (matchRowIds/matchUserIds) o a valor exacto (matchTables/
+      // matchActions) — cubre la enorme mayoría de búsquedas reales ("por placa",
+      // "por cédula", "por módulo"...) sin tocar más filas que las del resultado.
+      const structuredOrs: string[] = [];
+      if (matchTables.length) structuredOrs.push(`table_name.in.(${matchTables.join(',')})`);
+      if (matchActions.length) structuredOrs.push(`action.in.(${matchActions.join(',')})`);
+      if (matchRowIds.length) structuredOrs.push(`row_id.in.(${matchRowIds.join(',')})`);
+      if (matchUserIds.length) structuredOrs.push(`user_id.in.(${matchUserIds.join(',')})`);
+      const buildStructured = () => {
         let query = supabase.from('audit_log').select('*');
         if (!searchAllTime) query = query.gte('at', fromTs).lte('at', toTs);
-        if (nq && safe) {
-          const ors = [`user_name.ilike.%${safe}%`, `detail.ilike.%${safe}%`, `table_name.ilike.%${safe}%`];
-          if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
-          if (matchTables.length) ors.push(`table_name.in.(${matchTables.join(',')})`);
-          if (matchActions.length) ors.push(`action.in.(${matchActions.join(',')})`);
-          if (matchRowIds.length) ors.push(`row_id.in.(${matchRowIds.join(',')})`);
-          if (matchUserIds.length) ors.push(`user_id.in.(${matchUserIds.join(',')})`);
-          query = query.or(ors.join(','));
-        }
+        query = query.or(structuredOrs.join(','));
         return query.order('at', { ascending: false }).limit(limit);
       };
-      let { data, error } = await build(true);
-      if (error && /row_label/.test(error.message || '')) {
-        ({ data, error } = await build(false)); // columna aún no creada → sin row_label
+      // NIVEL 2 (lento, escanea filas): SOLO se usa si el nivel 1 no encontró nada
+      // — ej. una palabra suelta que solo aparece en el detalle del evento, no en
+      // ninguna característica de una máquina/persona. SIEMPRE limitado al rango
+      // de fecha visible (aunque esté activo "todo el historial") para no
+      // arriesgarse a escanear la tabla completa sin límite.
+      const buildTextFallback = (withRowLabel: boolean) => {
+        let query = supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs);
+        const ors = [`user_name.ilike.%${safe}%`];
+        if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
+        query = query.or(ors.join(','));
+        return query.order('at', { ascending: false }).limit(limit);
+      };
+      let data: any[] | null = null;
+      let error: any = null;
+      if (nq && safe) {
+        if (structuredOrs.length) {
+          ({ data, error } = await buildStructured());
+        }
+        if (!error && (!data || data.length === 0)) {
+          ({ data, error } = await buildTextFallback(true));
+          if (error && /row_label/.test(error.message || '')) {
+            ({ data, error } = await buildTextFallback(false)); // columna aún no creada
+          }
+        }
+      } else {
+        ({ data, error } = await supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs).order('at', { ascending: false }).limit(limit));
       }
       if (!alive) return;
       const list = (data as AuditLog[]) ?? [];
