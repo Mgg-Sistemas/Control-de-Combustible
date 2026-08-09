@@ -1547,17 +1547,6 @@ export default function ReportsScreen({ route }: any) {
       <table class="tac"><thead><tr><th>A cargo de</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody>${enteSorted.map(([e, n]) => `<tr><td>${esc(enteLabel(e))}</td><td style="text-align:right;font-weight:700">${n}</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center">Sin equipos</td></tr>'}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
-    // Estado REAL de la flota (siempre desde 'all', aunque el ficticio muestre todo
-    // operativo): activos (operativos) vs inactivos (inoperativas + en espera).
-    // Se excluyen las dadas de baja (active === false).
-    const flota = all.filter((m) => m.active !== false);
-    const nActivos = flota.filter((m) => m.operational !== false && m.en_espera !== true).length;
-    const nInactivos = flota.length - nActivos;
-    const resumenEstadoHtml = `<div class="sect">🚦 Estado de la flota (activos / inactivos)</div>
-      <table class="tac"><thead><tr><th>Estado</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
-      <tbody><tr><td style="color:#0B7A3B;font-weight:700">🟢 Activos (operativos)</td><td style="text-align:right;font-weight:700">${nActivos}</td></tr>
-      <tr><td style="color:#B91C1C;font-weight:700">🔴 Inactivos (inoperativas / en espera)</td><td style="text-align:right;font-weight:700">${nInactivos}</td></tr></tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL FLOTA</td><td style="text-align:right;font-weight:800">${flota.length}</td></tr></tfoot></table>`;
     // Con personal: coordinadores e inspectores repartidos entre ESTE y OESTE (rotación).
     const pickZona = (arr: string[], z: number) => arr.filter((_, i) => i % 2 === z);
     const celda = (arr: string[]) => (arr.length ? arr.map((n) => esc(n)).join('<br/>') : '—');
@@ -1589,7 +1578,6 @@ export default function ReportsScreen({ route }: any) {
         .disp{font-size:12.5px;color:#0B3D2E;background:#E7F5EC;border:1px solid #B7E0C4;border-radius:6px;padding:6px 10px;margin:4px 0 8px}
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
-      ${resumenEstadoHtml}
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
