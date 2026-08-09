@@ -101,14 +101,14 @@ export default function SupervisionScreen({ navigation }: any) {
   };
   const { role, canSee } = useAuth();
   const isAdmin = role === 'admin';
-  // CHECK MÁQUINA (asignar/reasignar inspector) en esta pantalla: el admin siempre
-  // puede; además, cualquiera con el módulo 'coordinador_inspectores' (Usuarios →
-  // Permisos por módulo) también — mismo criterio que ya usa el teléfono
-  // (`puedeCoordinar` en SupervisorScreen.tsx). Antes esto era SOLO isAdmin acá,
-  // así que un analista con ese permiso podía coordinar desde el teléfono pero no
-  // desde esta vista — pedido del cliente: que lo vean también admin Y analistas
-  // (los que tengan el permiso activado).
-  const puedeCoordinar = isAdmin || canSee('coordinador_inspectores');
+  // CHECK MÁQUINA (asignar/reasignar inspector) en esta pantalla: SOLO admin o
+  // analista — pedido del cliente 09-ago-2026: aunque el módulo 'coordinador_
+  // inspectores' (Usuarios → Permisos por módulo) técnicamente se le puede activar
+  // a cualquier rol, acá se BLOQUEA por rol además del permiso, así que a un
+  // conductor/cocina/supervisor/coordinador de patio nunca le aparece aunque se le
+  // active el permiso por error. Un analista igual necesita el permiso activado
+  // (no todos los analistas lo ven por defecto, solo a quien se lo actives).
+  const puedeCoordinar = isAdmin || (role === 'analista' && canSee('coordinador_inspectores'));
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
   const ALL_SECS = ['reportes', 'guardias', 'camiones', 'opjor', 'traza'];
