@@ -18,7 +18,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
-import { caracasBusinessToday } from '../lib/caracasDay';
+import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo } from '../lib/machineInspectors';
@@ -483,8 +483,24 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina para el círculo de color: rondas del día
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
-    const [{ data: rs }, { data: rsRescue }, { data: par }, { data: avPend }] = await Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', today),
+    // Día de negocio: en la madrugada (12am–7am) es AYER — ahí vive la jornada de NOCHE
+    // que cruza la medianoche. `today` (calendario) sería HOY y NO trae esa ronda. Traemos
+    // ambas fechas para que una jornada de noche FINALIZADA de madrugada (round_date=ayer,
+    // ya sin jornada_start_at) siga contando como CERRADA/finalizada y no reaparezca como
+    // "pendiente por iniciar". Cuando coinciden (de día) es una sola fecha.
+    const businessDay = caracasBusinessToday();
+    const roundDates = businessDay === today ? [today] : [today, businessDay];
+    // GRACIA DE NOCHE hasta las 8am (regla cliente): la jornada de NOCHE (7pm–7am)
+    // finalizada debe seguir viéndose FINALIZADA hasta las 8am. Entre 7am y 8am,
+    // caracasBusinessToday ya saltó a HOY, así que la noche recién cerrada (round_date
+    // = AYER, sin jornada_start_at) dejaría de traerse y la máquina volvería a
+    // "pendiente". En esa franja traemos SOLO las horas de NOCHE de ayer (no las de
+    // día, para NO tocar el flujo del turno de día). A las 8am deja de traerse → pasa a
+    // pendiente por iniciar, como se pidió.
+    // Ventana de gracia 7–8am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
+    const nightGraceDay = nightGraceRoundDate();
+    const [{ data: rs }, { data: rsRescue }, { data: rsNight }, { data: par }, { data: avPend }] = await Promise.all([
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
       // esto el círculo 🟢 se apagaba al pasar las 12) como una jornada de DÍA que
@@ -493,6 +509,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // huérfano desaparecía silenciosamente del teléfono y el inspector podía volver
       // a iniciar jornada sobre la misma máquina.
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').gte('round_date', rescueCutoff).lt('round_date', today).not('jornada_start_at', 'is', null),
+      // GRACIA 7am–8am: horas de NOCHE de ayer (jornada de noche ya finalizada) para
+      // conservarlas como CERRADAS hasta las 8am. Solo night_hours (no día).
+      nightGraceDay
+        ? supabase.from('machine_rounds').select('machinery_id, night_hours').eq('round_date', nightGraceDay).gt('night_hours', 0)
+        : Promise.resolve({ data: [] as any[] }),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -546,6 +567,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       } else {
         rmap[r.machinery_id] = { ...prev, open: true, openNight: true, openStartNight: Math.max(prev.openStartNight, ms) };
       }
+    });
+    // GRACIA 7am–8am: las horas de NOCHE de ayer conservan la máquina como CERRADA
+    // (finalizada). SOLO se toca nightWorked (nunca dayWorked) para no afectar el día.
+    ((rsNight ?? []) as any[]).forEach((r) => {
+      const prev = rmap[r.machinery_id] ?? empty;
+      rmap[r.machinery_id] = { ...prev, nightWorked: Math.max(prev.nightWorked, Number(r.night_hours) || 0) };
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -761,6 +788,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const h = caracasParts(new Date()).hour;
     return h >= 7 && h < 19 ? 'day' : 'night';
   }, [nowTick]);
+  // GRACIA DE NOCHE (7am–8am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
+  // viéndose CERRADA/finalizada hasta las 8am (regla cliente). A las 8am pasa a
+  // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
+  const nightGraceActive = useMemo(() => inNightGraceWindow(), [nowTick]);
   // CIERRE DE JORNADA: el inspector puede FINALIZAR manualmente en cualquier momento.
   // Las máquinas que queden abiertas las cierra el auto-cierre del servidor (pg_cron)
   // a las 7:00pm (día) / 7:00am (noche), hora Caracas. Ya NO hay bloqueo por hora.
@@ -928,6 +959,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hoursMine(id)) return 'cerrada';                      // 3) finalizó con horas (ya no abierta)
     if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
     if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
+    // 5) GRACIA 7am–8am: una jornada de NOCHE ya finalizada (con horas de noche, no
+    // abierta) sigue como CERRADA hasta las 8am — no reaparece "pendiente" al entrar el
+    // día. A las 8am (nightGraceActive=false) cae a pendiente por iniciar, como se pidió.
+    if (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night')) return 'cerrada';
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
@@ -1216,10 +1251,32 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const inspCount = (id: string) => Object.values(assignMap).filter((s) => s.day?.id === id || s.night?.id === id).length;
   // Buscador de inspectores por TODAS sus características (no solo el nombre): nombre,
   // rol (supervisor/coordinador…) y nº de máquinas asignadas. Query vacía = todos.
+  // Índice de BÚSQUEDA por inspector: concatena TODAS las características de sus máquinas
+  // asignadas (código, empresa, serial, placa, encargado, edificio/referencia, tipo,
+  // clasificación, sector, zona) para que "Buscar inspector" también encuentre por
+  // cualquier dato de sus equipos, no solo por nombre/rol/conteo.
+  const inspMachText = useMemo(() => {
+    const acc: Record<string, string[]> = {};
+    machines.forEach((m) => {
+      const s = assignMap[m.id] || {};
+      const ids: string[] = [];
+      if (s.day?.id) ids.push(s.day.id);
+      if (s.night?.id && s.night.id !== s.day?.id) ids.push(s.night.id);
+      if (!ids.length) return;
+      const mm = m as any;
+      const txt = [m.code, m.companyName, mm.serial, mm.plate, mm.encargado, mm.referencia, mm.identifier, mm.tipo, mm.clasificacion, mm.sector, mm.zona]
+        .filter(Boolean).join(' ');
+      ids.forEach((id) => { (acc[id] ??= []).push(txt); });
+    });
+    const out: Record<string, string> = {};
+    Object.keys(acc).forEach((id) => { out[id] = norm(acc[id].join(' ')); });
+    return out;
+  }, [machines, assignMap]);
   const matchInsp = (p: { id: string; name: string; role?: string | null }, q: string): boolean => {
     const nq = norm((q || '').trim());
     if (!nq) return true;
-    return norm(`${p.name} ${p.role || 'inspector'} ${inspCount(p.id)} maquinas`).includes(nq);
+    if (norm(`${p.name} ${p.role || 'inspector'} ${inspCount(p.id)} maquinas`).includes(nq)) return true;
+    return (inspMachText[p.id] || '').includes(nq);
   };
 
   const openCheckin = (m: Mach) => {
@@ -2491,7 +2548,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </TouchableOpacity>
                 ))}
               </View>
-              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => matchInsp(p, pendBatchQuery)).map((p) => (
                   <TouchableOpacity key={p.id} disabled={pendBatchBusy} onPress={() => assignPendBatch({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs, opacity: pendBatchBusy ? 0.6 : 1 }}>
@@ -2602,7 +2659,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
                 <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{pendientesCount > 0 ? pendientesCount : '✓'}</Text>
               </TouchableOpacity>
-              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => matchInsp(p, inspQuery)).map((p) => {
                   const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
@@ -2790,7 +2847,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                         {pickShift === sh ? (
                           <View style={{ marginTop: spacing.sm }}>
-                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
                             <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                               {inspectors.filter((p) => matchInsp(p, assignForQuery)).map((p) => (
                                 <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? colors.successSoftBg : colors.surface, marginBottom: spacing.xs }}>
@@ -2833,7 +2890,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               // ── PASO A: elegir el inspector DESTINO ──────────────────────────────
               <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige el inspector destino:</Text>
-                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
                 <ScrollView style={{ maxHeight: 320, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                   {inspectors.filter((p) => matchInsp(p, reassignQuery)).map((p) => (
                     <TouchableOpacity key={p.id} onPress={() => setReassignTo({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>

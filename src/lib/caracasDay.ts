@@ -41,6 +41,29 @@ export function isoYesterday(iso: string): string {
 }
 
 /**
+ * VENTANA DE GRACIA DE LA NOCHE (regla cliente 09-ago-2026): una jornada de NOCHE
+ * (7pm–7am) ya FINALIZADA debe seguir viéndose CERRADA/finalizada hasta las 8am del día
+ * siguiente; a las 8am pasa a "pendiente por iniciar". Entre 7am y 8am el día de negocio
+ * ya avanzó a HOY, así que la noche recién cerrada (round_date = ayer) hay que
+ * conservarla explícitamente. Esta es la ÚNICA fuente de verdad de la regla: la usan
+ * TANTO el fetch de estados (qué ronda traer) COMO el clasificador (segmentoDe) del
+ * teléfono — así no se pueden desincronizar. Si se cambia la hora tope, se cambia AQUÍ.
+ */
+export function inNightGraceWindow(): boolean {
+  const h = caracasNowHour();
+  return h >= 7 && h < 8;
+}
+
+/**
+ * Fecha ISO de la NOCHE que debe conservarse como finalizada durante la gracia (ayer de
+ * calendario), o null si no estamos en la ventana 7–8am. Su presencia es la señal para
+ * traer SOLO las horas de noche de ese día (nunca las de día, para no tocar el turno diurno).
+ */
+export function nightGraceRoundDate(): string | null {
+  return inNightGraceWindow() ? isoYesterday(caracasToday()) : null;
+}
+
+/**
  * Horas TRANSCURRIDAS del turno (día 07:00–19:00 · noche 19:00–07:00+1), tope 12h.
  * Corrección 08-ago-2026 (pedido cliente): la "eficiencia" ponderada por horas reales
  * dividía SIEMPRE entre 12h fijas aunque el turno recién hubiera empezado — a los 38
