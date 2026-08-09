@@ -196,7 +196,8 @@ const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { 
  * AUDITORÍA / BITÁCORA (solo para quien tenga can_audit): muestra quién creó, modificó
  * o eliminó qué y cuándo. Se filtra por RANGO de fechas (Desde–Hasta, con atajos),
  * por usuario, por tipo y por BÚSQUEDA LIBRE. La búsqueda corre EN EL SERVIDOR sobre
- * todo el rango (usuario, detalle/código de máquina, tipo y acción), así se encuentra
+ * todo el rango (máquina/persona/empleado resuelto a id, tabla, acción y — si hace
+ * falta — nombre de quien hizo la acción o etiqueta de la fila), así se encuentra
  * una máquina de otra fecha sin tener que pararse en ese día. Los datos los escribe un
  * trigger en la BD; aquí solo se leen (RLS deja leer solo a can_audit).
  */
@@ -324,18 +325,26 @@ export default function AuditScreen() {
       let matchRowIds: string[] = [];
       let matchUserIds: string[] = [];
       if (nq && safe) {
-        const [{ data: mach }, { data: profs }] = await Promise.all([
+        const [{ data: mach }, { data: profs }, { data: emps }] = await Promise.all([
           supabase.from('machinery').select('id')
             .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,serial.ilike.%${safe}%,identifier.ilike.%${safe}%,encargado.ilike.%${safe}%,tipo.ilike.%${safe}%,clasificacion.ilike.%${safe}%,referencia.ilike.%${safe}%`)
             .limit(200),
           supabase.from('profiles').select('id')
             .or(`full_name.ilike.%${safe}%,username.ilike.%${safe}%,cedula.ilike.%${safe}%`)
             .limit(200),
+          // Empleados (RRHH): el carnet (EmployeeCardScreen) solo deja rastro en
+          // `detail` como texto libre — desde que el NIVEL 2 dejó de tocar esa
+          // columna (ver más abajo), buscar por cédula/nombre de un empleado
+          // necesita resolverse a id aquí igual que máquina/perfil.
+          supabase.from('employees').select('id')
+            .or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,cedula.ilike.%${safe}%`)
+            .limit(200),
         ]);
         const machIds = (mach ?? []).map((m: any) => m.id as string);
         const profIds = (profs ?? []).map((p: any) => p.id as string);
-        matchRowIds = [...machIds, ...profIds]; // row_id: la máquina o el perfil fue el AFECTADO
-        matchUserIds = profIds;                 // user_id: el perfil fue quien HIZO la acción
+        const empIds = (emps ?? []).map((e: any) => e.id as string);
+        matchRowIds = [...machIds, ...profIds, ...empIds]; // row_id: la máquina, el perfil o el empleado fue el AFECTADO
+        matchUserIds = profIds;                             // user_id: el perfil fue quien HIZO la acción
       }
       // ── Consulta en DOS NIVELES para no tumbar la base de datos ──────────────
       // `audit_log` ya pasó los 60 mil registros: un ILIKE de texto libre sobre
@@ -344,10 +353,11 @@ export default function AuditScreen() {
       // de grande) — eso es lo que tardaba 8-20s y saturaba el servidor. Confirmado
       // 09-ago-2026 con EXPLAIN ANALYZE en la BD real.
       //
-      // NIVEL 1 (rápido, con índice): busca por máquina/persona/tabla/acción ya
-      // RESUELTA a id (matchRowIds/matchUserIds) o a valor exacto (matchTables/
-      // matchActions) — cubre la enorme mayoría de búsquedas reales ("por placa",
-      // "por cédula", "por módulo"...) sin tocar más filas que las del resultado.
+      // NIVEL 1 (rápido, con índice): busca por máquina/persona/empleado/tabla/
+      // acción ya RESUELTA a id (matchRowIds/matchUserIds) o a valor exacto
+      // (matchTables/matchActions) — cubre la enorme mayoría de búsquedas reales
+      // ("por placa", "por cédula", "por módulo"...) sin tocar más filas que las
+      // del resultado. NO busca dentro de `detail` (texto libre del evento).
       const structuredOrs: string[] = [];
       if (matchTables.length) structuredOrs.push(`table_name.in.(${matchTables.join(',')})`);
       if (matchActions.length) structuredOrs.push(`action.in.(${matchActions.join(',')})`);
@@ -359,11 +369,14 @@ export default function AuditScreen() {
         query = query.or(structuredOrs.join(','));
         return query.order('at', { ascending: false }).limit(limit);
       };
-      // NIVEL 2 (lento, escanea filas): SOLO se usa si el nivel 1 no encontró nada
-      // — ej. una palabra suelta que solo aparece en el detalle del evento, no en
-      // ninguna característica de una máquina/persona. SIEMPRE limitado al rango
-      // de fecha visible (aunque esté activo "todo el historial") para no
-      // arriesgarse a escanear la tabla completa sin límite.
+      // NIVEL 2 (lento, escanea filas): busca por quien hizo la acción (nombre) o
+      // por la etiqueta de la fila (row_label) — ej. una palabra suelta que no
+      // resolvió a ninguna máquina/persona/empleado. SIEMPRE limitado al rango de
+      // fecha visible (aunque esté activo "todo el historial") para no arriesgarse
+      // a escanear la tabla completa sin límite. Se SUMA (no reemplaza) al nivel 1
+      // cuando este trajo pocos resultados — si ya trajo muchos, no vale la pena
+      // pagar el escaneo con lo que se está mostrando de sobra.
+      const TEXT_FALLBACK_MERGE_THRESHOLD = 50;
       const buildTextFallback = (withRowLabel: boolean) => {
         let query = supabase.from('audit_log').select('*').gte('at', fromTs).lte('at', toTs);
         const ors = [`user_name.ilike.%${safe}%`];
@@ -377,10 +390,19 @@ export default function AuditScreen() {
         if (structuredOrs.length) {
           ({ data, error } = await buildStructured());
         }
-        if (!error && (!data || data.length === 0)) {
-          ({ data, error } = await buildTextFallback(true));
-          if (error && /row_label/.test(error.message || '')) {
-            ({ data, error } = await buildTextFallback(false)); // columna aún no creada
+        if (!error && (!data || data.length < TEXT_FALLBACK_MERGE_THRESHOLD)) {
+          let fb = await buildTextFallback(true);
+          if (fb.error && /row_label/.test(fb.error.message || '')) {
+            fb = await buildTextFallback(false); // columna aún no creada
+          }
+          if (fb.error) {
+            if (!data) error = fb.error; // nivel 1 tampoco trajo nada: sí importa el error
+          } else {
+            const seen = new Set((data ?? []).map((r: any) => r.id));
+            const extra = (fb.data ?? []).filter((r: any) => !seen.has(r.id));
+            data = [...(data ?? []), ...extra]
+              .sort((a: any, b: any) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+              .slice(0, limit);
           }
         }
       } else {
