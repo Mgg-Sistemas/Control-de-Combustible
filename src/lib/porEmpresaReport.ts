@@ -37,7 +37,7 @@ const horaCaracas = (iso: string | null): string => {
 
 type Fila = {
   inactiva: boolean;
-  code: string; serialPlaca: string; inspector: string;
+  code: string; modelo: string; serialPlaca: string; inspector: string;
   horaIni: string; horaFin: string; trabajadas: number; paradasDia: number; paradasNoche: number; averia: string;
   timeline: string;
 };
@@ -46,18 +46,21 @@ type Fila = {
  * Genera y exporta el PDF del reporte del día por empresa.
  * @param date día ISO "AAAA-MM-DD".
  * @param companyIds IDs de las empresas seleccionadas.
+ * @param encargados (opcional) nombres de ENCARGADO por los que filtrar. Vacío = todos.
  * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateEmpresaDiaReport(opts: { date: string; companyIds: string[] }): Promise<boolean> {
+export async function generateEmpresaDiaReport(opts: { date: string; companyIds: string[]; encargados?: string[] }): Promise<boolean> {
   const { date, companyIds } = opts;
+  const encargados = opts.encargados ?? [];
   const fecha = dmy(date);
   if (!companyIds.length) return false;
 
-  // 1) Máquinas de las empresas elegidas.
+  // 1) Máquinas de las empresas elegidas (y, si se filtró, solo de esos encargados).
+  //    `tipo` = MODELO de la máquina (CAT 320, Komatsu PC200…); `encargado` para filtrar.
   const machs = await selectAllRows(
     'machinery',
-    'id, code, serial, plate, active, operational, company_id, company:company_id(name)',
-    (q) => q.in('company_id', companyIds),
+    'id, code, serial, plate, tipo, encargado, active, operational, company_id, company:company_id(name)',
+    (q) => { let qq = q.in('company_id', companyIds); if (encargados.length) qq = qq.in('encargado', encargados); return qq; },
   );
   const ids = ((machs ?? []) as any[]).map((m) => m.id);
   if (!ids.length) return false;
@@ -384,6 +387,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const fila: Fila = {
       inactiva,
       code: m?.code || '—',
+      modelo: (m?.tipo && String(m.tipo).trim()) || '—',
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
       horaIni, horaFin,
@@ -400,7 +404,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const tabla = (filas: Fila[], totalLabel: string): string => {
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) =>
       `<tr${f.inactiva ? ' class="inact"' : ''}>
-        <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.serialPlaca))}</td>
+        <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
         <td class="r b">${f.inactiva ? '0' : (f.trabajadas > 0 ? f.trabajadas : '—')}</td>
         <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ -${f.paradasDia}` : '—'}</td>
@@ -411,10 +415,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const tParDia = n2(filas.reduce((s, f) => s + f.paradasDia, 0));
     const tParNoche = n2(filas.reduce((s, f) => s + f.paradasNoche, 0));
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Inspector asignado</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="4">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="5">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ -${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 -${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
   };
 
   // Por empresa: PRIMERO las activas (con "Total activas"), luego, aparte, las
@@ -479,7 +483,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .kpi-note{font-size:10px;color:#6B7280;margin:0 0 12px}
   `;
 
-  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s) · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
+  const filtroEnc = encargados.length ? ` · 👤 ${encargados.length} encargado(s): ${encargados.join(', ')}` : '';
+  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
 
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',

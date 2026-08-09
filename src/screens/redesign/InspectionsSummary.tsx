@@ -231,6 +231,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // y la avería/motivo. El reporte hace sus propias consultas (ver porEmpresaReport).
   const [empresaPickerOpen, setEmpresaPickerOpen] = useState(false);
   const [empresaSel, setEmpresaSel] = useState<Set<string>>(new Set());
+  // Filtro OPCIONAL adicional por ENCARGADO (además de las empresas). Vacío = todos los
+  // encargados. Estrecha el reporte a las máquinas de esos encargados. Se comparte con
+  // los dos reportes del modal (día por empresa y horas de horómetro).
+  const [encargadoSel, setEncargadoSel] = useState<Set<string>>(new Set());
   // El mismo selector de empresas sirve para dos reportes: 'dia' (del día por
   // empresa) y 'mant' (horas trabajadas totales · próximas a mantenimiento).
   const [reportMode, setReportMode] = useState<'dia' | 'mant'>('dia');
@@ -239,7 +243,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setEmpresaPickerOpen(false);
     setPdfBusy(EMPRESA_KEY);
     try {
-      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel] });
+      await generateEmpresaDiaReport({ date: selDay, companyIds: [...empresaSel], encargados: [...encargadoSel].filter((e) => encargadosList.includes(e)) });
     } finally {
       setPdfBusy(null);
     }
@@ -251,7 +255,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     setEmpresaPickerOpen(false);
     setPdfBusy(HORAS_KEY);
     try {
-      await generateMachineHoursReport({ companyIds: [...empresaSel] });
+      await generateMachineHoursReport({ companyIds: [...empresaSel], encargados: [...encargadoSel].filter((e) => encargadosList.includes(e)) });
     } finally {
       setPdfBusy(null);
     }
@@ -792,6 +796,19 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     machList.forEach((x: any) => { if (x.company_id) m.set(x.company_id, x.company?.name || 'Sin empresa'); });
     return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => cmpText(a.name, b.name));
   }, [machList]);
+
+  // Encargados distintos que tienen máquinas — para el filtro OPCIONAL del reporte
+  // (además de las empresas). A→Z, sin vacíos. Si se eligen empresas, solo se ofrecen
+  // los encargados de esas empresas (así la lista no muestra encargados irrelevantes).
+  const encargadosList = useMemo(() => {
+    const s = new Set<string>();
+    machList.forEach((x: any) => {
+      if (empresaSel.size > 0 && !(x.company_id && empresaSel.has(x.company_id))) return;
+      const enc = (x.encargado ?? '').trim();
+      if (enc) s.add(enc);
+    });
+    return [...s].sort(cmpText);
+  }, [machList, empresaSel]);
 
   // Ficha COMPLETA por máquina (placa, serial, ubicación, empresa, encargado…).
   const machineInfo = useMemo(() => {
@@ -1372,6 +1389,34 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     );
                   })}
                 </ScrollView>
+
+                {/* Filtro OPCIONAL por ENCARGADO (además de las empresas). Solo aparece
+                    si hay encargados en las empresas elegidas. Vacío = todos. */}
+                {encargadosList.length > 0 ? (
+                  <View style={{ marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xs }}>
+                      <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>👤 Filtrar por encargado (opcional)</Text>
+                      {encargadoSel.size > 0 ? (
+                        <TouchableOpacity onPress={() => setEncargadoSel(new Set())}><Text style={{ color: colors.muted, fontWeight: '800', fontSize: 12 }}>✕ Limpiar ({encargadoSel.size})</Text></TouchableOpacity>
+                      ) : null}
+                    </View>
+                    <ScrollView style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled">
+                      {encargadosList.map((enc) => {
+                        const on = encargadoSel.has(enc);
+                        return (
+                          <TouchableOpacity key={enc} onPress={() => setEncargadoSel((p) => { const s = new Set(p); s.has(enc) ? s.delete(enc) : s.add(enc); return s; })} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                            <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                              {on ? <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 12 }}>✓</Text> : null}
+                            </View>
+                            <Text style={{ color: colors.text, fontSize: 13.5, flex: 1 }} numberOfLines={1}>{enc}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                    <Text style={{ color: colors.muted, fontSize: 11, marginTop: 4 }}>Sin selección = todos los encargados de las empresas elegidas.</Text>
+                  </View>
+                ) : null}
+
                 {reportMode === 'mant' ? (
                   <>
                     <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: spacing.sm, textAlign: 'center' }}>Sin selección = todas las empresas. Regla: 🟡 200 h · 🟠 220 h · 🔴 250 h (límite).</Text>
