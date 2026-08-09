@@ -380,8 +380,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // el desglose por episodio; el fallback (span/hours_stopped) solo aplica cuando NO hubo
     // ningún episodio registrado — así una máquina reactivada no "resucita" horas paradas.
     // Inactiva: sin paradas (0) — está fuera de servicio, no en jornada.
-    const paradasDia = inactiva ? 0 : Math.ceil(hadEps ? epSplit.dia : Math.min(12, par));
-    const paradasNoche = inactiva ? 0 : Math.ceil(hadEps ? epSplit.noche : 0);
+    const paradasDia = inactiva ? 0 : n2(hadEps ? epSplit.dia : Math.min(12, par));
+    const paradasNoche = inactiva ? 0 : n2(hadEps ? epSplit.noche : 0);
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averiaBase = averiaTxt(id);
@@ -400,10 +400,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
       horaIni, horaFin,
-      // Horas trabajadas REDONDEADAS HACIA ARRIBA a entero (pedido cliente: 9,8 → 10).
-      // La base es la misma fórmula del informe (workedFromShifts); acá solo el DISPLAY
-      // del reporte por empresa se muestra en horas enteras.
-      trabajadas: Math.ceil(trab), paradasDia, paradasNoche, averia,
+      // Horas trabajadas REALES sin redondear (pedido cliente 09/08/2026: dejarlas como
+      // aparecen). Misma fórmula que el informe (workedFromShifts).
+      trabajadas: n2(trab), paradasDia, paradasNoche, averia,
       timeline: buildTimeline(id),
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -467,7 +466,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? totParNight : '0'} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
     </div>
-    <div class="kpi-note">Horas trabajadas = ceil(día) + ceil(noche) − paradas + extras (las paradas SÍ se descuentan; una máquina parada que no trabajó queda en 0). Misma fórmula que el <b>Informe por jornada</b> → ambos reportes coinciden. Total de jornada = total de horas trabajadas. · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
+    <div class="kpi-note">Horas trabajadas = día + noche − paradas + extras (horas REALES, sin redondear; las paradas SÍ se descuentan; una máquina parada que no trabajó queda en 0). Misma fórmula que el <b>Informe por jornada</b> → ambos reportes coinciden. La jornada abierta cuenta desde el inicio de su turno (día 7am · noche 7pm). Total de jornada = total de horas trabajadas. · ⏱️ Horas EN VIVO al momento de generar.</div>`;
 
   const extraCss = `
     /* Orientación HORIZONTAL (se aprecian mejor los textos largos). Mantiene el

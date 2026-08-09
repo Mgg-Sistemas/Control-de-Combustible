@@ -10,15 +10,14 @@
  */
 
 /**
- * HORAS REALES REDONDEADAS HACIA ARRIBA (pedido cliente 08/08/2026): cada jornada
- * (día o noche) usa sus horas REALES redondeadas al entero siguiente — ya NO se fuerza
- * al turno más cercano. Ej.: 7.6 h → 8 h · 9.2 h → 10 h · 6 h → 6 h (ya entero).
+ * HORAS REALES SIN REDONDEAR (pedido cliente 09/08/2026): cada turno usa sus horas
+ * REALES tal cual (ya NO se redondean hacia arriba). Antes se hacía `Math.ceil`; el
+ * cliente pidió dejarlas como aparecen en TODO el sistema (Control, Inspecciones,
+ * Informe, Pagos — todos llaman esta función, así que quedan consistentes). Lo único
+ * que se sigue aplicando es el ANCLAJE de inicio de turno (día 7am / noche 7pm) en los
+ * cálculos EN VIVO de los reportes, no aquí.
  */
-export const turnoH = (h: number): number => {
-  const v = Number(h) || 0;
-  if (v <= 0) return 0;
-  return Math.ceil(v);
-};
+export const turnoH = (h: number): number => Math.max(0, Number(h) || 0);
 
 /** Horas trabajadas del día = (turno día + turno noche, redondeados) − parada + extras (mín. 0 antes de extras). */
 export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
