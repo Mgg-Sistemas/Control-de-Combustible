@@ -1465,11 +1465,23 @@ export default function ReportsScreen({ route }: any) {
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
     // REAL: por GPS (puede haber "sin ubicación"). FICTICIO: según el sector al azar.
+    // Macro ESTE/OESTE de una máquina: primero por GPS (sectorOf); si NO tiene GPS,
+    // se respalda con la UBICACIÓN DE DESPLIEGUE (campo texto sector) — así el conteo
+    // por zona cuadra con el total aunque falten coordenadas. Todas las bases de
+    // despliegue son del ESTE salvo la propia "Oeste".
+    const zonaMacroDe = (m: any): 'ESTE' | 'OESTE' | null => {
+      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
+      const mac = sectorMacro(sec);
+      if (mac) return mac;
+      const s = (m.sector && String(m.sector).trim().toLowerCase()) || '';
+      if (s === 'oeste') return 'OESTE';
+      if (s) return 'ESTE';
+      return null;
+    };
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
-      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
-      if (!sec) { sinUbic++; return; }
-      if (sectorMacro(sec) === 'OESTE') oeste++; else este++;
+      const mac = zonaMacroDe(m);
+      if (mac === 'OESTE') oeste++; else if (mac === 'ESTE') este++; else sinUbic++;
     });
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
@@ -1486,7 +1498,11 @@ export default function ReportsScreen({ route }: any) {
       const s = (m.sector && String(m.sector).trim()) || '';
       if (ubiCount.has(s)) ubiCount.set(s, (ubiCount.get(s) || 0) + 1); else ubiSin++;
     });
-    const ubiRows = UBIS.map((u) => `<tr><td>${esc(u)}</td><td style="text-align:right;font-weight:700">${ubiCount.get(u) || 0}</td></tr>`).join('')
+    const UBI_LABEL: Record<string, string> = {
+      'CDT': 'CDT · Centro de Distribución Temporal',
+      'CDF': 'CDF · Centro de Distribución Final',
+    };
+    const ubiRows = UBIS.map((u) => `<tr><td>${esc(UBI_LABEL[u] || u)}</td><td style="text-align:right;font-weight:700">${ubiCount.get(u) || 0}</td></tr>`).join('')
       + (ubiSin > 0 ? `<tr><td>Sin ubicación</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
     const resumenUbicacionHtml = `<div class="sect">📍 Equipos por ubicación de despliegue</div>
       <table class="tac"><thead><tr><th>Ubicación</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
@@ -1495,7 +1511,7 @@ export default function ReportsScreen({ route }: any) {
     // Resumen: TOTAL por TIPO de maquinaria (Jumbo, Payloader…) y DÓNDE se ubican
     // (🟢 Este / 🟠 Oeste). Ej.: "PAYLOADER · 7 · 3 Este · 4 Oeste". A→Z natural.
     // Zona REAL por GPS; en el ficticio, por el sector aleatorio asignado.
-    const macroDe = (m: any) => sectorMacro(ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude));
+    const macroDe = (m: any) => zonaMacroDe(m);
     const porTipoZona = new Map<string, { total: number; este: number; oeste: number; su: number }>();
     list.forEach((m) => {
       const k = equipCategory(m.code) || 'SIN TIPO';
