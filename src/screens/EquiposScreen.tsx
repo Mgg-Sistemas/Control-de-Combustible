@@ -436,15 +436,17 @@ export default function EquiposScreen({ navigation, route }: any) {
     savedTimer.current = setTimeout(() => setJustSaved(null), 3500);
   };
 
-  // Conteo de maquinaria por estado operativo (para las tarjetas superiores).
-  const activeMachines = machinery.data.filter((m) => m.operational);
-  const inactiveMachines = machinery.data.filter((m) => !m.operational);
-  // "En espera": operativa pero pendiente de recepción (mismo criterio que el dashboard).
-  const esperaMachines = machinery.data.filter((m) => m.operational !== false && m.en_espera);
+  // Conteo de maquinaria por estado (3 cubos exclusivos, igual que el dashboard):
+  //  · OPERATIVAS: operativas SIN avería.
+  //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
+  //  · RETIRADAS: operational=false (sacadas de servicio).
+  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && averiaCat[m.id]?.tipo === 'averia');
+  const activeMachines = machinery.data.filter((m) => m.operational && averiaCat[m.id]?.tipo !== 'averia');
+  const retiradaMachines = machinery.data.filter((m) => !m.operational);
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
-  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'inactive' | 'espera'>(null);
+  const [detailStatus, setDetailStatus] = useState<null | 'active' | 'retirada' | 'averiada'>(null);
   const [detailQuery, setDetailQuery] = useState(''); // buscador del detalle (por todas las características)
   useEffect(() => { setDetailQuery(''); }, [detailStatus]); // limpia el buscador al abrir/cerrar el detalle
 
@@ -453,7 +455,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const s = route?.params?.status;
     if (!s) return;
     setKind('maquinaria');
-    setDetailStatus(s === 'espera' ? 'espera' : s === 'inactive' ? 'inactive' : 'active');
+    setDetailStatus(s === 'averiada' ? 'averiada' : s === 'retirada' || s === 'inactive' ? 'retirada' : 'active');
     navigation.setParams?.({ status: undefined }); // evita reabrir al volver
   }, [route?.params?.status]);
 
@@ -465,8 +467,8 @@ export default function EquiposScreen({ navigation, route }: any) {
     setQuery(String(term));
     navigation.setParams?.({ q: undefined });
   }, [route?.params?.q]);
-  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'inactive' ? inactiveMachines : detailStatus === 'espera' ? esperaMachines : [];
-  const detailTitle = detailStatus === 'inactive' ? '⛔ Maquinaria inactiva' : detailStatus === 'espera' ? '🕓 Maquinaria en espera' : '✅ Maquinaria activa';
+  const detailList = detailStatus === 'active' ? activeMachines : detailStatus === 'retirada' ? retiradaMachines : detailStatus === 'averiada' ? averiadaMachines : [];
+  const detailTitle = detailStatus === 'retirada' ? '⬛ Maquinaria retirada' : detailStatus === 'averiada' ? '🔴 Maquinaria averiada' : '✅ Maquinaria operativa';
   // Buscador del detalle: filtra por TODAS las características (código, placa, serial,
   // identificador, grupo, encargado, tipo, clasificación, parroquia, sector, edificio/
   // referencia y nombre de empresa). Vacío = toda la lista.
@@ -937,8 +939,8 @@ export default function EquiposScreen({ navigation, route }: any) {
   const titleForScope = (scope: string) =>
     scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
   const reportTitle = titleForScope(reportCompany);
-  const estadoTxt = (m: Machinery) => (m.en_espera ? 'En espera' : m.operational ? 'Operativa' : 'No operativa');
-  const estadoColor = (m: Machinery) => (m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger);
+  const estadoTxt = (m: Machinery) => (m.operational ? 'Operativa' : 'Retirada');
+  const estadoColor = (m: Machinery) => (m.operational ? colors.success : colors.danger);
   // Fecha (DD/MM/YYYY) de un timestamp ISO; null si no hay.
   const fmtEstadoFecha = (iso?: string | null) => {
     if (!iso) return null;
@@ -1171,7 +1173,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
               <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
+                {m.operational ? '● Operativa' : '● Retirada'}
               </Text>
             </View>
             <EstadoFechaLine m={m} />
@@ -1248,8 +1250,7 @@ export default function EquiposScreen({ navigation, route }: any) {
         <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
         <BigBtn label="⛽ Combustible" onPress={() => openFuel(m)} color="#0EA5E9" />
         <BigBtn label="🔳 QR" onPress={() => openQr(m)} color="#111827" />
-        <BigBtn label={m.operational ? '⛔ Inactiva' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
-        <BigBtn label={m.en_espera ? '📥 Quitar espera' : '🕓 En espera'} onPress={() => toggleEspera(m)} color={m.en_espera ? colors.success : colors.warning} disabled={busy === m.id + '-esp'} />
+        <BigBtn label={m.operational ? '⬛ Retirar' : '✅ Operativa'} onPress={() => toggleOp(m)} color={m.operational ? colors.danger : colors.success} disabled={busy === m.id + '-op'} />
       </View>
     </Card>
     );
@@ -1328,24 +1329,33 @@ export default function EquiposScreen({ navigation, route }: any) {
         </TouchableOpacity>
       ) : null}
 
-      {/* Tarjetas de estado: maquinaria activa / inactiva (clickeables → detalle) */}
+      {/* Tarjetas de estado: operativas / averiadas / retiradas (clickeables → detalle) */}
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
         <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('active')}>
           <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.success }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria activa</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Operativas</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
             </View>
             <Text style={{ fontSize: 22, fontWeight: '800', color: colors.success, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : activeMachines.length}</Text>
           </Card>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('inactive')}>
-          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
+        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('averiada')}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.warning }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ color: colors.muted, fontSize: 12 }}>Maquinaria inactiva</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Averiadas</Text>
               <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
             </View>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : inactiveMachines.length}</Text>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.warning, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : averiadaMachines.length}</Text>
+          </Card>
+        </TouchableOpacity>
+        <TouchableOpacity activeOpacity={0.7} style={{ flex: 1 }} onPress={() => setDetailStatus('retirada')}>
+          <Card style={{ borderLeftWidth: 4, borderLeftColor: colors.danger }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Retiradas</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>›</Text>
+            </View>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: colors.danger, fontVariant: ['tabular-nums'] as any }}>{machinery.loading ? '…' : retiradaMachines.length}</Text>
           </Card>
         </TouchableOpacity>
       </View>
@@ -1864,7 +1874,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {detailQuery ? <TouchableOpacity onPress={() => setDetailQuery('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
           </View>
           {detailList.length === 0 ? (
-            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'espera' ? 'No hay maquinaria en espera.' : 'No hay maquinaria inactiva.'} />
+            <EmptyState title="Sin máquinas" subtitle={detailStatus === 'active' ? 'No hay maquinaria operativa.' : detailStatus === 'averiada' ? 'No hay maquinaria averiada.' : 'No hay maquinaria retirada.'} />
           ) : detailFiltered.length === 0 ? (
             <EmptyState title="Sin coincidencias" subtitle={`No hay máquinas que coincidan con "${detailQuery.trim()}".`} />
           ) : (
@@ -1875,7 +1885,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 // arrancan abiertos para ver los resultados, PERO si el usuario toca para
                 // colapsar/expandir su elección manda (por eso el ?? va primero, no un
                 // `detailNq ? true` que ignoraba el toque y no dejaba colapsar al buscar).
-                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'inactive'));
+                const open = detailExpanded[g.key] ?? (detailNq ? true : (detailStatus !== 'retirada'));
                 return (
                 <View key={g.key} style={{ marginBottom: spacing.xs }}>
                   <TouchableOpacity onPress={() => setDetailExpanded((p) => ({ ...p, [g.key]: !open }))} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: open ? colors.brand : colors.surfaceAlt, borderWidth: 1, borderColor: open ? colors.brand : colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.md }}>
@@ -1916,7 +1926,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16, flex: 1 }}>{m.code}</Text>
                             <Text style={{ color: m.en_espera ? colors.warning : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                              {m.en_espera ? '🕓 En espera' : m.operational ? '● Operativa' : '● No operativa'}
+                              {m.operational ? '● Operativa' : '● Retirada'}
                             </Text>
                           </View>
                           <EstadoFechaLine m={m} />
@@ -1941,27 +1951,15 @@ export default function EquiposScreen({ navigation, route }: any) {
                       <BigBtn label={busy === m.id + '-photo' ? 'Subiendo…' : '📷 Foto máquina'} onPress={() => photo(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photo'} />
                       <BigBtn label={busy === m.id + '-photoser' ? 'Subiendo…' : '🔖 Foto serial/placa'} onPress={() => photoSerial(m)} color={colors.brand} textColor={colors.brandContrast} disabled={busy === m.id + '-photoser'} />
                     </View>
-                    {detailStatus === 'espera' ? (
-                      <TouchableOpacity
-                        onPress={() => toggleEspera(m)}
-                        disabled={busy === m.id + '-esp'}
-                        style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy === m.id + '-esp' ? 0.6 : 1 }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
-                          {busy === m.id + '-esp' ? 'Guardando…' : '📥 Quitar de espera (recibir)'}
-                        </Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        onPress={() => toggleOp(m)}
-                        disabled={busy === m.id + '-op'}
-                        style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
-                          {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⛔ Poner No operativa' : '✅ Activar (Operativa)'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      onPress={() => toggleOp(m)}
+                      disabled={busy === m.id + '-op'}
+                      style={{ marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: m.operational ? colors.danger : colors.success, opacity: busy === m.id + '-op' ? 0.6 : 1 }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                        {busy === m.id + '-op' ? 'Guardando…' : m.operational ? '⬛ Retirar (sacar de servicio)' : '✅ Activar (Operativa)'}
+                      </Text>
+                    </TouchableOpacity>
                   </Card>
                       ))}
                     </View>

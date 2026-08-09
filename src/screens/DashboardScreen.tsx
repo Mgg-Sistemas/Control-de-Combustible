@@ -88,7 +88,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [showActive, setShowActive] = useState(false);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
-  const [states, setStates] = useState<{ op: number; esp: number; no: number } | null>(null);
+  const [states, setStates] = useState<{ op: number; ave: number; ret: number } | null>(null);
 
   // Gráfica de ingreso por empresa + modo (día / mes / año).
   const [chartMode, setChartMode] = useState<'dia' | 'mes' | 'anio'>('mes');
@@ -98,13 +98,17 @@ export default function DashboardScreen({ navigation }: any) {
   const [chartTotal, setChartTotal] = useState(0);
 
   const loadCounts = useCallback(async () => {
-    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }] = await Promise.all([
+    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }, { data: averias }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
       supabase.from('machinery').select('id, operational, en_espera, active'),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from('companies').select('id, name'),
+      // AVERIADAS: sincronizado con lo que marcan los inspectores (solicitudes de
+      // mantenimiento PENDIENTES que NO son "MÁQUINA PARADA"). Mismo criterio que el catálogo.
+      supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente').neq('material', 'MÁQUINA PARADA'),
     ]);
+    const averiaSet = new Set((averias ?? []).map((r: any) => r.machinery_id));
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
@@ -125,17 +129,18 @@ export default function DashboardScreen({ navigation }: any) {
       setActiveByCompany([...map.values()].sort((a, b) => a.company.localeCompare(b.company, 'es')));
     } else setActiveByCompany([]);
     setActiveLocations(locCount ?? 0);
-    // Estado de la flota completa. La maquinaria INACTIVA se define por
-    // operational=false (mismo criterio que el catálogo), para que los números
-    // coincidan siempre. Los tres cubos suman el total de la flota.
-    let op = 0, esp = 0, no = 0, activas = 0;
+    // Estado de la flota completa (3 cubos exclusivos que suman el total):
+    //  · RETIRADAS: operational=false (sacadas de servicio).
+    //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
+    //  · OPERATIVAS: el resto (operativas sin avería).
+    let op = 0, ave = 0, ret = 0, activas = 0;
     (machs ?? []).forEach((m: any) => {
-      if (m.operational === false) { no++; return; }
+      if (m.operational === false) { ret++; return; }
       activas++;
-      if (m.en_espera) esp++;
+      if (averiaSet.has(m.id)) ave++;
       else op++;
     });
-    setStates({ op, esp, no });
+    setStates({ op, ave, ret });
     setActiveAssets(activas + (vehCount ?? 0));
   }, []);
 
@@ -252,8 +257,8 @@ export default function DashboardScreen({ navigation }: any) {
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           {([
             { key: 'active', n: states?.op, color: colors.success, label: '🟢 Operativas' },
-            { key: 'espera', n: states?.esp, color: colors.warning, label: '🕓 En espera' },
-            { key: 'inactive', n: states?.no, color: colors.danger, label: '🔴 No operativa' },
+            { key: 'averiada', n: states?.ave, color: colors.warning, label: '🔴 Averiadas' },
+            { key: 'retirada', n: states?.ret, color: colors.danger, label: '⬛ Retiradas' },
           ] as const).map((s) => (
             <TouchableOpacity
               key={s.key}
