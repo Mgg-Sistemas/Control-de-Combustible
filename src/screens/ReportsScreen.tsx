@@ -1494,7 +1494,8 @@ export default function ReportsScreen({ route }: any) {
     const resumenTipoZonaHtml = `<div class="sect">🚜 Total por tipo de maquinaria · 🟢 Este / 🟠 Oeste</div>
       <table class="tac"><thead><tr><th>Tipo de maquinaria</th><th style="width:80px;text-align:right">Total</th><th style="width:80px;text-align:right">🟢 Este</th><th style="width:80px;text-align:right">🟠 Oeste</th></tr></thead>
       <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>`}</tbody>
-      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>`;
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>
+      <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`;
     // Resumen: cantidad por CLASIFICACIÓN (Excavadora, Volteo…). A→Z natural.
     const countByClasif = new Map<string, number>();
     list.forEach((m) => { const c = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; countByClasif.set(c, (countByClasif.get(c) ?? 0) + 1); });
