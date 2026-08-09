@@ -1361,7 +1361,7 @@ export default function ReportsScreen({ route }: any) {
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     // Torontos y volquetas INACTIVOS (inoperativos, en espera o dados de baja) NO se
     // toman en cuenta en NINGÚN conteo del reporte (real ni ficticio).
@@ -1465,21 +1465,56 @@ export default function ReportsScreen({ route }: any) {
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen ARRIBA: cuántos equipos hay en el ESTE y cuántos en el OESTE (solo totales).
     // REAL: por GPS (puede haber "sin ubicación"). FICTICIO: según el sector al azar.
+    // Macro ESTE/OESTE de una máquina: primero por GPS (sectorOf); si NO tiene GPS,
+    // se respalda con la UBICACIÓN DE DESPLIEGUE (campo texto sector) — así el conteo
+    // por zona cuadra con el total aunque falten coordenadas. Todas las bases de
+    // despliegue son del ESTE salvo la propia "Oeste".
+    const zonaMacroDe = (m: any): 'ESTE' | 'OESTE' | null => {
+      // FICTICIO: usa el sector aleatorio (reparto simulado).
+      if (ficticio) return sectorMacro(randSectorById.get(m.id) ?? null);
+      // REAL: la fuente de verdad es la UBICACIÓN DE DESPLIEGUE (campo texto que cura el
+      // admin). Todas las bases (Este/CDT/CDF/Santa Eduviges/Escuela Naval) son del lado
+      // ESTE; solo "Oeste" es del oeste. Si la máquina no tiene ubicación asignada, se
+      // respalda con el GPS (sectorOf).
+      const s = (m.sector && String(m.sector).trim().toLowerCase()) || '';
+      if (s === 'oeste') return 'OESTE';
+      if (s) return 'ESTE';
+      return sectorMacro(sectorOf(m.latitude, m.longitude));
+    };
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
-      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
-      if (!sec) { sinUbic++; return; }
-      if (sectorMacro(sec) === 'OESTE') oeste++; else este++;
+      const mac = zonaMacroDe(m);
+      if (mac === 'OESTE') oeste++; else if (mac === 'ESTE') este++; else sinUbic++;
     });
     const resumenZonaHtml = `<div class="sect">🧭 Equipos por zona</div>
       <table class="tac"><thead><tr><th>Zona</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
       <tbody><tr><td>ESTE</td><td style="text-align:right;font-weight:700">${este}</td></tr>
       <tr><td>OESTE</td><td style="text-align:right;font-weight:700">${oeste}</td></tr></tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
+    // Resumen: equipos por UBICACIÓN DE DESPLIEGUE (base donde están/pernoctan): Este,
+    // Oeste, CDT, CDF, Santa Eduviges, Escuela Naval. Es un campo de TEXTO (machinery.sector),
+    // NO usa GPS (no satura el mapa). Orden fijo de las 6; "Sin ubicación" solo si queda alguna.
+    const UBIS = ['Este', 'Oeste', 'CDT', 'CDF', 'Santa Eduviges', 'Escuela Naval'];
+    const ubiCount = new Map<string, number>(UBIS.map((u) => [u, 0]));
+    let ubiSin = 0;
+    list.forEach((m) => {
+      const s = (m.sector && String(m.sector).trim()) || '';
+      if (ubiCount.has(s)) ubiCount.set(s, (ubiCount.get(s) || 0) + 1); else ubiSin++;
+    });
+    const UBI_LABEL: Record<string, string> = {
+      'CDT': 'CDT · Centro de Distribución Temporal',
+      'CDF': 'CDF · Centro de Distribución Final',
+    };
+    const ubiRows = UBIS.map((u) => `<tr><td>${esc(UBI_LABEL[u] || u)}</td><td style="text-align:right;font-weight:700">${ubiCount.get(u) || 0}</td></tr>`).join('')
+      + (ubiSin > 0 ? `<tr><td>Sin ubicación</td><td style="text-align:right;font-weight:700">${ubiSin}</td></tr>` : '');
+    const resumenUbicacionHtml = `<div class="sect">📍 Equipos por ubicación de despliegue</div>
+      <table class="tac"><thead><tr><th>Ubicación</th><th style="width:100px;text-align:right">Cantidad</th></tr></thead>
+      <tbody>${ubiRows}</tbody>
+      <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td></tr></tfoot></table>`;
     // Resumen: TOTAL por TIPO de maquinaria (Jumbo, Payloader…) y DÓNDE se ubican
     // (🟢 Este / 🟠 Oeste). Ej.: "PAYLOADER · 7 · 3 Este · 4 Oeste". A→Z natural.
     // Zona REAL por GPS; en el ficticio, por el sector aleatorio asignado.
-    const macroDe = (m: any) => sectorMacro(ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude));
+    const macroDe = (m: any) => zonaMacroDe(m);
     const porTipoZona = new Map<string, { total: number; este: number; oeste: number; su: number }>();
     list.forEach((m) => {
       const k = equipCategory(m.code) || 'SIN TIPO';
@@ -1561,6 +1596,7 @@ export default function ReportsScreen({ route }: any) {
       ${resumenTipoZonaHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
+      ${resumenUbicacionHtml}
       ${resumenEnteHtml}
       ${conPersonal ? `<div class="sect">👥 Personal por departamento (totales)</div>${resumenPersonalHtml}<div class="sect">👷 Coordinadores e inspectores por zona</div>${zonaPersonalHtml}` : ''}`;
     const subBase = 'Operación Rescate y Esperanza – La Guaira';
