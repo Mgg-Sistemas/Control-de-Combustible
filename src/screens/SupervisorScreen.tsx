@@ -490,7 +490,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // "pendiente por iniciar". Cuando coinciden (de día) es una sola fecha.
     const businessDay = caracasBusinessToday();
     const roundDates = businessDay === today ? [today] : [today, businessDay];
-    const [{ data: rs }, { data: rsRescue }, { data: par }, { data: avPend }] = await Promise.all([
+    // GRACIA DE NOCHE hasta las 8am (regla cliente): la jornada de NOCHE (7pm–7am)
+    // finalizada debe seguir viéndose FINALIZADA hasta las 8am. Entre 7am y 8am,
+    // caracasBusinessToday ya saltó a HOY, así que la noche recién cerrada (round_date
+    // = AYER, sin jornada_start_at) dejaría de traerse y la máquina volvería a
+    // "pendiente". En esa franja traemos SOLO las horas de NOCHE de ayer (no las de
+    // día, para NO tocar el flujo del turno de día). A las 8am deja de traerse → pasa a
+    // pendiente por iniciar, como se pidió.
+    const nowHour = caracasParts(new Date()).hour;
+    const ayer = (() => { const d = new Date(today + 'T12:00:00-04:00'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); })();
+    const nightGraceDay = nowHour >= 7 && nowHour < 8 ? ayer : null;
+    const [{ data: rs }, { data: rsRescue }, { data: rsNight }, { data: par }, { data: avPend }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
@@ -500,6 +510,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // huérfano desaparecía silenciosamente del teléfono y el inspector podía volver
       // a iniciar jornada sobre la misma máquina.
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').gte('round_date', rescueCutoff).lt('round_date', today).not('jornada_start_at', 'is', null),
+      // GRACIA 7am–8am: horas de NOCHE de ayer (jornada de noche ya finalizada) para
+      // conservarlas como CERRADAS hasta las 8am. Solo night_hours (no día).
+      nightGraceDay
+        ? supabase.from('machine_rounds').select('machinery_id, night_hours').eq('round_date', nightGraceDay).gt('night_hours', 0)
+        : Promise.resolve({ data: [] as any[] }),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -553,6 +568,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       } else {
         rmap[r.machinery_id] = { ...prev, open: true, openNight: true, openStartNight: Math.max(prev.openStartNight, ms) };
       }
+    });
+    // GRACIA 7am–8am: las horas de NOCHE de ayer conservan la máquina como CERRADA
+    // (finalizada). SOLO se toca nightWorked (nunca dayWorked) para no afectar el día.
+    ((rsNight ?? []) as any[]).forEach((r) => {
+      const prev = rmap[r.machinery_id] ?? empty;
+      rmap[r.machinery_id] = { ...prev, nightWorked: Math.max(prev.nightWorked, Number(r.night_hours) || 0) };
     });
     setRoundsById(rmap);
     // Paradas crudas con su TURNO (por hora Caracas de la marca). El filtrado por
@@ -768,6 +789,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const h = caracasParts(new Date()).hour;
     return h >= 7 && h < 19 ? 'day' : 'night';
   }, [nowTick]);
+  // GRACIA DE NOCHE (7am–8am): una jornada de NOCHE (7pm–7am) ya finalizada sigue
+  // viéndose CERRADA/finalizada hasta las 8am (regla cliente). A las 8am pasa a
+  // pendiente por iniciar. Solo aplica a la noche; no toca el flujo del día.
+  const nightGraceActive = useMemo(() => {
+    const h = caracasParts(new Date()).hour;
+    return h >= 7 && h < 8;
+  }, [nowTick]);
   // CIERRE DE JORNADA: el inspector puede FINALIZAR manualmente en cualquier momento.
   // Las máquinas que queden abiertas las cierra el auto-cierre del servidor (pg_cron)
   // a las 7:00pm (día) / 7:00am (noche), hora Caracas. Ya NO hay bloqueo por hora.
@@ -935,6 +963,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hoursMine(id)) return 'cerrada';                      // 3) finalizó con horas (ya no abierta)
     if (!avOff && hasIn(estadoIndex.avAny, id, sh)) return 'averia';   // 4) arrastrada de mi turno
     if (!paOff && hasIn(estadoIndex.paAny, id, sh)) return 'parada';
+    // 5) GRACIA 7am–8am: una jornada de NOCHE ya finalizada (con horas de noche, no
+    // abierta) sigue como CERRADA hasta las 8am — no reaparece "pendiente" al entrar el
+    // día. A las 8am (nightGraceActive=false) cae a pendiente por iniciar, como se pidió.
+    if (nightGraceActive && hoursEn(id, 'night') && !openEn(id, 'night')) return 'cerrada';
     return 'pendiente';
   };
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
