@@ -800,7 +800,7 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, marginTop: spacing.md, marginBottom: spacing.xs }}>🚜 Datos de la máquina</Text>
                 <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, gap: 3 }}>
                   <Text style={{ color: colors.muted, fontSize: 13 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.company}</Text></Text>
-                  {detailReq.tipo ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔧 Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.tipo}</Text></Text> : null}
+                  {detailReq.tipo ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔧 Marca - Modelo: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.tipo}</Text></Text> : null}
                   {detailReq.plate ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔖 Placa: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.plate}</Text></Text> : null}
                   {detailReq.serial ? <Text style={{ color: colors.muted, fontSize: 13 }}>#️⃣ Serial: <Text style={{ color: colors.text, fontWeight: '700' }}>{detailReq.serial}</Text></Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 13 }}>📍 Ubicación: <Text style={{ color: colors.text, fontWeight: '700' }}>{coordText(detailReq.latitude, detailReq.longitude) || '—'}</Text></Text>

@@ -113,7 +113,7 @@ const MACHINERY_FIELDS: Field[] = [
   // alguien decida qué hacer con ella. Se puede destildar aquí mismo si ya se sabe
   // que va directo a Operativa, o cambiarse después con el botón del detalle.
   { key: 'en_espera', label: '⏳ Dejar "Esperando instrucciones" (aún no decidida)', type: 'switch', defaultValue: true },
-  { key: 'tipo', label: 'Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
+  { key: 'tipo', label: 'Marca - Modelo (CAT 320, Komatsu PC200...)', type: 'text' },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
   { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
   { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia' },
@@ -1252,7 +1252,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             <AveriaBadge id={m.id} />
             <UltimaInactividadLine id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-            {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.tipo}</Text> : null}
+            {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}

@@ -118,7 +118,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     var zoneTxt = z ? (esc(z.name) + (z.near ? ' (cercana)' : '')) : 'Fuera de sectores';
     var div = document.createElement('div');
     div.innerHTML = '<b>'+esc(p.name)+'</b><br/>🏢 '+esc(co)
-      + (p.tipo ? '<br/>🏷️ Modelo: '+esc(p.tipo) : '')
+      + (p.tipo ? '<br/>🏷️ Marca - Modelo: '+esc(p.tipo) : '')
       + (p.clasificacion ? '<br/>🗃️ Clasificación: '+esc(p.clasificacion) : '')
       + (placaSerial ? '<br/>🔖 '+placaSerial : '')
       + (p.encargado ? '<br/>👤 Encargado: '+esc(p.encargado) : '')
@@ -444,7 +444,7 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
               </Text>
             </View>
             <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
-            {p.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {p.tipo}</Text> : null}
+            {p.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {p.tipo}</Text> : null}
             {p.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {p.clasificacion}</Text> : null}
             {p.plate || p.serial || p.identifier ? (
               <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {[p.plate && `Placa: ${p.plate}`, p.serial && `Serial: ${p.serial}`, p.identifier && `ID: ${p.identifier}`].filter(Boolean).join(' · ')}</Text>
