@@ -1944,7 +1944,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                             <Text style={{ color: colors.brandText, fontSize: 10, fontWeight: '700' }}>🕒 Ver tramos</Text>
                           </TouchableOpacity>
                         </View>
-                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.ceil(worked)} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
+                        <Text style={{ color: worked > 0 ? colors.success : colors.muted, fontWeight: '800', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{Math.round(worked * 100) / 100} h · {shiftLabel(turnoH(dayH) + turnoH(nightH))}</Text>
                       </View>
                       {(['day', 'night'] as const).map((which) => {
                         const cur = which === 'day' ? dayH : nightH;
