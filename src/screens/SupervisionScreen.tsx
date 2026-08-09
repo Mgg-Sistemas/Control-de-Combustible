@@ -19,6 +19,7 @@ import { VisitStatus } from '../types/database';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import InspectionsSummary from './redesign/InspectionsSummary'; // rediseño: dashboard analítico de inspecciones
+import CheckMaquinaModal from '../components/CheckMaquinaModal'; // mismo CHECK MÁQUINA del teléfono, autocontenido
 import ReportesSection from '../components/ReportesSection';
 // caracasToday/caracasBusinessToday: centralizadas en src/lib/caracasDay.ts (antes
 // esta pantalla tenía su propia copia de caracasToday, que no sabía que el turno
@@ -101,12 +102,11 @@ export default function SupervisionScreen({ navigation }: any) {
   const { role, canSee } = useAuth();
   const isAdmin = role === 'admin';
   // CHECK MÁQUINA (asignar/reasignar inspector) en esta pantalla: el admin siempre
-  // puede; además, cualquiera con el módulo 'coordinador_inspectores' (Usuarios →
-  // Permisos por módulo) también — mismo criterio que ya usa el teléfono
-  // (`puedeCoordinar` en SupervisorScreen.tsx). Antes esto era SOLO isAdmin acá,
-  // así que un analista con ese permiso podía coordinar desde el teléfono pero no
-  // desde esta vista — pedido del cliente: que lo vean también admin Y analistas
-  // (los que tengan el permiso activado).
+  // puede; a cualquier otro usuario se le activa con el permiso 'coordinador_
+  // inspectores' (Usuarios → Permisos por módulo) — ESE es el "check" que lo
+  // activa, a propósito no se bloquea también por rol en código: así el admin
+  // decide libremente a quién se lo da (hoy son analistas, pero no hace falta
+  // tocar código si mañana hace falta dárselo a alguien más).
   const puedeCoordinar = isAdmin || canSee('coordinador_inspectores');
   // Secciones colapsables del módulo. Por defecto TODAS COLAPSADAS (arranca con
   // todas las claves cerradas). Guarda las CERRADAS.
@@ -322,8 +322,7 @@ export default function SupervisionScreen({ navigation }: any) {
   //    incluidas las que aún no tienen inspector en ningún turno — para que desde
   //    esta vista se pueda hacer la PRIMERA asignación, no solo reasignar. Excluye
   //    "Esperando instrucciones" (aún no decididas, no les toca inspector).
-  const [checkOpen, setCheckOpen] = useState(false);
-  const [checkListOpen, setCheckListOpen] = useState(false);
+  const [checkModalOpen, setCheckModalOpen] = useState(false);
   const checkMachines = useMemo(() => {
     const q = norm(asgQuery.trim());
     return machList
@@ -904,69 +903,33 @@ export default function SupervisionScreen({ navigation }: any) {
       <InspectionsSummary date={date} onDateChange={setDate} />
 
       {/* ── ✅ CHECK MÁQUINA: asignar/reasignar el inspector de cada máquina (día/noche)
-          SIN tener que entrar a la vista de teléfono. Antes esto solo existía ahí;
-          ahora vive también acá, para admin y para cualquier analista con el permiso
+          SIN tener que entrar a la vista de teléfono. Es EL MISMO componente que usa
+          el teléfono (CheckMaquinaModal), para que se vea y funcione exactamente
+          igual — visible para admin y para cualquier analista con el permiso
           "Coordinador de inspectores" (Usuarios → Permisos por módulo). */}
       {puedeCoordinar ? (
         <Card style={{ borderLeftWidth: 4, borderLeftColor: checkPendCount > 0 ? colors.warning : colors.primary }}>
-          <TouchableOpacity onPress={() => setCheckOpen((v) => !v)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-            <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 16 }}>{checkOpen ? '▾' : '▸'}</Text>
-            <Text style={[typography.title, { marginBottom: 0, flex: 1 }]}>✅ Check máquina</Text>
+          <TouchableOpacity onPress={() => setCheckModalOpen(true)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Text style={{ fontSize: 18 }}>✅</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[typography.title, { marginBottom: 0 }]}>Check máquina</Text>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>Asignar o reasignar el inspector (día/noche) de cada máquina</Text>
+            </View>
             {checkPendCount > 0 ? (
               <View style={{ backgroundColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 }}>
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 11 }}>{checkPendCount} sin inspector</Text>
               </View>
             ) : null}
+            <Text style={{ color: colors.primary, fontWeight: '900', fontSize: 18 }}>›</Text>
           </TouchableOpacity>
-          {checkOpen ? (
-            <View style={{ marginTop: spacing.sm }}>
-              <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-                Asigna o reasigna el inspector (día/noche) de cada máquina. Toca una máquina de la lista para elegir su inspector.
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
-                <Text style={{ fontSize: 14 }}>🔎</Text>
-                <TextInput value={asgQuery} onChangeText={setAsgQuery} placeholder="Buscar por código, placa, serial, empresa, inspector…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs }} />
-                {asgQuery ? <TouchableOpacity onPress={() => setAsgQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
-              </View>
-              <TouchableOpacity onPress={() => setCheckListOpen((v) => !v)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md }}>
-                <Text style={{ flex: 1, color: colors.text, fontWeight: '900', fontSize: 14 }}>{checkListOpen ? 'Ocultar máquinas' : 'Ver máquinas'}</Text>
-                <View style={{ minWidth: 30, alignItems: 'center', backgroundColor: colors.surfaceAlt, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 2 }}>
-                  <Text style={{ color: colors.text, fontWeight: '900', fontSize: 13, fontVariant: ['tabular-nums'] as any }}>{checkMachines.length}</Text>
-                </View>
-              </TouchableOpacity>
-              {checkListOpen ? (
-                checkMachines.length === 0 ? (
-                  <EmptyState title="Sin máquinas" subtitle="No hay máquinas activas que coincidan con la búsqueda." />
-                ) : (
-                  <ScrollView style={{ maxHeight: 420, marginTop: spacing.sm }} nestedScrollEnabled>
-                    {checkMachines.map((r) => {
-                      const sinInsp = !r.day && !r.night;
-                      return (
-                        <TouchableOpacity key={r.id} onPress={() => openAssign({ machinery_id: r.id, code: r.code, companyName: r.companyName })} activeOpacity={0.7} style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: spacing.sm }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13, flex: 1 }} numberOfLines={1}>🚜 {r.code} {r.plate ? `· ${r.plate}` : r.serial ? `· #️⃣ ${r.serial}` : ''}</Text>
-                            {sinInsp ? <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 11 }}>⚠️ sin inspector</Text> : null}
-                          </View>
-                          <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }}>🏢 {r.companyName}</Text>
-                          <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: 2 }}>
-                            <Text style={{ color: r.day ? colors.text : colors.muted, fontSize: 12, fontWeight: r.day ? '700' : '400', fontStyle: r.day ? 'normal' : 'italic' }}>☀️ {r.day?.name ?? 'sin asignar'}</Text>
-                            <Text style={{ color: r.night ? colors.text : colors.muted, fontSize: 12, fontWeight: r.night ? '700' : '400', fontStyle: r.night ? 'normal' : 'italic' }}>🌙 {r.night?.name ?? 'sin asignar'}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                )
-              ) : null}
-              {asgCount > 0 ? (
-                <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-                  <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Descargar reporte de asignaciones ({asgCount})</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+          {asgCount > 0 ? (
+            <TouchableOpacity onPress={reporteAsignacionesPorSector} style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>📄 Descargar reporte de asignaciones ({asgCount})</Text>
+            </TouchableOpacity>
           ) : null}
         </Card>
       ) : null}
+      <CheckMaquinaModal visible={checkModalOpen} onClose={() => setCheckModalOpen(false)} isAdmin={isAdmin} />
 
       <Card>
         {/* (El navegador de fecha, los resúmenes Día/Noche y el reporte de estado del
