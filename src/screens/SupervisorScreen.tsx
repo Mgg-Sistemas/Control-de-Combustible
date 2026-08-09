@@ -483,8 +483,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Estado de la jornada por máquina para el círculo de color: rondas del día
   // (jornada abierta / horas trabajadas) + máquinas con avería PARADA pendiente.
   const reloadEstados = async () => {
+    // Día de negocio: en la madrugada (12am–7am) es AYER — ahí vive la jornada de NOCHE
+    // que cruza la medianoche. `today` (calendario) sería HOY y NO trae esa ronda. Traemos
+    // ambas fechas para que una jornada de noche FINALIZADA de madrugada (round_date=ayer,
+    // ya sin jornada_start_at) siga contando como CERRADA/finalizada y no reaparezca como
+    // "pendiente por iniciar". Cuando coinciden (de día) es una sola fecha.
+    const businessDay = caracasBusinessToday();
+    const roundDates = businessDay === today ? [today] : [today, businessDay];
     const [{ data: rs }, { data: rsRescue }, { data: par }, { data: avPend }] = await Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').eq('round_date', today),
+      supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
       // esto el círculo 🟢 se apagaba al pasar las 12) como una jornada de DÍA que
