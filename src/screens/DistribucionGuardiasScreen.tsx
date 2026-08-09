@@ -16,7 +16,12 @@ import { generateGuardiasReport, GuardInspector, GuardShift } from '../lib/guard
 import { useRealtimeRefresh } from '../hooks/useRealtime';
 
 const CARGOS = ['Coordinador', 'Nocturno', 'Inspector'];
-const GRUPO_COLOR: Record<string, string> = { A: '#9AA3AB', B: '#4BB477', C: '#E0A040' };
+// Paleta de colores por grupo (soporta cualquier cantidad de grupos, no solo A/B/C).
+const GRUPO_PALETTE = ['#9AA3AB', '#4BB477', '#E0A040', '#5B8DEF', '#C77DD6', '#E0655B', '#3FBFB0', '#B0894A', '#8A7BE0', '#6AA84F', '#D98CA0', '#7F9CB5'];
+const grupoColor = (g: string | null | undefined): string => {
+  const i = g ? g.charCodeAt(0) - 65 : -1; // 'A'->0, 'B'->1, …
+  return i >= 0 ? GRUPO_PALETTE[i % GRUPO_PALETTE.length] : '#9AA3AB';
+};
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -62,7 +67,12 @@ export default function DistribucionGuardiasScreen() {
   const [dFrom, setDFrom] = useState(today);
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
   const [grupoOpen, setGrupoOpen] = useState(false);     // armar grupos 14x7 a mano
-  const [grupoSel, setGrupoSel] = useState<Record<string, string>>({}); // metaId → 'A'|'B'|'C'
+  const [grupoSel, setGrupoSel] = useState<Record<string, string>>({}); // metaId → grupo ('A','B','C',…)
+
+  // Grupos DINÁMICOS: tantos como hagan falta para ~2 inspectores por grupo (mínimo 3).
+  // Antes estaba fijo en A/B/C (3 grupos), y con más inspectores quedaban afuera.
+  const nGroups = Math.max(3, Math.ceil(metas.length / 2));
+  const GRUPOS = useMemo(() => Array.from({ length: nGroups }, (_, i) => String.fromCharCode(65 + i)), [nGroups]);
 
   const load = async () => {
     setLoading(true);
@@ -150,7 +160,7 @@ export default function DistribucionGuardiasScreen() {
   // nocturnos y resto se reparten en A/B/C para que NO coincidan dos coordinadores
   // (ni dos nocturnos) en la misma semana de descanso. Devuelve metaId → 'A'|'B'|'C'.
   const computeAutoGroups = (): Record<string, string> => {
-    const nGroups = 3; const letra = ['A', 'B', 'C'];
+    const letra = GRUPOS;
     const cat = (m: Meta) => (m.cargo === 'Coordinador' ? 0 : m.cargo === 'Nocturno' ? 1 : 2);
     const orden = [...metas].sort((a, b) => cat(a) - cat(b) || cmpText(a.inspector_name, b.inspector_name));
     const counters = [0, 0, 0];
@@ -166,7 +176,7 @@ export default function DistribucionGuardiasScreen() {
     if (metas.length === 0) { setNotice('❌ Primero agrega inspectores.'); return; }
     const init: Record<string, string> = {};
     let alguno = false;
-    metas.forEach((m) => { if (m.grupo && ['A', 'B', 'C'].includes(m.grupo)) { init[m.id] = m.grupo; alguno = true; } });
+    metas.forEach((m) => { if (m.grupo && GRUPOS.includes(m.grupo)) { init[m.id] = m.grupo; alguno = true; } });
     setGrupoSel(alguno ? init : computeAutoGroups());
     setNotice(null);
     setGrupoOpen(true);
@@ -179,7 +189,7 @@ export default function DistribucionGuardiasScreen() {
     const faltan = metas.filter((m) => !grupoSel[m.id]);
     if (faltan.length) { setNotice(`❌ Falta asignar grupo a ${faltan.length} inspector(es).`); return; }
     setBusy(true); setNotice(null);
-    const semanaDe: Record<string, number> = { A: 0, B: 1, C: 2 };
+    const semanaDe: Record<string, number> = {}; GRUPOS.forEach((l, i) => { semanaDe[l] = i; });
     const cycleStart = from;
     const nuevosShifts: any[] = [];
     for (const m of metas) {
@@ -192,7 +202,7 @@ export default function DistribucionGuardiasScreen() {
     }
     await supabase.from('guard_shifts').delete().in('inspector_name', metas.map((m) => m.inspector_name));
     if (nuevosShifts.length) await supabase.from('guard_shifts').insert(nuevosShifts);
-    setTo(addDaysISO(cycleStart, 20));
+    setTo(addDaysISO(cycleStart, nGroups * 7 - 1));
     setBusy(false); setGrupoOpen(false); load();
     setNotice('✅ Rotación 14x7 generada.');
   };
@@ -257,7 +267,7 @@ export default function DistribucionGuardiasScreen() {
               {metas.map((m) => (
                 <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                   <View style={{ width: 118, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                    <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: GRUPO_COLOR[m.grupo || ''] || colors.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: m.grupo ? grupoColor(m.grupo) : colors.border, alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{m.grupo || '·'}</Text>
                     </View>
                     <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>{m.inspector_name}</Text>
@@ -265,7 +275,7 @@ export default function DistribucionGuardiasScreen() {
                   {days.map((d) => {
                     const st = estadoDe(m.inspector_name, d);
                     return (
-                      <View key={d} style={{ width: 22, height: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: st === 'D' ? (GRUPO_COLOR[m.grupo || ''] || colors.muted) + '55' : 'transparent', borderWidth: 0.5, borderColor: colors.border }}>
+                      <View key={d} style={{ width: 22, height: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: st === 'D' ? grupoColor(m.grupo) + '55' : 'transparent', borderWidth: 0.5, borderColor: colors.border }}>
                         <Text style={{ color: st === 'D' ? colors.text : colors.muted, fontSize: 9, fontWeight: st === 'D' ? '800' : '400' }}>{st}</Text>
                       </View>
                     );
@@ -315,10 +325,10 @@ export default function DistribucionGuardiasScreen() {
               })}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                 <Text style={{ color: colors.muted, fontSize: 11 }}>Gr.</Text>
-                {['A', 'B', 'C'].map((g) => {
+                {GRUPOS.map((g) => {
                   const on = (m.grupo || '') === g;
                   return (
-                    <TouchableOpacity key={g} onPress={() => patchMeta(m, { grupo: on ? null : g })} style={{ width: 24, height: 24, borderRadius: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (GRUPO_COLOR[g]) : colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
+                    <TouchableOpacity key={g} onPress={() => patchMeta(m, { grupo: on ? null : g })} style={{ width: 24, height: 24, borderRadius: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? (grupoColor(g)) : colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }}>
                       <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '800', fontSize: 11 }}>{g}</Text>
                     </TouchableOpacity>
                   );
@@ -375,14 +385,14 @@ export default function DistribucionGuardiasScreen() {
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%', padding: spacing.lg }}>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>⚙️ Armar grupos 14x7</Text>
             <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
-              Asigna cada inspector a un grupo. Descansan por semana: 🅰️ A = semana 1 · 🅱️ B = semana 2 · 🅲 C = semana 3 (desde {dmy(from)}). Al generar se reemplazan las guardias actuales.
+              Asigna cada inspector a un grupo. Cada grupo descansa una semana distinta (A = semana 1, B = semana 2, …). Hay {nGroups} grupos ({GRUPOS.join(' · ')}), desde {dmy(from)}. Al generar se reemplazan las guardias actuales.
             </Text>
             {/* Sugerir automático + conteo por grupo */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
-              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
-                {['A', 'B', 'C'].map((g) => (
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, marginRight: spacing.sm }}>
+                {GRUPOS.map((g) => (
                   <View key={g} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: GRUPO_COLOR[g], alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: grupoColor(g), alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: '#fff', fontSize: 9, fontWeight: '900' }}>{g}</Text>
                     </View>
                     <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{metas.filter((m) => grupoSel[m.id] === g).length}</Text>
@@ -401,11 +411,11 @@ export default function DistribucionGuardiasScreen() {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{m.inspector_name}</Text>
                     <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.cargo || 'Inspector'}</Text>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 5 }}>
-                    {['A', 'B', 'C'].map((g) => {
+                  <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1 }}>
+                    {GRUPOS.map((g) => {
                       const on = grupoSel[m.id] === g;
                       return (
-                        <TouchableOpacity key={g} onPress={() => setGrupoSel((prev) => ({ ...prev, [m.id]: g }))} style={{ width: 30, height: 30, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? GRUPO_COLOR[g] : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? GRUPO_COLOR[g] : colors.border }}>
+                        <TouchableOpacity key={g} onPress={() => setGrupoSel((prev) => ({ ...prev, [m.id]: g }))} style={{ width: 30, height: 30, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? grupoColor(g) : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? grupoColor(g) : colors.border }}>
                           <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '900', fontSize: 13 }}>{g}</Text>
                         </TouchableOpacity>
                       );
