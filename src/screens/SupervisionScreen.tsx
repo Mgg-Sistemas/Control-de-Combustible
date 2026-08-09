@@ -945,13 +945,13 @@ export default function SupervisionScreen({ navigation }: any) {
           <TouchableOpacity onPress={() => navigation?.navigate?.('HistoricoJornadas')} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📚 Histórico por inspector</Text>
           </TouchableOpacity>
-          {isAdmin ? (
+          {puedeCoordinar ? (
             <TouchableOpacity onPress={() => navigation?.navigate?.('InspectorTlf')} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📱 Ver vista de inspector</Text>
             </TouchableOpacity>
           ) : null}
         </View>
-        {isAdmin ? (
+        {puedeCoordinar ? (
           <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs, textAlign: 'center' }}>Abre la vista que usan los inspectores en el teléfono (escanear máquina, iniciar/finalizar jornada, avería)</Text>
         ) : null}
       </Card>
