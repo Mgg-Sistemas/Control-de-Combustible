@@ -195,6 +195,27 @@ export default function AuditScreen() {
       const matchTables = Object.entries(TABLE_LABEL).filter(([, label]) => norm(label).includes(nq)).map(([t]) => t);
       // Acciones cuyo verbo coincide (ej. "modificó" → UPDATE).
       const matchActions = Object.entries(ACTION_META).filter(([, m]) => norm(m.label).includes(nq)).map(([a]) => a);
+      // Resuelve el texto contra CARACTERÍSTICAS reales de máquinas y personas (placa,
+      // serial, modelo, cédula, usuario…), no solo lo que quedó escrito literalmente en
+      // el detalle del log. Así "buscar por placa" (o serial, cédula, encargado…)
+      // encuentra la máquina/persona aunque ese dato nunca se haya guardado como texto
+      // en la bitácora — se resuelve su id y se busca por id (row_id / user_id).
+      let matchRowIds: string[] = [];
+      let matchUserIds: string[] = [];
+      if (nq && safe) {
+        const [{ data: mach }, { data: profs }] = await Promise.all([
+          supabase.from('machinery').select('id')
+            .or(`code.ilike.%${safe}%,plate.ilike.%${safe}%,serial.ilike.%${safe}%,identifier.ilike.%${safe}%,encargado.ilike.%${safe}%,tipo.ilike.%${safe}%,clasificacion.ilike.%${safe}%,referencia.ilike.%${safe}%`)
+            .limit(200),
+          supabase.from('profiles').select('id')
+            .or(`full_name.ilike.%${safe}%,username.ilike.%${safe}%,cedula.ilike.%${safe}%`)
+            .limit(200),
+        ]);
+        const machIds = (mach ?? []).map((m: any) => m.id as string);
+        const profIds = (profs ?? []).map((p: any) => p.id as string);
+        matchRowIds = [...machIds, ...profIds]; // row_id: la máquina o el perfil fue el AFECTADO
+        matchUserIds = profIds;                 // user_id: el perfil fue quien HIZO la acción
+      }
       // Arma la consulta. `withRowLabel` incluye row_label en la búsqueda; si esa
       // columna aún no existe (audit_detalle.sql sin correr) reintentamos sin ella.
       const build = (withRowLabel: boolean) => {
@@ -205,6 +226,8 @@ export default function AuditScreen() {
           if (withRowLabel) ors.push(`row_label.ilike.%${safe}%`);
           if (matchTables.length) ors.push(`table_name.in.(${matchTables.join(',')})`);
           if (matchActions.length) ors.push(`action.in.(${matchActions.join(',')})`);
+          if (matchRowIds.length) ors.push(`row_id.in.(${matchRowIds.join(',')})`);
+          if (matchUserIds.length) ors.push(`user_id.in.(${matchUserIds.join(',')})`);
           query = query.or(ors.join(','));
         }
         return query.order('at', { ascending: false }).limit(limit);
@@ -339,7 +362,7 @@ export default function AuditScreen() {
         </View>
       </Card>
 
-      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar máquina, inspector, usuario o cualquier cosa…" placeholderTextColor={colors.muted}
+      <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por placa, serial, cédula, nombre… cualquier característica" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm }} />
 
       {/* Historial completo de UNA entidad (máquina/inspector/usuario/cualquier cosa):
