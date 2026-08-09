@@ -14,8 +14,15 @@
 create extension if not exists pg_trgm;
 
 create index if not exists audit_log_user_name_trgm_idx on public.audit_log using gin (user_name gin_trgm_ops);
-create index if not exists audit_log_detail_trgm_idx on public.audit_log using gin (detail gin_trgm_ops);
 create index if not exists audit_log_row_label_trgm_idx on public.audit_log using gin (row_label gin_trgm_ops);
+-- audit_log_detail_trgm_idx: se creó acá pero el código NUNCA llegó a buscar por
+-- `detail` (se descartó por costo antes de desplegar) — quedó con idx_scan=0,
+-- solo pagando mantenimiento en CADA insert de audit_log (la tabla de más
+-- volumen de toda la app, ~15-20 mil filas/día). Eliminado el 09-ago-2026 al
+-- diagnosticar por qué el sistema empezó a caerse: 3 índices GIN en una tabla
+-- con ese volumen de escritura, en un compute Nano/Micro ya casi al tope de
+-- CPU, es carga real — y este ni se estaba usando.
+drop index if exists public.audit_log_detail_trgm_idx;
 
 -- row_id: usado por "todo lo que le pasó a esta máquina/persona/empleado" (IN de
 -- varios ids resueltos); table_name: usado al filtrar por módulo.
