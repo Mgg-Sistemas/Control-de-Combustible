@@ -445,17 +445,66 @@ export default function EquiposScreen({ navigation, route }: any) {
     savedTimer.current = setTimeout(() => setJustSaved(null), 3500);
   };
 
+  // Estatus EN VIVO de una máquina, con horas, combinando jornada (machine_rounds) y
+  // avería/parada (maintenance_requests). Todo derivado; NO toca `operational`.
+  //  - elapsedDia/Noche: horas transcurridas de la jornada abierta de cada turno (cap 12).
+  //  - workedDia/Noche: horas ya trabajadas + en curso de cada turno (cap 12).
+  //  - total: acumulado del día = día + noche (regla del cliente: de noche muestra el acumulado del día).
+  //  - enCurso: lo que corre ahora mismo; trabajadas = total − enCurso (banqueado).
+  //  - reactivación: si la jornada abierta arrancó en el mismo instante o DESPUÉS de la
+  //    marca de avería/parada, esa marca ya NO cuenta (la máquina volvió a trabajar).
+  // Declarada ACÁ (antes de las tarjetas KPI de abajo) para que TODO lo que necesite
+  // saber si una máquina está averiada (las tarjetas OPERATIVAS/AVERIADAS, la ficha de
+  // cada máquina y el reporte de Conteo) use esta MISMA función — antes cada uno tenía
+  // su propia versión simplificada (solo miraba si había una avería pendiente, sin la
+  // regla de reactivación), así que podían mostrar estados distintos para una misma
+  // máquina (p. ej. "Averiada" en un lado y "Trabajando"/"Operativa" en otro).
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  // Máquinas RETIRADAS (operational=false): fuera de servicio → su estatus EN VIVO es
+  // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
+  // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
+  const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
+  const liveStatusOf = (id: string) => {
+    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
+    const j = jornadaCat[id];
+    const a = averiaCat[id];
+    const dayH = j?.dayH ?? 0;
+    const nightH = j?.nightH ?? 0;
+    const openStartDay = j?.openStartDay ?? null;
+    const openStartNight = j?.openStartNight ?? null;
+    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
+    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
+    const workedDia = Math.min(12, dayH + elapsedDia);
+    const workedNoche = Math.min(12, nightH + elapsedNoche);
+    const total = workedDia + workedNoche;
+    const enCurso = elapsedDia + elapsedNoche;
+    const trabajadas = Math.max(0, total - enCurso);
+    const hasOpen = openStartDay != null || openStartNight != null;
+    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
+    const insp = inspByShift[id];
+    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
+    const averiaVigente = !siempreActivo && !!a && !(hasOpen && openStart >= a.createdMs);
+    let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
+    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
+    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
+    else if (hasOpen) estado = 'trabajando';
+    else if (total > 0) estado = 'trabajo_hoy';
+    else estado = 'ninguno';
+    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
+  };
+
   // Conteo de maquinaria por estado (4 cubos exclusivos, igual que el dashboard):
-  //  · OPERATIVAS: operativas, SIN avería y SIN estar esperando instrucciones.
-  //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
+  //  · OPERATIVAS: operativas, SIN avería (en vivo, con reactivación) y SIN estar esperando instrucciones.
+  //  · AVERIADAS: operativas con avería vigente (liveStatusOf, respeta reactivación por jornada nueva).
   //  · RETIRADAS: operational=false (sacadas de servicio).
   //  · ESPERANDO INSTRUCCIONES: en_espera=true — máquinas ya cargadas en el sistema
   //    pero que todavía NO se decidió si van a Operativa o a Parada. Reusa el campo
   //    `en_espera` (antes solo "en espera por recepción"): ya está probado y excluido
   //    en todo el flujo de inspectores (SupervisorScreen/SupervisionScreen/Reportes) —
   //    no requiere tocar esa lógica, solo hacerlo visible aquí como su propio estado.
-  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && !m.en_espera && averiaCat[m.id]?.tipo === 'averia');
-  const activeMachines = machinery.data.filter((m) => m.operational && !m.en_espera && averiaCat[m.id]?.tipo !== 'averia');
+  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && !m.en_espera && liveStatusOf(m.id).estado === 'averiada');
+  const activeMachines = machinery.data.filter((m) => m.operational && !m.en_espera && liveStatusOf(m.id).estado !== 'averiada');
   const retiradaMachines = machinery.data.filter((m) => !m.operational);
   const esperaMachines = machinery.data.filter((m) => m.operational && m.en_espera);
 
@@ -937,7 +986,11 @@ export default function EquiposScreen({ navigation, route }: any) {
   const estadoConteoOf = (m: Machinery): EstadoConteo => {
     if (!m.operational) return 'retirada';
     if (m.en_espera) return 'espera';
-    if (averiaCat[m.id]?.tipo === 'averia') return 'averiada';
+    // Usa liveStatusOf (con la regla de reactivación): antes esto miraba `averiaCat`
+    // directo, así que una máquina que YA volvió a trabajar (jornada abierta DESPUÉS
+    // de la avería) seguía saliendo "Averiada" en el reporte aunque la ficha de la
+    // máquina (que sí usa liveStatusOf) ya mostrara "🟢 Trabajando".
+    if (liveStatusOf(m.id).estado === 'averiada') return 'averiada';
     return 'operativa';
   };
   const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
@@ -959,7 +1012,7 @@ export default function EquiposScreen({ navigation, route }: any) {
       .sort((a, b) => (a.name === 'Sin empresa' ? 1 : b.name === 'Sin empresa' ? -1 : cmpText(a.name, b.name)));
     return { total: src.length, empresas };
   };
-  const reportData = useMemo(() => buildReportData(reportCompany, reportTypes), [reportCompany, reportTypes, machinery.data, companyName]);
+  const reportData = useMemo(() => buildReportData(reportCompany, reportTypes), [reportCompany, reportTypes, reportEstados, machinery.data, companyName, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Opciones del checklist: CLASIFICACIONES del alcance con su cantidad (ej. Excavadora,
   // Volteo, Retro… — para poder pedir "solo remoción y/o excavación" de una vez).
   const reportTypeOptions = useMemo(() => {
@@ -971,14 +1024,14 @@ export default function EquiposScreen({ navigation, route }: any) {
       m.set(k, e);
     });
     return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
-  }, [reportCompany, reportEstados, machinery.data, averiaCat]);
+  }, [reportCompany, reportEstados, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Conteo por ESTADO dentro del alcance elegido (empresa), para los chips del filtro —
   // NO se filtra por el propio reportEstados, así los 4 números siempre se ven completos.
   const reportEstadoCounts = useMemo(() => {
     const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, retirada: 0, espera: 0 };
     scopedMachines(reportCompany).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
     return counts;
-  }, [reportCompany, machinery.data, averiaCat]);
+  }, [reportCompany, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
   const reportTotal = reportData.total;
   const titleForScope = (scope: string) =>
     scope === '__all__' ? 'Conteo de equipos — general' : `Conteo de equipos — ${companyName(scope) || 'Sin empresa'}`;
@@ -1002,48 +1055,6 @@ export default function EquiposScreen({ navigation, route }: any) {
     }
     const f = fmtEstadoFecha((m as any).reactivated_at);
     return f ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>🟢 Reactivada el {f}</Text> : null;
-  };
-  // Estatus EN VIVO de una máquina, con horas, combinando jornada (machine_rounds) y
-  // avería/parada (maintenance_requests). Todo derivado; NO toca `operational`.
-  //  - elapsedDia/Noche: horas transcurridas de la jornada abierta de cada turno (cap 12).
-  //  - workedDia/Noche: horas ya trabajadas + en curso de cada turno (cap 12).
-  //  - total: acumulado del día = día + noche (regla del cliente: de noche muestra el acumulado del día).
-  //  - enCurso: lo que corre ahora mismo; trabajadas = total − enCurso (banqueado).
-  //  - reactivación: si la jornada abierta arrancó en el mismo instante o DESPUÉS de la
-  //    marca de avería/parada, esa marca ya NO cuenta (la máquina volvió a trabajar).
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  // Máquinas RETIRADAS (operational=false): fuera de servicio → su estatus EN VIVO es
-  // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
-  // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
-  const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
-  const liveStatusOf = (id: string) => {
-    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
-    const j = jornadaCat[id];
-    const a = averiaCat[id];
-    const dayH = j?.dayH ?? 0;
-    const nightH = j?.nightH ?? 0;
-    const openStartDay = j?.openStartDay ?? null;
-    const openStartNight = j?.openStartNight ?? null;
-    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
-    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
-    const workedDia = Math.min(12, dayH + elapsedDia);
-    const workedNoche = Math.min(12, nightH + elapsedNoche);
-    const total = workedDia + workedNoche;
-    const enCurso = elapsedDia + elapsedNoche;
-    const trabajadas = Math.max(0, total - enCurso);
-    const hasOpen = openStartDay != null || openStartNight != null;
-    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
-    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
-    const insp = inspByShift[id];
-    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
-    const averiaVigente = !siempreActivo && !!a && !(hasOpen && openStart >= a.createdMs);
-    let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
-    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
-    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
-    else if (hasOpen) estado = 'trabajando';
-    else if (total > 0) estado = 'trabajo_hoy';
-    else estado = 'ninguno';
-    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
   };
   // Insignia de estatus EN VIVO (independiente de Operativa/No operativa) — sincronizada
   // con lo que marcó el inspector desde su teléfono y con la jornada abierta.
@@ -1221,9 +1232,21 @@ export default function EquiposScreen({ navigation, route }: any) {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontWeight: '700', color: colors.text, fontSize: 17 }}>{m.code}</Text>
-              <Text style={{ color: m.en_espera ? colors.brandText : m.operational ? colors.success : colors.danger, fontWeight: '700', fontSize: 13 }}>
-                {m.en_espera ? '⏳ Esperando' : m.operational ? '● Operativa' : '● Retirada'}
-              </Text>
+              {(() => {
+                // Antes esta etiqueta SOLO miraba `operational` (el campo que cambia el
+                // botón "Retirar"/"Activar"), así que una máquina reportada AVERIADA por
+                // el inspector (vía maintenance_requests, sin tocar `operational`) seguía
+                // diciendo "● Operativa" arriba mientras el badge de abajo (AveriaBadge,
+                // que sí lee el estado en vivo) decía "🔴 Averiada" — contradictorio.
+                // Ahora usa el MISMO estado en vivo que ese badge, para que nunca se
+                // contradigan entre sí.
+                if (m.en_espera) return <Text style={{ color: colors.brandText, fontWeight: '700', fontSize: 13 }}>⏳ Esperando</Text>;
+                if (!m.operational) return <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>● Retirada</Text>;
+                const liveEstado = liveStatusOf(m.id).estado;
+                if (liveEstado === 'averiada') return <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>🔴 Averiada</Text>;
+                if (liveEstado === 'parada') return <Text style={{ color: colors.warning, fontWeight: '700', fontSize: 13 }}>🟡 Parada</Text>;
+                return <Text style={{ color: colors.success, fontWeight: '700', fontSize: 13 }}>● Operativa</Text>;
+              })()}
             </View>
             <EstadoFechaLine m={m} />
             <AveriaBadge id={m.id} />
@@ -1238,7 +1261,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                 🏗️ {edificioLabel((m as any).referencia)}
               </Text>
             ) : null}
-            {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
+            {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}{inspectors[m.id].date ? ` · ${fmtDMY(inspectors[m.id].date)}` : ''}</Text> : null}
             {m.grupo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗂️ Grupo: {m.grupo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12 }}>🛡️ Tapa: {tapaLabelOf(m)}</Text>
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
