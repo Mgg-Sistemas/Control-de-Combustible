@@ -21,8 +21,12 @@ const dm = (iso: string) => { const [, m, d] = (iso || '').split('-'); return m 
 /** Días de la semana por getUTCDay() (0=Dom..6=Sáb). */
 const DOW = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
-/** Paleta de fondo de la celda 'D' (descanso) por grupo. */
-const GRUPO_COLOR: Record<string, string> = { A: '#E8EAED', B: '#E6F2EA', C: '#FBEBDD' };
+/** Paleta de fondo de la celda 'D' (descanso) por grupo — incluye los códigos de día
+ *  ('LU'..'DO') del modo "1 día libre/semana" además de las letras A/B/C del 14x7. */
+const GRUPO_COLOR: Record<string, string> = {
+  A: '#E8EAED', B: '#E6F2EA', C: '#FBEBDD',
+  LU: '#E1F3E7', MA: '#E3EAFB', MI: '#FCEED9', JU: '#F4E4FA', VI: '#DFF5F2', SA: '#FBE4E1', DO: '#EAE4FB',
+};
 const colorGrupo = (g: string | null) => (g && GRUPO_COLOR[g.trim().toUpperCase()]) || '#E8EAED';
 
 /**
