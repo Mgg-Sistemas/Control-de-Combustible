@@ -1368,13 +1368,10 @@ export default function ReportsScreen({ route }: any) {
     const esTorontoOVolqueta = (m: any) => /toronto|volqueta/i.test(`${m.code ?? ''} ${m.clasificacion ?? ''}`);
     const inactivaM = (m: any) => m.operational === false || m.en_espera === true || m.active === false;
     const all = ((mach ?? []) as any[]).filter((m) => !(esTorontoOVolqueta(m) && inactivaM(m)));
-    // REAL: solo activas/operativas (excluye inoperativas, en espera y dadas de baja),
-    //   sincronizado con el conteo por zona del mapa.
-    // FICTICIO: TODAS las máquinas de la flota (solo excluye dadas de baja); las
-    //   inoperativas/en espera se muestran como OPERATIVAS y se reparten al azar.
-    const list = ficticio
-      ? all.filter((m) => m.active !== false)
-      : all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
+    // Ni el REAL ni el FICTICIO muestran/cuentan máquinas INACTIVAS (inoperativas, en
+    // espera o dadas de baja): en ambos reportes solo aparecen equipos activos y
+    // operativos. El ficticio solo cambia el reparto de zona (Este/Oeste al azar).
+    const list = all.filter((m) => m.active !== false && m.operational !== false && m.en_espera !== true);
     // Solo ficticio: sector aleatorio (fijo por máquina durante el armado del reporte);
     // se elige un subsector al azar del catálogo de zonas → reparte Este/Oeste parejo.
     const randSectorById = new Map<string, string>();
