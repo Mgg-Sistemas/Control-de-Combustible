@@ -36,6 +36,17 @@ export function inspectorSiempreActivo(name?: string | null): boolean {
   return INSPECTORES_SIEMPRE_ACTIVOS.includes((name || '').trim().toLowerCase());
 }
 
+/**
+ * ¿Es el cajón "MAQUINAS FALTANTES" (sin inspector humano real)? Antes la
+ * pantalla (InspectionsSummary.tsx) y el PDF (inspectorSummaryReport.ts) tenían
+ * cada uno su propia copia de este mismo regex — centralizado acá para que no
+ * puedan desincronizarse. Un nombre vacío o que contenga "faltant" no es un
+ * inspector real: no se le calcula % de eficiencia.
+ */
+export function sinInspectorReal(name?: string | null): boolean {
+  return !name || /faltant/i.test(name);
+}
+
 /** Turno de la asignación: día (☀️) o noche (🌙). */
 export type Shift = 'day' | 'night';
 export const shiftIcon = (s: Shift) => (s === 'night' ? '🌙' : '☀️');

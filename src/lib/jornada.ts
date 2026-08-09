@@ -71,6 +71,26 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
   const ci = (inp.cedula || '').trim();
   if (!first || !last || !ci) return { ok: false, error: 'Completa nombre, apellido y cédula.' };
 
+  // Blindaje: no se puede iniciar jornada en una máquina AVERIADA/PARADA (solicitud de
+  // mantenimiento pendiente) ni EN ESPERA de instrucciones. Primero hay que resolverla
+  // (marcarla Operativa desde Catálogo/Control de Maquinaria — el mismo botón que ya
+  // limpia la solicitud pendiente) o, si aún no se decidió qué hacer con ella, dejarla
+  // en "Esperando instrucciones" — cualquiera de los dos saca a la máquina de este bloqueo.
+  const { data: machStatus } = await supabase.from('machinery').select('en_espera').eq('id', inp.machineId).maybeSingle();
+  if ((machStatus as any)?.en_espera) {
+    return { ok: false, error: 'Esta máquina está "Esperando instrucciones" — primero debe salir de ese estado (Catálogo → Esperando instrucciones) antes de iniciar jornada.' };
+  }
+  const { data: pendMr } = await supabase
+    .from('maintenance_requests')
+    .select('material')
+    .eq('machinery_id', inp.machineId)
+    .eq('status', 'pendiente')
+    .limit(1);
+  if (pendMr && pendMr.length) {
+    const esParada = (pendMr[0] as any).material === 'MÁQUINA PARADA';
+    return { ok: false, error: `Esta máquina está marcada como ${esParada ? 'PARADA' : 'AVERIADA'} — primero debe resolverse (marcarla Operativa) antes de iniciar jornada.` };
+  }
+
   // Blindaje: la cédula debe ser de un empleado en NÓMINA con cargo permitido.
   // RPC pública (sin sueldo/datos bancarios): esta llamada corre bajo sesión
   // anónima del QR de máquina, así que no puede leer employees directo.

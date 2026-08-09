@@ -456,7 +456,7 @@ export default function ReportsScreen({ route }: any) {
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
-  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[] } | null>(null);
+  const [conteo, setConteo] = useState<{ byClas: ConteoRow[]; byTipo: ConteoRow[]; machinesAll: MachineDetail[]; total: number; ubicados: number; ubicadosGps: number; flota: number; conHoras: number; sinHoras: number; activos: number; inactivos: number; standby: number; sinList: ConteoMachine[]; activeRows: ActiveRow[]; zonaCounts: { name: string; count: number }[]; dispoDetail: { name: string; total: number; este: number; oeste: number }[]; mapPins: MapPin[]; zonaCountsGps: { name: string; count: number }[]; sinGpsByTipo: { name: string; count: number }[]; sinGpsCount: number } | null>(null);
   const [conteoMap, setConteoMap] = useState(false); // modal del mapa por sectores
   // Detalle de un estado (al tocar una tarjeta del conteo): lista de máquinas.
   const [conteoDetail, setConteoDetail] = useState<null | 'activo' | 'inactivo' | 'standby' | 'flota'>(null);
@@ -1190,6 +1190,24 @@ export default function ReportsScreen({ route }: any) {
     const ubicados = zonaCounts.reduce((s, z) => s + z.count, 0);
     // Ubicados REALMENTE en el mapa (por GPS) — para el modal del mapa (los puntos son solo estos).
     const ubicadosGps = mapPins.length;
+    // Zona 100% REAL, tomada del MAPA (mismo cálculo que MapScreen: sectorOf sobre lat/lng,
+    // SIN el reparto 50/50 de arriba). Las máquinas sin GPS quedan fuera de Este/Oeste y se
+    // listan aparte por tipo, en vez de adivinar su lado.
+    const zonaGpsMap = new Map<string, number>();
+    const sinGpsTipoMap = new Map<string, number>();
+    list.forEach((m) => {
+      const sec = sectorOf(m.latitude, m.longitude);
+      if (sec != null) {
+        const macro = sec.startsWith('Oeste') ? 'Oeste' : 'Este';
+        zonaGpsMap.set(macro, (zonaGpsMap.get(macro) ?? 0) + 1);
+      } else {
+        const tk = equipCategory(m.code);
+        sinGpsTipoMap.set(tk, (sinGpsTipoMap.get(tk) ?? 0) + 1);
+      }
+    });
+    const zonaCountsGps = [...zonaGpsMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+    const sinGpsByTipo = [...sinGpsTipoMap.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => cmpText(a.name, b.name));
+    const sinGpsCount = list.length - ubicadosGps;
     // "A disposición de" (Gobernación/FANB/CVM…): cuenta TODAS las activas transferidas
     // e indica cuántas caen en Este / Oeste (con el mismo reparto del reporte: GPS o 50/50).
     const dispoMap = new Map<string, { total: number; este: number; oeste: number }>();
@@ -1202,7 +1220,7 @@ export default function ReportsScreen({ route }: any) {
     });
     const dispoDetail = [...dispoMap.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => cmpText(a.name, b.name));
     // total = TODAS las activas; ubicados = todas (las sin GPS repartidas 50/50); ubicadosGps = solo GPS.
-    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins });
+    setConteo({ byClas, byTipo, machinesAll, total: list.length, ubicados, ubicadosGps, flota: all.length, conHoras, sinHoras, activos, inactivos, standby, sinList, activeRows, zonaCounts, dispoDetail, mapPins, zonaCountsGps, sinGpsByTipo, sinGpsCount });
     setLoading(false);
     setConteoPreview(true);
   };
@@ -1289,6 +1307,38 @@ export default function ReportsScreen({ route }: any) {
       ? 'Cantidad de equipos ACTIVOS por zona, clasificación y tipo'
       : `Equipos ACTIVOS ubicados en ${esc(conteoZona)} · por clasificación y tipo`;
     await exportPdf(pdfShell('CONTEO DE EQUIPOS', sub, body), 'Reportes - Conteo de equipos');
+  };
+
+  // 🗺️ Zona REAL por GPS (igual que el Mapa): a diferencia del conteo de arriba (que
+  // reparte 50/50 las máquinas sin GPS para que "todas queden ubicadas"), este reporte
+  // SOLO cuenta Este/Oeste con el punto GPS real de cada máquina (mismo cálculo que usa
+  // MapScreen: sectorOf sobre latitude/longitude) y lista aparte, por tipo, las máquinas
+  // que no tienen GPS cargado — sin adivinar de qué lado están.
+  const downloadConteoZonaMapaPdf = async () => {
+    if (!conteo) return;
+    const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const zonaRows = conteo.zonaCountsGps.map((z) => `<tr><td>${esc(z.name)}</td><td style="text-align:right;font-weight:700">${z.count}</td></tr>`).join('');
+    const sinGpsRows = conteo.sinGpsByTipo.map((t) => `<tr><td>${esc(t.name)}</td><td style="text-align:right;font-weight:700">${t.count}</td></tr>`).join('');
+    const body = `
+      <style>
+        table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
+        table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
+        table.cnt th{background:#1E3A5F;color:#fff}
+        table.cnt tfoot td{background:#EEF2F7;font-weight:800}
+        .note{font-size:11px;color:#6B7280;margin:0 0 10px}
+      </style>
+      <p class="note">Cuenta Este/Oeste con la ubicación GPS real de cada máquina — el mismo cálculo que usa la pantalla del Mapa. Las máquinas sin GPS cargado NO se reparten al azar: quedan aparte, en la tabla de abajo.</p>
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Equipos por zona · SOLO GPS real (como el Mapa)</h2>
+      <table class="cnt"><thead><tr><th>Zona</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${zonaRows || '<tr><td colspan="2" style="text-align:center">Sin equipos ubicados por GPS</td></tr>'}</tbody>
+        <tfoot><tr><td>TOTAL UBICADOS POR GPS</td><td style="text-align:right">${conteo.ubicadosGps}</td></tr></tfoot></table>
+      ${conteo.sinGpsCount ? `
+      <h2 style="font-size:14px;color:#1E3A5F;margin-bottom:2px">Equipos SIN GPS (no aparecen en el Mapa) · por tipo</h2>
+      <table class="cnt"><thead><tr><th>Tipo de equipo</th><th style="text-align:right">Cantidad</th></tr></thead>
+        <tbody>${sinGpsRows}</tbody>
+        <tfoot><tr><td>TOTAL SIN GPS</td><td style="text-align:right">${conteo.sinGpsCount}</td></tr></tfoot></table>` : ''}
+      <p class="note">Total de equipos activos: ${conteo.total} · Con GPS: ${conteo.ubicadosGps} · Sin GPS: ${conteo.sinGpsCount}.</p>`;
+    await exportPdf(pdfShell('CONTEO DE EQUIPOS — ZONA REAL (GPS, COMO EL MAPA)', 'Este/Oeste con ubicación GPS real, sin repartos', body), 'Reportes - Conteo de equipos (zona real GPS)');
   };
 
   // 📍 Reporte Diario de Operaciones y Maquinaria (Ubicaciones tácticas): máquinas
@@ -2286,6 +2336,10 @@ export default function ReportsScreen({ route }: any) {
               <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.warning, marginBottom: spacing.sm }]} onPress={() => downloadTacticalPdf(tacConPersonal, true)}>
                 <Text style={{ color: colors.warning, fontWeight: '800' }}>🎭 Ubicaciones tácticas (SIMULADO){tacConPersonal ? ' · con personal' : ''}</Text>
               </TouchableOpacity>
+              {/* Zona 100% real por GPS, igual que el Mapa: sin reparto 50/50 para las máquinas sin GPS. */}
+              <TouchableOpacity style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.brand, marginBottom: spacing.sm }]} onPress={downloadConteoZonaMapaPdf}>
+                <Text style={{ color: colors.brandText, fontWeight: '800' }}>🗺️ Zona real por GPS (igual al Mapa)</Text>
+              </TouchableOpacity>
               {/* "👥 Personal por departamento" se movió a Nómina · Personal (pedido del cliente). */}
               {/* Estado de la flota (toca una tarjeta para ver el detalle de sus máquinas). */}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
@@ -2425,7 +2479,7 @@ export default function ReportsScreen({ route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>
                       {conteoZona !== '__all__'
                         ? `Mostrando solo ${conteoZona}.`
-                        : `Total ${conteo.total} equipos activos · TODOS ubicados (${conteo.ubicadosGps} por GPS; el resto repartido 50/50 en Este/Oeste, sin tocar el mapa).`}
+                        : `Total ${conteo.total} equipos activos · TODOS ubicados (${conteo.ubicadosGps} por GPS; el resto repartido 50/50 en Este/Oeste, sin tocar el mapa). Para la zona 100% real (sin reparto), usa el botón "🗺️ Zona real por GPS (igual al Mapa)" arriba.`}
                     </Text>
                   </Card>
                 );
@@ -3085,9 +3139,14 @@ export default function ReportsScreen({ route }: any) {
                           {it.company} · {it.diasTrabajados} día(s) trab. · {it.worked.toFixed(1)} h · {it.averias} avería(s) · {it.paradas} parada(s)
                         </Text>
                       </View>
-                      <TouchableOpacity onPress={() => navigation?.navigate?.('MachineTraceability', { machineId: it.id })} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
-                        <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
-                      </TouchableOpacity>
+                      {/* La trazabilidad (jornadas/averías por rango) solo existe para MAQUINARIA —
+                          los vehículos de este mismo reporte (kind='vehiculo') no tienen esa pantalla,
+                          así que se oculta el botón ahí en vez de abrir una pantalla vacía. */}
+                      {it.kind !== 'vehiculo' ? (
+                        <TouchableOpacity onPress={() => { setFleetPreview(false); navigation?.navigate?.('MachineTraceability', { machineId: it.id }); }} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
+                          <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>Ver detalle</Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   ))}
               </Card>
