@@ -419,7 +419,15 @@ export default function AuditScreen() {
   }, [from, to, q, fullHistory, rtNonce]);
 
   // Bitácora en vivo: si otro usuario/dispositivo genera una acción, se refresca sola.
-  useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1));
+  // `audit_log` recibe una fila por CADA escritura en ~30 tablas de TODA la app (no
+  // es una tabla de un módulo puntual) — con el debounce por defecto (600ms/2.5s)
+  // una pantalla de Auditoría dejada abierta podía terminar reconsultando la BD
+  // varias veces por minuto sin que nadie la estuviera mirando. Con la app en uso
+  // normal (varios usuarios a la vez) esto es tráfico constante e innecesario, así
+  // que aquí se estira bastante más: se nota igual de "en vivo" para quien la está
+  // usando, pero no dispara una consulta por cada acción que pasa en cualquier
+  // rincón del sistema.
+  useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1), { debounceMs: 4000, maxWaitMs: 20000 });
 
   const users = useMemo(() => {
     const s = new Set<string>();
