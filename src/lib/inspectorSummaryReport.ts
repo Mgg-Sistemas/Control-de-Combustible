@@ -273,13 +273,11 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // en vivo (InspectionsSummary.tsx `sinInspectorReal`) — antes este PDF no la
   // aplicaba y mostraba un % contradictorio con lo que se ve en pantalla.
   const sinInspReal = (nm: string) => !nm || /faltant/i.test(nm);
-  // Eficiencia REAL (corrección 08-ago-2026, pedido cliente): antes era "% de máquinas
-  // chequeadas" (trabajando/parada/avería contaban IGUAL, 100%, solo penalizaba lo
-  // pendiente) — una máquina averiada/parada TODO el turno sumaba lo mismo que una que
-  // trabajó completo, lo cual distorsionaba el indicador. Ahora pondera por HORAS REALES:
-  // eficiencia = horas realmente trabajadas ÷ horas de turno esperadas (12 h × máquinas
-  // asignadas) × 100. Una máquina parada/averiada aporta 0 h (resta eficiencia real,
-  // proporcional al tiempo perdido); una pendiente (sin iniciar) también aporta 0 h.
+  // EFICIENCIA (versión final, pedido cliente 09-ago-2026): % de máquinas asignadas
+  // sobre las que el inspector YA ACTUÓ. Cuentan como hechas iniciadas, cerradas,
+  // PARADAS y AVERIADAS (marcarlas también es su trabajo); SOLO las PENDIENTES (sin
+  // tocar) bajan el %. NO depende de horas ni del reloj → cerrar una jornada o marcar
+  // parada/avería NUNCA baja el indicador. Misma fórmula que la pantalla (InspectionsSummary).
   const inspectoresConEficiencia = inspectores.map(([name, list]) => {
     const iniciadas = list.filter((r) => r.enCurso || r.finalizada).length;
     const averiadas = list.filter((r) => r.averiada);
@@ -288,12 +286,8 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     const chequeadas = list.length - pendientes.length;
     const esVirtual = sinInspReal(name);
     const horasTrabajadas = list.reduce((s, r) => s + r.horas, 0);
-    // FIX 08-ago-2026 (reportado por cliente): el denominador dividía SIEMPRE entre 12h
-    // fijas por máquina, aunque el turno recién hubiera empezado — si el PDF se genera a
-    // mitad de turno la eficiencia salía artificialmente bajísima. Ahora usa las horas YA
-    // TRANSCURRIDAS del turno de CADA fila (shiftElapsedHours), igual que el dashboard.
     const horasEsperadas = list.reduce((s, r) => s + shiftElapsedHours(date, r.shiftCtx), 0);
-    const eficiencia = !esVirtual && horasEsperadas > 0 ? Math.round((horasTrabajadas / horasEsperadas) * 100) : null;
+    const eficiencia = !esVirtual && list.length > 0 ? Math.round((chequeadas / list.length) * 100) : null;
     return { name, list, iniciadas, averiadas, paradas, pendientes, chequeadas, horasTrabajadas, horasEsperadas, eficiencia, esVirtual };
   });
 

@@ -1255,9 +1255,13 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // turno noche eso hacía que la eficiencia saliera pegada en ~0% toda la noche
       // ("dañado"). Ahora el denominador también usa las horas transcurridas del
       // turno (shiftElapsedHours), igual que el numerador, que ya es en vivo.
-      const horasEficiencia = visibleIds.reduce((sum, id) => sum + liveHorasShiftOf(id), 0);
-      const horasEsperadasEficiencia = visibleIds.length * shiftElapsedHours(selDay, shift);
-      const eficiencia = isFaltantes || horasEsperadasEficiencia === 0 ? null : Math.round((horasEficiencia / horasEsperadasEficiencia) * 100);
+      // EFICIENCIA (versión final, pedido cliente 09-ago-2026): % de máquinas asignadas
+      // sobre las que el inspector YA ACTUÓ. Cuentan como hechas iniciadas, cerradas,
+      // PARADAS y AVERIADAS (marcarlas también es su trabajo); SOLO las PENDIENTES (sin
+      // tocar) bajan el %. NO depende de horas ni del reloj → cerrar una jornada o marcar
+      // parada/avería NUNCA baja el indicador (antes era por horas y al cerrar caía con
+      // el reloj: numerador congelado, denominador seguía creciendo).
+      const eficiencia = isFaltantes || visibleIds.length === 0 ? null : Math.round(((visibleIds.length - pend.length) / visibleIds.length) * 100);
       // Horas REALES del turno: suma de lo trabajado (bancado + en vivo si sigue
       // en curso) en TODAS sus máquinas visibles, no solo las "iniciadas" — una
       // parada a mitad de jornada también dejó horas bancadas antes de parar.
