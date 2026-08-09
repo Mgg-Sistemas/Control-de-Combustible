@@ -1,7 +1,10 @@
 // Distribución de guardias (submenú de Inspecciones): asigna a cada inspector su
 // rango de descanso dentro de un ciclo, MANUAL o AUTOGENERANDO una rotación 14x7 por
-// grupos (nunca descansan a la vez dos coordinadores ni dos nocturnos). Muestra el
-// calendario inspector×día (T/D) y genera el PDF (ver src/lib/guardiasReport.ts).
+// grupos (nunca descansan a la vez dos coordinadores ni dos nocturnos), o el modo
+// "1 día libre/semana" (cada inspector descansa UN día fijo por semana y el resto
+// de la semana trabaja — a diferencia del modo por grupos, aquí nadie deja de
+// trabajar la semana completa). Muestra el calendario inspector×día (T/D) y genera
+// el PDF (ver src/lib/guardiasReport.ts).
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, Modal, Pressable, ScrollView, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../components/ui';
@@ -22,6 +25,26 @@ const grupoColor = (g: string | null | undefined): string => {
   const i = g ? g.charCodeAt(0) - 65 : -1; // 'A'->0, 'B'->1, …
   return i >= 0 ? GRUPO_PALETTE[i % GRUPO_PALETTE.length] : '#9AA3AB';
 };
+
+// Modo "1 día libre/semana": cada inspector tiene un día fijo de la semana como
+// descanso (se repite cada semana del ciclo), en vez de un grupo que descansa la
+// semana completa.
+const DIAS_SEMANA = [
+  { code: 'Lu', label: 'Lunes', dow: 1 },
+  { code: 'Ma', label: 'Martes', dow: 2 },
+  { code: 'Mi', label: 'Miércoles', dow: 3 },
+  { code: 'Ju', label: 'Jueves', dow: 4 },
+  { code: 'Vi', label: 'Viernes', dow: 5 },
+  { code: 'Sa', label: 'Sábado', dow: 6 },
+  { code: 'Do', label: 'Domingo', dow: 0 },
+] as const;
+const DIA_CODES = DIAS_SEMANA.map((d) => d.code) as string[];
+const dowOfCode = (code: string) => DIAS_SEMANA.find((d) => d.code === code)?.dow ?? 1;
+const DIA_COLOR: Record<string, string> = { Lu: '#4BB477', Ma: '#5B8DEF', Mi: '#E0A040', Ju: '#C77DD6', Vi: '#3FBFB0', Sa: '#E0655B', Do: '#8A7BE0' };
+const diaColor = (d: string | null | undefined): string => (d && DIA_COLOR[d]) || '#9AA3AB';
+/** Color de la insignia "grupo": si es un código de día (modo semanal) usa diaColor,
+ *  si es una letra de grupo (modo por semana completa) usa grupoColor. */
+const badgeColorOf = (g: string | null | undefined): string => (g && DIA_CODES.includes(g)) ? diaColor(g) : grupoColor(g);
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -68,6 +91,8 @@ export default function DistribucionGuardiasScreen() {
   const [dTo, setDTo] = useState(addDaysISO(today, 6));
   const [grupoOpen, setGrupoOpen] = useState(false);     // armar grupos 14x7 a mano
   const [grupoSel, setGrupoSel] = useState<Record<string, string>>({}); // metaId → grupo ('A','B','C',…)
+  const [diaOpen, setDiaOpen] = useState(false);         // armar "1 día libre/semana" a mano
+  const [diaSel, setDiaSel] = useState<Record<string, string>>({}); // metaId → código de día ('Lu','Ma',…)
 
   // Grupos DINÁMICOS: tantos como hagan falta para ~2 inspectores por grupo (mínimo 3).
   // Antes estaba fijo en A/B/C (3 grupos), y con más inspectores quedaban afuera.
@@ -207,13 +232,72 @@ export default function DistribucionGuardiasScreen() {
     setNotice('✅ Rotación 14x7 generada.');
   };
 
+  // Sugerencia AUTOMÁTICA del modo "1 día libre/semana" (round-robin por categoría,
+  // igual criterio que los grupos: nunca dos coordinadores ni dos nocturnos el mismo
+  // día). Devuelve metaId → código de día ('Lu'..'Do').
+  const computeAutoDias = (): Record<string, string> => {
+    const cat = (m: Meta) => (m.cargo === 'Coordinador' ? 0 : m.cargo === 'Nocturno' ? 1 : 2);
+    const orden = [...metas].sort((a, b) => cat(a) - cat(b) || cmpText(a.inspector_name, b.inspector_name));
+    const counters = [0, 0, 0];
+    const out: Record<string, string> = {};
+    orden.forEach((m) => { const c = cat(m); const d = DIA_CODES[counters[c] % DIA_CODES.length]; counters[c]++; out[m.id] = d; });
+    return out;
+  };
+
+  // AUTOGENERAR "1 día libre/semana": abre el modal para asignar a mano el día de
+  // descanso fijo de cada inspector.
+  const abrirDias = () => {
+    if (metas.length === 0) { setNotice('❌ Primero agrega inspectores.'); return; }
+    const init: Record<string, string> = {};
+    let alguno = false;
+    metas.forEach((m) => { if (m.grupo && DIA_CODES.includes(m.grupo)) { init[m.id] = m.grupo; alguno = true; } });
+    setDiaSel(alguno ? init : computeAutoDias());
+    setNotice(null);
+    setDiaOpen(true);
+  };
+
+  // GENERA el modo "1 día libre/semana": cada inspector descansa SOLO su día fijo,
+  // repetido cada semana durante 4 semanas — a diferencia del 14x7, nadie deja de
+  // trabajar la semana completa. Borra las guardias previas y crea las nuevas.
+  const generarRotacionSemanal = async () => {
+    const faltan = metas.filter((m) => !diaSel[m.id]);
+    if (faltan.length) { setNotice(`❌ Falta asignar día libre a ${faltan.length} inspector(es).`); return; }
+    setBusy(true); setNotice(null);
+    const cycleStart = from;
+    const cycleEnd = addDaysISO(cycleStart, 27); // 4 semanas de vista
+    const rango = daysBetween(cycleStart, cycleEnd);
+    const nuevosShifts: any[] = [];
+    for (const m of metas) {
+      const code = diaSel[m.id];
+      await supabase.from('guard_inspector_meta').update({ grupo: code, updated_by: uid }).eq('id', m.id);
+      const dow = dowOfCode(code);
+      rango.forEach((day) => {
+        if (new Date(day + 'T00:00:00Z').getUTCDay() === dow) {
+          nuevosShifts.push({ inspector_id: m.inspector_id, inspector_name: m.inspector_name, from_date: day, to_date: day, kind: 'descanso', grupo: code, created_by: uid });
+        }
+      });
+    }
+    await supabase.from('guard_shifts').delete().in('inspector_name', metas.map((m) => m.inspector_name));
+    if (nuevosShifts.length) await supabase.from('guard_shifts').insert(nuevosShifts);
+    setTo(cycleEnd);
+    setBusy(false); setDiaOpen(false); load();
+    setNotice('✅ Turno de 1 día libre por semana generado.');
+  };
+
   const generarPDF = async () => {
     if (metas.length === 0) { setNotice('❌ Agrega inspectores primero.'); return; }
     setBusy(true);
     try {
       const inspectors: GuardInspector[] = metas.map((m) => ({ name: m.inspector_name, grupo: m.grupo, cargo: m.cargo, cedula: m.cedula, telefono: m.telefono, sector: m.sector }));
       const shiftsIn: GuardShift[] = shifts.map((s) => ({ inspector_name: s.inspector_name, from_date: s.from_date, to_date: s.to_date, kind: (s.kind === 'turno' ? 'turno' : 'descanso') }));
-      await generateGuardiasReport({ from, to, rotation: '14x7', inspectors, shifts: shiftsIn });
+      // Detecta el modo por la duración de los descansos: 1 día = "1 día libre/semana",
+      // 7 días = 14x7 (grupo completo descansa la semana), mixto = editado a mano.
+      const largos = shifts.filter((s) => s.kind === 'descanso').map((s) => daysBetween(s.from_date, s.to_date).length);
+      const rotation = largos.length === 0 ? undefined
+        : largos.every((n) => n === 1) ? '6x1 (1 día libre/semana)'
+        : largos.every((n) => n === 7) ? '14x7'
+        : 'Personalizada';
+      await generateGuardiasReport({ from, to, rotation, inspectors, shifts: shiftsIn });
     } finally { setBusy(false); }
   };
 
@@ -229,11 +313,14 @@ export default function DistribucionGuardiasScreen() {
         <DateField value={from} onChange={setFrom} />
         <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Hasta</Text>
         <DateField value={to} onChange={setTo} />
-        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
-          <TouchableOpacity onPress={abrirGrupos} disabled={busy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Autogenerar 14x7</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+          <TouchableOpacity onPress={abrirGrupos} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Grupo x semana</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={generarPDF} disabled={busy} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+          <TouchableOpacity onPress={abrirDias} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12.5 }}>📅 1 libre/semana</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={generarPDF} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12.5 }}>📄 Generar PDF</Text>
           </TouchableOpacity>
         </View>
@@ -267,7 +354,7 @@ export default function DistribucionGuardiasScreen() {
               {metas.map((m) => (
                 <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
                   <View style={{ width: 118, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                    <View style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: m.grupo ? grupoColor(m.grupo) : colors.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: m.grupo && m.grupo.length > 1 ? 20 : 14, height: 14, borderRadius: 3, backgroundColor: m.grupo ? badgeColorOf(m.grupo) : colors.border, alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{m.grupo || '·'}</Text>
                     </View>
                     <Text style={{ color: colors.text, fontSize: 9.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>{m.inspector_name}</Text>
@@ -430,6 +517,62 @@ export default function DistribucionGuardiasScreen() {
               </TouchableOpacity>
               <TouchableOpacity onPress={generarRotacion} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.brand, opacity: busy ? 0.6 : 1 }}>
                 <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '⚙️ Generar rotación 14x7'}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modal: ARMAR "1 día libre/semana" a mano */}
+      <Modal visible={diaOpen} transparent animationType="slide" onRequestClose={() => setDiaOpen(false)}>
+        <Pressable onPress={() => setDiaOpen(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%', padding: spacing.lg }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>📅 1 día libre por semana</Text>
+            <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
+              Asigna a cada inspector UN día fijo de descanso a la semana; los demás días trabaja normal. A diferencia del modo por grupos, ninguna semana queda alguien sin trabajar toda la semana. Se repite cada semana desde {dmy(from)} (4 semanas). Al generar se reemplazan las guardias actuales.
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, marginRight: spacing.sm }}>
+                {DIAS_SEMANA.map((d) => (
+                  <View key={d.code} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: diaColor(d.code), alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ color: '#fff', fontSize: 8, fontWeight: '900' }}>{d.code}</Text>
+                    </View>
+                    <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>{metas.filter((m) => diaSel[m.id] === d.code).length}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity onPress={() => setDiaSel(computeAutoDias())} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 11.5 }}>✨ Sugerir automático</Text>
+              </TouchableOpacity>
+            </View>
+            {notice && diaOpen ? <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12, marginBottom: spacing.xs }}>{notice}</Text> : null}
+            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 380 }}>
+              {[...metas].sort((a, b) => cmpText(a.inspector_name, b.inspector_name)).map((m) => (
+                <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View style={{ flex: 1, paddingRight: spacing.sm }}>
+                    <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>{m.inspector_name}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 10.5 }}>{m.cargo || 'Inspector'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1 }}>
+                    {DIAS_SEMANA.map((d) => {
+                      const on = diaSel[m.id] === d.code;
+                      return (
+                        <TouchableOpacity key={d.code} onPress={() => setDiaSel((prev) => ({ ...prev, [m.id]: d.code }))} style={{ width: 30, height: 30, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? diaColor(d.code) : colors.surfaceAlt, borderWidth: 1.5, borderColor: on ? diaColor(d.code) : colors.border }}>
+                          <Text style={{ color: on ? '#fff' : colors.muted, fontWeight: '900', fontSize: 11 }}>{d.code}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity onPress={() => setDiaOpen(false)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={generarRotacionSemanal} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '📅 Generar 1 libre/semana'}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
