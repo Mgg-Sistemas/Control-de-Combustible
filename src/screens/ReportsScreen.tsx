@@ -1470,13 +1470,16 @@ export default function ReportsScreen({ route }: any) {
     // por zona cuadra con el total aunque falten coordenadas. Todas las bases de
     // despliegue son del ESTE salvo la propia "Oeste".
     const zonaMacroDe = (m: any): 'ESTE' | 'OESTE' | null => {
-      const sec = ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude);
-      const mac = sectorMacro(sec);
-      if (mac) return mac;
+      // FICTICIO: usa el sector aleatorio (reparto simulado).
+      if (ficticio) return sectorMacro(randSectorById.get(m.id) ?? null);
+      // REAL: la fuente de verdad es la UBICACIÓN DE DESPLIEGUE (campo texto que cura el
+      // admin). Todas las bases (Este/CDT/CDF/Santa Eduviges/Escuela Naval) son del lado
+      // ESTE; solo "Oeste" es del oeste. Si la máquina no tiene ubicación asignada, se
+      // respalda con el GPS (sectorOf).
       const s = (m.sector && String(m.sector).trim().toLowerCase()) || '';
       if (s === 'oeste') return 'OESTE';
       if (s) return 'ESTE';
-      return null;
+      return sectorMacro(sectorOf(m.latitude, m.longitude));
     };
     let este = 0, oeste = 0, sinUbic = 0;
     list.forEach((m) => {
