@@ -1,6 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
+import { turnoH, workedFromShifts } from './hours';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
@@ -334,39 +335,33 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const inactiva = m?.active === false || m?.operational === false;
     const r = roundBy.get(id);
     const seg = segBy.get(id);
-    // Horas trabajadas por turno (día = day_hours + extra; noche = night_hours).
-    let dh = n2((Number(r?.day_hours) || 0) + (Number(r?.overtime_hours) || 0));
-    let nh = n2(Number(r?.night_hours) || 0);
-    // EN VIVO: una jornada ABIERTA (jornada_start_at, aún sin finalizar) suma las horas
-    // transcurridas hasta AHORA a su turno — así el reporte crece con el tiempo mientras
-    // la máquina trabaja (las horas se banquean recién al finalizar/parar). Tope 12h =
-    // duración del turno (igual que el auto-cierre del servidor).
+    // Horas de turno crudas (día/noche/parada/extra) de la ronda — MISMA fuente que el
+    // Informe por jornada. Las horas trabajadas se calculan con `workedFromShifts` (la
+    // fórmula canónica compartida) para que AMBOS reportes COINCIDAN: ceil(día)+ceil(noche)
+    // − paradas + extras (las paradas SÍ se descuentan, igual que facturación/pagos).
+    let dd = Number(r?.day_hours) || 0;
+    let nn = Number(r?.night_hours) || 0;
+    const sRaw = Number(r?.hours_stopped) || 0;
+    const oRaw = Number(r?.overtime_hours) || 0;
+    // EN VIVO: una jornada ABIERTA suma el tiempo transcurrido (cap 12h) a su turno,
+    // desde su inicio REAL — idéntico al Informe por jornada (no anclado a 7am; anclarlo
+    // solo aquí volvía a descuadrar los dos reportes).
     const jStart = r?.jornada_start_at ? new Date(r.jornada_start_at).getTime() : null;
     const jShift = r?.jornada_shift === 'night' ? 'night' : r?.jornada_shift === 'day' ? 'day' : null;
     // La jornada abierta suma en vivo SOLO si estamos viendo HOY y arrancó DENTRO de
-    // este día (si arrancó otro día — p. ej. máquina averiada arrastrada — no infla el
-    // día seleccionado; solo cuenta lo banqueado de esa fecha).
+    // este día (si arrancó otro día — p. ej. máquina averiada arrastrada — no infla el día).
     const jStartHoy = jStart != null && jStart >= dayBoundStart && jStart <= dayBoundEnd;
     if (isToday && jStart && jShift && jStartHoy) {
-      // La jornada de DÍA se ANCLA SIEMPRE a las 7am (jornada fija 7am–7pm): aunque el
-      // inspector la marque a las 8 o 9am, las horas se cuentan desde las 7am. La de
-      // NOCHE mantiene su inicio real (no se infla — ver [[noche-no-inflar-hours]]).
-      if (jShift === 'day') {
-        const elapsedDia = Math.max(0, Math.min(12, (nowMs - day7) / 3600000));
-        dh = n2(dh + elapsedDia);
-      } else {
-        const elapsed = Math.max(0, Math.min(12, (nowMs - jStart) / 3600000));
-        nh = n2(nh + elapsed);
-      }
+      const elapsed = Math.min(12, Math.max(0, (nowMs - jStart) / 3600000));
+      if (jShift === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
     }
     // Inactiva: 0 horas (fuera de servicio). Aparece SIEMPRE con su status, sin horas.
-    if (inactiva) { dh = 0; nh = 0; }
-    // Tope por turno: DÍA máx 12h, NOCHE máx 12h (una máquina "corrida" puede tener
-    // ambos → hasta 24h de jornada, pero nunca >12 en un mismo turno). Se redondean
-    // SIEMPRE HACIA ARRIBA a horas enteras (pedido del cliente: 11,4 → 12; 3,4 → 4).
-    dh = Math.ceil(Math.min(12, dh));
-    nh = Math.ceil(Math.min(12, nh));
-    const trab = dh + nh;
+    if (inactiva) { dd = 0; nn = 0; }
+    // Horas trabajadas = workedFromShifts (misma fórmula que Informe/Pagos/Control) → cuadra.
+    const trab = inactiva ? 0 : workedFromShifts(dd, nn, sRaw, oRaw);
+    // Desglose por turno (redondeado hacia arriba) para las tarjetas de totales.
+    const dh = inactiva ? 0 : turnoH(dd);
+    const nh = inactiva ? 0 : turnoH(nn);
     // Horas paradas totales (fallback sin episodios) + reparto día/noche por episodio.
     let par = 0;
     if (seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
@@ -387,9 +382,11 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
     const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
     const averiaBase = averiaTxt(id);
-    // Las ACTIVAS solo se listan si tuvieron algo ese día; las INACTIVAS aparecen
-    // SIEMPRE (solo en este reporte por empresa) con su estado 🚫 INACTIVA.
-    if (!inactiva && trab <= 0 && paradasDia <= 0 && paradasNoche <= 0 && !averiaBase) return;
+    // Las ACTIVAS solo se listan si TRABAJARON (horas > 0). Una máquina PARADA o AVERIADA
+    // que no trabajó NO se toma en cuenta en este reporte (pedido del cliente) — mismo
+    // criterio que el Informe por jornada (`if (totalH <= 0) return`), por eso coinciden.
+    // Las INACTIVAS (fuera de servicio) sí aparecen aparte con su estado 🚫 INACTIVA.
+    if (!inactiva && trab <= 0) return;
     totDayH = n2(totDayH + dh); totNightH = n2(totNightH + nh);
     totParDay = n2(totParDay + paradasDia); totParNight = n2(totParNight + paradasNoche);
     const averia = inactiva ? (averiaBase ? `🚫 INACTIVA · ${averiaBase}` : '🚫 INACTIVA') : averiaBase;
@@ -400,7 +397,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
       horaIni, horaFin,
-      trabajadas: trab, paradasDia, paradasNoche, averia,
+      trabajadas: n2(trab), paradasDia, paradasNoche, averia,
       timeline: buildTimeline(id),
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -464,7 +461,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? totParNight : '0'} H</div></div>
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
     </div>
-    <div class="kpi-note">Las horas paradas NO se restan (solo informativas): si una máquina no trabajó por estar parada, sus horas trabajadas quedan en 0. Total de jornada = total de horas ACTIVAS (trabajadas). · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
+    <div class="kpi-note">Horas trabajadas = ceil(día) + ceil(noche) − paradas + extras (las paradas SÍ se descuentan; una máquina parada que no trabajó queda en 0). Misma fórmula que el <b>Informe por jornada</b> → ambos reportes coinciden. Total de jornada = total de horas trabajadas. · ⏱️ Horas EN VIVO al momento de generar (las jornadas abiertas siguen sumando).</div>`;
 
   const extraCss = `
     /* Orientación HORIZONTAL (se aprecian mejor los textos largos). Mantiene el

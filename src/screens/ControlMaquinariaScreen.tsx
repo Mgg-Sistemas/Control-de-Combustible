@@ -7,6 +7,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, pdfDocument, dateRangeLabel } from '../lib/pdf';
 import { elapsedSince } from '../lib/time';
+import { turnoH, workedFromShifts } from '../lib/hours';
 import { norm, onlyDecimal, onlyDigits, cmpText } from '../lib/text';
 import { useConfirm } from '../components/ConfirmProvider';
 import { useToast } from '../components/ToastProvider';
@@ -52,22 +53,10 @@ export function addDaysISO(iso: string, delta: number): string {
   const dd = `${dt.getUTCDate()}`.padStart(2, '0');
   return `${dt.getUTCFullYear()}-${mm}-${dd}`;
 }
-/**
- * HORAS REALES REDONDEADAS HACIA ARRIBA (pedido cliente 08/08/2026): cada jornada
- * (día o noche) usa sus horas REALES (las que registró Inspecciones, o las que cargó
- * un analista/admin manualmente) redondeadas al entero siguiente — ya NO se fuerza al
- * turno más cercano (6h/12h). Ej.: 7.6 h → 8 h · 9.2 h → 10 h · 6 h → 6 h (ya entero).
- * Usada en Control, Pagos e Informe (todos llaman esta función) para que el monto
- * refleje lo realmente trabajado, no un bloque fijo.
- */
-export const turnoH = (h: number): number => {
-  const v = Number(h) || 0;
-  if (v <= 0) return 0;
-  return Math.ceil(v);
-};
-/** Horas trabajadas del día = (turno día + turno noche, redondeados) − parada + extras (mín. 0 antes de extras). */
-export const workedFromShifts = (dayH: number, nightH: number, stopped: number, overtime: number) =>
-  Math.max(0, turnoH(dayH) + turnoH(nightH) - (Number(stopped) || 0)) + Math.max(0, Number(overtime) || 0);
+// Fórmula canónica de horas trabajadas: ahora vive en `src/lib/hours.ts` (un solo lugar
+// para todo el sistema, incl. el reporte por empresa). Se importan arriba y se re-exportan
+// para no romper los muchos imports existentes `from './ControlMaquinariaScreen'`.
+export { turnoH, workedFromShifts };
 /** Fracción de jornada según las horas (proporcional): 12 h = 1, 6 h = 0.5, 10 h = 0.833… (horas ÷ 12). */
 export const shiftPayUnits = (h: number): number => (Number(h) || 0) / 12;
 /** Jornadas del día = (turno día + turno noche, redondeados) ÷ 12. Monto = precio por jornada × jornadas. */
