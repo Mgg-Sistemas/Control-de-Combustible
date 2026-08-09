@@ -100,6 +100,18 @@ Para cambiar el estado, abre la máquina y toca el botón del estado que quieras
 > **en espera** salen **agrupados por empresa** (desplegables y colapsables). La lista de
 > **inactivas arranca COLAPSADA** (se abre al tocar la empresa) y cada máquina muestra su
 > **placa y su serial**.
+>
+> **🔴/🟢 Fecha de inactivación/reactivación:** cada vez que una máquina pasa a **No operativa**
+> o vuelve a **Operativa** desde este botón, su tarjeta muestra la fecha: **"🔴 Inactivada el
+> DD/MM/AAAA"** o **"🟢 Reactivada el DD/MM/AAAA"**. Es un dato aparte de las averías/paradas que
+> reporta un inspector desde el teléfono (ver más abajo) — este lo mueve el **administrador** a
+> mano con el botón de estado.
+
+> **🕘 Última parada/avería resuelta:** si una máquina tuvo una parada o avería reportada por un
+> inspector y **ya se resolvió** (alguien tocó "🟢 Volver a OPERATIVA"), su ficha muestra un
+> resumen: **"Inactivo desde [fecha/hora] hasta [fecha/hora] — Total: Xd Yh"**. Solo se ve cuando
+> la máquina **no está parada/averiada en este momento** (si está parada ahora, en su lugar sale
+> el aviso de la avería/parada **vigente**, ver 4.7).
 
 Otras cosas que puedes hacer en cada máquina:
 - 📍 **Ubicación** — guarda dónde está (con el GPS).
@@ -212,8 +224,9 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   propio número.
 - **Switch 🔒 "Blindar precio a estas fechas"** (viene activado): **clava** el precio en
   esas fechas. Si el precio **sube en otra semana, esta no cambia**; y si lo **modificas,
-  solo afecta esa semana**. Todos los reportes (Informe por jornada, Maquinaria/Vehículo y
-  Control de Pagos) usan ese mismo precio blindado.
+  solo afecta esa semana**. El **Informe por jornada** y **Control de Pagos** usan ese mismo
+  precio blindado (el reporte **Maquinaria/Vehículo**, desde el 08/08/2026, ya **no muestra
+  precios ni montos en $** — ver más abajo).
 - **Si no cambias el precio, se mantiene el de la semana anterior** (arrastre automático):
   una jornada sin precio propio hereda el último precio que pusiste en una fecha anterior
   de esa misma máquina. Solo tocas el precio cuando **cambia**.
@@ -222,12 +235,29 @@ Esta es la parte del **día a día**. Aquí anotas **cuántas horas trabajó** c
   actualiza al instante y los demás no se tocan. Funciona esté el corte **abierto o cerrado**.
 - Al **cerrar un corte**, el sistema **congela el precio**: respeta el precio por rango ya
   fijado y a las jornadas sin precio propio les pone el precio actual de la máquina.
-- **Reporte 🚚 Maquinaria/Vehículo — Con precios / Sin precios:** en **"💲 Con precios"** se
-  lista **cada equipo por unidad** (para facturar) con guardia, horas, precio/hora, total y
-  fletes. En **"Sin precios"** se **AGRUPAN** dentro de cada empresa los equipos iguales (todos
-  los **JUMBO** juntos, todos los **CAMIÓN DE SERVICIO** juntos…) mostrando la **cantidad** y las
-  horas sumadas, no una fila por unidad (Marca/Clasificación salen como el valor común o
-  **"Varios"**). Todo **A→Z**.
+- **Reporte 🚚 Maquinaria/Vehículo (08/08/2026 — ya NO muestra montos en $):** vive dentro de
+  **Reportes**, con sus mismos filtros de **rango de fechas** y **empresas** (checkboxes). Tiene
+  **3 bloques**, todos operativos (sin precios ni facturación):
+  1. **Totales Generales:** cantidad de **equipos**, cuántos están **trabajando**, **parados**,
+     **averiados**, y las **horas acumuladas** del rango completo.
+  2. **Totales por Empresa:** el mismo desglose (equipos, trabajando, parados, averiados, horas),
+     pero agrupado por cada empresa.
+  3. **Trazabilidad de Maquinaria:** una fila por **cada equipo**, con su **empresa**, **días
+     trabajados** en el rango, **horas trabajadas**, cantidad de **averías** y **paradas**, y su
+     **estado** actual. Cada fila tiene un botón **"Ver detalle"** que abre el **historial
+     completo de esa máquina** (ver **Trazabilidad e Historial por Equipo** más abajo).
+  El botón **⬇️ PDF** genera el mismo reporte, en 3 secciones, para imprimir o compartir.
+- **🧭 Trazabilidad e Historial por Equipo (nuevo):** pantalla propia dentro de **Reportes →
+  Maquinaria/Vehículo** (o tocando **"Ver detalle"** desde cualquier fila del bloque de arriba, que
+  llega con la máquina ya elegida). Muestra la **historia completa de UNA máquina** en el rango de
+  fechas que elijas:
+  1. Elige la **máquina** (buscador por código, serial, placa, empresa o encargado) y el **rango**
+     (Desde/Hasta).
+  2. Toca **"🔎 Consultar historial"**. Aparece un **resumen** (días trabajados, horas totales,
+     cantidad de averías y paradas, y tiempo total inactivo), la **lista de paradas/averías** (con
+     fecha/hora de inicio, de fin o **"vigente"** si sigue activa, y la duración de cada una), y los
+     **días trabajados** con sus horas de día/noche/total.
+  3. **"📄 Exportar PDF"** descarga el mismo historial para imprimir o archivar.
 - **🔎 Buscar por tipo de equipo (en 📊 Conteo de equipos):** dentro de la vista previa del
   reporte **Conteo de equipos** hay un buscador **con casillas**. Escribe el tipo —por ejemplo
   **"volqueta toronto"**— para filtrar la lista y **tilda** uno o varios tipos; abajo aparece un
@@ -283,7 +313,7 @@ Aquí se ve **cuánto hay que pagar** por las horas trabajadas, según los preci
 > (no se listan todas de golpe).
 
 > **El facturado cuadra con el Informe por jornada:** Control de Pagos usa el **mismo precio del
-> reporte** (el del rango/actual, no el snapshot "del cierre") y **no cobra rondas ni fletes
+> reporte** (el del rango/actual, no el precio congelado "del cierre") y **no cobra rondas ni fletes
 > anteriores al inicio del período**. Así el saldo = **Facturado − Abonado** da igual que el
 > reporte real.
 
@@ -606,6 +636,20 @@ En **Empleados** puedes filtrar la lista por **tipo de cargo** y sacar un report
 > cargo y fecha de ingreso** (**no incluye el sueldo**). Al pie lleva una **firma centrada para la
 > Jefa de Administración**. Sale en **PDF** listo para imprimir o guardar.
 
+### 4.6e. Distribución de Guardias (rotación de descanso de inspectores)
+Arma el **calendario de descanso** de los inspectores dentro de un ciclo de fechas (por defecto,
+21 días — un ciclo **14×7**: 14 días de guardia y 7 de descanso). Se llega desde **Más**, o desde
+los paneles de **Coordinador** y **Asistencia**.
+
+- **Calendario inspector × día:** una tabla con cada inspector en una fila y cada día del rango en
+  una columna, marcando **T** (trabaja) o **D** (descansa).
+- **⚙️ Autogenerar 14×7:** arma los grupos **a mano** (para que nunca coincidan de descanso dos
+  coordinadores ni dos inspectores del turno noche) y, al tocar **"⚙️ Generar rotación 14×7"**,
+  reparte automáticamente los descansos de todo el ciclo según esos grupos.
+- También puedes editar el **rango de descanso** de un inspector **uno por uno**, sin usar el
+  autogenerado.
+- **📄 Exportar PDF** genera el calendario completo para imprimir o compartir.
+
 ### 4.7. Mantenimiento de Maquinaria (averías + reparaciones)
 Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 - **⏳ Averías:** lo que reportan los operadores por QR, **por empresa → máquina** (con su detalle:
@@ -761,39 +805,44 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > mal asignado — es seguro, no duplica ni pisa nada. El usuario inventado no se borra, solo queda
 > sin usar.
 >
-> **🔧 Panel "Gestionar Iniciada/Pendiente por supervisor" (04/08/2026):** en el Resumen de
-> Inspecciones, debajo del botón de "Reporte de máquinas por asignar / por iniciar", hay un panel
-> (solo para 2 cuentas puntuales, más quien se agregue desde Ajustes) que lista las máquinas
-> agrupadas por inspector, con checkbox individual/por grupo/todas, cada fila con su propio turno
-> (☀️/🌙 — una máquina con inspector de día Y de noche sale 2 veces, cada una independiente), y dos
-> botones para pasarlas en bloque entre **✅ Iniciada** y **⏳ Pendiente por iniciar** — el mismo
-> estado de las tarjetas de arriba. "Iniciar" arranca la jornada AHORA (como si el inspector
-> tocara "Iniciar jornada", sin pedir horómetro); "Pendiente" borra las horas de ese turno y cierra
-> la jornada si estaba abierta en ese mismo turno. Tiene sus propios filtros de turno y estado
-> (independientes del switch general del dashboard) y **solo funciona para el día de HOY** (no
-> deja tocar días pasados, para no arriesgar cortes ya cerrados). Si la máquina ya tenía horas
-> trabajadas hoy, "Pendiente" NO las borra sin dejar rastro: quedan guardadas en el historial
+> **🔧 Panel "Gestionar Iniciada/Pendiente por supervisor":** en el Resumen de Inspecciones,
+> debajo del botón de "Reporte de máquinas por asignar / por iniciar", hay un panel — visible
+> **solo para las cuentas con acceso** — que lista las máquinas agrupadas por inspector, con
+> checkbox individual/por grupo/todas, cada fila con su propio turno (☀️/🌙 — una máquina con
+> inspector de día Y de noche sale 2 veces, cada una independiente), y dos botones para pasarlas
+> en bloque entre **✅ Iniciada** y **⏳ Pendiente por iniciar** — el mismo estado de las tarjetas
+> de arriba. "Iniciar" arranca la jornada AHORA (como si el inspector tocara "Iniciar jornada",
+> sin pedir horómetro); "Pendiente" borra las horas de ese turno y cierra la jornada si estaba
+> abierta en ese mismo turno. Tiene sus propios filtros de turno y estado (independientes del
+> switch general del dashboard) y **solo funciona para el día de HOY** (no deja tocar días
+> pasados, para no arriesgar cortes ya cerrados). Si la máquina ya tenía horas trabajadas hoy,
+> "Pendiente" NO las borra sin dejar rastro: quedan guardadas en el historial
 > (`machine_work_segments`, igual que cualquier otro cierre de jornada) y en la bitácora de
-> **Auditoría**, con quién lo hizo y cuántas horas había. Un **administrador** puede
-> prender/apagar este panel por completo y sumar o quitar personas con acceso desde **Ajustes →
-> Herramientas avanzadas** (requiere haber corrido `supabase/feature_toggles.sql` en Supabase;
-> mientras tanto sigue funcionando igual, solo para las 2 cuentas fijas).
+> **Auditoría**, con quién lo hizo y cuántas horas había. *(08/08/2026: el panel de Ajustes para
+> prender/apagarlo y administrar los accesos se eliminó por no usarse — el acceso ahora es fijo,
+> solo para las cuentas designadas.)*
 >
 > **🔵 Círculo de estado** en cada máquina asignada: **🟢 verde** = jornada en curso (trabajando) ·
 > **🟡 amarillo** = parada (avería) · **🔴 rojo** = jornada finalizada. Cada máquina muestra además su
 > **📍 edificio/referencia** y su **serial/placa**. Si una máquina está **parada**, en su ficha sale
 > **🟢 Volver a OPERATIVA** (cierra la avería y quita el "MÁQUINA PARADA" de Control).
 >
-> **⚡ Eficiencia por inspector (05/08/2026):** en **👷 POR INSPECTOR** (debajo del panel anterior),
-> cada barra de inspector trae su **% de eficiencia** del turno: de las máquinas que tiene
-> asignadas, qué porcentaje SÍ chequeó (la inició, la marcó parada, o reportó una avería — cualquier
-> acción cuenta como que fue a verificarla); solo las que dejó **sin tocar** (pendientes) bajan el
-> %. **🟢 100%** = chequeó todas sus asignadas. **🟡 50-99%** y **🔴 menos de 50%** avisan que le
-> quedaron máquinas sin revisar. Al tocar un inspector, su tarjeta de detalle trae una quinta
-> casilla "Eficiencia" junto a Iniciadas/Pendientes/Paradas/Averiadas. El botón **"📄 Reporte de
-> eficiencia (todos los inspectores)"** (arriba de las barras) genera el PDF completo con una tabla
-> inicial ordenada de **menor a mayor eficiencia** — los que necesitan seguimiento aparecen
-> primero — más el detalle de cada inspector.
+> **⚡ Eficiencia por inspector — es por HORAS TRABAJADAS, no por máquinas encendidas
+> (corregido 08/08/2026):** en **👷 POR INSPECTOR** (debajo del panel anterior), cada barra de
+> inspector trae su **% de eficiencia** del turno. **No mide si marcó/tocó cada máquina** — mide
+> **cuánto tiempo real trabajaron** sus máquinas asignadas: se suman las **horas ya trabajadas +
+> las que lleva corriendo AHORA MISMO** (en vivo, no hace falta esperar a que cierre el turno) de
+> todas sus máquinas, y se divide entre las **horas que ya pasaron desde que arrancó el turno** ×
+> la cantidad de máquinas asignadas. Por eso, si el turno recién empezó, el % parte bajo y va
+> **subiendo solo** a medida que corren los minutos — es normal, no es que "se dañó". **🟢 cerca
+> de 100%** = sus máquinas están trabajando casi todo el tiempo disponible. **🟡/🔴 más bajo** =
+> hay máquinas paradas, averiadas o sin iniciar durante buena parte del turno. Al tocar un
+> inspector, su tarjeta de detalle trae una quinta casilla "Eficiencia" junto a
+> Iniciadas/Pendientes/Paradas/Averiadas. El botón **"📄 Reporte de eficiencia (todos los
+> inspectores)"** (arriba de las barras) genera el PDF con **la misma fórmula que la gráfica**
+> (antes usaba otro cálculo y podían no coincidir — ya se unificó), en una tabla ordenada de
+> **menor a mayor eficiencia** — los que necesitan seguimiento aparecen primero — más el detalle
+> de cada inspector.
 >
 > **🧩 Excepción — el cajón MAQUINAS FALTANTES (06/08/2026):** el usuario de sistema
 > **MAQUINAS FALTANTES** no es una persona chequeando nada, así que ya **no aparece como barra** en
@@ -808,9 +857,9 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 > solo el día en que se reportó — ya no "baja" sola a parada o pendiente al día siguiente. Antes
 > tanto el teléfono como este resumen solo contaban la avería si era del mismo día; se corrigió
 > en **ambas** vistas (teléfono e Inspecciones aquí en PC) para que muestren siempre el mismo
-> conteo. Solo se quita marcando la máquina **🟢 Volver a OPERATIVA**. La **eficiencia** no
-> cambia con esta corrección — sigue dependiendo solo de las máquinas dejadas **sin tocar**
-> (pendientes).
+> conteo. Solo se quita marcando la máquina **🟢 Volver a OPERATIVA**. Como la **eficiencia**
+> (ver arriba) se calcula por horas trabajadas, una máquina **averiada o parada** todo el turno
+> también le baja el % al inspector — no solo las que dejó **sin tocar** (pendientes).
 
 **Cómo marca el inspector una máquina (varias formas, todas valen):**
 1. Entra con su usuario y contraseña (o desde teléfono, cualquiera cae aquí). Ve **"Mis máquinas asignadas"**.
@@ -1891,6 +1940,19 @@ mockups de pantalla:
 Toca **"📄 Descargar"** junto al rol que quieras: se genera el PDF al instante (no se guarda nada
 en el servidor) y se abre para imprimir/guardar (en PC) o compartir (en el teléfono), igual que
 cualquier otro reporte del sistema.
+
+---
+
+## 4.28. Ajustes
+Se llega desde **Más → Ajustes**. La **apariencia** (modo oscuro/claro) y la **seguridad**
+(contraseña, huella/Face ID) viven en la **tuerca ⚙️** del encabezado, no aquí — ver 5. En
+Ajustes solo quedan:
+
+- **Cerrar sesión.**
+- **⬇️ Descargar backup (solo administradores puntuales, en computadora):** descarga un archivo
+  con **todos los datos** del sistema (máquinas, jornadas, empleados, pagos, inventario…), por si
+  hace falta un respaldo manual. Acceso restringido a las cuentas designadas — el resto de
+  administradores no ve este botón.
 
 ---
 
