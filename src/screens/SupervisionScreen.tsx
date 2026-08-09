@@ -929,7 +929,12 @@ export default function SupervisionScreen({ navigation }: any) {
           ) : null}
         </Card>
       ) : null}
-      <CheckMaquinaModal visible={checkModalOpen} onClose={() => setCheckModalOpen(false)} isAdmin={isAdmin} />
+      {/* Montado SOLO mientras está abierto: si se queda montado siempre (aunque
+          visible=false), sus 2 suscripciones Realtime (machine_inspectors, machinery)
+          quedan activas todo el tiempo que la pantalla de Inspecciones esté abierta,
+          duplicando las que ya tiene esta misma pantalla — más carga de la necesaria
+          sobre Supabase Realtime. */}
+      {checkModalOpen ? <CheckMaquinaModal visible={checkModalOpen} onClose={() => setCheckModalOpen(false)} isAdmin={isAdmin} /> : null}
 
       <Card>
         {/* (El navegador de fecha, los resúmenes Día/Noche y el reporte de estado del
