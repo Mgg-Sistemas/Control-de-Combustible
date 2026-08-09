@@ -1358,6 +1358,17 @@ completo (quién, qué, a qué máquina, cuándo y desde qué dispositivo).
 > y trae **todo** lo que le haya pasado a esa cosa desde siempre, sin tener que adivinar en qué
 > fecha ocurrió. Sin ese interruptor, la búsqueda sigue funcionando igual que antes (dentro del
 > rango de fechas elegido).
+>
+> **🔎 Buscar por cualquier característica:** no hace falta que el nombre exacto esté escrito en
+> la bitácora — escribe una **placa**, un **serial**, una **cédula**, el **encargado**, el
+> **modelo** o la **clasificación** de la máquina, y el buscador la encuentra igual (resuelve
+> el dato contra el Catálogo y Usuarios antes de buscar en el historial).
+>
+> **📄 PDF con toda la información:** arriba de la lista sale un resumen rápido (➕ Creó · ✏️
+> Modificó · 🗑️ Eliminó · 📋 Eventos) sin tener que generar nada. El PDF trae ese mismo resumen
+> más quién tuvo más actividad, y por cada acción el **detalle completo**: a qué registro
+> afectó y, si fue una modificación, **cada campo que cambió** (antes → después) — lo mismo que
+> ves al tocar una fila en pantalla, ahora también impreso.
 
 ---
 

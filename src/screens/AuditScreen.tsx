@@ -270,8 +270,29 @@ export default function AuditScreen() {
   const searchAllTimeActive = fullHistory && !!q.trim();
   const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
 
+  // Resumen por categoría de lo que está VISIBLE ahora (respeta búsqueda + chips + rango),
+  // para tener un vistazo rápido sin tener que generar el PDF. Mismo dato que usa el PDF.
+  const resumen = useMemo(() => {
+    let creo = 0, modifico = 0, elimino = 0, eventos = 0;
+    const porUsuario = new Map<string, number>();
+    shown.forEach((r) => {
+      if (r.action === 'INSERT') creo++;
+      else if (r.action === 'UPDATE') modifico++;
+      else if (r.action === 'DELETE') elimino++;
+      else eventos++;
+      const u = r.user_name || 'Alguien';
+      porUsuario.set(u, (porUsuario.get(u) ?? 0) + 1);
+    });
+    const topUsuarios = Array.from(porUsuario.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    return { creo, modifico, elimino, eventos, topUsuarios };
+  }, [shown]);
+
   // PDF de la bitácora (con las filas ya filtradas). En web abre la VISTA PREVIA
-  // (modal con Imprimir / Guardar como PDF); en móvil comparte el archivo.
+  // (modal con Imprimir / Guardar como PDF); en móvil comparte el archivo. Trae TODA
+  // la información posible de cada acción — no solo un resumen de una línea: el
+  // registro afectado (nombre legible), el detalle, el dispositivo Y el desglose
+  // campo por campo de qué cambió (lo mismo que ves al tocar una fila en pantalla,
+  // que antes solo estaba ahí y no salía en el PDF).
   const generarPdf = async () => {
     if (shown.length === 0) return;
     const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -280,28 +301,79 @@ export default function AuditScreen() {
       userFilter !== '__all__' ? `Usuario: ${userFilter}` : '',
       tableFilter !== '__all__' ? `Tipo: ${tableLabel(tableFilter)}` : '',
     ].filter(Boolean).join(' · ');
+
+    // Registro afectado, en texto legible: nombre/código (row_label) si existe, si no
+    // el detalle, si no un ID corto como último recurso (sin consultar la BD por fila:
+    // con miles de filas sería demasiado lento para un PDF).
+    const targetTxt = (r: AuditLog) => r.row_label || r.detail || (r.row_id ? `ID ${r.row_id.slice(0, 8)}…` : '—');
+
+    // Desglose de CAMBIOS de una fila, en HTML compacto (campo: antes → después).
+    const changesHtml = (r: AuditLog): string => {
+      if (!r.changes || Object.keys(r.changes).length === 0) return '';
+      const entries = Object.entries(r.changes);
+      const items = entries.map(([k, v]) => {
+        if (r.action === 'UPDATE') {
+          const de = esc(fmtVal((v as any)?.de));
+          const a = esc(fmtVal((v as any)?.a));
+          return `<div class="chg"><b>${esc(k)}</b>: <span class="del">${de}</span> → <span class="new">${a}</span></div>`;
+        }
+        return `<div class="chg"><b>${esc(k)}</b>: ${esc(fmtVal(v))}</div>`;
+      }).join('');
+      const titulo = r.action === 'UPDATE' ? `${entries.length} cambio(s)` : r.action === 'INSERT' ? 'Datos creados' : 'Datos eliminados';
+      return `<div class="chgbox"><div class="chgtit">${esc(titulo)}</div>${items}</div>`;
+    };
+
     const filas = shown.map((r) => {
       const a = ACTION_META[r.action] ?? { label: r.action.toLowerCase() };
       const ev = EVENT_ACTIONS.has(r.action);
       const accion = ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`;
-      const detalle = ev ? (r.detail ?? '') : (r.detail ?? '');
+      const detalle = ev
+        ? esc(r.detail ?? '—')
+        : `<b>${esc(targetTxt(r))}</b>${r.detail && r.detail !== r.row_label ? `<div class="sub">${esc(r.detail)}</div>` : ''}${changesHtml(r)}`;
       return `<tr>
-        <td>${esc(caracasDT(r.at))}</td>
-        <td>${esc(r.user_name || 'Alguien')}</td>
-        <td>${esc(accion)}</td>
-        <td>${esc(detalle)}</td>
-        <td>${esc(r.device ?? '')}</td>
+        <td class="nowrap">${esc(caracasDT(r.at))}</td>
+        <td>${esc(r.user_name || 'Alguien (sistema)')}</td>
+        <td><span class="tag" style="background:${a.color}">${esc(a.icon ?? '')} ${esc(ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`)}</span></td>
+        <td>${detalle}</td>
+        <td class="nowrap">${esc(r.device ?? '—')}</td>
       </tr>`;
     }).join('');
+
+    // Resumen (mismos totales que se ven en pantalla) + top 5 usuarios por actividad.
+    const resumenHtml = `
+      <div class="sumbox">
+        <div class="sumitem"><span class="sumn">${resumen.creo}</span><span class="suml">➕ Creaciones</span></div>
+        <div class="sumitem"><span class="sumn">${resumen.modifico}</span><span class="suml">✏️ Modificaciones</span></div>
+        <div class="sumitem"><span class="sumn">${resumen.elimino}</span><span class="suml">🗑️ Eliminaciones</span></div>
+        <div class="sumitem"><span class="sumn">${resumen.eventos}</span><span class="suml">📋 Eventos de app</span></div>
+      </div>
+      ${resumen.topUsuarios.length ? `<div class="topusers"><b>Más actividad:</b> ${resumen.topUsuarios.map(([u, n]) => `${esc(u)} (${n})`).join(' · ')}</div>` : ''}
+    `;
+
     const html = pdfDocument({
       title: 'Auditoría · Bitácora',
-      subtitle: `${rangoLabel} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}`,
-      extraCss: `table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+      subtitle: `${rangoLabel} · ${shown.length} acción(es)${filtro ? ' · ' + filtro : ''}${truncated ? ` · ⚠️ tope de ${rows.length} filas alcanzado` : ''}`,
+      extraCss: `
+        .sumbox{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+        .sumitem{flex:1;min-width:110px;background:#f4f7fb;border:1px solid #c9d2dc;border-radius:6px;padding:8px 10px;text-align:center}
+        .sumn{display:block;font-size:18px;font-weight:800;color:#16324F}
+        .suml{display:block;font-size:10px;color:#555;margin-top:2px}
+        .topusers{font-size:11px;color:#333;margin:4px 0 8px}
+        table{width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px}
         th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left;vertical-align:top}
-        th{background:#16324F;color:#fff} tr:nth-child(even) td{background:#f4f7fb}`,
-      body: `<table><thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Máquina / detalle</th><th>Dispositivo</th></tr></thead><tbody>${filas}</tbody></table>`,
+        th{background:#16324F;color:#fff} tr:nth-child(even) td{background:#f9fbfd}
+        tr{page-break-inside:avoid}
+        .nowrap{white-space:nowrap}
+        .tag{color:#fff;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;white-space:nowrap;display:inline-block}
+        .sub{color:#555;font-size:10px;margin-top:1px}
+        .chgbox{margin-top:4px;padding-top:4px;border-top:1px dashed #c9d2dc}
+        .chgtit{font-size:9.5px;color:#16324F;font-weight:800;margin-bottom:2px}
+        .chg{font-size:10px;color:#333;line-height:1.5}
+        .chg .del{color:#B91C1C;text-decoration:line-through}
+        .chg .new{color:#15803D;font-weight:700}`,
+      body: `${resumenHtml}<table><thead><tr><th style="width:110px">Fecha y hora</th><th style="width:100px">Usuario</th><th style="width:130px">Acción</th><th>Registro afectado / cambios</th><th style="width:70px">Dispositivo</th></tr></thead><tbody>${filas}</tbody></table>`,
     });
-    await exportPdf(html, `Auditoria ${from}_${to}`);
+    await exportPdf(html, searchAllTimeActive ? `Auditoria - historial completo (${q.trim()})` : `Auditoria ${from}_${to}`);
   };
 
   if (!canAudit) {
@@ -360,6 +432,22 @@ export default function AuditScreen() {
             <Text style={{ color: shown.length === 0 ? colors.muted : colors.primaryContrast, fontWeight: '800', fontSize: 12 }}>📄 PDF (vista previa)</Text>
           </TouchableOpacity>
         </View>
+        {/* Resumen rápido por categoría, sin tener que generar el PDF. */}
+        {shown.length > 0 ? (
+          <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+            {[
+              { n: resumen.creo, l: '➕ Creó', c: '#15803D' },
+              { n: resumen.modifico, l: '✏️ Modificó', c: '#2563EB' },
+              { n: resumen.elimino, l: '🗑️ Eliminó', c: '#DC2626' },
+              { n: resumen.eventos, l: '📋 Eventos', c: colors.muted },
+            ].map((s) => (
+              <View key={s.l} style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, paddingVertical: 6, alignItems: 'center' }}>
+                <Text style={{ color: s.c, fontWeight: '800', fontSize: 15 }}>{s.n}</Text>
+                <Text style={{ color: colors.muted, fontSize: 9.5, fontWeight: '700' }}>{s.l}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </Card>
 
       <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por placa, serial, cédula, nombre… cualquier característica" placeholderTextColor={colors.muted}
