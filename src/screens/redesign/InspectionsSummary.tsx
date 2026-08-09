@@ -1935,7 +1935,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Sector', info?.sector || '—')}
                           {detailRow('A disposición de', info?.zona || '—')}
                           {detailRow('Encargado / operador', info?.encargado || '—')}
-                          {detailRow('Modelo', info?.tipo || '—')}
+                          {detailRow('Marca - Modelo', info?.tipo || '—')}
                           {detailRow('Clasificación', info?.clasificacion || info?.machinery_type || '—')}
                           {detailRow('Turno', turnoLbl)}
                           {detailRow('Hora de inicio', r.horaIni)}

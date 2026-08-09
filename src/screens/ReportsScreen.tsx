@@ -393,7 +393,7 @@ ${header()}
     <span class="hint">${totals.inactivos} de ${totals.equipos} equipos · fuera de operación</span>
   </div>
   <table class="emp tight">
-    <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Tipo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
+    <thead><tr><th></th><th>Equipo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Empresa a la que pertenece</th></tr></thead>
     <tbody>
 ${inRows || '    <tr><td colspan="5" style="text-align:center;color:#6b7280">Sin equipos inactivos</td></tr>'}</tbody>
     <tfoot><tr><td></td><td>TOTAL INACTIVOS</td><td class="num">${totals.inactivos}</td><td></td><td></td></tr></tfoot>
@@ -526,6 +526,9 @@ export default function ReportsScreen({ route }: any) {
   const [fleetStatus, setFleetStatus] = useState<{ total: number; operativa: number; transito: number; inactivos: number; totalFlota: number }>({ total: 0, operativa: 0, transito: 0, inactivos: 0, totalFlota: 0 });
   const [fleetItems, setFleetItems] = useState<FleetItem[]>([]);
   const [fleetPreview, setFleetPreview] = useState(false);
+  // Igual que en Jornada/Conteo: al cerrar la vista previa de Maquinaria/Vehículo
+  // (Totales por Empresa) se apaga la sincronización en vivo.
+  useEffect(() => { if (!fleetPreview) liveRef.current = null; }, [fleetPreview]);
 
   const fleetByCompany = useMemo(() => {
     const m = new Map<string, FleetCompany>();
@@ -955,6 +958,12 @@ export default function ReportsScreen({ route }: any) {
   };
 
   const generateFleet = async () => {
+    // Recordar la función para la actualización EN VIVO (realtime) del reporte
+    // abierto — mismo patrón que generateRounds/generateConteo (ver liveRef arriba).
+    // Antes faltaba esta línea: el reporte de Maquinaria/Vehículo (Totales por
+    // Empresa) nunca se refrescaba solo mientras estaba abierto, aunque el canal
+    // realtime de machine_rounds/fletes/machinery ya estaba escuchando cambios.
+    liveRef.current = generateFleet;
     setLoading(true);
     const [{ data: mach }, { data: vehs }, rnds, { data: pend }, { data: evRange }] = await Promise.all([
       supabase.from('machinery').select('id, code, plate, machinery_type, tipo, clasificacion, company:company_id(name)'),

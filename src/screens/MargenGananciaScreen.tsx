@@ -126,7 +126,7 @@ export default function MargenGananciaScreen() {
           })
           .join('');
         return `<h3 class="emp">🏢 ${esc(g.company)} — ${g.count} máquina(s)</h3>
-          <table class="mg"><thead><tr><th>Máquina</th><th>Tipo</th><th>Costo inicial</th><th>Valor útil</th><th>% Ganancia</th></tr></thead>
+          <table class="mg"><thead><tr><th>Máquina</th><th>Marca / Modelo</th><th>Costo inicial</th><th>Valor útil</th><th>% Ganancia</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr><td colspan="2" style="text-align:right;font-weight:800">TOTAL ${esc(g.company)}</td>
             <td style="text-align:right;font-weight:800">$${money(g.totalCost)}</td>
