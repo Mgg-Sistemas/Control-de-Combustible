@@ -14,7 +14,7 @@ import { elapsedSince } from '../lib/time';
 import { formatUTM } from '../lib/utm';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { exportPdf, pdfDocument } from '../lib/pdf';
-import { sectorOf, sectorMacro } from '../lib/mapZones';
+import { sectorOf, sectorMacro, sectorLabel } from '../lib/mapZones';
 import { workedFromShifts } from './ControlMaquinariaScreen';
 import { machineQrUrl, qrSvg } from '../lib/qr';
 import QrImage from '../components/QrImage';
@@ -1215,7 +1215,13 @@ export default function EquiposScreen({ navigation, route }: any) {
             {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
             {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
             {m.latitude != null ? (
-              <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>📍 UTM {formatUTM(m.latitude, m.longitude)} · {elapsedSince(m.location_at)}</Text>
+                {/* Sector SIEMPRE calculado en vivo desde latitude/longitude (igual que el
+                    Mapa) — no es un campo guardado, así que nunca queda desactualizado:
+                    en cuanto cambia la ubicación GPS de la máquina, el sector cambia solo. */}
+                <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🧭 {sectorLabel(sectorOf(m.latitude, m.longitude))}</Text>
+              </>
             ) : (
               <Text style={{ color: colors.muted, fontSize: 12 }}>Sin ubicación</Text>
             )}
