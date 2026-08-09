@@ -1251,10 +1251,32 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const inspCount = (id: string) => Object.values(assignMap).filter((s) => s.day?.id === id || s.night?.id === id).length;
   // Buscador de inspectores por TODAS sus características (no solo el nombre): nombre,
   // rol (supervisor/coordinador…) y nº de máquinas asignadas. Query vacía = todos.
+  // Índice de BÚSQUEDA por inspector: concatena TODAS las características de sus máquinas
+  // asignadas (código, empresa, serial, placa, encargado, edificio/referencia, tipo,
+  // clasificación, sector, zona) para que "Buscar inspector" también encuentre por
+  // cualquier dato de sus equipos, no solo por nombre/rol/conteo.
+  const inspMachText = useMemo(() => {
+    const acc: Record<string, string[]> = {};
+    machines.forEach((m) => {
+      const s = assignMap[m.id] || {};
+      const ids: string[] = [];
+      if (s.day?.id) ids.push(s.day.id);
+      if (s.night?.id && s.night.id !== s.day?.id) ids.push(s.night.id);
+      if (!ids.length) return;
+      const mm = m as any;
+      const txt = [m.code, m.companyName, mm.serial, mm.plate, mm.encargado, mm.referencia, mm.identifier, mm.tipo, mm.clasificacion, mm.sector, mm.zona]
+        .filter(Boolean).join(' ');
+      ids.forEach((id) => { (acc[id] ??= []).push(txt); });
+    });
+    const out: Record<string, string> = {};
+    Object.keys(acc).forEach((id) => { out[id] = norm(acc[id].join(' ')); });
+    return out;
+  }, [machines, assignMap]);
   const matchInsp = (p: { id: string; name: string; role?: string | null }, q: string): boolean => {
     const nq = norm((q || '').trim());
     if (!nq) return true;
-    return norm(`${p.name} ${p.role || 'inspector'} ${inspCount(p.id)} maquinas`).includes(nq);
+    if (norm(`${p.name} ${p.role || 'inspector'} ${inspCount(p.id)} maquinas`).includes(nq)) return true;
+    return (inspMachText[p.id] || '').includes(nq);
   };
 
   const openCheckin = (m: Mach) => {
@@ -2526,7 +2548,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   </TouchableOpacity>
                 ))}
               </View>
-              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={pendBatchQuery} onChangeText={setPendBatchQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => matchInsp(p, pendBatchQuery)).map((p) => (
                   <TouchableOpacity key={p.id} disabled={pendBatchBusy} onPress={() => assignPendBatch({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs, opacity: pendBatchBusy ? 0.6 : 1 }}>
@@ -2637,7 +2659,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 </View>
                 <Text style={{ color: colors.warning, fontWeight: '900', fontSize: 16 }}>{pendientesCount > 0 ? pendientesCount : '✓'}</Text>
               </TouchableOpacity>
-              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+              <TextInput value={inspQuery} onChangeText={setInspQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
               <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                 {inspectors.filter((p) => matchInsp(p, inspQuery)).map((p) => {
                   const count = Object.values(assignMap).filter((s) => s.day?.id === p.id || s.night?.id === p.id).length;
@@ -2825,7 +2847,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </View>
                         {pickShift === sh ? (
                           <View style={{ marginTop: spacing.sm }}>
-                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+                            <TextInput value={assignForQuery} onChangeText={setAssignForQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
                             <ScrollView style={{ maxHeight: 240, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                               {inspectors.filter((p) => matchInsp(p, assignForQuery)).map((p) => (
                                 <TouchableOpacity key={p.id} onPress={() => setInspectorFor(af, sh, { id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: cur?.id === p.id ? colors.success : colors.border, backgroundColor: cur?.id === p.id ? colors.successSoftBg : colors.surface, marginBottom: spacing.xs }}>
@@ -2868,7 +2890,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               // ── PASO A: elegir el inspector DESTINO ──────────────────────────────
               <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}>
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>Elige el inspector destino:</Text>
-                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector (nombre, rol, nº máquinas)…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={reassignQuery} onChangeText={setReassignQuery} placeholder="🔎 Buscar inspector (nombre, rol, o cualquier dato de sus máquinas)…" placeholderTextColor={colors.muted} style={input} />
                 <ScrollView style={{ maxHeight: 320, marginTop: spacing.xs }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                   {inspectors.filter((p) => matchInsp(p, reassignQuery)).map((p) => (
                     <TouchableOpacity key={p.id} onPress={() => setReassignTo({ id: p.id, name: p.name })} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, marginBottom: spacing.xs }}>
