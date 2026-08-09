@@ -24,7 +24,7 @@ import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits
 import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
 import { generalCompanies } from '../lib/companies';
-import { edificioCanonico } from '../lib/edificios';
+import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
 import { useAuth } from '../context/AuthContext';
 import { Machinery, Vehicle, Company, MachineGuard } from '../types/database';
@@ -1206,7 +1206,7 @@ export default function EquiposScreen({ navigation, route }: any) {
             {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
             {(m as any).referencia ? (
               <Text style={{ color: colors.muted, fontSize: 12 }}>
-                🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
+                🏗️ {edificioLabel((m as any).referencia)}
               </Text>
             ) : null}
             {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name} · {fmtDMY(inspectors[m.id].date)}</Text> : null}
@@ -1983,7 +1983,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
                           {(m as any).referencia ? (
                             <Text style={{ color: colors.muted, fontSize: 12 }}>
-                              🏗️ {edificioCanonico((m as any).referencia) || 'Sin edificio identificado'} · Ref: {(m as any).referencia}
+                              🏗️ {edificioLabel((m as any).referencia)}
                             </Text>
                           ) : null}
                           {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
