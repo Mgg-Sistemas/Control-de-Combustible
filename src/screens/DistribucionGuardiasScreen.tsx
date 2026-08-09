@@ -257,15 +257,17 @@ export default function DistribucionGuardiasScreen() {
   };
 
   // GENERA el modo "1 día libre/semana": cada inspector descansa SOLO su día fijo,
-  // repetido cada semana durante 4 semanas — a diferencia del 14x7, nadie deja de
-  // trabajar la semana completa. Borra las guardias previas y crea las nuevas.
+  // repetido cada semana, dentro del rango [from, to] QUE EL USUARIO ELIGIÓ en la
+  // tarjeta "Ciclo" (antes se forzaba a 4 semanas fijas desde el inicio, ignorando
+  // el "Hasta" elegido — generaba días de descanso más allá del rango pedido). A
+  // diferencia del 14x7, nadie deja de trabajar la semana completa.
+  // Borra las guardias previas y crea las nuevas.
   const generarRotacionSemanal = async () => {
     const faltan = metas.filter((m) => !diaSel[m.id]);
     if (faltan.length) { setNotice(`❌ Falta asignar día libre a ${faltan.length} inspector(es).`); return; }
+    if (to < from) { setNotice('❌ "Hasta" no puede ser menor que "Desde".'); return; }
     setBusy(true); setNotice(null);
-    const cycleStart = from;
-    const cycleEnd = addDaysISO(cycleStart, 27); // 4 semanas de vista
-    const rango = daysBetween(cycleStart, cycleEnd);
+    const rango = daysBetween(from, to);
     const nuevosShifts: any[] = [];
     for (const m of metas) {
       const code = diaSel[m.id];
@@ -279,7 +281,6 @@ export default function DistribucionGuardiasScreen() {
     }
     await supabase.from('guard_shifts').delete().in('inspector_name', metas.map((m) => m.inspector_name));
     if (nuevosShifts.length) await supabase.from('guard_shifts').insert(nuevosShifts);
-    setTo(cycleEnd);
     setBusy(false); setDiaOpen(false); load();
     setNotice('✅ Turno de 1 día libre por semana generado.');
   };
@@ -529,7 +530,7 @@ export default function DistribucionGuardiasScreen() {
           <Pressable onPress={() => {}} style={{ backgroundColor: colors.background, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, maxHeight: '88%', padding: spacing.lg }}>
             <Text style={{ color: colors.text, fontWeight: '900', fontSize: 15, marginBottom: 2 }}>📅 1 día libre por semana</Text>
             <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: spacing.sm }}>
-              Asigna a cada inspector UN día fijo de descanso a la semana; los demás días trabaja normal. A diferencia del modo por grupos, ninguna semana queda alguien sin trabajar toda la semana. Se repite cada semana desde {dmy(from)} (4 semanas). Al generar se reemplazan las guardias actuales.
+              Asigna a cada inspector UN día fijo de descanso a la semana; los demás días trabaja normal. A diferencia del modo por grupos, ninguna semana queda alguien sin trabajar toda la semana. Se repite cada semana dentro del ciclo {dmy(from)} — {dmy(to)} (ajusta "Ciclo" arriba si necesitas otro rango). Al generar se reemplazan las guardias actuales.
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm }}>
               <View style={{ flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap', flex: 1, marginRight: spacing.sm }}>
