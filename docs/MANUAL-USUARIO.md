@@ -714,10 +714,11 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
   máquina muestra el **horómetro actual**, las **horas acumuladas** desde el último mantenimiento
   confirmado y **lo que falta** para el próximo mantenimiento (objetivo **250 h**), con una barra de
   progreso y el nivel (🟡 200 h · 🟠 220 h · 🔴 250 h / vencido). Cada tarjeta trae **Máquina,
-  Serial/Placa, Empresa, Encargado, Ubicación (GPS), Referencia/Edificio** y arriba un resumen
+  Serial/Placa, Empresa, Encargado, Inspector asignado (☀️ día / 🌙 noche), Ubicación (GPS),
+  Referencia/Edificio** y arriba un resumen
   (máquinas, próximas ≥200 h, vencidas ≥250 h). Se ordena de la **más cercana al mantenimiento**
   primero. El **buscador** filtra por **todas las características** (máquina, serial, placa, empresa,
-  encargado, ubicación/referencia, tipo). Está **vinculada con la FOTO del horómetro** que coloca el
+  encargado, inspector, ubicación/referencia, tipo). Está **vinculada con la FOTO del horómetro** que coloca el
   inspector/operador al iniciar/finalizar la jornada y con **los datos que ingresa** (lectura
   inicial → final, fecha de la jornada y quién la registró): la miniatura se **toca para ampliar**.
   Desde aquí también puedes **✓ Confirmar mantenimiento** (reinicia el conteo de horas acumuladas).
