@@ -45,6 +45,14 @@ const diaColor = (d: string | null | undefined): string => (d && DIA_COLOR[d]) |
 /** Color de la insignia "grupo": si es un código de día (modo semanal) usa diaColor,
  *  si es una letra de grupo (modo por semana completa) usa grupoColor. */
 const badgeColorOf = (g: string | null | undefined): string => (g && DIA_CODES.includes(g)) ? diaColor(g) : grupoColor(g);
+/** Orden de fila para que los que descansan el MISMO día queden juntos (efecto
+ *  "escalera" Lu→Do en el calendario) en vez del orden alfabético (Do, Ju, Lu…).
+ *  Las letras de grupo del modo 14x7 (A, B, C…) mantienen su orden alfabético. */
+const grupoRank = (g: string | null | undefined): number => {
+  if (!g) return 999;
+  const i = DIA_CODES.indexOf(g);
+  return i >= 0 ? i : 500 + g.charCodeAt(0);
+};
 
 function caracasTodayISO(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -106,7 +114,7 @@ export default function DistribucionGuardiasScreen() {
       supabase.from('guard_shifts').select('id, inspector_name, from_date, to_date, kind, grupo'),
       supabase.from('profiles').select('id, full_name, cedula, role').in('role', ['supervisor', 'coordinador_patio']),
     ]);
-    setMetas(((m.data ?? []) as any[]).sort((a, b) => cmpText(a.grupo || 'zzz', b.grupo || 'zzz') || cmpText(a.inspector_name, b.inspector_name)));
+    setMetas(((m.data ?? []) as any[]).sort((a, b) => grupoRank(a.grupo) - grupoRank(b.grupo) || cmpText(a.inspector_name, b.inspector_name)));
     setShifts((s.data ?? []) as any);
     setProfs(((p.data ?? []) as any[]).map((x) => ({ id: x.id, full_name: x.full_name || '—', cedula: x.cedula ?? null })));
     setLoading(false);

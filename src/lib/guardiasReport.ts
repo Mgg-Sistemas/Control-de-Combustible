@@ -105,9 +105,17 @@ export async function generateGuardiasReport(opts: {
   const primerDescanso = (name: string): GuardShift | null =>
     (shiftsByInsp.get(name) || []).find((s) => s.kind === 'descanso') || null;
 
-  // Orden: por grupo (cmpText) y luego por nombre.
+  // Orden: los que descansan el MISMO día quedan juntos (efecto "escalera" Lu→Do en
+  // el calendario) en vez de alfabético (Do, Ju, Lu…). Las letras de grupo del modo
+  // 14x7 (A, B, C…) mantienen su orden alfabético normal.
+  const DIA_ORDER = ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa', 'Do'];
+  const grupoRank = (g: string | null | undefined): number => {
+    if (!g) return 999;
+    const i = DIA_ORDER.indexOf(g);
+    return i >= 0 ? i : 500 + g.charCodeAt(0);
+  };
   const orden = inspectors.slice().sort((a, b) =>
-    cmpText(a.grupo || '', b.grupo || '') || cmpText(a.name, b.name));
+    grupoRank(a.grupo) - grupoRank(b.grupo) || cmpText(a.name, b.name));
 
   // KPIs del ciclo.
   const nInspectores = inspectors.length;
