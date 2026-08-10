@@ -62,7 +62,10 @@ async function adminInvoke(fn: string, body: any): Promise<{ data: any; errorMsg
     supabase.functions.invoke(fn, { body, headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
   let token = await freshToken();
-  if (!token) return { data: null, errorMsg: 'Tu sesión expiró. Cierra sesión y vuelve a entrar.' };
+  // Sesión no recuperable → cerrar sesión: el listener de auth pone la sesión en
+  // null y la app va DIRECTO al login (sin el callejón "cierra sesión y vuelve a
+  // entrar"). No se toca la sesión de huella, así se puede reentrar con huella.
+  if (!token) { supabase.auth.signOut(); return { data: null, errorMsg: 'Tu sesión expiró. Inicia sesión de nuevo.' }; }
 
   let { data, error } = await call(token);
   if (error || (data as any)?.error) {
@@ -70,7 +73,7 @@ async function adminInvoke(fn: string, body: any): Promise<{ data: any; errorMsg
     // ¿El token fue rechazado? Fuerza un refresh completo y reintenta una sola vez.
     if (/no autenticado|jwt|token|401|unauthor/i.test(msg)) {
       token = await freshToken(true);
-      if (!token) return { data: null, errorMsg: 'Tu sesión expiró. Cierra sesión y vuelve a entrar.' };
+      if (!token) { supabase.auth.signOut(); return { data: null, errorMsg: 'Tu sesión expiró. Inicia sesión de nuevo.' }; }
       ({ data, error } = await call(token));
     }
   }
