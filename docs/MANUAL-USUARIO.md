@@ -927,7 +927,9 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
     ✏️ Otro), escribe el **texto de la falla** (obligatorio solo si eliges "Otro") y, opcional,
     una **foto**. Al confirmar (**"🟡 Confirmar PARADA + avería"**) crea la solicitud en
     **Mantenimiento de Maquinaria** y la máquina sigue saliendo **PARADA** en Inspecciones/Control.
-  - **📍 Parada / No trabajó** — motivo fijo **"NO TRABAJÓ LA MÁQUINA"**: captura la **ubicación
+  - **📍 Parada / No trabajó** — el texto **"NO TRABAJÓ"** queda **fijo**; opcionalmente escribes
+    el **motivo** (sin combustible, sin operador, lluvia…) que aparece **al lado** ("NO TRABAJÓ ·
+    &lt;motivo&gt;"). Captura la **ubicación
     GPS** del inspector (botón **"📍 Capturar mi ubicación GPS"**) y el **edificio/referencia**. Al
     confirmar (**"🟡 Confirmar PARADA (no trabajó)"**) **solo** se refleja en Inspecciones/Control
     (**no** crea nada en Mantenimiento de Maquinaria).
