@@ -1296,6 +1296,12 @@ Muestra **en un mapa** dónde está cada máquina (según su última ubicación 
   sistema, para saber cuántas **faltan por ubicar**.
   Usa **"Mostrar todas" / "Ocultar todas"**, o toca un tipo para ver sus máquinas y
   elegir una por una.
+- **👆 Click para ver o ubicar (dentro de cada tipo):** toca una máquina **UBICADA** (su nombre /
+  **🗺️ Ver en el mapa**) y el mapa se **enfoca solo en ella** (usa **"← Ver todas las ubicaciones"**
+  para volver); la casilla **✅/⬜** de la izquierda sigue sirviendo para mostrar/ocultar su pin.
+  En **"⛔ Faltan por ubicar"**, tócala y —si eres **administrador**— el mapa entra en **modo ubicar**:
+  toca el punto donde está y queda ubicada al instante. Si no eres admin, avisa que solo un
+  administrador puede ubicarlas.
 - **📍 Ubicar manualmente (solo administradores):** en el panel **"Ubicar manualmente (admin)"**
   eliges una máquina (las que faltan por ubicar salen primero; cada una muestra su **placa/serial**
   y su **empresa** para no confundirlas) y **tocas el mapa** en el punto donde está; queda ubicada
