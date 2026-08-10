@@ -2086,7 +2086,16 @@ Cada inspección, foto e incidencia queda guardada en la orden.
   general o por **cliente/ruta**. Para los clientes **externos**, la orden calcula sola la
   **valorización sugerida** (según la tarifa más específica que aplique) y la puedes **guardar**.
 
-(Los reportes en PDF y el dashboard con KPIs y alertas llegan en la fase siguiente.)
+### 4.27e. Documentos PDF y panel (KPIs + alertas)
+
+- **📄 Documentos** (en el detalle de la orden): **Guía de traslado** (para el chofer, con la
+  maquinaria y espacios de firma salida/llegada), **Acta de recepción** (estado pre/post con **fotos**
+  y **firma** de conformidad) y **Liquidación de viaje** (gastos, viáticos otorgados vs. comprobados,
+  combustible/rendimiento e incidencias). Desde la **lista de órdenes**, el botón **"📄 Consolidado"**
+  descarga el resumen de los acarreos según el filtro elegido.
+- **📊 Panel** (Acarreo → Operación): **KPIs** — total de acarreos, tiempo promedio de tránsito, %
+  a tiempo (On-Time), costo por km — y **alertas**: documentos/licencias **vencidos o por vencer**
+  (30 días), **mantenimiento** de unidades por km recorridos y **viajes retrasados** en ruta.
 
 ---
 
