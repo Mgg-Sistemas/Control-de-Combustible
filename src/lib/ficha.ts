@@ -75,6 +75,7 @@ export function fichaEmpleadoHtml(e: Employee & { companyName?: string }, opts?:
       ])
     + section('👕 Uniformes (tallas)', [
         ['Camisa', e.talla_camisa], ['Pantalón', e.talla_pantalon], ['Zapatos', e.talla_zapatos],
+        ['Braga', e.talla_braga], ['Chaqueta', e.talla_chaqueta],
       ])
     + (e.notes ? `<h3 class="sec">📝 Notas</h3><div class="note">${esc(e.notes)}</div>` : '');
   return pdfDocument({ title: 'Ficha del trabajador', subtitle: nombre(e), body, extraCss: FICHA_CSS });
