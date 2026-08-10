@@ -65,8 +65,10 @@ export default function HaulOrderForm({
 
   const clientOpts: Opt[] = useMemo(() => refs.clients.map((c) => ({ value: c.id, label: `${c.kind === 'externo' ? '🏢' : '🏠'} ${c.name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.clients]);
   const locOpts: Opt[] = useMemo(() => refs.locations.map((l) => ({ value: l.id, label: l.name })).sort((a, b) => cmpText(a.label, b.label)), [refs.locations]);
-  const truckOpts: Opt[] = useMemo(() => refs.trucks.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🚛 ${t.plate}${t.max_tow_ton != null ? ` · ${t.max_tow_ton} t` : ''}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trucks]);
-  const trailerOpts: Opt[] = useMemo(() => refs.trailers.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🛻 ${t.plate}${t.max_load_ton != null ? ` · ${t.max_load_ton} t` : ''}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trailers]);
+  // Etiquetas enriquecidas: placa + marca/modelo (chuto) o tipo (remolque) para
+  // poder buscar por cualquier característica (el Dropdown filtra por la etiqueta).
+  const truckOpts: Opt[] = useMemo(() => refs.trucks.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🚛 ${[t.plate, [t.brand, t.model].filter(Boolean).join(' '), t.max_tow_ton != null ? `${t.max_tow_ton} t` : ''].filter(Boolean).join(' · ')}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trucks]);
+  const trailerOpts: Opt[] = useMemo(() => refs.trailers.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🛻 ${[t.plate, t.kind, t.max_load_ton != null ? `${t.max_load_ton} t` : ''].filter(Boolean).join(' · ')}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trailers]);
   const driverOpts: Opt[] = useMemo(() => refs.drivers.filter((d) => d.active !== false).map((d) => ({ value: d.id, label: `👷 ${d.full_name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.drivers]);
 
   // Nombre de la empresa por id (para mostrar y para poder BUSCAR por empresa).
