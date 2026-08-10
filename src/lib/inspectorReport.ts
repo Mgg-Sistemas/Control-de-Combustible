@@ -43,6 +43,14 @@ const addDaysISO = (iso: string, n: number): string => {
 // Mismo criterio que la app: la parada pertenece al TURNO en que se marcó.
 const caracasHour = (iso: string): number => { const d = new Date(iso); let h = d.getUTCHours() - 4; if (h < 0) h += 24; return h; };
 const paradaShiftOf = (iso: string): 'day' | 'night' => { const h = caracasHour(iso); return h >= 7 && h < 19 ? 'day' : 'night'; };
+// Umbral mínimo defensivo (mismo que `MIN_WORKED_HOURS` en inspectorDaySets.ts, ver ese
+// archivo para el detalle): un `round_date` mal calculado por cruce de medianoche del
+// turno NOCHE (BUG 10-ago-2026) puede dejar un residuo mínimo de horas (~0.02h) pegado
+// al round de HOY. Sin este umbral, ese residuo hacía que este PDF marcara la máquina
+// como "✅ Finalizada" (y suprimiera su avería/parada arrastrada como "reactivada") aunque
+// en realidad todavía no hubiera arrancado — mientras la pantalla (ya corregida con este
+// mismo umbral) la mostraba "⏳ Por iniciar", desincronizando otra vez el PDF firmado.
+const MIN_WORKED_HOURS = 0.05;
 const CARACAS_TZ = 'America/Caracas';
 // Fecha+hora (Caracas) legible de un check-in, para la tabla de cambio de ubicación.
 const dmyHm = (iso: string): string => {
@@ -292,8 +300,18 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     tMap.set(insp, iMap);
     if (iMap.has(id)) return; // una fila por máquina/inspector
     const rd = roundByMachine.get(id);
-    const dayH = Number(rd?.day_hours) || 0;
-    const nightH = Number(rd?.night_hours) || 0;
+    let dayH = Number(rd?.day_hours) || 0;
+    let nightH = Number(rd?.night_hours) || 0;
+    // Umbral mínimo defensivo (mismo criterio que MIN_WORKED_HOURS en inspectorDaySets.ts
+    // y en porEmpresaReport.ts): un round con round_date mal calculado por cruce de
+    // medianoche del turno NOCHE (BUG 10-ago-2026, ver businessRoundDateOf en
+    // caracasDay.ts) podía dejar un residuo mínimo de horas (~0.02h) pegado al round de
+    // HOY. Sin este umbral, ese residuo hacía que ESTE reporte marcara la máquina como
+    // "✅ Finalizada" (con horario/horas visibles) y suprimiera su avería/parada
+    // arrastrada como "reactivada", mientras la pantalla (ya corregida con este mismo
+    // umbral) la mostraba "⏳ Por iniciar" — el PDF firmado volvía a desincronizarse.
+    if (dayH <= MIN_WORKED_HOURS) dayH = 0;
+    if (nightH <= MIN_WORKED_HOURS) nightH = 0;
     // Estado RELATIVO al turno del inspector: un inspector de noche no está "en curso"
     // porque haya una jornada de DÍA abierta en su máquina (esa es del inspector de día).
     const hoursForShift = turno === 'night' ? nightH : dayH;

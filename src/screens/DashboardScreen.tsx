@@ -12,6 +12,8 @@ import { workedFromShifts } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
+import { buildDaySets, computeMachineVisibilitySets } from '../lib/inspectorDaySets';
+import { listInspectorAssignments } from '../lib/machineInspectors';
 
 const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Paleta para las barras de empresas.
@@ -98,17 +100,30 @@ export default function DashboardScreen({ navigation }: any) {
   const [chartTotal, setChartTotal] = useState(0);
 
   const loadCounts = useCallback(async () => {
-    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }, { data: averias }] = await Promise.all([
+    const today = todayISO();
+    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }, { data: averias }, { data: todayRounds }, { rows: asg }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
       supabase.from('machinery').select('id, operational, en_espera, active'),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
       supabase.from('companies').select('id, name'),
-      // AVERIADAS: sincronizado con lo que marcan los inspectores (solicitudes de
-      // mantenimiento PENDIENTES que NO son "MÁQUINA PARADA"). Mismo criterio que el catálogo.
-      supabase.from('maintenance_requests').select('machinery_id').eq('status', 'pendiente').neq('material', 'MÁQUINA PARADA'),
+      // AVERIADAS: solicitudes de mantenimiento PENDIENTES (arrastran hasta resolverse).
+      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').eq('status', 'pendiente'),
+      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at').eq('round_date', today),
+      listInspectorAssignments(),
     ]);
-    const averiaSet = new Set((averias ?? []).map((r: any) => r.machinery_id));
+    // AVERIADAS: MISMO cálculo que el Catálogo y "Resumen de Inspecciones"
+    // (buildDaySets en inspectorDaySets.ts) — antes esta tarjeta contaba CUALQUIER
+    // ticket pendiente sin aplicar reactivación (máquina que volvió a trabajar tras
+    // la avería, aunque el ticket siga sin cerrar), arrastre resuelto (ya trabajó y
+    // cerró jornada hoy) ni la excepción "SIEMPRE ACTIVO" — se veía desincronizada
+    // del resto de la app (queja del cliente 10-ago-2026). Se calcula para AMBOS
+    // turnos de hoy (día ∪ noche) porque el Dashboard no distingue turno.
+    const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets((machs ?? []) as any);
+    const assignments = ((asg ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift }));
+    const dsDay = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'day', machInactiveSet, machHardInactiveSet });
+    const dsNight = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'night', machInactiveSet, machHardInactiveSet });
+    const averiaSet = new Set<string>([...dsDay.averSet, ...dsNight.averSet]);
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
