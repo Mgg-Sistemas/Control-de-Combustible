@@ -263,14 +263,24 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [averiaCat, setAveriaCat] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }>>({});
   const loadAveriaCat = () => {
     Promise.all([
-      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
-      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
+      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
     ]).then(([averias, paradas]) => {
       const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }> = {};
       const ms = (iso: any) => (iso ? new Date(iso).getTime() : 0);
-      (paradas.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'parada', motivo: r.notes, createdMs: ms(r.created_at) }; });
+      // Con varias filas pendientes por máquina (2-8 vistos en producción), se queda con
+      // la MÁS RECIENTE de cada tipo: viene ordenado desc, así que la primera fila de
+      // cada máquina ya es la última — antes, sin `.order()`, un `.forEach` sin proteger
+      // machinery_id ya visto podía terminar quedándose con cualquier fila (orden no
+      // garantizado de Supabase), no necesariamente la más reciente.
+      (paradas.data ?? []).forEach((r: any) => { if (m[r.machinery_id]) return; m[r.machinery_id] = { tipo: 'parada', motivo: r.notes, createdMs: ms(r.created_at) }; });
       // Avería real tiene prioridad sobre el marcador genérico "MÁQUINA PARADA" (mismo orden que en SupervisorScreen).
-      (averias.data ?? []).forEach((r: any) => { m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material, createdMs: ms(r.created_at) }; });
+      const averiaSeen = new Set<string>();
+      (averias.data ?? []).forEach((r: any) => {
+        if (averiaSeen.has(r.machinery_id)) return;
+        averiaSeen.add(r.machinery_id);
+        m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material, createdMs: ms(r.created_at) };
+      });
       setAveriaCat(m);
     }).catch(() => {});
   };

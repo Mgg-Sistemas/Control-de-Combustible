@@ -84,10 +84,12 @@ export async function startJornada(inp: StartJornadaInput): Promise<StartJornada
     .from('maintenance_requests')
     .select('material')
     .eq('machinery_id', inp.machineId)
-    .eq('status', 'pendiente')
-    .limit(1);
+    .eq('status', 'pendiente');
   if (pendMr && pendMr.length) {
-    const esParada = (pendMr[0] as any).material === 'MÁQUINA PARADA';
+    // Con varias filas pendientes (avería + parada a la vez) la avería REAL manda en el
+    // mensaje, igual que en el resto de la app (Catálogo/Control): antes con `.limit(1)`
+    // sin ordenar podía mostrar "PARADA" aunque la máquina tuviera una avería real pendiente.
+    const esParada = (pendMr as any[]).every((r) => r.material === 'MÁQUINA PARADA');
     return { ok: false, error: `Esta máquina está marcada como ${esParada ? 'PARADA' : 'AVERIADA'} — primero debe resolverse (marcarla Operativa) antes de iniciar jornada.` };
   }
 
