@@ -2038,9 +2038,26 @@ control de costos. Se entra por **"Más → 🚛 Acarreo / Transporte"**. El acc
 - **📄 Documentos y vencimientos:** permisos de carga pesada, pólizas, revisiones técnicas y
   licencias — con su fecha de vencimiento (disparan alertas).
 
-Todo se busca por sus características y las listas salen en orden natural A→Z. (Las órdenes de
-acarreo, la ejecución del viaje, el módulo financiero y los reportes se agregan en las fases
-siguientes.)
+Todo se busca por sus características y las listas salen en orden natural A→Z.
+
+### 4.27b. Órdenes de acarreo y validaciones automáticas
+
+**"Acarreo → 📋 Órdenes de acarreo"** es cada viaje. Se elige **origen y destino**, el
+**chuto + remolque + chofer** y los **equipos a trasladar** (multi-selección con búsqueda; muestra
+el peso total en vivo frente a la capacidad del remolque). Al guardar, el sistema **valida solo**:
+
+- **Peso:** si la suma del peso de los equipos supera la capacidad del remolque o el arrastre del
+  chuto (bloqueo suave). También avisa si algún equipo no tiene el peso cargado.
+- **Vencimientos:** si la licencia del chofer o algún documento del chuto/remolque están vencidos.
+- **Solapamiento:** si el chofer, el chuto o el remolque ya tienen otro viaje en esa ventana de fechas.
+
+Las alertas rojas son **bloqueo suave**: avisan y, si de verdad hace falta, un **administrador**
+puede marcar "Forzar guardado". Los avisos amarillos (vencimientos, solapamiento) no bloquean.
+
+**Estados del viaje:** Programado → En carga → En tránsito → En descarga → **Completado** (o
+**Cancelado** con motivo). Desde el detalle de la orden se avanza el estado y cada cambio queda en
+la **bitácora**. (El check-in/out con fotos y firma, el módulo financiero y los reportes en PDF
+llegan en las fases siguientes.)
 
 ---
 

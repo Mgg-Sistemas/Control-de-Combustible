@@ -14,6 +14,12 @@ type Group = { title: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
+    title: 'Operación',
+    items: [
+      { label: 'Órdenes de acarreo', desc: 'Crear y despachar viajes, con validación de peso, vencimientos y solapamiento', icon: '📋', route: 'HaulOrders' },
+    ],
+  },
+  {
     title: 'Datos maestros',
     items: [
       { label: 'Chutos (camiones)', desc: 'Camiones de arrastre: placa, capacidad, kilometraje y estado', icon: '🚛', route: 'HaulTrucks' },

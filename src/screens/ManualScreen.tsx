@@ -627,7 +627,14 @@ const SECTIONS: Sec[] = [
         '📍 Ubicaciones: obras, almacenes, talleres, minas y pozos de origen/destino.',
         '📄 Documentos y vencimientos: permisos de carga pesada, pólizas, revisiones técnicas y licencias — con su fecha de vencimiento (dispara alertas).',
       ] },
-      { t: 'note', text: 'El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
+      { t: 'p', text: '📋 Órdenes de acarreo: cada viaje. Eliges origen y destino, el chuto + remolque + chofer y los equipos a trasladar. Al guardar, el sistema VALIDA solo:' },
+      { t: 'bullets', items: [
+        'Peso: si la suma del peso de los equipos supera la capacidad del remolque (o el arrastre del chuto), avisa (muestra el total vs. la capacidad en vivo).',
+        'Vencimientos: si la licencia del chofer o algún documento del chuto/remolque están vencidos.',
+        'Solapamiento: si el chofer, el chuto o el remolque ya tienen otro viaje en esa misma ventana de fechas.',
+      ] },
+      { t: 'note', text: 'Las alertas son bloqueo SUAVE: avisan y, si de verdad hace falta, un administrador puede "forzar" el guardado. Los avisos amarillos (vencimientos/solapamiento) no bloquean.' },
+      { t: 'p', text: 'Estados del viaje: Programado → En carga → En tránsito → En descarga → Completado (o Cancelado con motivo). Desde el detalle de la orden se avanza el estado y todo queda en la bitácora. El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
     ],
   },
   {
