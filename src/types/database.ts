@@ -260,6 +260,8 @@ export interface Employee {
   talla_camisa: string | null;   // talla de camisa (uniforme)
   talla_pantalon: string | null; // talla de pantalón (uniforme)
   talla_zapatos: string | null;  // talla de zapatos (uniforme)
+  talla_braga: string | null;    // talla de braga / overol (uniforme)
+  talla_chaqueta: string | null; // talla de chaqueta (uniforme)
   precio_hora: number | null;    // pago a personal: precio por hora
   precio_dia: number | null;     // pago a personal: precio por jornada de DÍA
   precio_noche: number | null;   // pago a personal: precio por jornada de NOCHE
@@ -291,6 +293,8 @@ export interface UniformDelivery {
   camisas: number;
   pantalones: number;
   zapatos: number;
+  bragas: number;         // bragas (overol) entregadas
+  chaquetas: number;      // chaquetas entregadas
   delivered_at: string;   // momento exacto (ISO) de la entrega
   work_date: string;      // fecha (AAAA-MM-DD, zona Caracas)
   note: string | null;

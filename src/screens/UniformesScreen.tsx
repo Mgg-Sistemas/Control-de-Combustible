@@ -30,10 +30,16 @@ function Pill({ label, color }: { label: string; color: string }) {
 }
 // Fecha y hora (Caracas) de un instante ISO, para las entregas de uniforme.
 const fmtFechaHora = (ts: string) => new Date(ts).toLocaleString('es-VE', { timeZone: 'America/Caracas', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-type DelTotals = { camisas: number; pantalones: number; zapatos: number };
-const sumDeliveries = (list: Pick<UniformDelivery, 'camisas' | 'pantalones' | 'zapatos'>[]): DelTotals =>
-  list.reduce((a, d) => ({ camisas: a.camisas + (Number(d.camisas) || 0), pantalones: a.pantalones + (Number(d.pantalones) || 0), zapatos: a.zapatos + (Number(d.zapatos) || 0) }), { camisas: 0, pantalones: 0, zapatos: 0 });
-const hasDel = (t: DelTotals) => t.camisas > 0 || t.pantalones > 0 || t.zapatos > 0;
+type DelTotals = { camisas: number; pantalones: number; zapatos: number; bragas: number; chaquetas: number };
+const sumDeliveries = (list: Pick<UniformDelivery, 'camisas' | 'pantalones' | 'zapatos' | 'bragas' | 'chaquetas'>[]): DelTotals =>
+  list.reduce((a, d) => ({
+    camisas: a.camisas + (Number(d.camisas) || 0),
+    pantalones: a.pantalones + (Number(d.pantalones) || 0),
+    zapatos: a.zapatos + (Number(d.zapatos) || 0),
+    bragas: a.bragas + (Number(d.bragas) || 0),
+    chaquetas: a.chaquetas + (Number(d.chaquetas) || 0),
+  }), { camisas: 0, pantalones: 0, zapatos: 0, bragas: 0, chaquetas: 0 });
+const hasDel = (t: DelTotals) => t.camisas > 0 || t.pantalones > 0 || t.zapatos > 0 || t.bragas > 0 || t.chaquetas > 0;
 
 // ── Conteo por talla (para el resumen "tantas camisas M, tantas S…") ──────────
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL', '4XL'];
@@ -84,6 +90,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   const [camisa, setCamisa] = useState('');
   const [pantalon, setPantalon] = useState('');
   const [zapatos, setZapatos] = useState('');
+  const [braga, setBraga] = useState('');
+  const [chaqueta, setChaqueta] = useState('');
   const [saving, setSaving] = useState(false);
 
   // ── Entregas de uniforme (cantidades entregadas, con fecha/hora) ─────────────
@@ -91,10 +99,12 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   const [dCam, setDCam] = useState('');   // entrega en curso: camisas
   const [dPan, setDPan] = useState('');   // pantalones
   const [dZap, setDZap] = useState('');   // zapatos
+  const [dBra, setDBra] = useState('');   // bragas
+  const [dCha, setDCha] = useState('');   // chaquetas
   const [busyDel, setBusyDel] = useState(false);
 
   const loadDeliveries = async () => {
-    const rows = await selectAllRows('uniform_deliveries', 'id, employee_id, camisas, pantalones, zapatos, delivered_at, work_date, note, recorded_by, created_at');
+    const rows = await selectAllRows('uniform_deliveries', 'id, employee_id, camisas, pantalones, zapatos, bragas, chaquetas, delivered_at, work_date, note, recorded_by, created_at');
     setDeliveries((rows ?? []) as UniformDelivery[]);
   };
   useEffect(() => { loadDeliveries(); }, []);
@@ -104,8 +114,9 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
   const totalsByEmp = useMemo(() => {
     const m = new Map<string, DelTotals>();
     deliveries.forEach((d) => {
-      const a = m.get(d.employee_id) ?? { camisas: 0, pantalones: 0, zapatos: 0 };
+      const a = m.get(d.employee_id) ?? { camisas: 0, pantalones: 0, zapatos: 0, bragas: 0, chaquetas: 0 };
       a.camisas += Number(d.camisas) || 0; a.pantalones += Number(d.pantalones) || 0; a.zapatos += Number(d.zapatos) || 0;
+      a.bragas += Number(d.bragas) || 0; a.chaquetas += Number(d.chaquetas) || 0;
       m.set(d.employee_id, a);
     });
     return m;
@@ -119,7 +130,9 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     setCamisa(e.talla_camisa ?? '');
     setPantalon(e.talla_pantalon ?? '');
     setZapatos(e.talla_zapatos ?? '');
-    setDCam(''); setDPan(''); setDZap('');
+    setBraga(e.talla_braga ?? '');
+    setChaqueta(e.talla_chaqueta ?? '');
+    setDCam(''); setDPan(''); setDZap(''); setDBra(''); setDCha('');
   };
 
   // Registra una ENTREGA (cantidades) al empleado abierto, con fecha y hora automáticas.
@@ -128,22 +141,24 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     const c = Math.max(0, Math.floor(Number(dCam) || 0));
     const p = Math.max(0, Math.floor(Number(dPan) || 0));
     const z = Math.max(0, Math.floor(Number(dZap) || 0));
-    if (c + p + z <= 0) { toast.error('Escribe al menos una cantidad (camisas, pantalones o zapatos).'); return; }
+    const b = Math.max(0, Math.floor(Number(dBra) || 0));
+    const ch = Math.max(0, Math.floor(Number(dCha) || 0));
+    if (c + p + z + b + ch <= 0) { toast.error('Escribe al menos una cantidad (camisas, pantalones, zapatos, bragas o chaquetas).'); return; }
     setBusyDel(true);
     const now = new Date();
     const { error } = await supabase.from('uniform_deliveries').insert({
-      employee_id: sel.id, camisas: c, pantalones: p, zapatos: z,
+      employee_id: sel.id, camisas: c, pantalones: p, zapatos: z, bragas: b, chaquetas: ch,
       delivered_at: now.toISOString(), work_date: caracasParts(now).iso, recorded_by: session?.user?.id ?? null,
     });
     setBusyDel(false);
     if (error) { toast.error(error.message); return; }
-    setDCam(''); setDPan(''); setDZap('');
+    setDCam(''); setDPan(''); setDZap(''); setDBra(''); setDCha('');
     await loadDeliveries();
   };
   const guardar = async () => {
     if (!sel || !canWrite) return;
     setSaving(true);
-    const patch = { talla_camisa: camisa.trim() || null, talla_pantalon: pantalon.trim() || null, talla_zapatos: zapatos.trim() || null };
+    const patch = { talla_camisa: camisa.trim() || null, talla_pantalon: pantalon.trim() || null, talla_zapatos: zapatos.trim() || null, talla_braga: braga.trim() || null, talla_chaqueta: chaqueta.trim() || null };
     const { error } = await supabase.from('employees').update(patch).eq('id', sel.id);
     setSaving(false);
     if (error) return toast.error(error.message);
@@ -176,6 +191,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     camisa: tallyBy(filtered, (e) => e.talla_camisa),
     pantalon: tallyBy(filtered, (e) => e.talla_pantalon),
     zapatos: tallyBy(filtered, (e) => e.talla_zapatos),
+    braga: tallyBy(filtered, (e) => e.talla_braga),
+    chaqueta: tallyBy(filtered, (e) => e.talla_chaqueta),
   }), [filtered]);
 
   const sizeChip = (label: string, value: string | null) => (
@@ -201,6 +218,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         <td class="c b">${esc(e.talla_camisa ?? '—')}</td>
         <td class="c b">${esc(e.talla_pantalon ?? '—')}</td>
         <td class="c b">${esc(e.talla_zapatos ?? '—')}</td>
+        <td class="c b">${esc(e.talla_braga ?? '—')}</td>
+        <td class="c b">${esc(e.talla_chaqueta ?? '—')}</td>
         <td class="firma"></td>
       </tr>`).join('');
     // Resumen por tallas del ALCANCE impreso (scope): "tantas camisas M, tantas S…".
@@ -208,6 +227,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
       camisa: tallyBy(scope, (e) => e.talla_camisa),
       pantalon: tallyBy(scope, (e) => e.talla_pantalon),
       zapatos: tallyBy(scope, (e) => e.talla_zapatos),
+      braga: tallyBy(scope, (e) => e.talla_braga),
+      chaqueta: tallyBy(scope, (e) => e.talla_chaqueta),
     };
     const resumenCard = (titulo: string, t: { rows: SizeCount[]; total: number }) => {
       const items = t.rows.length
@@ -226,6 +247,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         ${resumenCard('👕 Camisas', scopeResumen.camisa)}
         ${resumenCard('👖 Pantalones', scopeResumen.pantalon)}
         ${resumenCard('👟 Botas de seguridad', scopeResumen.zapatos)}
+        ${resumenCard('🦺 Bragas', scopeResumen.braga)}
+        ${resumenCard('🧥 Chaquetas', scopeResumen.chaqueta)}
       </div>`;
     const html = pdfDocument({
       title: selMode && selIds.size > 0 ? 'Nota de entrega de dotación' : 'Distribución de uniformes',
@@ -251,7 +274,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         <table>
           <thead><tr>
             <th style="width:30px" class="c">#</th><th>Empleado</th><th>Empresa</th><th>Cargo</th><th>Cédula</th>
-            <th class="c">Camisa</th><th class="c">Pantalón</th><th class="c">Zapatos</th>
+            <th class="c">Camisa</th><th class="c">Pantalón</th><th class="c">Zapatos</th><th class="c">Braga</th><th class="c">Chaqueta</th>
             <th style="min-width:150px">Firma (Recibido / Entregado)</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -273,15 +296,15 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
     const bodies = groups.map(({ e, dels }) => {
       const t = sumDeliveries(dels);
       const trs = dels.slice().sort((a, b) => a.delivered_at.localeCompare(b.delivered_at)).map((d) =>
-        `<tr><td>${esc(fmtFechaHora(d.delivered_at))}</td><td class="c b">${d.camisas}</td><td class="c b">${d.pantalones}</td><td class="c b">${d.zapatos}</td></tr>`).join('');
+        `<tr><td>${esc(fmtFechaHora(d.delivered_at))}</td><td class="c b">${d.camisas}</td><td class="c b">${d.pantalones}</td><td class="c b">${d.zapatos}</td><td class="c b">${d.bragas ?? 0}</td><td class="c b">${d.chaquetas ?? 0}</td></tr>`).join('');
       return `<h3 class="emp">${esc(fullName(e))} <span class="sub">· ${esc(companyName(e.company_id))}${e.cargo ? ` · ${esc(e.cargo)}` : ''}${e.cedula ? ` · C.I ${esc(e.cedula)}` : ''}</span></h3>
-        <table><thead><tr><th>Fecha y hora de entrega</th><th class="c">👕 Camisas</th><th class="c">👖 Pantalones</th><th class="c">👟 Zapatos</th></tr></thead>
+        <table><thead><tr><th>Fecha y hora de entrega</th><th class="c">👕 Camisas</th><th class="c">👖 Pantalones</th><th class="c">👟 Zapatos</th><th class="c">🦺 Bragas</th><th class="c">🧥 Chaquetas</th></tr></thead>
         <tbody>${trs}</tbody>
-        <tfoot><tr><td style="text-align:right">Total entregado</td><td class="c">${t.camisas}</td><td class="c">${t.pantalones}</td><td class="c">${t.zapatos}</td></tr></tfoot></table>`;
+        <tfoot><tr><td style="text-align:right">Total entregado</td><td class="c">${t.camisas}</td><td class="c">${t.pantalones}</td><td class="c">${t.zapatos}</td><td class="c">${t.bragas}</td><td class="c">${t.chaquetas}</td></tr></tfoot></table>`;
     }).join('');
     const html = pdfDocument({
       title: 'Entregas de uniforme',
-      subtitle: `${groups.length} persona(s) · Totales: 👕 ${grand.camisas} · 👖 ${grand.pantalones} · 👟 ${grand.zapatos} · ${todayDMY()}`,
+      subtitle: `${groups.length} persona(s) · Totales: 👕 ${grand.camisas} · 👖 ${grand.pantalones} · 👟 ${grand.zapatos} · 🦺 ${grand.bragas} · 🧥 ${grand.chaquetas} · ${todayDMY()}`,
       extraCss: `h3.emp{margin:16px 0 4px;font-size:12.5pt;color:#16324F} h3.emp .sub{font-weight:400;color:#555;font-size:10pt}
         table{width:100%;border-collapse:collapse;font-size:10.5pt;margin-bottom:6px}
         th,td{border:1px solid #c9d2dc;padding:5px 8px;text-align:left} th{background:#16324F;color:#fff}
@@ -315,7 +338,7 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
         </View>
       </View>
       <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
-        Toca un empleado para cargar sus tallas y para 📦 registrar cuántas camisas, pantalones y zapatos se le entregan (con fecha y hora). "📦 Reporte de entregas" saca el PDF de lo entregado. "☑️ Seleccionar" te deja marcar solo a un grupo (ej. busca "operador" en el cargo y marca a todos) para sacar UNA nota de entrega consolidada con espacio de firma por persona — sin marcar nada, "Listado (tallas)" imprime todos los que se ven.
+        Toca un empleado para cargar sus tallas y para 📦 registrar cuántas camisas, pantalones, zapatos, bragas y chaquetas se le entregan (con fecha y hora). "📦 Reporte de entregas" saca el PDF de lo entregado. "☑️ Seleccionar" te deja marcar solo a un grupo (ej. busca "operador" en el cargo y marca a todos) para sacar UNA nota de entrega consolidada con espacio de firma por persona — sin marcar nada, "Listado (tallas)" imprime todos los que se ven.
       </Text>
 
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
@@ -373,11 +396,13 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                     {sizeChip('👕 Camisa', e.talla_camisa)}
                     {sizeChip('👖 Pantalón', e.talla_pantalon)}
                     {sizeChip('👟 Zapatos', e.talla_zapatos)}
+                    {sizeChip('🦺 Braga', e.talla_braga)}
+                    {sizeChip('🧥 Chaqueta', e.talla_chaqueta)}
                   </View>
                   {(() => { const t = totalsByEmp.get(e.id); return t && hasDel(t) ? (
-                    <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ marginTop: 4, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <Text style={{ color: colors.success, fontSize: 11, fontWeight: '800' }}>📦 Entregado:</Text>
-                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>👕 {t.camisas} · 👖 {t.pantalones} · 👟 {t.zapatos}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700' }}>👕 {t.camisas} · 👖 {t.pantalones} · 👟 {t.zapatos} · 🦺 {t.bragas} · 🧥 {t.chaquetas}</Text>
                     </View>
                   ) : null; })()}
                 </Card>
@@ -396,6 +421,8 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
             { label: '👕 Camisas', t: resumen.camisa },
             { label: '👖 Pantalones', t: resumen.pantalon },
             { label: '👟 Botas de seguridad', t: resumen.zapatos },
+            { label: '🦺 Bragas', t: resumen.braga },
+            { label: '🧥 Chaquetas', t: resumen.chaqueta },
           ] as const).map((g) => {
             const sinTalla = filtered.length - g.t.total;
             return (
@@ -439,15 +466,21 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>👟 Talla de zapatos</Text>
                 <TextInput value={zapatos} onChangeText={(t) => setZapatos(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. 40, 42…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
 
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>🦺 Talla de braga</Text>
+                <TextInput value={braga} onChangeText={(t) => setBraga(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. M, L, XL, 38…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>🧥 Talla de chaqueta</Text>
+                <TextInput value={chaqueta} onChangeText={(t) => setChaqueta(t.toUpperCase())} editable={canWrite} autoCapitalize="characters" placeholder="Ej. M, L, XL…" placeholderTextColor={colors.muted} style={{ ...input, opacity: canWrite ? 1 : 0.6 }} />
+
                 {/* ── Entregas: cuántas prendas se le han entregado (con fecha y hora) ── */}
                 <View style={{ marginTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>📦 {canWrite ? 'Registrar entrega' : 'Entregas'}</Text>
                   {canWrite ? (
                     <>
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.xs }}>Escribe cuántas prendas le entregas ahora. La fecha y la hora se guardan solas.</Text>
-                      <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                        {([['👕', dCam, setDCam], ['👖', dPan, setDPan], ['👟', dZap, setDZap]] as const).map(([icon, val, set], i) => (
-                          <View key={i} style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+                        {([['👕', dCam, setDCam], ['👖', dPan, setDPan], ['👟', dZap, setDZap], ['🦺', dBra, setDBra], ['🧥', dCha, setDCha]] as const).map(([icon, val, set], i) => (
+                          <View key={i} style={{ minWidth: 56, flexGrow: 1, flexBasis: 56, alignItems: 'center' }}>
                             <Text style={{ fontSize: 16 }}>{icon}</Text>
                             <TextInput value={val} onChangeText={(t) => set(t.replace(/[^0-9]/g, ''))} keyboardType="numeric" inputMode="numeric" placeholder="0" placeholderTextColor={colors.muted} style={{ ...input, width: '100%', textAlign: 'center', marginTop: 2 }} />
                           </View>
@@ -463,13 +496,13 @@ function DotacionBasicaTab({ canWrite }: { canWrite: boolean }) {
                     const dels = empDeliveries(sel.id); const tot = sumDeliveries(dels);
                     return (
                       <View style={{ marginTop: spacing.sm }}>
-                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>Total entregado: 👕 {tot.camisas} · 👖 {tot.pantalones} · 👟 {tot.zapatos}</Text>
+                        <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 12 }}>Total entregado: 👕 {tot.camisas} · 👖 {tot.pantalones} · 👟 {tot.zapatos} · 🦺 {tot.bragas} · 🧥 {tot.chaquetas}</Text>
                         {dels.length === 0 ? (
                           <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Aún no hay entregas registradas.</Text>
                         ) : dels.map((d) => (
                           <View key={d.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, backgroundColor: colors.surfaceAlt, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4 }}>
                             <Text style={{ color: colors.muted, fontSize: 11 }}>🕒 {fmtFechaHora(d.delivered_at)}</Text>
-                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>👕 {d.camisas} · 👖 {d.pantalones} · 👟 {d.zapatos}</Text>
+                            <Text style={{ color: colors.text, fontSize: 11, fontWeight: '700' }}>👕 {d.camisas} · 👖 {d.pantalones} · 👟 {d.zapatos} · 🦺 {d.bragas ?? 0} · 🧥 {d.chaquetas ?? 0}</Text>
                           </View>
                         ))}
                       </View>
