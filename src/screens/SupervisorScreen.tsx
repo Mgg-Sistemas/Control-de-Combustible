@@ -352,6 +352,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const [paPhotoUp, setPaPhotoUp] = useState(false);
   const [ntBusy, setNtBusy] = useState(false); // obteniendo la ubicación GPS (camino "no trabajó")
   const [ntCoords, setNtCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [ntMotivo, setNtMotivo] = useState(''); // motivo que ESCRIBE el inspector para "no trabajó" (opcional)
   const [savingMachLoc, setSavingMachLoc] = useState(false); // guardar la ubicación de la MÁQUINA desde el check-in
   const [ciRef, setCiRef] = useState(''); // referencia (edificio) de la ubicación — del catálogo
   // Avería de maquinaria (igual que el operador) → maintenance_requests.
@@ -1345,6 +1346,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setOpHoro('');
     setOpHoroPhoto(null);
     setHoroIniPhoto(null); setHoroFinPhoto(null); setHoroFin('');
+    setNtMotivo('');
     // Captura el GPS del supervisor al abrir (para medir la distancia a la máquina).
     setGpsBusy(true);
     getCurrentCoords().then((r) => {
@@ -1815,7 +1817,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const encolar = async () => {
       const edifRef = ((ci as any)?.referencia ?? '').trim();
       const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
-      const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+      // "NO TRABAJÓ" es el texto FIJO; si el inspector escribió un motivo, va al lado.
+      const motivoNT = ntMotivo.trim() ? `NO TRABAJÓ · ${ntMotivo.trim()}` : 'NO TRABAJÓ';
+      const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
       // roundDate: día en que ARRANCÓ la jornada abierta (no "hoy"), mismo criterio
       // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
       // parada se encola después de medianoche con una jornada de noche abierta.
@@ -1835,7 +1839,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       if (jornadaStart) setJornadaStart(null);
       setCiSaving(false);
       setNotice(`📶 Sin conexión: ${ci.code} guardada como PARADA en el teléfono, se subirá sola cuando haya señal.`);
-      setNtCoords(null); setParadaOpen(false);
+      setNtCoords(null); setNtMotivo(''); setParadaOpen(false);
       setCi(null);
     };
     if (!isOnline()) { await encolar(); return; }
@@ -1869,7 +1873,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     const edifRef = ((ci as any)?.referencia ?? '').trim();
     const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
-    const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
+    // "NO TRABAJÓ" es el texto FIJO; si el inspector escribió un motivo, va al lado.
+    const motivoNT = ntMotivo.trim() ? `NO TRABAJÓ · ${ntMotivo.trim()}` : 'NO TRABAJÓ';
+    const notas = `${motivoNT} · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: ci.id, material: 'MÁQUINA PARADA', notes: notas, status: 'pendiente', requested_by: uid || null,
     });
@@ -1877,7 +1883,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     logAudit('PARADA', 'machinery', ci.id, `${ci.code} · no trabajó · ${edificio}`); // bitácora
     reloadEstados();
     setNotice(`🟡 ${ci.code} marcada PARADA · NO TRABAJÓ LA MÁQUINA${error ? ' · ⚠️ no se pudo guardar todo' : ''}. Aparece en Inspecciones.`);
-    setNtCoords(null); setParadaOpen(false);
+    setNtCoords(null); setNtMotivo(''); setParadaOpen(false);
     setCi(null);
   };
 
@@ -3255,8 +3261,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                     </>
                   ) : (
                     <>
-                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>Motivo: NO TRABAJÓ LA MÁQUINA</Text>
-                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 NO TRABAJÓ</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: 4 }}>El texto "NO TRABAJÓ" queda fijo. Si quieres, escribe el motivo (aparece al lado).</Text>
+                      <TextInput value={ntMotivo} onChangeText={setNtMotivo} placeholder="Motivo (ej: sin combustible, sin operador, lluvia, sin frente…)" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
                       <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
                         <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>

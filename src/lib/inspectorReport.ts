@@ -202,7 +202,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
     String(notes ?? '')
       .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')
       .replace(/\s*·\s*Edificio:.*$/i, '')
-      .replace(/^NO TRABAJ[ÓO] LA M[ÁA]QUINA\s*·?\s*/i, 'No trabajó · ')
+      .replace(/^NO TRABAJ[ÓO](?: LA M[ÁA]QUINA)?\s*·?\s*/i, 'No trabajó · ')
       .replace(/·\s*$/, '')
       .trim();
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
