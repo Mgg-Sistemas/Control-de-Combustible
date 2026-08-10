@@ -9,6 +9,7 @@ import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
 import { motivoParada } from '../lib/paradaMotivo';
 import EdificioPicker from '../components/EdificioPicker';
+import { addEdificio } from '../lib/edificios';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
 import { getCurrentCoords, warmLocation } from '../lib/location';
@@ -1413,6 +1414,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const { error: refErr } = await supabase.from('machinery').update({ referencia: nuevaRef }).eq('id', ci.id);
     setSavingMachLoc(false);
     if (refErr) { setNotice('❌ ' + refErr.message); return; }
+    // Si la residencia/edificio escrito NO estaba en el catálogo, lo registra al
+    // vuelo (idempotente) para que quede en la lista compartida la próxima vez.
+    if (nuevaRef) addEdificio(nuevaRef).catch(() => {});
     setCi((c) => (c ? { ...c, latitude: lat as number, longitude: lng as number, referencia: nuevaRef } as Mach : c));
     setNotice(nuevaRef ? '✅ Ubicación y referencia guardadas.' : '✅ Ubicación de la máquina guardada.');
     load();
