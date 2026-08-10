@@ -2075,8 +2075,18 @@ Desde el **detalle de la orden**, según el estado, aparece la acción que toca:
   "después"** y **FIRMA** (nombre de quien recibe + foto de la firma/recepción). Al confirmar, la
   orden queda **COMPLETADA**.
 
-Cada inspección, foto e incidencia queda guardada en la orden. (El módulo financiero y los reportes
-en PDF llegan en las fases siguientes.)
+Cada inspección, foto e incidencia queda guardada en la orden.
+
+### 4.27d. Control de costos y tarifario
+
+- **💵 Costos del viaje** (en el detalle de la orden): registra **combustible** (con litros →
+  **rendimiento km/L**), **viáticos** de comida/hospedaje (con **foto del comprobante**), **peajes**
+  y otros. Arriba muestra el **total**, los **viáticos otorgados vs. comprobados** y el rendimiento.
+- **🧾 Tarifario** (Acarreo → Financiero): precios **por km, por tonelada, por hora o tarifa plana**,
+  general o por **cliente/ruta**. Para los clientes **externos**, la orden calcula sola la
+  **valorización sugerida** (según la tarifa más específica que aplique) y la puedes **guardar**.
+
+(Los reportes en PDF y el dashboard con KPIs y alertas llegan en la fase siguiente.)
 
 ---
 

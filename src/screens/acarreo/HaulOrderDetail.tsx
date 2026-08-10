@@ -5,6 +5,8 @@ import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle } from '../../components/ui';
 import { StatusBadge, statusMeta } from './AcarreoUI';
 import HaulExecutionPanel from './HaulExecutionPanel';
+import HaulExpensesPanel from './HaulExpensesPanel';
+import { pickTariff, computeValuation } from '../../lib/haulValuation';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -89,6 +91,19 @@ export default function HaulOrderDetail({
   const nx = NEXT[order.status];
   const terminal = order.status === 'completado' || order.status === 'cancelado';
 
+  // Valorización (servicio a terceros): solo si emisor/receptor es un cliente EXTERNO.
+  const esExterno = [order.client_to_id, order.client_from_id].some((id) => refs.clients.find((c) => c.id === id)?.kind === 'externo');
+  const tariff = esExterno ? pickTariff(order, refs.tariffs) : null;
+  const val = tariff ? computeValuation(order, tariff, totalTon) : null;
+  const saveValuation = async () => {
+    if (!val?.amount || !tariff) return;
+    setBusy(true);
+    const { error } = await supabase.from('haul_orders').update({ billed_amount: Math.round(val.amount * 100) / 100, tariff_mode: tariff.mode }).eq('id', order.id);
+    setBusy(false);
+    if (error) { onError(error.message); return; }
+    onChanged();
+  };
+
   const Row = ({ label, value }: { label: string; value?: string | null }) => value ? (
     <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>
       <Text style={{ color: colors.muted }}>{label}: </Text>{value}
@@ -131,6 +146,30 @@ export default function HaulOrderDetail({
             <Text key={i} style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>• {it.code} <Text style={{ color: colors.muted, fontSize: 11 }}>{it.extra}</Text></Text>
           ))}
       </Card>
+
+      {/* Valorización (servicio a terceros) */}
+      {val ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 2 }}>🧾 Valorización (cliente externo)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Tarifa: {tariff?.mode} · ${Number(tariff?.unit_price).toFixed(2)} — {val.detail}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>
+              {val.amount != null ? `$${val.amount.toFixed(2)}` : '—'}
+              {order.billed_amount != null ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '600' }}>  (guardado: ${Number(order.billed_amount).toFixed(2)})</Text> : null}
+            </Text>
+            {val.amount != null && !terminal ? (
+              <TouchableOpacity onPress={saveValuation} disabled={busy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar valorización</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
+
+      {/* Control de costos (gastos, viáticos, combustible) */}
+      {order.status !== 'programado' ? (
+        <HaulExpensesPanel order={order} onError={onError} onChanged={onChanged} />
+      ) : null}
 
       {/* Ejecución del viaje (check-in de salida, incidencias, check-out con firma).
           El avance de estado en_carga→…→completado lo maneja el panel; en 'programado'

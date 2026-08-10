@@ -84,6 +84,7 @@ import HaulEquiposScreen from '../screens/acarreo/HaulEquiposScreen';
 import HaulClientsScreen from '../screens/acarreo/HaulClientsScreen';
 import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
 import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
+import HaulTariffsScreen from '../screens/acarreo/HaulTariffsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -259,6 +260,7 @@ function MoreStack() {
       <Stack.Screen name="HaulClients" component={HaulClientsScreen} options={{ title: 'Clientes y proyectos' }} />
       <Stack.Screen name="HaulLocations" component={HaulLocationsScreen} options={{ title: 'Ubicaciones' }} />
       <Stack.Screen name="HaulDocuments" component={HaulDocumentsScreen} options={{ title: 'Documentos y vencimientos' }} />
+      <Stack.Screen name="HaulTariffs" component={HaulTariffsScreen} options={{ title: 'Tarifario' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
@@ -682,6 +684,7 @@ const moreScreens = {
   HaulClients: 'acarreo/clientes',
   HaulLocations: 'acarreo/ubicaciones',
   HaulDocuments: 'acarreo/documentos',
+  HaulTariffs: 'acarreo/tarifario',
   ScanQr: 'escanear',
   MachineQuick: 'maquina',
   Transfers: 'traslados',
