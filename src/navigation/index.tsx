@@ -76,6 +76,7 @@ import {
 import TransfersPilot from '../screens/redesign/TransfersPilot';
 // Módulo de Acarreo / Transporte (traslado de maquinaria en chutos + bateas).
 import AcarreoHub from '../screens/acarreo/AcarreoHub';
+import HaulOrdersScreen from '../screens/acarreo/HaulOrdersScreen';
 import HaulTrucksScreen from '../screens/acarreo/HaulTrucksScreen';
 import HaulTrailersScreen from '../screens/acarreo/HaulTrailersScreen';
 import HaulDriversScreen from '../screens/acarreo/HaulDriversScreen';
@@ -250,6 +251,7 @@ function MoreStack() {
       <Stack.Screen name="PlantaKiosk" component={PlantaKioskScreen} options={{ title: 'Kiosco de planta' }} />
       <Stack.Screen name="ManufacturingReports" component={ManufacturingReportsScreen} options={{ title: 'Reportes de Fabricación' }} />
       <Stack.Screen name="AcarreoHub" component={AcarreoHub} options={{ title: 'Acarreo / Transporte' }} />
+      <Stack.Screen name="HaulOrders" component={HaulOrdersScreen} options={{ title: 'Órdenes de acarreo' }} />
       <Stack.Screen name="HaulTrucks" component={HaulTrucksScreen} options={{ title: 'Chutos' }} />
       <Stack.Screen name="HaulTrailers" component={HaulTrailersScreen} options={{ title: 'Bateas / lowboys' }} />
       <Stack.Screen name="HaulDrivers" component={HaulDriversScreen} options={{ title: 'Choferes' }} />
@@ -652,6 +654,7 @@ const moreScreens = {
   PlantaKiosk: 'fabricacion/kiosco',
   ManufacturingReports: 'fabricacion/reportes',
   AcarreoHub: 'acarreo',
+  HaulOrders: 'acarreo/ordenes',
   HaulTrucks: 'acarreo/chutos',
   HaulTrailers: 'acarreo/bateas',
   HaulDrivers: 'acarreo/choferes',
