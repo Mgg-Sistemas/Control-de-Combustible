@@ -710,6 +710,17 @@ Módulo para los **coordinadores de mantenimiento**. Tiene tres pestañas:
 > Inventario conviene elegir el **🚜 equipo** destino: así el gasto queda bien atribuido en este reporte.
 - **🔧 En reparación:** máquinas que salieron a reparación.
 - **✓ Historial:** reparaciones ya cerradas.
+- **⏱️ Horómetros:** pestaña dedicada al **control de horómetros de TODAS las máquinas**. Por cada
+  máquina muestra el **horómetro actual**, las **horas acumuladas** desde el último mantenimiento
+  confirmado y **lo que falta** para el próximo mantenimiento (objetivo **250 h**), con una barra de
+  progreso y el nivel (🟡 200 h · 🟠 220 h · 🔴 250 h / vencido). Cada tarjeta trae **Máquina,
+  Serial/Placa, Empresa, Encargado, Ubicación (GPS), Referencia/Edificio** y arriba un resumen
+  (máquinas, próximas ≥200 h, vencidas ≥250 h). Se ordena de la **más cercana al mantenimiento**
+  primero. El **buscador** filtra por **todas las características** (máquina, serial, placa, empresa,
+  encargado, ubicación/referencia, tipo). Está **vinculada con la FOTO del horómetro** que coloca el
+  inspector/operador al iniciar/finalizar la jornada y con **los datos que ingresa** (lectura
+  inicial → final, fecha de la jornada y quién la registró): la miniatura se **toca para ampliar**.
+  Desde aquí también puedes **✓ Confirmar mantenimiento** (reinicia el conteo de horas acumuladas).
 
 **⏱️ Alerta por horómetro (mantenimiento preventivo):** cuando una máquina acumula horas desde su
 **último mantenimiento confirmado**, aparece arriba un banner colapsable **"⏱️ N máquina(s)
