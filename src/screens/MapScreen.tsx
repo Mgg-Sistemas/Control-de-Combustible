@@ -535,15 +535,21 @@ export default function MapScreen({ navigation, route }: any) {
                     {list.map((p) => {
                       const off = catHidden || hiddenIds.has(p.id);
                       const ps = placaSerial(p.plate, p.serial);
+                      // Casilla ✅/⬜ = mostrar/ocultar su pin. El resto de la fila = VERLA en el mapa.
                       return (
-                        <TouchableOpacity key={p.id} onPress={() => toggleId(p.id)} disabled={catHidden} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
-                          <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
-                            {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
-                          </View>
-                          <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{p.company}</Text>
-                        </TouchableOpacity>
+                        <View key={p.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5, opacity: catHidden ? 0.4 : 1 }}>
+                          <TouchableOpacity onPress={() => toggleId(p.id)} disabled={catHidden} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Text style={{ fontSize: 15 }}>{off ? '⬜' : '✅'}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => { setFocus({ id: p.id, code: p.name }); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
+                              {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                              <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🗺️ Ver en el mapa ›</Text>
+                            </View>
+                            <Text style={{ color: colors.muted, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{p.company}</Text>
+                          </TouchableOpacity>
+                        </View>
                       );
                     })}
 
@@ -555,15 +561,23 @@ export default function MapScreen({ navigation, route }: any) {
                           <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800', marginBottom: 3 }}>⛔ Faltan por ubicar ({miss.length})</Text>
                           {miss.map((a) => {
                             const ps = placaSerial(a.plate, a.serial);
+                            // Tocar = ubicarla: el admin entra en modo "toca el mapa donde está".
                             return (
-                              <View key={a.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
+                              <TouchableOpacity key={a.id} onPress={() => {
+                                if (!isAdmin) { setNotice('🔒 Solo un administrador puede ubicar máquinas en el mapa.'); return; }
+                                showAll(); // asegura que el mapa se muestre (si el tipo estaba aislado y sin pines, no habría mapa que tocar)
+                                setLocateFor({ id: a.id, code: a.code, plate: a.plate, serial: a.serial, company: a.company });
+                                setNotice(`📍 Toca el mapa en el punto donde está ${a.code} para ubicarla.`);
+                                scrollRef.current?.scrollTo({ y: 0, animated: true });
+                              }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
                                 <Text style={{ fontSize: 15 }}>📍</Text>
                                 <View style={{ flex: 1 }}>
                                   <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '800' }}>{a.code}</Text>
                                   {ps ? <Text style={{ color: colors.danger, fontSize: 11 }}>🔖 {ps}</Text> : null}
+                                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>{isAdmin ? '👉 Tócala para ubicarla en el mapa' : '🔒 Solo admin puede ubicarla'}</Text>
                                 </View>
                                 <Text style={{ color: colors.danger, fontSize: 11, maxWidth: 120 }} numberOfLines={2}>{a.company}</Text>
-                              </View>
+                              </TouchableOpacity>
                             );
                           })}
                         </View>
