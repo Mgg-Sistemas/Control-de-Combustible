@@ -5,6 +5,7 @@ import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
+import { computeMachineVisibilitySets } from './inspectorDaySets';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -106,13 +107,15 @@ function locLabel(lat: number | null, lng: number | null, ref: string | null): {
 export async function computeInspectorData(date: string, companies?: string[] | null): Promise<InspectorData> {
   const cos = companies && companies.length ? companies : null;
 
-  // INACTIVAS del catálogo (NO OPERATIVA `operational=false`, botón "⛔ Inactiva", o
-  // desactivada `active=false`): NUNCA entran a este reporte de inspectores — igual que
-  // las tarjetas en vivo (`machHardInactiveSet` de InspectionsSummary) y el teléfono
-  // (`visibleParaInspector`). Solo salen en el reporte por empresa y en Control. Así el
-  // PDF firmado y la pantalla muestran EXACTAMENTE las mismas máquinas.
-  const { data: inactRows } = await supabase.from('machinery').select('id').or('operational.eq.false,active.eq.false');
-  const inactiveIds = new Set(((inactRows ?? []) as any[]).map((m) => m.id as string));
+  // Visibilidad de catálogo, MISMOS dos niveles que la pantalla en vivo/PDF resumen
+  // (`computeMachineVisibilitySets`): "duras" (operational=false o active=false) NUNCA
+  // entran; "blandas" (en_espera=true) se ocultan salvo que tengan jornada abierta HOY.
+  // Antes este reporte solo aplicaba la regla dura, así que una máquina EN ESPERA de
+  // traslado/recepción aparecía aquí como "asignada" mientras la pantalla en vivo y el
+  // PDF resumen ya la ocultaban — conteos de "máquinas asignadas" distintos entre los
+  // dos documentos para el mismo inspector/día.
+  const { data: machFlagsAll } = await supabase.from('machinery').select('id, active, operational, en_espera');
+  const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
 
   // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
   const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
@@ -151,23 +154,25 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // quedaba fuera del rango y el reporte no la mostraba en absoluto.
   const nightEndBound = `${nextDate}T07:00:00-04:00`;
   const resolvedHoyFilter = `status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`;
-  const { data: maint } = await supabase
-    .from('maintenance_requests')
-    .select('machinery_id, notes, created_at, status, resolved_at')
-    .eq('material', 'MÁQUINA PARADA')
-    .lte('created_at', nightEndBound)
-    .or(resolvedHoyFilter)
-    .order('created_at', { ascending: false });
+  // Paginado (selectAllRows): con >1000 solicitudes la consulta cruda se truncaba,
+  // perdiendo justo las averías/paradas más antiguas y arrastradas. selectAllRows pagina
+  // por id (no por fecha), así que se reordena por created_at DESC después de traer todo
+  // — el código de abajo asume que la primera fila por máquina/turno es la más reciente.
+  const maint = await selectAllRows(
+    'maintenance_requests',
+    'machinery_id, notes, created_at, status, resolved_at',
+    (q) => q.eq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)
+  );
+  (maint as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   // Averías REALES pendientes (material != MÁQUINA PARADA): la máquina queda AVERIADA.
   // Igual que teléfono/admin: la de HOY gana sobre trabajando; la ARRASTRADA pierde si
   // la máquina inició jornada. Se separan por fecha de marca respecto al día del reporte.
-  const { data: maintAver } = await supabase
-    .from('maintenance_requests')
-    .select('machinery_id, notes, material, created_at, status, resolved_at')
-    .neq('material', 'MÁQUINA PARADA')
-    .lte('created_at', nightEndBound)
-    .or(resolvedHoyFilter)
-    .order('created_at', { ascending: false });
+  const maintAver = await selectAllRows(
+    'maintenance_requests',
+    'machinery_id, notes, material, created_at, status, resolved_at',
+    (q) => q.neq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)
+  );
+  (maintAver as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea
   //     de tiempo: a qué hora empezó/terminó cada tramo, filtrado por turno para no
   //     mezclar el trabajo de día con el de noche en la misma fila.
@@ -274,11 +279,16 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
   // HOY (si la tienen, esa es la vigente — ver comentario del fetch más arriba).
   ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
+  // Jornada abierta HOY (cualquier turno) — excepción de la visibilidad "blanda"
+  // (en_espera=true) de arriba, igual que `anyOpenSet` en InspectionsSummary.
+  const anyOpenSet = new Set<string>();
+  roundByMachine.forEach((r, id) => { if (r?.jornada_start_at) anyOpenSet.add(id); });
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
   const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; tipo: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null; encargado: string | null }) => {
     if (cos && !cos.includes(base.company)) return;
-    if (inactiveIds.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
+    if (machHardInactiveSet.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
+    if (machInactiveSet.has(id) && !anyOpenSet.has(id)) return; // EN ESPERA sin jornada abierta hoy
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
     data.set(turno, tMap);
     const iMap = tMap.get(insp) ?? new Map<string, Mach>();

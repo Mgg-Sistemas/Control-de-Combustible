@@ -2388,7 +2388,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {renderSegChips()}
             </>
           ) : (
-            <SectionTitle>Todas las máquinas</SectionTitle>
+            <>
+              <SectionTitle>Todas las máquinas</SectionTitle>
+              {/* Chips de filtro por estado — antes solo se pintaban en la rama vieja
+                  (!uiV2), que quedó inalcanzable al fijar uiV2=true: el coordinador
+                  entraba por defecto a "Todas las máquinas" sin ninguna forma de
+                  filtrar por avería/parada/pendiente, solo texto libre sobre ~200
+                  equipos. */}
+              {renderSegChips()}
+            </>
           )}
           {/* Lista COLAPSABLE: no se pinta nada hasta que se despliega, y respeta el
               buscador + chip de segmento de arriba (searchList ya viene filtrado). */}
