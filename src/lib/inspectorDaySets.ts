@@ -133,12 +133,20 @@ export function buildDaySets(params: {
   // REACTIVACIÓN: si la jornada de ESTE turno se (re)inició DESPUÉS de la
   // avería/parada, la máquina volvió a trabajar → no cuenta como averiada/parada
   // (evita el absurdo de "🔴 AVERIADA" y "EN CURSO" a la vez). Con jornada
-  // abierta, la única comparación válida es la de tiempos (`js >= t`); si ya
-  // cerró (sin jornada abierta), basta con que haya trabajado el turno.
+  // abierta, la única comparación válida es la de tiempos (`js >= t`).
+  // BUG (10-ago-2026): con la jornada YA CERRADA, esto caía a `workedSet.has(id)`
+  // (trabajó el turno, sin importar CUÁNDO) — para una marca ARRASTRADA (de un día
+  // anterior) es correcto (definitivamente es antes del trabajo de hoy), pero para
+  // una marca de HOY (p. ej. el inspector cierra jornada y AL INSTANTE marca
+  // "parada") también entraba por acá y la anulaba, aunque la parada fuera
+  // POSTERIOR al trabajo — así una máquina recién marcada "parada" seguía
+  // saliendo "Cerrada" en el panel/PDF (pero "Parada" en el teléfono del
+  // coordinador, que no tiene este atajo). El caso ARRASTRADA+trabajó ya lo cubre
+  // aparte el `arr ? !workedSet.has(...) : true` de abajo; acá solo debe importar
+  // si había una jornada ABIERTA que arrancó después de la marca.
   const reactivadaTras = (id: string, t: number) => {
     const js = openStartMs.get(id);
-    if (js != null) return js >= t;
-    return workedSet.has(id);
+    return js != null && js >= t;
   };
 
   // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca entran a avería/
