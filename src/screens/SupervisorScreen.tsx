@@ -322,6 +322,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Horas ya registradas hoy en el round de la máquina abierta (para saber si el
   // turno del inspector ya se cumplió hoy → no puede reiniciarlo el mismo día).
   const [curRoundHours, setCurRoundHours] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
+  // round_date real de `curRoundHours` (hoy, o ayer si se rescató la jornada de noche que
+  // cruza medianoche) — lo necesita `marcarParadaNoTrabajo` para corregir horas ya
+  // cerradas cuando el inspector dice que la máquina NO trabajó (ver su comentario).
+  const [curRoundDate, setCurRoundDate] = useState<string | null>(null);
   // Horómetro: al iniciar se pide el INICIAL (precargado con el último final de la
   // máquina); al finalizar se pide el FINAL (que será el inicial de la próxima jornada).
   const [horoIni, setHoroIni] = useState('');
@@ -416,13 +420,15 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setIniTime(nowHHMM());
     (async () => {
       let r = await getMachineRound(ci.id, today);
+      let rDate = today;
       // Si HOY no tiene jornada abierta, rescata la de NOCHE de AYER si sigue abierta
       // (cruza la medianoche). Así, tras las 12, el inspector la ve "en curso" y puede
       // finalizarla — no reaparece como "sin jornada" (falso cierre a medianoche).
       if (!(r as any)?.jornada_start_at) {
         const ry = await getMachineRound(ci.id, yesterday);
-        if ((ry as any)?.jornada_start_at && (ry as any)?.jornada_shift === 'night') r = ry;
+        if ((ry as any)?.jornada_start_at && (ry as any)?.jornada_shift === 'night') { r = ry; rDate = yesterday; }
       }
+      setCurRoundDate(rDate);
       setCurRoundHours({ day: Number((r as any)?.day_hours) || 0, night: Number((r as any)?.night_hours) || 0 });
       const open = (r as any)?.jornada_start_at ?? null;
       setJornadaStart(open);
@@ -1837,6 +1843,30 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // Ver comentario equivalente en marcarParadaAveria: fallo de red mid-flujo
     // ahora se encola en vez de perderse.
     if (!ok) { await encolar(); return; }
+    // CORRECCIÓN DE HORAS: si la jornada YA estaba cerrada (nada abierto ahora —
+    // `registrarParadaBase` solo banca horas de una jornada EN CURSO), pero el inspector
+    // afirma que la máquina NO trabajó, las horas que ya tenía acreditadas ese turno
+    // (de un "Finalizar jornada" o de un cierre automático) quedarían de más. Se
+    // corrigen a 0, con un tramo NEGATIVO auditable que registra la reversión — antes
+    // no había forma de corregir esto desde el teléfono, solo un admin a mano en
+    // Control de Maquinaria (caso real 10-ago-2026: 20 máquinas con horas acreditadas
+    // que los inspectores corrigieron al día siguiente sin que nada cambiara).
+    if (!jornadaStart && curRoundDate) {
+      const shiftKey = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
+      const prevHoras = curRoundHours[jornadaShift === 'night' ? 'night' : 'day'];
+      if (prevHoras > 0) {
+        const resCorr = await upsertMachineRound(ci.id, curRoundDate, { [shiftKey]: 0 }, uid || null);
+        if (!resCorr.error) {
+          supabase.from('machine_work_segments').insert({
+            machinery_id: ci.id, round_date: curRoundDate, shift: jornadaShift,
+            started_at: new Date().toISOString(), ended_at: new Date().toISOString(), hours: -prevHoras,
+            source: 'no_trabajo_correction', recorded_by: uid || null,
+            notes: `Corrección: ${prevHoras}h ya acreditadas se anulan porque el inspector marcó NO TRABAJÓ`,
+          }).then(() => {}, () => {});
+          setCurRoundHours((h) => ({ ...h, [jornadaShift === 'night' ? 'night' : 'day']: 0 }));
+        }
+      }
+    }
     const edifRef = ((ci as any)?.referencia ?? '').trim();
     const edificio = ntCoords ? edificioTextOf(ntCoords.lat, ntCoords.lng, edifRef) : (edifRef || 'Sin ubicación');
     const notas = `NO TRABAJÓ LA MÁQUINA · Edificio: ${edificio}${ntCoords ? ` · Ubicación: ${ntCoords.lat}, ${ntCoords.lng}` : ' · Ubicación: no disponible'}`;
