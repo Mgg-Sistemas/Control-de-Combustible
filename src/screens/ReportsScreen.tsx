@@ -855,7 +855,7 @@ export default function ReportsScreen({ route }: any) {
         ${abonoRows}
       </tbody></table>`;
     };
-    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>📅 Llegada</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
+    const head = `<tr><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Clasificación</th><th>Días</th><th>☀️ H. Día</th><th>🌙 H. Noche</th><th>Total horas</th><th>Precio/hora</th><th>Total $</th></tr>`;
     const sections = roundGroups
       .map((g) => {
         const rows = g.machines
@@ -864,7 +864,6 @@ export default function ReportsScreen({ route }: any) {
               `<tr><td>${esc(m.machine)}${m.serial ? `<br/><span style="color:#888">${esc(m.serial)}</span>` : ''}</td>` +
               `<td>${esc(m.tipo)}</td>` +
               `<td>${esc(m.clasificacion)}</td>` +
-              `<td style="text-align:center">${m.entryDate ? fmtDMY(m.entryDate) : '—'}</td>` +
               `<td style="text-align:center">${m.days}</td>` +
               `<td style="text-align:center">${nH(m.dayH)}</td>` +
               `<td style="text-align:center">${nH(m.nightH)}</td>` +
@@ -877,7 +876,7 @@ export default function ReportsScreen({ route }: any) {
         const viajesBlock = renderViajes(g);
         return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
           <table><thead>${head}</thead><tbody>${rows}</tbody>
-          <tfoot><tr><td colspan="5" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
+          <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.totalH)}</td>
