@@ -76,7 +76,10 @@ export default function EdificioPicker({ value, onChange, label = 'Edificio', pl
         <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginTop: 4, overflow: 'hidden' }}>
           <TextInput
             value={q}
-            onChangeText={setQ}
+            // Combobox: lo que se escribe ES el valor (se refleja al guardar aunque
+            // NO se toque "➕ Agregar"). Elegir una sugerencia lo reemplaza; el ➕ y el
+            // guardado registran el nombre nuevo en el catálogo compartido.
+            onChangeText={(t) => { setQ(t); onChange(t); }}
             placeholder="🔎 Buscar o escribir edificio…"
             placeholderTextColor={colors.muted}
             style={[input, { borderWidth: 0, borderBottomWidth: 1, borderBottomColor: colors.border, borderRadius: 0 }]}
