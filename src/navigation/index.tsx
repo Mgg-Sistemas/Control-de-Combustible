@@ -212,6 +212,12 @@ function MoreStack() {
       <Stack.Screen name="InspectorTlf" component={SupervisorScreen} options={{ title: 'Vista de inspector (teléfono)' }} />
       <Stack.Screen name="Camiones" component={CamionesScreen} options={{ title: 'Entrada y salida de camiones' }} />
       <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
+      {/* Vista de COCINA (escanear carnet y registrar comidas) accesible desde "Más"
+          sin necesitar el rol fijo "cocina" ni escanear un QR físico — antes solo se
+          podía entrar así (pedido del cliente 10-ago-2026: "hace falta que se vean,
+          tanto web como aplicación"). CocinaScreen ya trae su propio escáner interno
+          (botón "📷 Escanear mi carnet"/"Escanear carnet"), así que no necesita props. */}
+      <Stack.Screen name="CocinaScan" component={CocinaScreen} options={{ title: 'Cocina' }} />
       <Stack.Screen name="Empleados" component={EmpleadosScreen} options={{ title: 'Empleados' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
       <Stack.Screen name="Aliados" component={AliadosScreen} options={{ title: 'Aliados' }} />

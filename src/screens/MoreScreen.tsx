@@ -15,6 +15,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
+  { label: 'Cocina (escanear)', route: 'CocinaScan', desc: 'Registra las comidas del personal escaneando su carnet — la misma vista que usa Cocina', icon: '🍳', module: 'comida' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
   { label: 'Nómina', route: 'Nomina', desc: 'Pago del personal, uniformes, asistencia y organigrama por empresa y período', icon: '🧾', module: 'nomina' },
   { label: 'Control de asistencia', route: 'Asistencia', desc: 'Marcar entrada/salida del personal escaneando el carnet (hora y fecha), con reporte', icon: '🕒', module: 'asistencia' },
