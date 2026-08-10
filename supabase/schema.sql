@@ -1991,3 +1991,271 @@ create policy unifdel_write on public.uniform_deliveries for all to authenticate
 -- ============================================================================
 -- FIN DEL ESQUEMA
 -- ============================================================================
+
+-- ============================================================================
+-- MÓDULO DE ACARREO / TRANSPORTE  (traslado de maquinaria en chutos + bateas)
+-- Independiente de `transfers` (traslado de COMBUSTIBLE tanque->tanque).
+-- Escritura gateada por can_write_module('acarreo').
+-- ============================================================================
+do $$ begin
+  create type haul_status as enum
+    ('programado','en_carga','en_transito','en_descarga','completado','cancelado');
+exception when duplicate_object then null; end $$;
+
+alter table public.machinery add column if not exists weight_ton numeric(10,2);
+alter table public.machinery add column if not exists length_m   numeric(8,2);
+alter table public.machinery add column if not exists width_m    numeric(8,2);
+alter table public.machinery add column if not exists height_m   numeric(8,2);
+alter table public.machinery add column if not exists transport_status text
+  check (transport_status is null or transport_status in ('operativa','para_reparacion','chatarra'));
+
+create sequence if not exists public.haul_order_folio_seq;
+
+create table if not exists public.haul_clients (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  kind       text not null default 'externo' check (kind in ('interno','externo')),
+  tax_id     text,
+  contact    text,
+  phone      text,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.haul_locations (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  type       text check (type is null or type in ('obra','almacen','taller','mina','pozo','otro')),
+  client_id  uuid references public.haul_clients(id) on delete set null,
+  latitude   double precision,
+  longitude  double precision,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.haul_trucks (
+  id                uuid primary key default gen_random_uuid(),
+  plate             text not null unique,
+  brand             text,
+  model             text,
+  max_tow_ton       numeric(10,2),
+  odometer_km       numeric(12,2) not null default 0,
+  maint_interval_km numeric(12,2),
+  status            text not null default 'operativo' check (status in ('operativo','taller','inactivo')),
+  active            boolean not null default true,
+  created_at        timestamptz not null default now()
+);
+
+create table if not exists public.haul_trailers (
+  id           uuid primary key default gen_random_uuid(),
+  plate        text not null unique,
+  kind         text not null default 'batea' check (kind in ('batea','lowboy','remolque')),
+  axles        integer,
+  max_load_ton numeric(10,2),
+  deck_len_m   numeric(8,2),
+  deck_width_m numeric(8,2),
+  deck_height_m numeric(8,2),
+  status       text not null default 'operativo' check (status in ('operativo','taller','inactivo')),
+  active       boolean not null default true,
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists public.haul_drivers (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid references public.profiles(id) on delete set null,
+  full_name         text not null,
+  phone             text,
+  license_number    text,
+  license_class     text,
+  license_expires_at date,
+  hazmat_expires_at date,
+  availability      text not null default 'disponible'
+                    check (availability in ('disponible','en_ruta','reposo','suspendido')),
+  active            boolean not null default true,
+  created_at        timestamptz not null default now()
+);
+
+create table if not exists public.haul_documents (
+  id         uuid primary key default gen_random_uuid(),
+  owner_type text not null check (owner_type in ('truck','trailer','driver')),
+  owner_id   uuid not null,
+  doc_type   text not null check (doc_type in
+             ('permiso_carga_pesada','poliza','revision_tecnica','licencia','otro')),
+  number     text,
+  issued_at  date,
+  expires_at date,
+  file_url   text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_haul_docs_owner   on public.haul_documents(owner_type, owner_id);
+create index if not exists idx_haul_docs_expires on public.haul_documents(expires_at);
+
+create table if not exists public.haul_orders (
+  id                   uuid primary key default gen_random_uuid(),
+  folio                text not null unique
+                       default ('AC-' || lpad(nextval('public.haul_order_folio_seq')::text, 5, '0')),
+  status               haul_status not null default 'programado',
+  client_from_id       uuid references public.haul_clients(id)   on delete set null,
+  client_to_id         uuid references public.haul_clients(id)   on delete set null,
+  origin_location_id   uuid references public.haul_locations(id) on delete set null,
+  dest_location_id     uuid references public.haul_locations(id) on delete set null,
+  requested_departure_at timestamptz,
+  required_arrival_at  timestamptz,
+  departed_at          timestamptz,
+  arrived_at           timestamptz,
+  truck_id             uuid references public.haul_trucks(id)   on delete set null,
+  trailer_id           uuid references public.haul_trailers(id) on delete set null,
+  driver_id            uuid references public.haul_drivers(id)  on delete set null,
+  route_km_est         numeric(10,2),
+  tolls_est            numeric(12,2),
+  per_diem_advanced    numeric(12,2),
+  tariff_mode          text check (tariff_mode is null or tariff_mode in ('km','ton','hora','plana')),
+  billed_amount        numeric(14,2),
+  cancel_reason        text,
+  notes                text,
+  created_by           uuid references public.profiles(id) on delete set null,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+create index if not exists idx_haul_orders_status  on public.haul_orders(status);
+create index if not exists idx_haul_orders_driver  on public.haul_orders(driver_id, requested_departure_at);
+create index if not exists idx_haul_orders_truck   on public.haul_orders(truck_id, requested_departure_at);
+create index if not exists idx_haul_orders_trailer on public.haul_orders(trailer_id, requested_departure_at);
+create index if not exists idx_haul_orders_created on public.haul_orders(created_at);
+
+create table if not exists public.haul_order_items (
+  id             uuid primary key default gen_random_uuid(),
+  order_id       uuid not null references public.haul_orders(id) on delete cascade,
+  machinery_id   uuid not null references public.machinery(id)  on delete restrict,
+  weight_ton_snap numeric(10,2),
+  horometro_ini  numeric(12,2),
+  horometro_fin  numeric(12,2),
+  km_ini         numeric(12,2),
+  km_fin         numeric(12,2)
+);
+create index if not exists idx_haul_items_order on public.haul_order_items(order_id);
+create index if not exists idx_haul_items_mach  on public.haul_order_items(machinery_id);
+
+create table if not exists public.haul_status_events (
+  id          uuid primary key default gen_random_uuid(),
+  order_id    uuid not null references public.haul_orders(id) on delete cascade,
+  from_status text,
+  to_status   text not null,
+  at          timestamptz not null default now(),
+  by          uuid references public.profiles(id) on delete set null,
+  notes       text
+);
+create index if not exists idx_haul_events_order on public.haul_status_events(order_id, at);
+
+create table if not exists public.haul_checks (
+  id             uuid primary key default gen_random_uuid(),
+  order_id       uuid not null references public.haul_orders(id) on delete cascade,
+  kind           text not null check (kind in ('salida','recepcion')),
+  fuel_level     text,
+  tires_ok       boolean,
+  straps_ok      boolean,
+  checklist      jsonb,
+  signed_by_name text,
+  signature_url  text,
+  at             timestamptz not null default now(),
+  by             uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_checks_order on public.haul_checks(order_id);
+
+create table if not exists public.haul_photos (
+  id       uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.haul_orders(id) on delete cascade,
+  check_id uuid references public.haul_checks(id) on delete set null,
+  tag      text check (tag is null or tag in ('antes','despues','amarre','incidencia','otro')),
+  url      text not null,
+  at       timestamptz not null default now(),
+  by       uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_photos_order on public.haul_photos(order_id);
+
+create table if not exists public.haul_incidents (
+  id          uuid primary key default gen_random_uuid(),
+  order_id    uuid not null references public.haul_orders(id) on delete cascade,
+  type        text not null check (type in ('mecanica','clima','permiso','alcabala','otro')),
+  description text,
+  photo_url   text,
+  at          timestamptz not null default now(),
+  by          uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_incidents_order on public.haul_incidents(order_id);
+
+create table if not exists public.haul_expenses (
+  id         uuid primary key default gen_random_uuid(),
+  order_id   uuid not null references public.haul_orders(id) on delete cascade,
+  kind       text not null check (kind in
+             ('combustible','viatico_comida','viatico_hospedaje','peaje','otro')),
+  amount     numeric(14,2) not null default 0,
+  currency   text not null default 'USD',
+  liters     numeric(12,2),
+  receipt_url text,
+  note       text,
+  approved   boolean not null default false,
+  at         timestamptz not null default now(),
+  by         uuid references public.profiles(id) on delete set null
+);
+create index if not exists idx_haul_expenses_order on public.haul_expenses(order_id);
+
+create table if not exists public.haul_tariffs (
+  id           uuid primary key default gen_random_uuid(),
+  mode         text not null check (mode in ('km','ton','hora','plana')),
+  unit_price   numeric(14,4) not null,
+  client_id    uuid references public.haul_clients(id)   on delete cascade,
+  route_from_id uuid references public.haul_locations(id) on delete set null,
+  route_to_id  uuid references public.haul_locations(id) on delete set null,
+  active       boolean not null default true,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_haul_tariffs_client on public.haul_tariffs(client_id);
+
+create or replace function public.haul_touch_updated()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists trg_haul_orders_touch on public.haul_orders;
+create trigger trg_haul_orders_touch
+  before update on public.haul_orders
+  for each row execute function public.haul_touch_updated();
+
+create or replace function public.haul_log_status()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into public.haul_status_events(order_id, from_status, to_status, by)
+      values (new.id, null, new.status::text, auth.uid());
+  elsif tg_op = 'UPDATE' and new.status is distinct from old.status then
+    insert into public.haul_status_events(order_id, from_status, to_status, by)
+      values (new.id, old.status::text, new.status::text, auth.uid());
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_haul_orders_log_ins on public.haul_orders;
+create trigger trg_haul_orders_log_ins
+  after insert on public.haul_orders
+  for each row execute function public.haul_log_status();
+drop trigger if exists trg_haul_orders_log_upd on public.haul_orders;
+create trigger trg_haul_orders_log_upd
+  after update on public.haul_orders
+  for each row execute function public.haul_log_status();
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'haul_clients','haul_locations','haul_trucks','haul_trailers','haul_drivers',
+    'haul_documents','haul_orders','haul_order_items','haul_status_events',
+    'haul_checks','haul_photos','haul_incidents','haul_expenses','haul_tariffs'
+  ] loop
+    execute format('alter table public.%I enable row level security;', t);
+    execute format('drop policy if exists %I_select on public.%I;', t, t);
+    execute format('create policy %I_select on public.%I for select to authenticated using (true);', t, t);
+    execute format('drop policy if exists %I_write on public.%I;', t, t);
+    execute format('create policy %I_write on public.%I for all to authenticated using (public.can_write_module(''acarreo'')) with check (public.can_write_module(''acarreo''));', t, t);
+  end loop;
+end $$;
