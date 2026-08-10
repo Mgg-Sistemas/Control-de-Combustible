@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
@@ -114,12 +114,16 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // noche va de 19:00 a 07:00+1, así que una avería/parada marcada a la 1am cae
   // dentro del turno noche de HOY — igual criterio que `buildDaySets`/`dayEndMs`.
   const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
-  const { data: mr } = await supabase
-    .from('maintenance_requests')
-    .select('machinery_id, material, notes, created_at')
-    .eq('status', 'pendiente')
-    .lte('created_at', nightEndBound)
-    .order('created_at', { ascending: false });
+  // Paginado (selectAllRows): con >1000 solicitudes pendientes la consulta cruda se
+  // truncaba, perdiendo justo las averías/paradas más antiguas y arrastradas.
+  const mr = await selectAllRows(
+    'maintenance_requests',
+    'machinery_id, material, notes, created_at',
+    (q) => q.eq('status', 'pendiente').lte('created_at', nightEndBound)
+  );
+  // selectAllRows pagina por id (no por fecha) — se reordena acá por created_at DESC,
+  // que es lo que asume `averiaByMachine` de abajo (la primera fila por máquina = la más reciente).
+  (mr as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const maintForDaySets: DaySetMaint[] = ((mr ?? []) as any[]).map((m) => ({ machinery_id: m.machinery_id, material: m.material, created_at: m.created_at }));
   // MOTIVO de la avería (texto libre) por máquina — la más reciente (viene
   // ordenado desc). Independiente de la clasificación avería/parada/iniciada

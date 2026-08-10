@@ -494,7 +494,15 @@ export default function EquiposScreen({ navigation, route }: any) {
     // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
     const insp = inspByShift[id];
     const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
-    const averiaVigente = !siempreActivo && !!a && !(hasOpen && openStart >= a.createdMs);
+    // HOY vs ARRASTRADA (mismo criterio que segmentoDe/segmentoConTurno en SupervisorScreen):
+    // una marca de HOY gana siempre (salvo reactivación por jornada abierta después de la
+    // marca); una marca ARRASTRADA (de días anteriores) solo cuenta si la máquina sigue
+    // totalmente pendiente hoy — si ya está trabajando (jornada abierta) o ya trabajó y
+    // cerró (total > 0), la jornada de hoy tiene prioridad y la arrastrada deja de mostrarse.
+    const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
+    const esHoy = !!a && a.createdMs >= todayStartMs;
+    const reactivada = !!a && hasOpen && openStart >= a.createdMs;
+    const averiaVigente = !siempreActivo && !!a && !reactivada && (esHoy || (!hasOpen && total <= 0));
     let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
     if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
     else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';

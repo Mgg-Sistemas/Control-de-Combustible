@@ -14,6 +14,7 @@ import {
 import { Screen, Card, SectionTitle, Loading, EmptyState } from '../components/ui';
 import { ConfigBanner } from '../components/ConfigBanner';
 import { supabase, selectAllRows } from '../lib/supabase';
+import { caracasParts } from '../lib/jornada';
 import { nextRtInstanceId } from '../hooks/useRealtime';
 import { exportPdf, dateRangeLabel, REPORT_BRAND } from '../lib/pdf';
 import { LOGO_DATA_URI } from '../lib/logoData';
@@ -795,12 +796,21 @@ export default function ReportsScreen({ route }: any) {
     // AVERIADAS/PARADAS: máquinas con avería/parada PENDIENTE (a la fecha de corte) que
     // NO trabajaron en el rango — se agregan en 0 y en ROJO (no suman a horas ni $).
     const toEndBound = `${toArg}T23:59:59-04:00`;
-    const { data: mrPend } = await supabase
-      .from('maintenance_requests')
-      .select('machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, active, company:company_id(name))')
-      .eq('status', 'pendiente')
-      .lte('created_at', toEndBound)
-      .order('created_at', { ascending: false });
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca cuentan como avería/parada
+    // — mismo criterio que Catálogo/Inspecciones/Totales por Empresa (antes solo se
+    // aplicaba en generateFleet; este informe las mostraba como averiadas igual).
+    const { rows: assignsRounds } = await listInspectorAssignments();
+    const siempreActivoSetRounds = new Set(assignsRounds.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
+    // Paginado: con >1000 solicitudes pendientes la consulta se truncaba (orden desc por
+    // fecha), perdiendo justo las averías/paradas más antiguas y arrastradas.
+    const mrPend = await selectAllRows(
+      'maintenance_requests',
+      'machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, active, company:company_id(name))',
+      (q) => q.eq('status', 'pendiente').lte('created_at', toEndBound)
+    );
+    // selectAllRows pagina ordenando por id (para no saltar/duplicar filas), no por fecha
+    // — se reordena acá por created_at DESC, que es lo que asume el forEach de abajo.
+    (mrPend as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const averiaByMachine = new Map<string, RoundAveria & { company: string }>();
     // Con varias filas pendientes por máquina, ids cuya entrada actual YA es una avería
     // REAL (no "MÁQUINA PARADA"): protege esa entrada de otra avería más vieja que llegue
@@ -812,6 +822,7 @@ export default function ReportsScreen({ route }: any) {
       const mm = r.machinery;
       if (!mm || mm.active === false) return;         // inactivas fuera
       const mid = r.machinery_id as string;
+      if (siempreActivoSetRounds.has(mid)) return;      // placeholder SOS LA GUAIRA: nunca averiada/parada
       if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
       const co = mm.company?.name ?? 'Sin empresa';
       if (cos && !cos.includes(co)) return;            // fuera del alcance
@@ -1027,7 +1038,10 @@ export default function ReportsScreen({ route }: any) {
     // realtime de machine_rounds/fletes/machinery ya estaba escuchando cambios.
     liveRef.current = generateFleet;
     setLoading(true);
-    const [{ data: mach }, { data: vehs }, rnds, { data: pend }, { data: evRange }] = await Promise.all([
+    const today = caracasParts(new Date()).iso;
+    const yesterday = caracasParts(new Date(Date.now() - 86400000)).iso;
+    const todayStartMs = new Date(`${today}T00:00:00-04:00`).getTime();
+    const [{ data: mach }, { data: vehs }, rnds, pend, evRange, { data: todayRnds }, { data: nightRnds }] = await Promise.all([
       supabase.from('machinery').select('id, code, plate, machinery_type, tipo, clasificacion, company:company_id(name)'),
       supabase.from('vehicles').select('id, plate, brand, model'),
       // Horas trabajadas REALES dentro del rango del reporte (día + noche − parada + extras).
@@ -1035,10 +1049,17 @@ export default function ReportsScreen({ route }: any) {
       selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours', (q) => q.gte('round_date', from).lte('round_date', to)),
       // Estado ACTUAL (ahora mismo, sin importar el rango): avería/parada pendiente por
       // resolver. Mismo criterio que Catálogo/Inspecciones: material 'MÁQUINA PARADA' =
-      // parada; cualquier otro material = avería real (gana sobre la parada).
-      supabase.from('maintenance_requests').select('machinery_id, material').eq('status', 'pendiente'),
+      // parada; cualquier otro material = avería real (gana sobre la parada). Paginado
+      // (>1000 pendientes truncaba la consulta y perdía justo las más antiguas/arrastradas).
+      selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) => q.eq('status', 'pendiente')),
       // Eventos (paradas/averías) MARCADOS dentro del rango del reporte, para la Trazabilidad.
-      supabase.from('maintenance_requests').select('machinery_id, material, created_at').gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${addDaysISO(to, 1)}T00:00:00-04:00`),
+      selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) =>
+        q.gte('created_at', `${from}T00:00:00-04:00`).lt('created_at', `${addDaysISO(to, 1)}T00:00:00-04:00`)
+      ),
+      // Jornada de HOY (día de negocio Caracas), para la regla de reactivación de abajo.
+      supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift').eq('round_date', today),
+      // Jornada de NOCHE de anoche aún abierta → cuenta como noche de hoy (mismo criterio que Catálogo).
+      supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
     ]);
     // Horas y DÍAS TRABAJADOS por máquina (dedupe por máquina+día).
     const byMD = new Map<string, any>();
@@ -1056,13 +1077,57 @@ export default function ReportsScreen({ route }: any) {
     // cuentan como avería/parada — mismo criterio que Catálogo/Inspecciones/Control.
     const { rows: assigns } = await listInspectorAssignments();
     const siempreActivoSet = new Set(assigns.filter((a) => inspectorSiempreActivo(a.inspector_name)).map((a) => a.machinery_id));
+    // Jornada de HOY por máquina (abierta ahora / ya trabajó), para la reactivación de abajo.
+    const liveJornada = new Map<string, { hasOpen: boolean; openStart: number; worked: boolean }>();
+    const ensureLive = (id: string) => {
+      let e = liveJornada.get(id);
+      if (!e) { e = { hasOpen: false, openStart: 0, worked: false }; liveJornada.set(id, e); }
+      return e;
+    };
+    (todayRnds ?? []).forEach((r: any) => {
+      const e = ensureLive(r.machinery_id);
+      if (Number(r.day_hours) > 0 || Number(r.night_hours) > 0) e.worked = true;
+      if (r.jornada_start_at) { e.hasOpen = true; e.openStart = Math.max(e.openStart, new Date(r.jornada_start_at).getTime()); }
+    });
+    (nightRnds ?? []).forEach((r: any) => {
+      const e = ensureLive(r.machinery_id);
+      if (Number(r.night_hours) > 0) e.worked = true;
+      if (r.jornada_start_at) { e.hasOpen = true; e.openStart = Math.max(e.openStart, new Date(r.jornada_start_at).getTime()); }
+    });
     // Estado ACTUAL por máquina: avería real gana sobre el marcador "MÁQUINA PARADA".
-    const estadoMap = new Map<string, FleetEstado>();
+    // REACTIVACIÓN (mismo criterio que segmentoDe/liveStatusOf): una marca de HOY gana
+    // siempre, salvo que la jornada haya (re)arrancado después de ella; una marca
+    // ARRASTRADA (de días anteriores) solo cuenta si la máquina sigue totalmente
+    // pendiente hoy (ni jornada abierta ni horas ya trabajadas). Antes esta función no
+    // aplicaba ninguna de estas dos reglas: cualquier solicitud pendiente aparecía como
+    // avería/parada aunque la máquina ya estuviera trabajando o hubiese cerrado jornada.
+    const avAgg = new Map<string, { hoy: boolean; max: number }>();
+    const paAgg = new Map<string, { hoy: boolean; max: number }>();
     (pend ?? []).forEach((r: any) => {
       if (siempreActivoSet.has(r.machinery_id)) return;
-      const actual = estadoMap.get(r.machinery_id);
-      if (actual === 'averia') return;
-      estadoMap.set(r.machinery_id, r.material === 'MÁQUINA PARADA' ? 'parada' : 'averia');
+      const isParada = r.material === 'MÁQUINA PARADA';
+      const agg = isParada ? paAgg : avAgg;
+      const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
+      let e = agg.get(r.machinery_id);
+      if (!e) { e = { hoy: false, max: 0 }; agg.set(r.machinery_id, e); }
+      if (createdMs >= todayStartMs) e.hoy = true;
+      e.max = Math.max(e.max, createdMs);
+    });
+    const estadoMap = new Map<string, FleetEstado>();
+    const pendIds = new Set<string>([...avAgg.keys(), ...paAgg.keys()]);
+    pendIds.forEach((id) => {
+      const live = liveJornada.get(id);
+      const hasOpen = live?.hasOpen ?? false;
+      const worked = live?.worked ?? false;
+      const openStart = live?.openStart ?? 0;
+      const av = avAgg.get(id);
+      const pa = paAgg.get(id);
+      const avOff = !!av && hasOpen && openStart >= av.max;
+      const paOff = !!pa && hasOpen && openStart >= pa.max;
+      const avVigente = !!av && !avOff && (av.hoy || (!hasOpen && !worked));
+      const paVigente = !!pa && !paOff && (pa.hoy || (!hasOpen && !worked));
+      if (avVigente) estadoMap.set(id, 'averia');
+      else if (paVigente) estadoMap.set(id, 'parada');
     });
     // Conteo de eventos (paradas/averías) marcados DENTRO del rango, por máquina.
     const averiasEnRango = new Map<string, number>();
