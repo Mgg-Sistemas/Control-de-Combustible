@@ -1,6 +1,6 @@
 import { selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
-import { cmpText } from './text';
+import { cmpText, norm } from './text';
 
 /**
  * Reporte HORAS DEL HORÓMETRO · PRÓXIMAS A MANTENIMIENTO (PDF), filtrable por empresa.
@@ -148,7 +148,15 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[]; 
     Al confirmar el mantenimiento el contador vuelve a 0. "— sin horómetro" = máquina sin lectura registrada aún.
   </div>`;
 
-  const filtroEnc = encargados.length ? ` · 👤 ${encargados.length} encargado(s): ${encargados.join(', ')}` : '';
+  // `encargados` trae TODAS las variantes de escritura seleccionadas (p. ej. "Alberto"
+  // y "ALBERTO" del mismo encargado); se unifican por clave normalizada para no
+  // mostrar duplicados ni inflar el conteo en el subtítulo del PDF.
+  const encargadosUnicos = (() => {
+    const vistos = new Map<string, string>();
+    encargados.forEach((e) => { const k = norm(e); if (!vistos.has(k)) vistos.set(k, e); });
+    return [...vistos.values()];
+  })();
+  const filtroEnc = encargadosUnicos.length ? ` · 👤 ${encargadosUnicos.length} encargado(s): ${encargadosUnicos.join(', ')}` : '';
   const subtitle = `${empresas.length} empresa(s) · ${filas.length} máquina(s)${filtroEnc} · `
     + `🔴 ${cnt.limite} límite · 🟠 ${cnt.media} media · 🟡 ${cnt.alerta} alerta · 🟢 ${cnt.ok} ok`
     + (cnt.sin ? ` · — ${cnt.sin} sin horómetro` : '')
