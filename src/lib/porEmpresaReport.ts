@@ -346,6 +346,17 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // − paradas + extras (las paradas SÍ se descuentan, igual que facturación/pagos).
     let dd = Number(r?.day_hours) || 0;
     let nn = Number(r?.night_hours) || 0;
+    // Umbral mínimo defensivo (mismo criterio que MIN_WORKED_HOURS en
+    // inspectorDaySets.ts): un round con round_date mal calculado por cruce de
+    // medianoche del turno NOCHE (BUG 10-ago-2026, ya corregido en el guardado —
+    // ver businessRoundDateOf en caracasDay.ts) podía dejar un residuo mínimo de
+    // horas (~0.02h) pegado al round de HOY. Sin este umbral, ese residuo hacía
+    // que este reporte mostrara "HORARIO NOCHE: 07:00 p.m. → 07:00 a.m." como si
+    // el turno noche ya hubiera ocurrido, aunque siguiera corriendo el turno día.
+    // 0.05h (3 min) está muy por debajo de cualquier jornada real.
+    const MIN_WORKED_HOURS = 0.05;
+    if (dd <= MIN_WORKED_HOURS) dd = 0;
+    if (nn <= MIN_WORKED_HOURS) nn = 0;
     const sRaw = Number(r?.hours_stopped) || 0;
     const oRaw = Number(r?.overtime_hours) || 0;
     // EN VIVO: una jornada ABIERTA cuenta desde el INICIO DE SU TURNO (no desde que la
