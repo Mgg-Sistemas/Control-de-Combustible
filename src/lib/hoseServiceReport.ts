@@ -33,7 +33,7 @@ const PAYMENT_LABEL: Record<HoseService['payment_status'], string> = {
  */
 export async function generateHoseServiceReport(opts: {
   rows: HoseService[];
-  machineryMap: Record<string, { code: string; serial: string | null; plate: string | null }>;
+  machineryMap: Record<string, { code: string; serial: string | null; plate: string | null; tipo?: string | null }>;
   profilesMap: Record<string, string>;
   bcvRate?: number | null;
   machineFilterLabel?: string;
@@ -44,7 +44,8 @@ export async function generateHoseServiceReport(opts: {
     if (!machinery_id) return '—';
     const m = machineryMap[machinery_id];
     if (!m) return '—';
-    return `${esc(m.code ?? '—')} · Serial ${esc(m.serial ?? '—')} · Placa ${esc(m.plate ?? '—')}`;
+    const marcaModelo = m.tipo && String(m.tipo).trim() ? ` · Marca-Modelo ${esc(m.tipo)}` : '';
+    return `${esc(m.code ?? '—')} · Serial ${esc(m.serial ?? '—')} · Placa ${esc(m.plate ?? '—')}${marcaModelo}`;
   };
 
   const costTxt = (usd: number): string => {

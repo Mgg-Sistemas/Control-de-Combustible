@@ -222,7 +222,7 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
       </tr>`;
     }).join('');
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Edificio</th><th>Modelo/Tipo</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Edificio</th><th>Marca-Modelo / Clasif.</th>
       <th>Serial/Placa</th><th>Sector</th><th>Empresa</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   };

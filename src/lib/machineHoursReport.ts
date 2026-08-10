@@ -105,7 +105,7 @@ export async function generateMachineHoursReport(opts: { companyIds?: string[]; 
     </tr>`;
   };
   const encabezado = (conEmpresa: boolean): string => `<thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo</th><th>Serial/Placa</th><th>Encargado</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Serial/Placa</th><th>Encargado</th>
       ${conEmpresa ? '<th>Empresa</th>' : ''}
       <th class="r">Horas horómetro</th><th class="r">Faltan p/${LIMITE}</th><th>Estado</th>
     </tr></thead>`;

@@ -345,6 +345,7 @@ export default function InspeccionesScreen() {
                 <Text style={{ fontSize: 20 }}>🔧</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{m.code}</Text>
+                  {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 11 }}>
                     {[m.plate && `Placa: ${m.plate}`, m.serial && `Serial: ${m.serial}`].filter(Boolean).join(' · ') || 'Sin placa/serial'}
                   </Text>

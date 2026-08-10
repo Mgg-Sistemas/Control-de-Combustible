@@ -426,7 +426,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     const tParDia = n2(filas.reduce((s, f) => s + f.paradasDia, 0));
     const tParNoche = n2(filas.reduce((s, f) => s + f.paradasNoche, 0));
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo</th><th>Serial/Placa</th><th>Inspector asignado</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="5">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ ${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 ${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
