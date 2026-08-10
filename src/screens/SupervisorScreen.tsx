@@ -503,7 +503,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // pendiente por iniciar, como se pidió.
     // Ventana de gracia 7–8am: fuente de verdad única en caracasDay.ts (nightGraceRoundDate).
     const nightGraceDay = nightGraceRoundDate();
-    const [{ data: rs }, { data: rsRescue }, { data: rsNight }, { data: par }, { data: avPend }] = await Promise.all([
+    const [{ data: rs, error: rsErr }, { data: rsRescue, error: rsRescueErr }, { data: rsNight, error: rsNightErr }, { data: par, error: parErr }, { data: avPend, error: avPendErr }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id, jornada_start_at, jornada_shift, day_hours, night_hours').in('round_date', roundDates),
       // Jornadas de DÍAS ANTERIORES aún ABIERTAS (jornada_start_at sin limpiar), de
       // CUALQUIER turno: cubre tanto la NOCHE de ayer que cruza la medianoche (sin
@@ -517,7 +517,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // conservarlas como CERRADAS hasta las 8am. Solo night_hours (no día).
       nightGraceDay
         ? supabase.from('machine_rounds').select('machinery_id, night_hours').eq('round_date', nightGraceDay).gt('night_hours', 0)
-        : Promise.resolve({ data: [] as any[] }),
+        : Promise.resolve({ data: [] as any[], error: null as any }),
       // Paradas VIGENTES: TODAS las pendientes (status='pendiente'), SIN filtro de
       // fecha — se ARRASTRAN de un día a otro hasta que el inspector las reactive
       // (volver a OPERATIVA / iniciar jornada). Mismo criterio que la PC.
@@ -528,6 +528,22 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // día siguiente. Mismo criterio que el resumen admin (InspectionsSummary).
       supabase.from('maintenance_requests').select('machinery_id, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
+    // Si CUALQUIERA de las 5 consultas falla (red inestable, timeout — común en el
+    // teléfono en campo), NO se pisa el estado ya cargado con datos vacíos: antes, un
+    // error silencioso en cualquiera de ellas hacía `data` null → `(x ?? [])` los
+    // trataba como "sin rondas/paradas/averías" y `setRoundsById/setParadaRawList/
+    // setAveriaRawList` dejaban TODO en 0 de golpe. En la vista "👥 Inspectores" del
+    // coordinador eso se veía como el total correcto (viene de `machines`+`assignMap`,
+    // aparte) pero TODAS las máquinas cayendo en "⏳ Pendientes" — y de paso, cualquier
+    // máquina en_espera con jornada abierta (que solo sigue visible gracias a
+    // roundsById[id].open) desaparecía de la lista sin más, pareciendo "no encontrada"
+    // al buscarla. Se conserva el estado anterior hasta el próximo refresco que sí
+    // tenga éxito, en vez de mostrar datos engañosos.
+    const estadosErr = rsErr || rsRescueErr || rsNightErr || parErr || avPendErr;
+    if (estadosErr) {
+      console.warn('reloadEstados: error consultando estado de máquinas, se conserva el anterior', estadosErr);
+      return;
+    }
     const empty = { open: false, worked: 0, openDay: false, openNight: false, dayWorked: 0, nightWorked: 0, openStartDay: 0, openStartNight: 0 };
     const rmap: Record<string, typeof empty> = {};
     ((rs ?? []) as any[]).forEach((r) => {
@@ -674,7 +690,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     || norm((m as any).serial || '').includes(q)
     || norm((m as any).plate || '').includes(q)
     || norm((m as any).encargado || '').includes(q)
-    || norm((m as any).referencia || '').includes(q);
+    || norm((m as any).referencia || '').includes(q)
+    || norm((m as any).tipo || '').includes(q);
   // mineList/searchList (con el filtro de segmento) y `grupos` se definen más abajo,
   // después de paradaIds/paradaHoyIds (los usa segmentoDe).
   // Listado del CHECK: solo máquinas ACTIVAS y OPERATIVAS (buscable) para
@@ -2945,6 +2962,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {ci.companyName}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Serial/Placa: {((ci as any).plate || (ci as any).serial || '—')}</Text>
                   {(ci as any).encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {(ci as any).encargado}</Text> : null}
+                  {/* Inspector(es) asignado(s) día/noche: antes solo se mostraba dentro del
+                      aviso "Máquina de otro inspector", que NUNCA aparece para el coordinador
+                      (puedeCoordinar siempre puede operar cualquier máquina) — así, al escanear,
+                      el coordinador veía la máquina pero no de qué inspector era. Ahora se
+                      muestra siempre que haya alguien asignado, sin importar el rol. */}
+                  {duenoTxt ? <Text style={{ color: colors.muted, fontSize: 12 }}>🪖 Inspector asignado: {duenoTxt}</Text> : null}
                 </View>
               ) : null}
 
