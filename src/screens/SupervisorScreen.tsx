@@ -1005,7 +1005,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   }, [assignMap]);
   const segmentoDe = (id: string): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     const sh = shiftOfMine(id);                         // turno del inspector en esta máquina
-    if (siempreActivoSet.has(id)) return openMine(id) ? 'iniciada' : hoursMine(id) ? 'cerrada' : 'pendiente';
+    // SOS LA GUAIRA "siempre activo": nunca quedan en PENDIENTE ("siempre trabajando").
+    // Aunque no haya jornada aún, cuentan como iniciada (coincide con inspectorDaySets).
+    if (siempreActivoSet.has(id)) return openMine(id) ? 'iniciada' : hoursMine(id) ? 'cerrada' : 'iniciada';
     // Si la jornada se reinició DESPUÉS de la avería/parada, esa marca ya no cuenta
     // (la máquina volvió a trabajar) — así no queda "averiada" tras reiniciar jornada.
     const avOff = reactivada(estadoIndex.avMax, id, sh);
@@ -1025,7 +1027,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // Igual que segmentoDe pero para un TURNO EXPLÍCITO (vista del coordinador por el
   // turno actual): día independiente de noche, misma prioridad.
   const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
-    if (siempreActivoSet.has(id)) return openEn(id, sh) ? 'iniciada' : hoursEn(id, sh) ? 'cerrada' : 'pendiente';
+    if (siempreActivoSet.has(id)) return openEn(id, sh) ? 'iniciada' : hoursEn(id, sh) ? 'cerrada' : 'iniciada';
     const avOff = reactivada(estadoIndex.avMax, id, sh);
     const paOff = reactivada(estadoIndex.paMax, id, sh);
     if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';

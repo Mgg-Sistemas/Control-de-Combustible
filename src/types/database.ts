@@ -181,6 +181,7 @@ export interface Machinery {
   sector: string | null; // SECTOR (texto editable) — complementa el sector geográfico del GPS
   last_horometro: number | null; // última lectura de horómetro (se arrastra al próximo inicio)
   horometro_base: number | null; // horómetro del último mantenimiento confirmado (marca "cero" para las horas acumuladas — ver supabase/horometro_alertas.sql)
+  horometro_maint_pending?: boolean; // arrastre: llegó a ≥250 h acumuladas y sigue "requiere mantenimiento" hasta confirmar reparada + reiniciar horómetro
   viajes: number | null; // nº de viajes realizados (solo Golden Touch) — extra al subtotal por jornada
   precio_viaje: number | null; // precio por viaje en $ (solo Golden Touch)
   // Especificaciones para ACARREO/transporte (módulo haul_*):

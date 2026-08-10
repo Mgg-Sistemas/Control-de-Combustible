@@ -50,7 +50,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string };
-type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null };
+type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null; horometro_maint_pending: boolean };
 // Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
 type HoroRound = { reading: number | null; at: string | null; operator: string | null; inicial: number | null; final: number | null; photo: string | null };
@@ -146,7 +146,7 @@ export default function MantenimientoMaquinariaScreen() {
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
       supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
-      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
+      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
     ]);
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
@@ -154,7 +154,7 @@ export default function MantenimientoMaquinariaScreen() {
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa' })));
-    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
+    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -285,10 +285,13 @@ export default function MantenimientoMaquinariaScreen() {
     });
     if (!ok) return;
     setConfirmingHoro(m.id);
-    const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro }).eq('id', m.id);
+    // Reparada: reinicia la base (acumulado → 0) Y limpia el arrastre "requiere
+    // mantenimiento" (horometro_maint_pending). Es la ÚNICA forma de sacar una
+    // máquina vencida de la lista.
+    const { error } = await supabase.from('machinery').update({ horometro_base: m.last_horometro, horometro_maint_pending: false }).eq('id', m.id);
     setConfirmingHoro(null);
     if (error) return toast.error(error.message);
-    setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro } : x)));
+    setMachines((prev) => prev.map((x) => (x.id === m.id ? { ...x, horometro_base: m.last_horometro, horometro_maint_pending: false } : x)));
     setNotice(`✅ Mantenimiento confirmado en ${m.code} · horómetro reiniciado.`);
   };
 
@@ -449,7 +452,11 @@ export default function MantenimientoMaquinariaScreen() {
       const acum = horasAcumuladas(m.last_horometro, m.horometro_base);
       const alerta = horometroAlertaDe(m.last_horometro, m.horometro_base);
       const restante = acum != null ? Math.round((HOROMETRO_UMBRAL_ALTA - acum) * 100) / 100 : null;
-      return { m, acum, alerta, restante, horo: horoByMachine[m.id] ?? null };
+      // VENCIDA pegajosa (arrastre): llegó a ≥250 h acumuladas O quedó marcada como
+      // "requiere mantenimiento" (horometro_maint_pending). Se mantiene hasta que
+      // confirmen el mantenimiento (reparada + reiniciar horómetro).
+      const venc = (acum != null && acum >= HOROMETRO_UMBRAL_ALTA) || !!m.horometro_maint_pending;
+      return { m, acum, alerta, restante, venc, horo: horoByMachine[m.id] ?? null };
     });
     const filtered = !nq ? arr : arr.filter(({ m }) => {
       const asig = asigByMachine[m.id];
@@ -555,7 +562,7 @@ export default function MantenimientoMaquinariaScreen() {
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, encargado: null, referencia: null, latitude: null, longitude: null, operational: true, last_horometro: null, horometro_base: null };
+                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, encargado: null, referencia: null, latitude: null, longitude: null, operational: true, last_horometro: null, horometro_base: null, horometro_maint_pending: false };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
@@ -650,7 +657,7 @@ export default function MantenimientoMaquinariaScreen() {
         (() => {
           const total = horometroList.length;
           const conAlerta = horometroList.filter((x) => !!x.alerta).length;
-          const vencidas = horometroList.filter((x) => x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA).length;
+          const vencidas = horometroList.filter((x) => x.venc).length;
           // Con horómetro = ya tiene lectura registrada; Sin marcar = todavía no le marcan el horómetro.
           const conHorometro = horometroList.filter((x) => x.m.last_horometro != null).length;
           const sinMarcar = horometroList.filter((x) => x.m.last_horometro == null).length;
@@ -658,7 +665,7 @@ export default function MantenimientoMaquinariaScreen() {
           // Los KPIs de arriba son botones: filtran la lista (toca de nuevo el activo para quitar el filtro).
           const shown = horometroList.filter((x) =>
             horoFilter === 'proximas' ? !!x.alerta
-            : horoFilter === 'vencidas' ? (x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA)
+            : horoFilter === 'vencidas' ? x.venc
             : horoFilter === 'con' ? (x.m.last_horometro != null)
             : horoFilter === 'sin' ? (x.m.last_horometro == null)
             : true);
@@ -683,7 +690,7 @@ export default function MantenimientoMaquinariaScreen() {
                   {kpi('proximas', 'Próximas (≥200 h)', conAlerta, colors.accent)}
                   {kpi('vencidas', `Vencidas (≥${HOROMETRO_UMBRAL_ALTA} h)`, vencidas, colors.brandContrast)}
                 </View>
-                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>Toca un total para filtrar la lista. Objetivo de mantenimiento: {HOROMETRO_UMBRAL_ALTA} h acumuladas. La lectura y la foto vienen de la última jornada registrada por el inspector/operador.</Text>
+                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>Toca un total para filtrar la lista. Objetivo de mantenimiento: {HOROMETRO_UMBRAL_ALTA} h acumuladas. Una vez vencida, la máquina se MANTIENE en la lista hasta que confirmes el mantenimiento (reparada + reiniciar horómetro). La lectura y la foto vienen de la última jornada registrada por el inspector/operador.</Text>
               </Card>
 
               {horoFilter !== 'all' ? (
@@ -695,9 +702,9 @@ export default function MantenimientoMaquinariaScreen() {
               {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
               {shown.length === 0 ? <EmptyState title="Sin resultados" subtitle={horoFilter === 'all' ? 'No hay máquinas para esta búsqueda.' : 'Ninguna máquina en este filtro.'} /> : null}
 
-              {shown.map(({ m, acum, alerta, restante, horo }) => {
+              {shown.map(({ m, acum, alerta, restante, venc, horo }) => {
                 const pct = acum != null ? Math.min(1, acum / HOROMETRO_UMBRAL_ALTA) : 0;
-                const vencido = restante != null && restante <= 0;
+                const vencido = venc;
                 const barColor = alerta?.color ?? (vencido ? colors.danger : colors.success);
                 const coords = coordText(m.latitude, m.longitude);
                 const edif = edificioText(m.latitude, m.longitude, m.referencia);
