@@ -327,7 +327,7 @@ export default function DistribucionGuardiasScreen() {
             <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12.5 }}>⚙️ Grupo x semana</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={abrirDias} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12.5 }}>📅 1 libre/semana</Text>
+            <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 12.5 }}>📅 1 libre/semana</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={generarPDF} disabled={busy} style={{ flex: 1, minWidth: 130, backgroundColor: colors.accent, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
             <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 12.5 }}>📄 Generar PDF</Text>
@@ -581,7 +581,7 @@ export default function DistribucionGuardiasScreen() {
                 <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={generarRotacionSemanal} disabled={busy} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.primary, opacity: busy ? 0.6 : 1 }}>
-                <Text style={{ color: '#fff', fontWeight: '800' }}>{busy ? 'Generando…' : '📅 Generar 1 libre/semana'}</Text>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? 'Generando…' : '📅 Generar 1 libre/semana'}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
