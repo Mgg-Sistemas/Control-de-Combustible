@@ -183,6 +183,12 @@ export interface Machinery {
   horometro_base: number | null; // horómetro del último mantenimiento confirmado (marca "cero" para las horas acumuladas — ver supabase/horometro_alertas.sql)
   viajes: number | null; // nº de viajes realizados (solo Golden Touch) — extra al subtotal por jornada
   precio_viaje: number | null; // precio por viaje en $ (solo Golden Touch)
+  // Especificaciones para ACARREO/transporte (módulo haul_*):
+  weight_ton?: number | null;       // peso de la máquina (toneladas)
+  length_m?: number | null;         // largo (m)
+  width_m?: number | null;          // ancho (m)
+  height_m?: number | null;         // alto (m)
+  transport_status?: 'operativa' | 'para_reparacion' | 'chatarra' | null; // estado para transporte
   created_at: string;
 }
 
@@ -1215,5 +1221,209 @@ export interface WoTimeLog {
   created_by: string | null;
   operator_name: string | null;
   operator_cedula: string | null;
+  created_at: string;
+}
+
+// ============================================================================
+// MÓDULO DE ACARREO / TRANSPORTE (tablas haul_*) — alineado con schema.sql
+// ============================================================================
+
+/** Estado del viaje de acarreo (máquina de estados). */
+export type HaulStatus =
+  | 'programado' | 'en_carga' | 'en_transito' | 'en_descarga' | 'completado' | 'cancelado';
+
+/** Cliente / proyecto emisor o receptor (interno o externo). */
+export interface HaulClient {
+  id: string;
+  name: string;
+  kind: 'interno' | 'externo';
+  tax_id: string | null;
+  contact: string | null;
+  phone: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+/** Ubicación predefinida (obra, almacén, taller, mina, pozo…). */
+export interface HaulLocation {
+  id: string;
+  name: string;
+  type: 'obra' | 'almacen' | 'taller' | 'mina' | 'pozo' | 'otro' | null;
+  client_id: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  active: boolean;
+  created_at: string;
+}
+
+/** Chuto / camión de arrastre. */
+export interface HaulTruck {
+  id: string;
+  plate: string;
+  brand: string | null;
+  model: string | null;
+  max_tow_ton: number | null;       // capacidad de arrastre (toneladas)
+  odometer_km: number;              // km recorridos (para mantenimiento preventivo)
+  maint_interval_km: number | null; // intervalo de mantenimiento (km)
+  status: 'operativo' | 'taller' | 'inactivo';
+  active: boolean;
+  created_at: string;
+}
+
+/** Batea / lowboy / remolque. */
+export interface HaulTrailer {
+  id: string;
+  plate: string;
+  kind: 'batea' | 'lowboy' | 'remolque';
+  axles: number | null;
+  max_load_ton: number | null;      // capacidad de carga (toneladas)
+  deck_len_m: number | null;
+  deck_width_m: number | null;
+  deck_height_m: number | null;
+  status: 'operativo' | 'taller' | 'inactivo';
+  active: boolean;
+  created_at: string;
+}
+
+/** Chofer / operador de transporte pesado. */
+export interface HaulDriver {
+  id: string;
+  user_id: string | null;           // vínculo opcional con un perfil (profiles)
+  full_name: string;
+  phone: string | null;
+  license_number: string | null;
+  license_class: string | null;
+  license_expires_at: string | null; // vigencia de la licencia
+  hazmat_expires_at: string | null;  // vigencia carga peligrosa
+  availability: 'disponible' | 'en_ruta' | 'reposo' | 'suspendido';
+  active: boolean;
+  created_at: string;
+}
+
+/** Documento con vencimiento de un camión / remolque / chofer. */
+export interface HaulDocument {
+  id: string;
+  owner_type: 'truck' | 'trailer' | 'driver';
+  owner_id: string;
+  doc_type: 'permiso_carga_pesada' | 'poliza' | 'revision_tecnica' | 'licencia' | 'otro';
+  number: string | null;
+  issued_at: string | null;
+  expires_at: string | null;
+  file_url: string | null;
+  created_at: string;
+}
+
+/** Orden de acarreo (cabecera del viaje). */
+export interface HaulOrder {
+  id: string;
+  folio: string;                    // AC-00001…
+  status: HaulStatus;
+  client_from_id: string | null;
+  client_to_id: string | null;
+  origin_location_id: string | null;
+  dest_location_id: string | null;
+  requested_departure_at: string | null;
+  required_arrival_at: string | null;
+  departed_at: string | null;       // salida real
+  arrived_at: string | null;        // llegada real
+  truck_id: string | null;
+  trailer_id: string | null;
+  driver_id: string | null;
+  route_km_est: number | null;
+  tolls_est: number | null;
+  per_diem_advanced: number | null; // viáticos otorgados
+  tariff_mode: 'km' | 'ton' | 'hora' | 'plana' | null;
+  billed_amount: number | null;     // valorización congelada
+  cancel_reason: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Equipo (máquina) a trasladar dentro de una orden. */
+export interface HaulOrderItem {
+  id: string;
+  order_id: string;
+  machinery_id: string;
+  weight_ton_snap: number | null;
+  horometro_ini: number | null;
+  horometro_fin: number | null;
+  km_ini: number | null;
+  km_fin: number | null;
+}
+
+/** Bitácora de cambios de estado de una orden. */
+export interface HaulStatusEvent {
+  id: string;
+  order_id: string;
+  from_status: string | null;
+  to_status: string;
+  at: string;
+  by: string | null;
+  notes: string | null;
+}
+
+/** Check-in de salida / check-out de recepción. */
+export interface HaulCheck {
+  id: string;
+  order_id: string;
+  kind: 'salida' | 'recepcion';
+  fuel_level: string | null;
+  tires_ok: boolean | null;
+  straps_ok: boolean | null;
+  checklist: Record<string, any> | null;
+  signed_by_name: string | null;
+  signature_url: string | null;
+  at: string;
+  by: string | null;
+}
+
+/** Foto de evidencia del viaje. */
+export interface HaulPhoto {
+  id: string;
+  order_id: string;
+  check_id: string | null;
+  tag: 'antes' | 'despues' | 'amarre' | 'incidencia' | 'otro' | null;
+  url: string;
+  at: string;
+  by: string | null;
+}
+
+/** Incidencia en ruta. */
+export interface HaulIncident {
+  id: string;
+  order_id: string;
+  type: 'mecanica' | 'clima' | 'permiso' | 'alcabala' | 'otro';
+  description: string | null;
+  photo_url: string | null;
+  at: string;
+  by: string | null;
+}
+
+/** Gasto del viaje (combustible / viático / peaje…). */
+export interface HaulExpense {
+  id: string;
+  order_id: string;
+  kind: 'combustible' | 'viatico_comida' | 'viatico_hospedaje' | 'peaje' | 'otro';
+  amount: number;
+  currency: string;
+  liters: number | null;
+  receipt_url: string | null;
+  note: string | null;
+  approved: boolean;
+  at: string;
+  by: string | null;
+}
+
+/** Tarifa de acarreo para servicio a terceros. */
+export interface HaulTariff {
+  id: string;
+  mode: 'km' | 'ton' | 'hora' | 'plana';
+  unit_price: number;
+  client_id: string | null;
+  route_from_id: string | null;
+  route_to_id: string | null;
+  active: boolean;
   created_at: string;
 }
