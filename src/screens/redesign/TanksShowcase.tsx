@@ -25,6 +25,17 @@ export default function TanksShowcase() {
   const { colors } = useTheme();
   const fontsReady = useBrandFonts();
   const { data, loading } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
+  // Usuarios que tienen combustible (conductores/choferes de combustible) para
+  // vincular el RESPONSABLE del tanque a una persona real en vez de texto libre.
+  const { data: usuarios } = useTable<any>('profiles', { orderBy: 'full_name' });
+  const candidatos = useMemo(
+    () => (usuarios ?? [])
+      .filter((u: any) => u.active !== false && u.role === 'conductor' && String(u.full_name ?? '').trim())
+      .map((u: any) => String(u.full_name).trim())
+      .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
+      .sort(cmpText),
+    [usuarios],
+  );
   const [filter, setFilter] = useState<'all' | 'diesel' | 'gasolina' | 'low'>('all');
   // Edición del RESPONSABLE del tanque directamente desde la tarjeta (toca el renglón
   // "Responsable"). Actualiza `tanks.responsable` (la vista tank_levels es de solo
@@ -184,11 +195,32 @@ export default function TanksShowcase() {
             <TextInput
               value={respInput}
               onChangeText={setRespInput}
-              placeholder="Nombre del encargado…"
+              placeholder="Buscar o escribir el encargado…"
               placeholderTextColor={colors.muted}
               autoFocus
               style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, color: colors.text, fontSize: 15 }}
             />
+            {/* Usuarios de combustible: toca uno para asignarlo (o escribe arriba). */}
+            {(() => {
+              const q = respInput.trim().toLowerCase();
+              const lista = q ? candidatos.filter((n) => n.toLowerCase().includes(q)) : candidatos;
+              if (lista.length === 0) return null;
+              return (
+                <View style={{ maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
+                  <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {lista.map((n) => {
+                      const on = n.toLowerCase() === respInput.trim().toLowerCase();
+                      return (
+                        <TouchableOpacity key={n} onPress={() => setRespInput(n)}
+                          style={{ paddingVertical: 10, paddingHorizontal: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: on ? colors.primary : 'transparent' }}>
+                          <Text style={[{ color: on ? colors.primaryContrast : colors.text, fontSize: 14, fontWeight: on ? '800' : '500' }, f(family.bodySemi)]}>👤 {n}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              );
+            })()}
             <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
               <TouchableOpacity onPress={() => setEditTank(null)} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' }}>
                 <Text style={{ color: colors.text, fontWeight: '800' }}>Cancelar</Text>
