@@ -333,8 +333,8 @@ const SECTIONS: Sec[] = [
       ] },
       { t: 'p', text: 'Botones de la ficha de la máquina:' },
       { t: 'steps', items: [
-        '🟢 INICIAR JORNADA: pide el horómetro inicial (viene precargado con el horómetro final de la jornada anterior), guarda la hora de inicio y marca la máquina en Inspecciones. El botón cambia a 🏁 FINALIZAR JORNADA con un contador del tiempo trabajado.',
-        '🏁 FINALIZAR JORNADA: pide CONFIRMAR mostrando el total de horas y el horómetro final; al aceptar, esas horas (fin − inicio) se suman a Control de maquinaria en el turno ☀️ día / 🌙 noche. REGLA: ese horómetro final será el inicial de la próxima jornada.',
+        '🟢 INICIAR JORNADA: campo "Ingresar horómetro" (viene precargado con el horómetro final de la jornada anterior) y un botón 📷 Foto del horómetro (toma con la cámara o carga una imagen). El horómetro y la foto NO son obligatorios: si los dejas en blanco la jornada inicia igual. Guarda la hora de inicio y marca la máquina en Inspecciones. El botón cambia a 🏁 FINALIZAR JORNADA con un contador del tiempo trabajado.',
+        '🏁 FINALIZAR JORNADA: pide CONFIRMAR mostrando el total de horas, con el campo "Ingresar horómetro" y su botón 📷 Foto del horómetro (también sin obligación). Al aceptar, esas horas (fin − inicio) se suman a Control de maquinaria en el turno ☀️ día / 🌙 noche. REGLA: ese horómetro final será el inicial de la próxima jornada. La lectura y la foto se ven en Mantenimiento de Maquinaria · ⏱️ Horómetros.',
         '🟡 PARADA (marcar máquina parada): tiene 2 caminos. "🔧 Por avería" — elige el material (caucho/aceite/filtro/repuesto/otro) y describe la falla: crea la solicitud en Mantenimiento de Maquinaria Y marca la visita en Inspecciones. "📍 Parada / No trabajó" — motivo fijo "NO TRABAJÓ LA MÁQUINA" con tu ubicación GPS y el edificio de la máquina; NO crea nada en Mantenimiento, solo se refleja en Inspecciones. En ambos casos, en Control sale 🔴 MÁQUINA PARADA.',
         '🟢 VOLVER A OPERATIVA: si la máquina está PARADA, en su ficha sale el botón "🟢 Volver a OPERATIVA", que cierra la avería en Mantenimiento y quita el "MÁQUINA PARADA" de Control.',
       ] },

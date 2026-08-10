@@ -326,6 +326,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // máquina); al finalizar se pide el FINAL (que será el inicial de la próxima jornada).
   const [horoIni, setHoroIni] = useState('');
   const [horoFin, setHoroFin] = useState('');
+  // Foto del horómetro que adjunta el inspector/coordinador al INICIAR y al FINALIZAR
+  // la jornada (se guarda en machine_rounds.horometro_photo → se ve en Mantenimiento
+  // de Maquinaria · Horómetros). Ambas son opcionales (no bloquean la jornada).
+  const [horoIniPhoto, setHoroIniPhoto] = useState<string | null>(null);
+  const [horoFinPhoto, setHoroFinPhoto] = useState<string | null>(null);
+  const [horoPhotoBusy, setHoroPhotoBusy] = useState<false | 'ini' | 'fin'>(false);
   // Al iniciar jornada: turno declarado y HORA de inicio (por defecto 7:00am día /
   // 7:00pm noche). Se acota contra la hora del sistema (alerta si se declara tarde).
   const [iniShift, setIniShift] = useState<'day' | 'night'>('day');
@@ -359,6 +365,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const r = await captureAndUploadPhoto(ci.id, 'averias');
     setAvPhotoUp(false);
     if (r.ok && r.url) setAvPhoto(r.url);
+    else if (r.error) setNotice('❌ ' + r.error);
+  };
+
+  // Foto del horómetro al iniciar ('ini') o finalizar ('fin') la jornada del inspector.
+  // Intenta cámara y cae a galería/archivo (captureAndUploadPhoto) → permite cargar imagen.
+  const tomarFotoHoro = async (which: 'ini' | 'fin') => {
+    if (!ci) return;
+    setHoroPhotoBusy(which);
+    const r = await captureAndUploadPhoto(ci.id, 'horometro');
+    setHoroPhotoBusy(false);
+    if (r.ok && r.url) (which === 'ini' ? setHoroIniPhoto : setHoroFinPhoto)(r.url);
     else if (r.error) setNotice('❌ ' + r.error);
   };
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
@@ -1321,6 +1338,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setOpConfirmCedula('');
     setOpHoro('');
     setOpHoroPhoto(null);
+    setHoroIniPhoto(null); setHoroFinPhoto(null); setHoroFin('');
     // Captura el GPS del supervisor al abrir (para medir la distancia a la máquina).
     setGpsBusy(true);
     getCurrentCoords().then((r) => {
@@ -1488,8 +1506,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       }
     }
     if (shiftClosed && !jornadaStart) { setNotice(`❌ La jornada de ${shiftFromKey(myShift as any).label} de hoy ya cerró. Podrás iniciar otra mañana.`); return; }
-    const hi = Number((horoIni || '').replace(',', '.'));
-    if (!isFinite(hi) || hi < 0) { setNotice('❌ Ingresa el horómetro inicial.'); return; }
+    // Horómetro al iniciar: ya NO es obligatorio (puede ir vacío). Si lo escriben, debe
+    // ser un número válido (≥0); si lo dejan en blanco, la jornada inicia igual.
+    const hiRaw = (horoIni || '').replace(',', '.').trim();
+    const hiHas = hiRaw !== '';
+    const hi = Number(hiRaw);
+    if (hiHas && (!isFinite(hi) || hi < 0)) { setNotice('❌ El horómetro no puede ser negativo.'); return; }
     // Hora de inicio DECLARADA (HH:MM). Caracas es UTC-4 fijo (sin horario de verano).
     const m = /^(\d{1,2}):(\d{2})$/.exec((iniTime || '').trim());
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) { setNotice('❌ Hora de inicio inválida (usa HH:MM, ej. 07:00).'); return; }
@@ -1512,7 +1534,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
-    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: declaredIso, jornada_shift: sh, horometro_inicial: hi }, uid || null);
+    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: declaredIso, jornada_shift: sh, ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
@@ -1531,8 +1553,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // horómetro VIVO de la máquina, y —la PRIMERA vez— fija la base de mantenimiento en
     // ese inicial para empezar a contar desde 0 (horas acum. = last_horometro − base,
     // regla 200/220/250 de Mantenimiento de Maquinaria). Best-effort: no bloquea nada.
-    supabase.from('machinery').update({ last_horometro: hi }).eq('id', ci.id).then(() => {}, () => {});
-    supabase.from('machinery').update({ horometro_base: hi }).eq('id', ci.id).is('horometro_base', null).then(() => {}, () => {});
+    if (hiHas) {
+      supabase.from('machinery').update({ last_horometro: hi }).eq('id', ci.id).then(() => {}, () => {});
+      supabase.from('machinery').update({ horometro_base: hi }).eq('id', ci.id).is('horometro_base', null).then(() => {}, () => {});
+    }
     // ¿La máquina venía AVERIADA? Si estuvo PARADA hoy (pendiente o reactivada hoy),
     // el inicio tardío es NORMAL (arrancó tarde porque estaba parada) → NO es tardanza
     // y NO genera alerta. Se detecta por la parada vigente o una avería resuelta hoy.
@@ -1610,7 +1634,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
-    const res = await upsertMachineRound(ci.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), jornada_start_at: null }, uid || null);
+    const res = await upsertMachineRound(ci.id, roundDate, { [key]: Math.round((base + horas) * 100) / 100, ...(hfValid ? { horometro_final: hfNum } : {}), ...(horoFinPhoto ? { horometro_photo: horoFinPhoto } : {}), jornada_start_at: null }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     // HORÓMETRO (solo mantenimiento · NO toca pagos): si se registró horómetro final,
@@ -1621,6 +1645,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     if (hfValid) supabase.from('machinery').update({ last_horometro: hfNum }).eq('id', ci.id).then(() => {}, () => {});
     setJornadaStart(null);
     setFinConfirm(false);
+    setHoroFin(''); setHoroFinPhoto(null);
     logAudit('JORNADA_FIN', 'machinery', ci.id, `${ci.code} · ${horas.toFixed(2)} h`); // bitácora
     // Camión: al FINALIZAR la jornada, se registra su ENTRADA al patio.
     logTruckYardIfTruck(ci.id, ci.code, 'entrada', uid || null, fullName || null);
@@ -3044,8 +3069,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <Text style={{ color: colors.infoSoftText, fontSize: 11, marginTop: 2, marginBottom: spacing.sm, textAlign: 'center' }}>
                         Se sumarán al turno de {jornadaShift === 'night' ? 'noche 🌙' : 'día ☀️'} en Control de maquinaria.
                       </Text>
-                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro final (opcional · para mantenimiento){horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? ` · inicial: ${horoIni}` : ''}</Text>
                       <TextInput value={horoFin} onChangeText={(t) => setHoroFin(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                      <TouchableOpacity onPress={() => tomarFotoHoro('fin')} disabled={horoPhotoBusy === 'fin'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoFinPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                        <Text style={{ color: horoFinPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'fin' ? 'Subiendo…' : horoFinPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                      </TouchableOpacity>
                       <Text style={{ color: colors.muted, fontSize: 11, marginBottom: 2 }}>Será el inicial de la próxima jornada. Las horas de mantenimiento se cuentan final − inicial (no afecta el pago).</Text>
                       {(() => {
                         const hf = Number((horoFin || '').replace(',', '.'));
@@ -3102,8 +3130,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                   <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Hora de inicio (HH:MM) · se acota contra la hora del sistema</Text>
                   <TextInput value={iniTime} onChangeText={(t) => setIniTime(t.replace(/[^0-9:]/g, '').slice(0, 5))} placeholder={iniShift === 'night' ? '19:00' : '07:00'} placeholderTextColor={colors.muted} keyboardType="numbers-and-punctuation" style={[input, { marginBottom: 4 }]} />
                   <Text style={{ color: colors.muted, fontSize: 11, marginBottom: spacing.sm }}>Máximo para declarar sin alerta: {iniShift === 'night' ? '9:30pm' : '9:30am'}. Si se declara tarde se avisa a los administradores.</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Horómetro inicial (= final de la jornada anterior)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>Ingresar horómetro{horoIni ? '' : ' (se precarga con el final de la jornada anterior)'}</Text>
                   <TextInput value={horoIni} onChangeText={(t) => setHoroIni(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={[input, { marginBottom: spacing.sm }]} />
+                  <TouchableOpacity onPress={() => tomarFotoHoro('ini')} disabled={horoPhotoBusy === 'ini'} style={{ marginBottom: spacing.sm, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: horoIniPhoto ? colors.success : colors.border, backgroundColor: colors.surface }}>
+                    <Text style={{ color: horoIniPhoto ? colors.success : colors.text, fontWeight: '700' }}>{horoPhotoBusy === 'ini' ? 'Subiendo…' : horoIniPhoto ? '✓ Foto del horómetro adjunta' : '📷 Foto del horómetro'}</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={iniciarJornada} disabled={jornadaBusy} style={{ backgroundColor: '#1E9E4A', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: jornadaBusy ? 0.6 : 1 }}>
                     <Text style={{ color: '#fff', fontWeight: '800' }}>{jornadaBusy ? 'Guardando…' : '🟢 INICIAR JORNADA'}</Text>
                   </TouchableOpacity>

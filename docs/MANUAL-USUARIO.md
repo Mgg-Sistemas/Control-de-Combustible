@@ -907,12 +907,16 @@ trabajando. Cada inspector entra con su usuario (**rol inspector**) y su pantall
 5. El sistema toma su **ubicación GPS** y calcula qué tan cerca está de la máquina.
 
 **Botones de la ficha de la máquina:**
-- **🟢 INICIAR JORNADA** — pide el **horómetro inicial** (viene **precargado** con el horómetro
-  final de la jornada anterior), guarda la **hora de inicio** y marca la máquina en **Inspecciones**.
-  El botón cambia a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
-- **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas** y el **horómetro
-  final**; al aceptar, las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️
-  día / 🌙 noche. **Regla:** ese **horómetro final será el inicial de la próxima jornada**.
+- **🟢 INICIAR JORNADA** — campo **"Ingresar horómetro"** (viene **precargado** con el horómetro
+  final de la jornada anterior) y un botón **📷 Foto del horómetro** (tómala con la cámara o **carga
+  una imagen**). El horómetro y la foto **no son obligatorios**: si los dejas en blanco la jornada
+  inicia igual. Guarda la **hora de inicio** y marca la máquina en **Inspecciones**. El botón cambia
+  a **🏁 FINALIZAR JORNADA** con un **contador** del tiempo trabajado.
+- **🏁 FINALIZAR JORNADA** — pide **confirmar** mostrando el **total de horas**, con el campo
+  **"Ingresar horómetro"** y su botón **📷 Foto del horómetro** (también sin obligación). Al aceptar,
+  las horas (fin − inicio) **se suman a Control de maquinaria** en el turno ☀️ día / 🌙 noche.
+  **Regla:** ese **horómetro final será el inicial de la próxima jornada**. La lectura y la foto se
+  ven en **Mantenimiento de Maquinaria · ⏱️ Horómetros** (vinculado con ese módulo).
   > **Acumulado del turno (05/08/2026):** tanto en la confirmación como en el aviso final, además
   > del total de la sesión que se está cerrando, se muestra el **acumulado del turno en el día**
   > (lo ya trabajado antes + lo que se acaba de cerrar) — para ver de una vez el total real del
