@@ -232,6 +232,23 @@ export default function AuditScreen() {
   const [targetLoading, setTargetLoading] = useState(false);
   const [rtNonce, setRtNonce] = useState(0); // se incrementa al llegar un cambio en tiempo real, para forzar la recarga de abajo
 
+  // Mapa id → nombre del usuario. RESUELVE quién hizo cada acción cuando el trigger
+  // guardó el `user_id` pero no el nombre (`user_name` vacío → antes salía "Alguien",
+  // p. ej. "ALGUIEN MODIFICÓ MÁQUINA"). Se llena una vez desde `profiles`; arregla
+  // también los registros VIEJOS sin tocar la base de datos.
+  const [nameById, setNameById] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const { data } = await supabase.from('profiles').select('id, full_name, username');
+      if (!alive || !data) return;
+      const m = new Map<string, string>();
+      data.forEach((p: any) => { const n = String(p.full_name || p.username || '').trim(); if (n) m.set(p.id, n); });
+      setNameById(m);
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Filtro AMPLIADO (menú ▾ tipo Odoo: Filtrar / Agrupar por / Favoritos). Todo esto se
   // combina en AND con la búsqueda libre y el rango de fechas de arriba, que NO se tocan.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -451,21 +468,31 @@ export default function AuditScreen() {
   // rincón del sistema.
   useRealtimeRefresh(['audit_log'], () => setRtNonce((n) => n + 1), { debounceMs: 4000, maxWaitMs: 20000 });
 
+  // Filas con el usuario RESUELTO: si el trigger no guardó el nombre pero sí el
+  // user_id, se completa desde `nameById` (perfiles). Todo lo de abajo (lista,
+  // filtros, agrupado, detalle y PDF) usa estas filas, así el nombre sale en todas.
+  const resolvedRows = useMemo(
+    () => rows.map((r) => (r.user_name || !r.user_id || !nameById.get(r.user_id))
+      ? r
+      : { ...r, user_name: nameById.get(r.user_id)! }),
+    [rows, nameById],
+  );
+
   const users = useMemo(() => {
     const s = new Set<string>();
-    rows.forEach((r) => { if (r.user_name) s.add(r.user_name); });
+    resolvedRows.forEach((r) => { if (r.user_name) s.add(r.user_name); });
     return Array.from(s).sort(cmpText);
-  }, [rows]);
+  }, [resolvedRows]);
   const tables = useMemo(() => {
     const s = new Set<string>();
-    rows.forEach((r) => s.add(r.table_name));
+    resolvedRows.forEach((r) => s.add(r.table_name));
     return Array.from(s).sort((a, b) => cmpText(tableLabel(a), tableLabel(b)));
-  }, [rows]);
+  }, [resolvedRows]);
 
   // La búsqueda libre ya la aplicó el servidor; aquí solo refinamos por los CHIPS
   // (usuario / tipo) y el menú ▾ (módulos / tipo de acción / solo dinero) sobre lo
   // cargado, para no ocultar filas que coincidieron por detalle. Todo se combina en AND.
-  const shown = useMemo(() => rows.filter((r) => {
+  const shown = useMemo(() => resolvedRows.filter((r) => {
     if (userFilter !== '__all__' && r.user_name !== userFilter) return false;
     if (tableFilter !== '__all__' && r.table_name !== tableFilter) return false;
     if (moduleFilter.size > 0) {
@@ -475,7 +502,7 @@ export default function AuditScreen() {
     if (actionFilter.size > 0 && !actionFilter.has(actionBucket(r))) return false;
     if (moneyOnly && !MONEY_TABLES.has(r.table_name)) return false;
     return true;
-  }), [rows, userFilter, tableFilter, moduleFilter, actionFilter, moneyOnly]);
+  }), [resolvedRows, userFilter, tableFilter, moduleFilter, actionFilter, moneyOnly]);
   const rangoTxt = from === to ? dmy(from) : `${dmy(from)} → ${dmy(to)}`;
   const searchAllTimeActive = fullHistory && norm(q.trim()).length >= MIN_SEARCH_LEN;
   const rangoLabel = searchAllTimeActive ? 'todo el historial' : rangoTxt;
