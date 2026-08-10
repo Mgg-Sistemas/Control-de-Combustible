@@ -51,18 +51,24 @@ export default function HaulOrderDetail({
   }, [refs]);
 
   const load = async () => {
+    const empresa = new Map(refs.companies.map((c) => [c.id, c.name]));
     const { data: it } = await supabase
       .from('haul_order_items')
-      .select('weight_ton_snap, machinery:machinery_id(code, serial, tipo)')
+      .select('weight_ton_snap, machinery:machinery_id(code, serial, plate, tipo, company_id)')
       .eq('order_id', order.id);
     setItems((it ?? []).map((r: any) => ({
       code: r.machinery?.code ?? '—',
-      extra: [r.machinery?.serial, r.machinery?.tipo, r.weight_ton_snap != null ? `${r.weight_ton_snap} t` : null].filter(Boolean).join(' · '),
+      extra: [
+        r.machinery?.company_id ? empresa.get(r.machinery.company_id) : null,
+        r.machinery?.plate ? `Placa ${r.machinery.plate}` : (r.machinery?.serial ? `Serial ${r.machinery.serial}` : null),
+        r.machinery?.tipo,
+        r.weight_ton_snap != null ? `${r.weight_ton_snap} t` : null,
+      ].filter(Boolean).join(' · '),
     })));
     const { data: ev } = await supabase.from('haul_status_events').select('*').eq('order_id', order.id).order('at', { ascending: true });
     setEvents((ev ?? []) as HaulStatusEvent[]);
   };
-  useEffect(() => { load(); }, [order.id]);
+  useEffect(() => { load(); }, [order.id, refs.companies]);
 
   const advance = async () => {
     const nx = NEXT[order.status];
