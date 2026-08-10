@@ -42,9 +42,10 @@ export default function FoodCompanyScreen({ companyId, onExit }: { companyId: st
   const { colors } = useTheme();
   const { session, role } = useAuth();
   const uid = session?.user?.id ?? '';
-  // El reporte de entregas es SOLO para supervisores y administradores. La cocina
-  // (o quien entra por el QR sin ser admin/supervisor) solo registra, no ve reportes.
-  const canSeeReport = role === 'admin' || role === 'supervisor';
+  // El reporte de entregas es para supervisores, administradores y COCINA (el
+  // personal de cocina necesita ver toda la información del módulo, no solo
+  // registrar). Quien entra por el QR sin sesión real (anónimo) sigue sin verlo.
+  const canSeeReport = role === 'admin' || role === 'supervisor' || role === 'cocina';
   const isAnon = !!(session?.user as any)?.is_anonymous;
   const authorId = isAnon ? null : (uid || null);
   const today = caracasToday();

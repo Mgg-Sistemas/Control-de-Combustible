@@ -58,7 +58,7 @@ type Person = { id: string; name: string; cedula: string | null; cargo: string |
  * busca por cédula), ve sus datos y registra cuántas comidas se le entregaron y
  * a qué hora. Todo queda guardado en el módulo "Distribución de comida".
  */
-export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initialEmployeeId?: string; onConsumed?: () => void } = {}) {
+export default function CocinaScreen({ initialEmployeeId, onConsumed, navigation }: { initialEmployeeId?: string; onConsumed?: () => void; navigation?: any } = {}) {
   const { colors } = useTheme();
   const { session, signOut } = useAuth();
   const uid = session?.user?.id ?? '';
@@ -272,6 +272,21 @@ export default function CocinaScreen({ initialEmployeeId, onConsumed }: { initia
           </TouchableOpacity>
         </View>
       </View>
+
+      {navigation ? (
+        <TouchableOpacity onPress={() => navigation.navigate('Comida')} activeOpacity={0.8}>
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+              <Text style={{ fontSize: 22 }}>📋</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '800', color: colors.text, fontSize: 14 }}>Distribución de comida</Text>
+                <Text style={{ color: colors.muted, fontSize: 11 }}>Ver lo repartido por día y por persona</Text>
+              </View>
+              <Text style={{ color: colors.primary, fontSize: 20, fontWeight: '800' }}>›</Text>
+            </View>
+          </Card>
+        </TouchableOpacity>
+      ) : null}
 
       {!cook ? (
         <Card>

@@ -432,6 +432,26 @@ function InventarioStack() {
   );
 }
 
+/** Panel de COCINA (rol fijo): antes entraba DIRECTO a la pantalla de escaneo
+ *  sin ningún navegador alrededor, así que no había forma de llegar a
+ *  "Distribución de comida" (el reporte de lo repartido) — solo podía escanear
+ *  carnets. Pedido del cliente (10-ago-2026): cocina también debe poder VER esa
+ *  distribución, tanto en web como en la app. CocinaScreen trae su propio
+ *  header/"Salir" (se diseñó para usarse sin Stack en el flujo de QR), por eso
+ *  su pantalla oculta el header nativo del Stack; en cambio recibe `navigation`
+ *  para abrir "Comida" desde su propio botón. */
+function CocinaStack() {
+  const screenHeader = useScreenHeader();
+  return (
+    <Stack.Navigator screenOptions={{ ...screenHeader, headerLeft: () => <HeaderHomeButton /> }}>
+      <Stack.Screen name="CocinaHome" component={CocinaScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Comida" component={ComidaScreen} options={{ title: 'Distribución de comida' }} />
+      <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
+      <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
+    </Stack.Navigator>
+  );
+}
+
 /** Módulo del KIOSCO DE PLANTA (clave `fabricacion_planta`, ver
  *  `src/lib/permissions.ts`): pensado para un operario "solo kiosco" del taller
  *  que registra tiempos/avance de las órdenes desde una pantalla fija, sin
@@ -674,8 +694,9 @@ const moreScreens = {
 };
 
 /** Cada sesión monta UN SOLO árbol de navegación, elegido por rol/teléfono/PC
- *  (ver `pickTree` más abajo). `operador`/`cocina` son una pantalla suelta sin
- *  Stack/Tab, así que no tienen config de `linking` propia. */
+ *  (ver `pickTree` más abajo). `operador` es una pantalla suelta sin Stack/Tab,
+ *  así que no tiene config de `linking` propia; `cocina` sí tiene su propio
+ *  Stack (ver `CocinaStack`), con config de `linking` en `TREE_LINKING`. */
 type TreeKey = 'tabs' | 'supervisorTabs' | 'patio' | 'coordinador' | 'fuelDriver' | 'combustible' | 'inventario' | 'fabricacionPlanta' | 'conductor' | 'asistencia' | 'operador' | 'cocina';
 
 /**
@@ -732,6 +753,7 @@ const TREE_LINKING: Partial<Record<TreeKey, NonNullable<LinkingOptions<any>['con
   fabricacionPlanta: { PlantaKioskHome: 'kiosco-directo', Manual: 'manual' },
   conductor: { ConductorSurtir: 'surtir', Map: 'mapa', Equipos: 'catalogo' },
   asistencia: { AsistenciaHome: 'asistencia', AsistenciaCamiones: 'asistencia-camiones', DistribucionGuardias: 'distribucion-guardias', Manual: 'manual', Ajustes: 'ajustes' },
+  cocina: { CocinaHome: 'cocina', Comida: 'comida', Manual: 'manual', Ajustes: 'ajustes' },
 };
 
 /** URL "de inicio" de cada árbol (su pantalla raíz). Al entrar SIN deep link
@@ -749,6 +771,7 @@ const TREE_HOME_PATH: Partial<Record<TreeKey, string>> = {
   fabricacionPlanta: '/kiosco-directo',
   conductor: '/surtir',
   asistencia: '/asistencia',
+  cocina: '/cocina',
 };
 
 /** Elige el árbol de navegación (y su pantalla) del usuario logueado, EN EL
@@ -805,7 +828,7 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
-  if (role === 'cocina') return { key: 'cocina', node: <CocinaScreen /> };
+  if (role === 'cocina') return { key: 'cocina', node: <CocinaStack /> };
   return { key: 'tabs', node: <Tabs /> };
 }
 
