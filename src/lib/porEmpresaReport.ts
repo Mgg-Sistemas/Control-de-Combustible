@@ -42,6 +42,10 @@ type Fila = {
   code: string; modelo: string; serialPlaca: string; inspector: string;
   // Horario por turno: DÍA (7am→7pm) y NOCHE (7pm→7am). "—" si no trabajó ese turno.
   diaIni: string; diaFin: string; nocheIni: string; nocheFin: string;
+  // EN CURSO = la jornada de ese turno sigue abierta (aún no finaliza) → FIN en verde.
+  diaEnCurso: boolean; nocheEnCurso: boolean;
+  // Total de horas del turno (para mostrar EN VERDE: p. ej. 7am–7pm = 12 h).
+  diaHoras: number; nocheHoras: number;
   // Motivo de avería/parada (solo grupo 'averia') — se muestra EN LÍNEA en la fila.
   motivo: string;
 };
@@ -338,6 +342,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // desactivada (active=false). Estas SÍ salen acá (con 🚫 INACTIVA y 0 horas) y en
     // Control — pero NO en la vista de inspectores ni en el reporte por inspector.
     const inactiva = m?.active === false || m?.operational === false;
+    // Las INACTIVAS (fuera de servicio) NO se muestran en este reporte (pedido cliente).
+    if (inactiva) return;
     const r = roundBy.get(id);
     // Horas de turno crudas (día/noche/parada/extra) de la ronda — MISMA fuente que el
     // Informe por jornada. Las horas trabajadas se calculan con `workedFromShifts` (la
@@ -362,20 +368,17 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       const elapsed = Math.min(12, Math.max(0, (nowMs - shiftStart) / 3600000));
       if (jShift === 'night') nn = Math.max(nn, elapsed); else dd = Math.max(dd, elapsed);
     }
-    // Inactiva: 0 horas (fuera de servicio). Aparece SIEMPRE con su status, sin horas.
-    if (inactiva) { dd = 0; nn = 0; }
     // Horas trabajadas = workedFromShifts (misma fórmula que Informe/Pagos/Control) → cuadra.
-    const trab = inactiva ? 0 : workedFromShifts(dd, nn, sRaw, oRaw);
+    const trab = workedFromShifts(dd, nn, sRaw, oRaw);
     const averiaBase = averiaTxt(id); // '' si es SOS "siempre activo"
-    // CLASIFICACIÓN en 3 grupos:
-    //  · inactiva  → fuera de servicio (⛔ del catálogo).
-    //  · averia    → averiada/parada que NO trabajó (trab<=0 con avería/parada); se marca en 0.
-    //  · activa    → trabajó (trab>0).
+    // CLASIFICACIÓN en 2 grupos:
+    //  · averia  → averiada/parada que NO trabajó (trab<=0 con avería/parada); se marca en 0.
+    //  · activa  → trabajó (trab>0).
     // Una máquina sin actividad y SIN avería (pendiente pura) no se lista.
-    const esAveria = !inactiva && trab <= 0 && !!averiaBase;
-    if (!inactiva && trab <= 0 && !esAveria) return;
-    const grupo: Grupo = inactiva ? 'inactiva' : esAveria ? 'averia' : 'activa';
-    // Solo las ACTIVAS muestran horario y suman a los totales; las demás van en 0.
+    const esAveria = trab <= 0 && !!averiaBase;
+    if (trab <= 0 && !esAveria) return;
+    const grupo: Grupo = esAveria ? 'averia' : 'activa';
+    // Solo las ACTIVAS muestran horario y suman a los totales; las averiadas van en 0.
     const ddAct = grupo === 'activa' ? dd : 0;
     const nnAct = grupo === 'activa' ? nn : 0;
     const dayOpen = isToday && jShift === 'day' && jStart != null && jStartHoy;
@@ -390,9 +393,12 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       // Horario DÍA (7am→7pm) y NOCHE (7pm→7am). Si la jornada de ese turno sigue ABIERTA
       // hoy, el FIN muestra la hora actual (en curso); si ya cerró, el fin del turno.
       diaIni: ddAct > 0 ? HORA_DIA_INI : '—',
-      diaFin: ddAct > 0 ? (dayOpen ? nowHora : HORA_DIA_FIN) : '—',
+      diaFin: ddAct > 0 ? (dayOpen ? 'EN CURSO' : HORA_DIA_FIN) : '—',
       nocheIni: nnAct > 0 ? HORA_NOCHE_INI : '—',
-      nocheFin: nnAct > 0 ? (nightOpen ? nowHora : HORA_NOCHE_FIN) : '—',
+      nocheFin: nnAct > 0 ? (nightOpen ? 'EN CURSO' : HORA_NOCHE_FIN) : '—',
+      diaEnCurso: ddAct > 0 && dayOpen,
+      nocheEnCurso: nnAct > 0 && nightOpen,
+      diaHoras: n2(ddAct), nocheHoras: n2(nnAct),
       motivo: esAveria ? averiaBase : '',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
@@ -404,13 +410,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Tabla de un GRUPO con columnas: Nº · Máquina · Modelo/Marca · Serial/Placa ·
   // Inspector · Horario DÍA (inicio arriba / fin abajo) · Horario NOCHE (idem).
   const tabla = (filas: Fila[]): string => {
-    const cls = (g: Grupo) => g === 'inactiva' ? ' class="inact"' : g === 'averia' ? ' class="aver"' : '';
+    const cls = (g: Grupo) => g === 'averia' ? ' class="aver"' : '';
+    // Celda de un turno: INICIO (arriba) · FIN (abajo, en verde "EN CURSO" si sigue abierta)
+    // · TOTAL de horas del turno EN VERDE (p. ej. 12 h).
+    const celda = (ini: string, fin: string, enCurso: boolean, horas: number) =>
+      `<td class="hr"><div class="ini">${esc(ini)}</div>` +
+      `<div class="${enCurso ? 'curso' : 'fin'}">${esc(fin)}</div>` +
+      `${horas > 0 ? `<div class="tot">${n2(horas)} h</div>` : ''}</td>`;
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) => {
       // Averiadas/Paradas: en 0, y el MOTIVO va EN LÍNEA ocupando las dos columnas de horario.
       const horario = f.grupo === 'averia'
         ? `<td colspan="2" class="mot">🔴 ${esc(dash(f.motivo))}</td>`
-        : `<td class="hr"><div class="ini">${esc(f.diaIni)}</div><div class="fin">${esc(f.diaFin)}</div></td>`
-          + `<td class="hr"><div class="ini">${esc(f.nocheIni)}</div><div class="fin">${esc(f.nocheFin)}</div></td>`;
+        : celda(f.diaIni, f.diaFin, f.diaEnCurso, f.diaHoras) + celda(f.nocheIni, f.nocheFin, f.nocheEnCurso, f.nocheHoras);
       return `<tr${cls(f.grupo)}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
@@ -423,21 +434,16 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     </tr></thead><tbody>${rows}</tbody></table>`;
   };
 
-  // Por empresa: ACTIVAS, luego AVERIADAS/PARADAS (agrupadas, en 0), luego INACTIVAS.
+  // Por empresa: ACTIVAS, luego AVERIADAS/PARADAS (agrupadas, en 0). Las INACTIVAS ya no se muestran.
   const secciones = empresas.map(([name, filas]) => {
     const activas = filas.filter((f) => f.grupo === 'activa');
     const averias = filas.filter((f) => f.grupo === 'averia');
-    const inactivas = filas.filter((f) => f.grupo === 'inactiva');
     let out = `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>`;
     out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
     out += activas.length ? tabla(activas) : '<p class="vacio">Sin máquinas activas este día.</p>';
     if (averias.length) {
       out += `<div class="grp grp-aver">🔴 Averiadas / Paradas (en 0) · ${averias.length}</div>`;
       out += tabla(averias);
-    }
-    if (inactivas.length) {
-      out += `<div class="grp grp-inact">🚫 Inactivas · ${inactivas.length}</div>`;
-      out += tabla(inactivas);
     }
     return out;
   }).join('');
@@ -464,6 +470,8 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     td.ok{color:#067647;font-weight:800}
     /* Horario por turno: inicio arriba (negro) y fin abajo (gris). */
     td.hr{white-space:nowrap} td.hr .ini{font-weight:700} td.hr .fin{color:#6B7280;font-size:10px}
+    td.hr .curso{color:#067647;font-weight:800;font-size:10px}
+    td.hr .tot{color:#067647;font-weight:800;font-size:11px;margin-top:1px}
     td.mot{color:#B42318;font-weight:700}
     th .sub{font-weight:400;font-size:8.5px;opacity:.85}
     table.ir tr.aver td{color:#B42318;background:#FEF3F2}
