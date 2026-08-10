@@ -1173,7 +1173,7 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
   const nq = norm(q);
   const filtered = useMemo(() => levels.filter((it) => Number(it.stock) > 0 && (!nq || norm(it.name).includes(nq))), [levels, nq]);
   const inCart = (id: string) => cart.find((c) => c.id === id);
-  const machineLabel = (m: Machinery) => `${m.code}${m.serial ? ` · ${m.serial}` : ''}`;
+  const machineLabel = (m: Machinery) => [m.code, companyNameById(m.company_id) || null, m.plate ? `Placa ${m.plate}` : (m.serial ? `Serial ${m.serial}` : null)].filter(Boolean).join(' · ');
   const machineName = (id: string) => { const m = machines.find((x) => x.id === id); return m ? machineLabel(m) : ''; };
   const empName = (e: Employee) => `${(e as any).first_name ?? ''} ${(e as any).last_name ?? ''}`.trim() || 'Sin nombre';
   const toggleEmp = (e: Employee) => setEmpSel((prev) => prev.some((x) => x.id === (e as any).id) ? prev.filter((x) => x.id !== (e as any).id) : [...prev, { id: (e as any).id, name: empName(e) }]);
@@ -1299,13 +1299,13 @@ function NotaTab({ canWrite }: { canWrite: boolean }) {
           </TouchableOpacity>
           {machOpen ? (
             <View style={{ borderWidth: 1, borderColor: colors.border, borderTopWidth: 0, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md, padding: spacing.sm }}>
-              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Filtrar por código o serial…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
+              <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="Filtrar por código, empresa, serial, placa, modelo…" placeholderTextColor={colors.muted} style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: 6 }} />
               {machineryId ? (
                 <TouchableOpacity onPress={() => setMachineryId('')} style={{ paddingVertical: 6 }}><Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>✕ Quitar selección</Text></TouchableOpacity>
               ) : null}
               <View style={{ maxHeight: 200 }}>
                 <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {machines.filter((m) => { const s = norm(machineQuery); return !s || norm(`${m.code} ${m.serial ?? ''}`).includes(s); }).map((m) => {
+                  {machines.filter((m) => { const s = norm(machineQuery); return !s || norm([m.code, m.serial, m.plate, m.tipo, companyNameById(m.company_id)].filter(Boolean).join(' ')).includes(s); }).map((m) => {
                     const on = machineryId === m.id;
                     return (
                       <TouchableOpacity key={m.id} onPress={() => { setMachineryId(m.id); setMachOpen(false); }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border }}>
