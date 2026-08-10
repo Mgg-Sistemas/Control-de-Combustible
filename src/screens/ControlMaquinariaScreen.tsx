@@ -151,7 +151,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const [machines, setMachines] = useState<Machinery[]>([]);
   const [guards, setGuards] = useState<Record<string, MachineGuard>>({}); // guardia/militar actual por máquina
   const [inspectors, setInspectors] = useState<Record<string, InspectorInfo>>({}); // inspector del último check-in por máquina
-  const [averiadas, setAveriadas] = useState<Set<string>>(new Set()); // máquinas con avería pendiente → "MÁQUINA PARADA"
+  const [averiadas, setAveriadas] = useState<Set<string>>(new Set()); // máquinas con avería/parada pendiente vigente
+  // Tipo real ('averia' | 'parada') de cada una — antes se rotulaban TODAS como "MÁQUINA
+  // PARADA (avería)" sin distinguir, así que una máquina solo PARADA (sin avería real)
+  // salía con un rótulo engañoso. Avería real gana si hay ambas (mismo criterio que el
+  // resto del sistema).
+  const [averiaTipo, setAveriaTipo] = useState<Record<string, 'averia' | 'parada'>>({});
   const [companies, setCompanies] = useState<Record<string, string>>({}); // id → nombre
   const [rounds, setRounds] = useState<Record<string, MachineRound>>({}); // key: machineId|fecha
   const [fuelWeek, setFuelWeek] = useState<Record<string, FuelAgg>>({}); // litros surtidos por máquina en el rango visible
@@ -335,8 +340,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         try {
           const today = todayISO();
           const yesterday = caracasParts(new Date(Date.now() - 86400000)).iso;
-          const [{ data }, { rows }, { data: todayRounds }, { data: nightRounds }] = await Promise.all([
-            supabase.from('maintenance_requests').select('machinery_id, created_at').eq('status', 'pendiente'),
+          const [data, { rows }, { data: todayRounds }, { data: nightRounds }] = await Promise.all([
+            selectAllRows('maintenance_requests', 'machinery_id, material, created_at', (q) => q.eq('status', 'pendiente')),
             listInspectorAssignments(),
             supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', today).not('jornada_start_at', 'is', null),
             supabase.from('machine_rounds').select('machinery_id, jornada_start_at').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
@@ -350,6 +355,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             openStartByMachine[row.machinery_id] = prev == null ? t : Math.max(prev, t);
           });
           const next = new Set<string>();
+          const nextTipo: Record<string, 'averia' | 'parada'> = {};
           ((data ?? []) as any[]).forEach((r) => {
             const id = r.machinery_id as string;
             if (sos.has(id)) return;
@@ -357,8 +363,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             const createdMs = r.created_at ? new Date(r.created_at).getTime() : 0;
             if (openStart != null && openStart >= createdMs) return; // reactivada: jornada abierta después de la marca
             next.add(id);
+            // Avería REAL gana sobre "MÁQUINA PARADA" si hay ambas (mismo criterio que
+            // Catálogo/Inspecciones); no pisa una avería ya asignada con una parada después.
+            if (r.material === 'MÁQUINA PARADA') { if (!nextTipo[id]) nextTipo[id] = 'parada'; }
+            else nextTipo[id] = 'averia';
           });
           setAveriadas(next);
+          setAveriaTipo(nextTipo);
         } catch {}
       })();
       const cmap: Record<string, string> = {};
@@ -412,7 +423,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       }, 300);
     };
     const ch = supabase.channel(`rt-control-maquinaria-${rtId.current}`);
-    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests'].forEach((t) =>
+    // `supervisor_visits` (inspector asignado 🪖), `dispatches` (combustible ⛽) y
+    // `control_closures` (histórico de cierres, que esta misma pantalla lee/escribe)
+    // faltaban: un check-in, un despacho de combustible o un cierre creado/borrado por
+    // otro admin no refrescaban esta pantalla en vivo, solo al recargar o volver a enfocarla.
+    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests', 'supervisor_visits', 'dispatches', 'control_closures'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     // Resync al (re)conectar el canal (señal intermitente): recupera cambios perdidos.
@@ -539,7 +554,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
         await supabase.from('machine_rounds').update({ frozen_price: entry.price }).eq('machinery_id', m.id).eq('round_date', dISO);
       }
     } catch {
-      // No romper la edición si falla la sincronización del histórico.
+      // No romper la edición si falla la sincronización del histórico, pero SÍ avisar:
+      // antes fallaba en silencio total y el admin creía que el cierre ya reflejaba el
+      // cambio, cuando en realidad el PDF/histórico se quedó con el valor viejo.
+      toast.error('La jornada se guardó, pero no se pudo actualizar el cierre ya archivado de ese período. Revisa el histórico de cierres.');
     }
   };
 
@@ -654,8 +672,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       setClosing(false);
       return toast.error(error.message);
     }
-    // Marca TODO lo pendiente como cerrado: sale del control activo pero queda en la BD.
-    await supabase.from('machine_rounds').update({ closed: true }).eq('closed', false);
+    const chunk = (arr: string[], n: number) => { const o: string[][] = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
+    // Marca CERRADO solo lo que realmente entró al snapshot (`rows`) — antes marcaba TODO
+    // lo pendiente (`.eq('closed', false)` a secas), incluida una jornada recién iniciada
+    // sin horas aún (0h, con `jornada_start_at` seteado pero filtrada de `rows` arriba):
+    // quedaba `closed=true` sin estar en el histórico archivado, así que al finalizarla sus
+    // horas seguían contando en machine_rounds/Reportes pero nunca aparecían en el cierre.
+    const closeByDate = new Map<string, Set<string>>();
+    rows.forEach((r: any) => {
+      const mid = r.machinery?.id;
+      if (!mid) return;
+      const s = closeByDate.get(r.round_date) ?? new Set<string>();
+      s.add(mid);
+      closeByDate.set(r.round_date, s);
+    });
+    const closeJobs: PromiseLike<any>[] = [];
+    for (const [date, idsSet] of closeByDate) {
+      for (const part of chunk([...idsSet], 100)) {
+        closeJobs.push(supabase.from('machine_rounds').update({ closed: true }).eq('round_date', date).in('machinery_id', part));
+      }
+    }
+    await Promise.all(closeJobs);
     // Congela el precio de cada ronda recién cerrada (dentro del rango del cierre), para
     // que los reportes usen ESE precio aunque después cambie el de la máquina. IMPORTANTE:
     // solo rellena las rondas que AÚN no tienen precio congelado (null o 0). Si ya fijaste
@@ -674,7 +711,6 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       arr.push(mid);
       idsByPrice.set(price, arr);
     }
-    const chunk = (arr: string[], n: number) => { const o: string[][] = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
     const freezeJobs: PromiseLike<any>[] = [];
     for (const [price, ids] of idsByPrice) {
       for (const part of chunk(ids, 100)) {
@@ -1320,6 +1356,25 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     return map;
   }, [rounds, weekDays]);
+  // Monto del bloque por máquina, con el mismo precio EFECTIVO por ronda que usan el PDF
+  // Resumen (`openSummary`/`effectivePrice`) y el cierre archivado: congelado (`frozen_price`)
+  // si la ronda ya lo tiene, si no el precio ACTUAL de la máquina. Antes esta pantalla
+  // multiplicaba el total de horas del bloque por el precio ACTUAL sin más (`m.price_per_hour`),
+  // así que una máquina con jornadas ya congeladas a un precio distinto mostraba acá un monto
+  // diferente al que salía en el PDF/cierre para el mismo rango de fechas.
+  const amountByMachine = useMemo(() => {
+    const daySet = new Set(weekDays);
+    const priceOf = new Map(machines.map((m) => [m.id, m.price_per_hour != null ? Number(m.price_per_hour) : 0]));
+    const map = new Map<string, number>();
+    Object.values(rounds).forEach((b: any) => {
+      if (!daySet.has(b.round_date)) return;
+      const w = workedFromShifts(Number(b.day_hours ?? 0), Number(b.night_hours ?? 0), Number(b.hours_stopped ?? 0), Number(b.overtime_hours ?? 0));
+      if (w <= 0) return;
+      const price = b.frozen_price != null && Number(b.frozen_price) > 0 ? Number(b.frozen_price) : (priceOf.get(b.machinery_id) ?? 0);
+      map.set(b.machinery_id, (map.get(b.machinery_id) ?? 0) + (w / 12) * price);
+    });
+    return map;
+  }, [rounds, weekDays, machines]);
   const enControl = (m: Machinery) => esActiva(m) || conHorasEstaSemana.has(m.id);
   // Al BUSCAR se ignora el filtro de empresa: así encuentras un equipo por código/serial/
   // placa aunque esté en otra empresa (p. ej. uno recién agregado). Sin búsqueda, aplica
@@ -1768,11 +1823,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               {/* Total de la EMPRESA en el rango de fechas seleccionado: horas + $ (suma de sus máquinas). */}
               {open ? (() => {
                 const compTot = g.items.reduce((acc, m) => {
-                  // RENDIMIENTO: horas del bloque desde el Map precomputado (antes: reduce por día).
-                  const h = workedByMachine.get(m.id) ?? 0;
-                  const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
-                  acc.hours += h;
-                  acc.amount += price > 0 ? (h / 12) * price : 0;
+                  // RENDIMIENTO: horas/monto del bloque desde los Maps precomputados (antes:
+                  // reduce por día, y el monto usaba el precio ACTUAL en vez del congelado).
+                  acc.hours += workedByMachine.get(m.id) ?? 0;
+                  acc.amount += amountByMachine.get(m.id) ?? 0;
                   return acc;
                 }, { hours: 0, amount: 0 });
                 return (
@@ -1790,9 +1844,14 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
           const isOpen = cardOpen[m.id] ?? false;
           const machFletes = fletesByMachine[m.id] ?? [];
           const fletesUSD = machFletes.reduce((s, f) => s + (Number(f.viajes) || 0) * (Number(f.precio) || 0), 0);
-          // Total $ de la máquina en el rango de fechas seleccionado (jornadas × precio/12).
+          // Total $ de la máquina en el rango de fechas seleccionado, con precio EFECTIVO por
+          // ronda (congelado si existe, si no el actual — igual que amountByMachine/PDF/cierre).
+          // Antes usaba SIEMPRE el precio ACTUAL de la máquina (`m.price_per_hour`) para todo
+          // el bloque, así que si alguna jornada ya tenía precio congelado distinto, el monto
+          // de esta tarjeta no coincidía con el del PDF Resumen ni con el del cierre archivado.
           const wPrice = m.price_per_hour != null ? Number(m.price_per_hour) : null;
-          const weekAmount = wPrice != null ? (weekWorked / 12) * wPrice : null;
+          const weekAmountRaw = amountByMachine.get(m.id) ?? 0;
+          const weekAmount = wPrice != null || weekAmountRaw > 0 ? weekAmountRaw : null;
           const usdMach = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
           return (
             <Card key={m.id}>
@@ -1803,7 +1862,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   </Text>
                   {averiadas.has(m.id) ? (
                     <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '900', marginTop: 2 }}>
-                      🔴 MÁQUINA PARADA (avería)
+                      {averiaTipo[m.id] === 'parada' ? '🟡 MÁQUINA PARADA' : '🔴 AVERIADA'}
                     </Text>
                   ) : null}
                   {m.operational === false ? (

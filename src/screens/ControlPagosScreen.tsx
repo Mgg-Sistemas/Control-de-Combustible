@@ -824,7 +824,7 @@ export default function ControlPagosScreen({ navigation }: any) {
   const openTipoReport = async () => {
     const [{ data: mach }, rnds] = await Promise.all([
       supabase.from('machinery').select('id, code, serial, tipo, entry_date, price_per_hour, company:company_id(id, name)'),
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours'),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours, frozen_price'),
     ]);
     const machById = new Map<string, any>();
     (mach ?? []).forEach((m: any) => machById.set(m.id, m));
@@ -832,13 +832,23 @@ export default function ControlPagosScreen({ navigation }: any) {
     const byMD = new Map<string, any>();
     (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
 
-    type Period = { key: string; label: string; end: string; order: number; companies: Map<string, Map<string, Map<string, number>>> };
+    // Precio EFECTIVO por ronda (congelado si existe, si no el actual) — mismo criterio
+    // que la sección COTEJO de esta pantalla y `ReportsScreen.tsx`. Antes este reporte
+    // calculaba el monto con el precio ACTUAL sobre el total de horas ya sumado, así que
+    // una máquina con jornadas congeladas a otro precio salía con un monto distinto al
+    // de COTEJO/Informe por jornada para el mismo período.
+    const effectivePrice = (m: any, ownFrozen: any) => {
+      if (ownFrozen != null && Number(ownFrozen) > 0) return Number(ownFrozen);
+      return m.price_per_hour != null ? Number(m.price_per_hour) : 0;
+    };
+    type Period = { key: string; label: string; end: string; order: number; companies: Map<string, Map<string, Map<string, { worked: number; amount: number }>>> };
     const periods = new Map<string, Period>();
     for (const r of byMD.values()) {
       const m = machById.get(r.machinery_id);
       if (!m) continue;
       const worked = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
       if (worked <= 0) continue;
+      const amount = round2((worked / 12) * effectivePrice(m, r.frozen_price));
       let key: string, label: string, end: string, order: number;
       if (r.round_date <= CUTOFF_APARTADO) {
         key = '__apartado__'; label = 'Fecha de llegada → 05/07/2026'; end = CUTOFF_APARTADO; order = 0;
@@ -848,10 +858,12 @@ export default function ControlPagosScreen({ navigation }: any) {
       }
       const p = periods.get(key) ?? { key, label, end, order, companies: new Map() };
       const cname = m.company?.name ?? 'Sin empresa';
-      const comp = p.companies.get(cname) ?? new Map<string, Map<string, number>>();
+      const comp = p.companies.get(cname) ?? new Map<string, Map<string, { worked: number; amount: number }>>();
       const tkey = m.tipo && String(m.tipo).trim() ? String(m.tipo).trim().toUpperCase() : 'SIN MARCA/MODELO';
-      const tmap = comp.get(tkey) ?? new Map<string, number>();
-      tmap.set(m.id, (tmap.get(m.id) ?? 0) + worked);
+      const tmap = comp.get(tkey) ?? new Map<string, { worked: number; amount: number }>();
+      const acc = tmap.get(m.id) ?? { worked: 0, amount: 0 };
+      acc.worked += worked; acc.amount += amount;
+      tmap.set(m.id, acc);
       comp.set(tkey, tmap);
       p.companies.set(cname, comp);
       periods.set(key, p);
@@ -879,10 +891,8 @@ export default function ControlPagosScreen({ navigation }: any) {
                 let tW = 0;
                 let tA = 0;
                 const ms = [...tmap.entries()]
-                  .map(([mid, worked]) => {
+                  .map(([mid, { worked, amount }]) => {
                     const m = machById.get(mid);
-                    const price = m.price_per_hour != null ? Number(m.price_per_hour) : 0;
-                    const amount = round2((worked / 12) * price);
                     tW += worked; tA += amount;
                     const entry = m.entry_date || null;
                     if (entry && (!earliest || entry < earliest)) earliest = entry;
