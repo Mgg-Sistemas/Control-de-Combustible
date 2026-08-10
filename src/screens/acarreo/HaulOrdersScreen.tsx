@@ -16,7 +16,7 @@ import { exportConsolidado } from '../../lib/guides/haulPdf';
 import HaulOrderForm, { HaulRefs } from './HaulOrderForm';
 import HaulOrderDetail from './HaulOrderDetail';
 import {
-  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, HaulTariff, Machinery,
+  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, HaulTariff, Machinery, Company,
 } from '../../types/database';
 
 const FILTERS: { key: string; label: string }[] = [
@@ -41,8 +41,9 @@ export default function HaulOrdersScreen() {
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: docs } = useTable<HaulDocument>('haul_documents', { orderBy: 'expires_at' });
   const { data: tariffs } = useTable<HaulTariff>('haul_tariffs', { orderBy: 'created_at', ascending: false });
+  const { data: companies } = useTable<Company>('companies', { select: 'id, name', orderBy: 'name' });
 
-  const refs: HaulRefs = { clients, locations, trucks, trailers, drivers, machinery, docs, orders, tariffs };
+  const refs: HaulRefs = { clients, locations, trucks, trailers, drivers, machinery, docs, orders, tariffs, companies };
 
   const [filter, setFilter] = useState('todos');
   const [q, setQ] = useState('');
