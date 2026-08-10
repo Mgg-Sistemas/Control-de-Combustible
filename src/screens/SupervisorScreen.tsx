@@ -40,6 +40,17 @@ import InspectorSearchBar from '../components/redesign/InspectorSearchBar';
 import CoordinadorInspectoresView from '../components/CoordinadorInspectoresView';
 
 const CARACAS_TZ = 'America/Caracas';
+// Umbral mínimo defensivo (MISMO criterio que `MIN_WORKED_HOURS` en
+// `inspectorDaySets.ts` y que la copia ya alineada en `SupervisionScreen.tsx`):
+// un round con `round_date` mal calculado por cruce de medianoche del turno
+// NOCHE (BUG 10-ago-2026, ver `businessRoundDateOf` en `caracasDay.ts`) puede
+// dejar un residuo mínimo de horas (~0.02h) pegado al round de HOY. Sin este
+// umbral, `hoursMine`/`hoursEn` (y por lo tanto `segmentoDe`/`segmentoConTurno`)
+// contaban ese residuo como "finalizó la jornada" y el círculo del teléfono
+// mostraba 🏁 Finalizada en un turno que en realidad todavía no había
+// arrancado — mientras la PC (ya con este mismo umbral) mostraba correctamente
+// "pendiente". 0.05h (3 min) está muy por debajo de cualquier jornada real.
+const MIN_WORKED_HOURS = 0.05;
 /** Día ISO (AAAA-MM-DD) de hoy en horario de Caracas. */
 function caracasToday(): string {
   const p: any = new Intl.DateTimeFormat('en-CA', { timeZone: CARACAS_TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -914,9 +925,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const hoursMine = (id: string): boolean => {
     const r = roundsById[id]; if (!r) return false;
     const sh = shiftOfMine(id);
-    if (sh === 'day') return r.dayWorked > 0;
-    if (sh === 'night') return r.nightWorked > 0;
-    return r.worked > 0;
+    if (sh === 'day') return r.dayWorked > MIN_WORKED_HOURS;
+    if (sh === 'night') return r.nightWorked > MIN_WORKED_HOURS;
+    return r.worked > MIN_WORKED_HOURS;
   };
   const openEn = (id: string, sh: 'day' | 'night'): boolean => {
     const r = roundsById[id]; if (!r) return false;
@@ -924,7 +935,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   };
   const hoursEn = (id: string, sh: 'day' | 'night'): boolean => {
     const r = roundsById[id]; if (!r) return false;
-    return sh === 'day' ? r.dayWorked > 0 : r.nightWorked > 0;
+    return sh === 'day' ? r.dayWorked > MIN_WORKED_HOURS : r.nightWorked > MIN_WORKED_HOURS;
   };
   // ÍNDICE O(1) de averías/paradas por máquina y turno. RENDIMIENTO: antes `segmentoDe`
   // hacía hasta 4 `.some()` sobre averiaRawList/paradaRawList por CADA llamada, y se llama
