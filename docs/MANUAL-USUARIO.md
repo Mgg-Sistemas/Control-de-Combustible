@@ -2061,8 +2061,22 @@ puede marcar "Forzar guardado". Los avisos amarillos (vencimientos, solapamiento
 
 **Estados del viaje:** Programado → En carga → En tránsito → En descarga → **Completado** (o
 **Cancelado** con motivo). Desde el detalle de la orden se avanza el estado y cada cambio queda en
-la **bitácora**. (El check-in/out con fotos y firma, el módulo financiero y los reportes en PDF
-llegan en las fases siguientes.)
+la **bitácora**.
+
+### 4.27c. Ejecución del viaje (check-in / check-out)
+
+Desde el **detalle de la orden**, según el estado, aparece la acción que toca:
+
+- **📦 En carga → Check-in de salida:** nivel de combustible, cauchos y fajas/cadenas de amarre OK,
+  observaciones y **fotos "antes"/"amarre"**. Al guardar, la orden pasa a **EN TRÁNSITO**.
+- **🚚 En tránsito:** registrar **incidencias** en ruta (mecánica, clima, permiso, alcabala). El
+  botón **"Llegó"** la pasa a **EN DESCARGA**.
+- **📥 En descarga → Check-out de recepción:** estado de la maquinaria a la llegada, **fotos
+  "después"** y **FIRMA** (nombre de quien recibe + foto de la firma/recepción). Al confirmar, la
+  orden queda **COMPLETADA**.
+
+Cada inspección, foto e incidencia queda guardada en la orden. (El módulo financiero y los reportes
+en PDF llegan en las fases siguientes.)
 
 ---
 
