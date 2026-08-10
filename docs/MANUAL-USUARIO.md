@@ -539,20 +539,20 @@ siempre) y **🧰 Otras entregas / herramientas** (nueva, 05/08/2026 — ver má
 1. Verás el **listado de empleados** agrupado por empresa (con **Activos / Todos** y un
    **buscador** por nombre, cédula o cargo).
 2. **Toca un empleado**: se abre para cargar su **👕 talla de camisa**, **👖 talla de
-   pantalón** y **👟 talla de zapatos**. Guarda.
+   pantalón**, **👟 talla de zapatos**, **🦺 talla de braga** y **🧥 talla de chaqueta**. Guarda.
 3. Las tallas quedan en la ficha del empleado (se ven como etiquetas en cada tarjeta).
 4. En ese mismo empleado, sección **📦 Registrar entrega**: escribe cuántas **👕 camisas**,
-   **👖 pantalones** y **👟 zapatos** le entregas ahora y toca **"📦 Registrar entrega"**. La
+   **👖 pantalones**, **👟 zapatos**, **🦺 bragas** y **🧥 chaquetas** le entregas ahora y toca **"📦 Registrar entrega"**. La
    **fecha y la hora** se guardan solas. Puedes registrar **varias entregas**: se acumulan y ves
    el **total entregado** y el **historial** (con fecha y hora de cada una). Cada tarjeta muestra
    un badge **📦 Entregado** con el total de prendas recibidas.
 5. Toca **"⬇️ Listado (tallas)"**: genera un **PDF** con los empleados mostrados, sus tallas y
    una columna de **FIRMA (Recibido / Entregado)** para firmar al recibir el uniforme.
 6. Toca **"📦 Reporte de entregas"**: genera un **PDF** por persona con **cada entrega** (su
-   **fecha y hora**) y el **total** de camisas, pantalones y zapatos entregados.
+   **fecha y hora**) y el **total** de camisas, pantalones, zapatos, bragas y chaquetas entregados.
 7. **Al final** del listado de tallas (en pantalla y en el PDF) sale un **📊 Resumen por tallas**:
-   cuántas **camisas** hay de cada talla (M, S, L…), y lo mismo para **pantalones** y **botas de
-   seguridad**, con el total de personas con talla cargada. Sirve para saber cuántas piezas pedir.
+   cuántas **camisas** hay de cada talla (M, S, L…), y lo mismo para **pantalones**, **botas de
+   seguridad**, **bragas** y **chaquetas**, con el total de personas con talla cargada. Sirve para saber cuántas piezas pedir.
 
 > Los PDF respetan el filtro y la búsqueda: incluyen exactamente los empleados que estás viendo.
 > **Talla** = el número/letra de cada prenda; **Entrega** = cuántas piezas se le han dado (con su

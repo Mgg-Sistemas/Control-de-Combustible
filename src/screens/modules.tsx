@@ -55,7 +55,7 @@ export function TanksScreen() {
         // Encargado a cargo del tanque (se muestra en la pantalla de Tanques).
         { key: 'responsable', label: 'Responsable / encargado', type: 'text' },
         // Vínculo con la CISTERNA del catálogo (camión cisterna) y su CHOFER.
-        { key: 'machinery_id', label: 'Cisterna del catálogo (opcional)', type: 'lookup', table: 'machinery', labelCol: 'code' },
+        { key: 'machinery_id', label: 'Cisterna del catálogo (opcional)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'] },
         { key: 'chofer', label: 'Chofer de la cisterna', type: 'text' },
       ]}
       renderItem={(t) => (
@@ -215,7 +215,7 @@ export function DispatchesScreen() {
           { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
           // Sin createColumn: se ELIGE una máquina existente (no se crea al vuelo) para
           // no fragmentar el consumo en códigos duplicados. El buscador sigue disponible.
-          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
           { key: 'liters', label: 'Litros', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },

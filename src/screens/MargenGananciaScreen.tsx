@@ -16,6 +16,7 @@ type Mach = {
   id: string;
   code: string;
   serial: string | null;
+  plate: string | null;
   tipo: string | null;
   company: string;
   cost: number | null;   // costo inicial
@@ -54,12 +55,13 @@ export default function MargenGananciaScreen() {
     setLoading(true);
     const rows = await selectAllRows(
       'machinery',
-      'id, code, serial, tipo, initial_cost, useful_value, company:company_id(id, name)'
+      'id, code, serial, plate, tipo, initial_cost, useful_value, company:company_id(id, name)'
     );
     const list: Mach[] = (rows ?? []).map((m: any) => ({
       id: m.id,
       code: m.code ?? '—',
       serial: m.serial ?? null,
+      plate: m.plate ?? null,
       tipo: m.tipo ?? null,
       company: m.company?.name ?? 'Sin empresa',
       cost: m.initial_cost != null ? Number(m.initial_cost) : null,
@@ -87,7 +89,8 @@ export default function MargenGananciaScreen() {
     const q = norm(query.trim());
     const byCompany = new Map<string, Mach[]>();
     machines.forEach((m) => {
-      if (q && !norm(m.company).includes(q) && !norm(m.code).includes(q)) return;
+      // Busca por cualquier característica: empresa, código, serial, placa, modelo.
+      if (q && ![m.company, m.code, m.serial, m.plate, m.tipo].some((v) => norm(v).includes(q))) return;
       const arr = byCompany.get(m.company) ?? [];
       arr.push(m);
       byCompany.set(m.company, arr);
@@ -190,7 +193,7 @@ export default function MargenGananciaScreen() {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar empresa o máquina…"
+        placeholder="🔎 Buscar por empresa, código, serial, placa o modelo…"
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginTop: spacing.sm, marginBottom: spacing.sm }}
       />
@@ -227,7 +230,7 @@ export default function MargenGananciaScreen() {
                   <Card key={m.id}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>
-                        {m.code}{m.serial ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.serial}</Text> : null}
+                        {m.code}{(m.plate || m.serial) ? <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '400' }}>  ·  {m.plate ? `Placa ${m.plate}` : `Serial ${m.serial}`}</Text> : null}
                       </Text>
                       <Text style={{ color: p == null ? colors.muted : p >= 0 ? colors.success : colors.danger, fontWeight: '800', fontSize: 15, fontVariant: ['tabular-nums'] as any }}>{pctStr(p)}</Text>
                     </View>

@@ -124,7 +124,7 @@ export default function DispatchesPilot() {
           // de verdad. Uno CREADO aquí mismo (createColumn) no entra en esta regla:
           // nace con en_espera=false (default de la columna), porque se está usando ya.
           { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+          { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
           { key: 'liters', label: 'Litros', type: 'number', required: true },
           { key: 'odometer_km', label: 'Odómetro (km)', type: 'number' },
           { key: 'hourmeter_h', label: 'Horómetro (h)', type: 'number' },

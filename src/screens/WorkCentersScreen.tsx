@@ -98,7 +98,7 @@ export default function WorkCentersScreen() {
       ],
     },
     {
-      key: 'machinery_id', label: 'Máquina asociada', type: 'lookup', table: 'machinery', labelCol: 'code',
+      key: 'machinery_id', label: 'Máquina asociada', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'],
       dropdown: true, showIf: (v) => v.type === 'maquina',
     },
     { key: 'capacity_units_per_hour', label: 'Capacidad (unidades/hora)', type: 'number' },

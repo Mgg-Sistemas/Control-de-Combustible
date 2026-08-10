@@ -22,7 +22,7 @@ const FIELDS: Field[] = [
   { key: 'asset_kind', label: 'Tipo de activo', type: 'select', options: ASSET_OPTIONS, required: true },
   // Sin las que están "Esperando instrucciones" — no se decide aún si se van a usar.
   { key: 'vehicle_id', label: 'Vehículo (placa)', type: 'lookup', table: 'vehicles', labelCol: 'plate', createColumn: 'plate', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'vehiculo' },
-  { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', createColumn: 'code', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
+  { key: 'machinery_id', label: 'Maquinaria (código)', type: 'lookup', table: 'machinery', labelCol: 'code', subLabelCols: ['serial', 'plate'], createColumn: 'code', filter: { en_espera: false }, required: true, showIf: (v) => v.asset_kind === 'maquinaria' },
   { key: 'tank_id', label: 'Tanque de origen', type: 'lookup', table: 'tanks', labelCol: 'name', required: true },
   { key: 'liters', label: 'Litros solicitados', type: 'number', required: true },
   { key: 'reason', label: 'Motivo', type: 'text' },
