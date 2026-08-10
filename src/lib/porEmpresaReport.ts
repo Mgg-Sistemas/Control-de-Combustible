@@ -1,7 +1,7 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText } from './text';
-import { turnoH, workedFromShifts } from './hours';
+import { workedFromShifts } from './hours';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
@@ -36,11 +36,12 @@ const horaCaracas = (iso: string | null): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(iso)); } catch { return '—'; }
 };
 
+type Grupo = 'activa' | 'averia' | 'inactiva';
 type Fila = {
-  inactiva: boolean;
+  grupo: Grupo;
   code: string; modelo: string; serialPlaca: string; inspector: string;
-  horaIni: string; horaFin: string; trabajadas: number; paradasDia: number; paradasNoche: number; averia: string;
-  timeline: string;
+  // Horario por turno: DÍA (7am→7pm) y NOCHE (7pm→7am). "—" si no trabajó ese turno.
+  diaIni: string; diaFin: string; nocheIni: string; nocheFin: string;
 };
 
 /**
@@ -313,12 +314,14 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     return parts.length ? parts.join(' · ') : '—';
   };
 
-  // Totales GLOBALES por turno (solo de las máquinas que SÍ se reportan). Las horas de
-  // día = day_hours (+ extra); las de noche = night_hours. Las paradas se reparten por el
-  // turno donde trabajó la máquina (si trabajó día y noche, proporcional) para que
-  // Σparadas_día + Σparadas_noche = Σparadas (coincide con el total de la columna).
-  let totDayH = 0, totNightH = 0, totParDay = 0, totParNight = 0;
-  // Por empresa → filas (solo máquinas con actividad o avería/parada ese día).
+  // Totales GLOBALES por turno (solo de las máquinas ACTIVAS que trabajaron). Día = dd,
+  // noche = nn (horas reales, con anclaje de inicio de turno). Las averiadas/paradas van
+  // en su propio grupo marcadas en 0 y NO suman a estos totales.
+  let totDayH = 0, totNightH = 0;
+  const HORA_DIA_INI = '07:00 a. m.', HORA_DIA_FIN = '07:00 p. m.';
+  const HORA_NOCHE_INI = '07:00 p. m.', HORA_NOCHE_FIN = '07:00 a. m.';
+  const nowHora = horaCaracas(new Date(nowMs).toISOString());
+  // Por empresa → filas.
   const porEmpresa = new Map<string, Fila[]>();
   ids.forEach((id) => {
     const m = machById.get(id);
@@ -334,7 +337,6 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     // Control — pero NO en la vista de inspectores ni en el reporte por inspector.
     const inactiva = m?.active === false || m?.operational === false;
     const r = roundBy.get(id);
-    const seg = segBy.get(id);
     // Horas de turno crudas (día/noche/parada/extra) de la ronda — MISMA fuente que el
     // Informe por jornada. Las horas trabajadas se calculan con `workedFromShifts` (la
     // fórmula canónica compartida) para que AMBOS reportes COINCIDAN: ceil(día)+ceil(noche)
@@ -362,48 +364,33 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     if (inactiva) { dd = 0; nn = 0; }
     // Horas trabajadas = workedFromShifts (misma fórmula que Informe/Pagos/Control) → cuadra.
     const trab = inactiva ? 0 : workedFromShifts(dd, nn, sRaw, oRaw);
-    // Desglose por turno (redondeado hacia arriba) para las tarjetas de totales.
-    const dh = inactiva ? 0 : turnoH(dd);
-    const nh = inactiva ? 0 : turnoH(nn);
-    // Horas paradas totales (fallback sin episodios) + reparto día/noche por episodio.
-    let par = 0;
-    if (seg && seg.minStart !== Infinity && seg.maxEnd !== -Infinity) {
-      const spanH = (seg.maxEnd - seg.minStart) / 3600000;
-      par = Math.max(0, n2(spanH - seg.sum));
-    } else {
-      par = n2(Number(r?.hours_stopped) || 0);
-    }
-    if (siempreActivoIds.has(id)) par = 0; // SOS LA GUAIRA: horas paradas cuentan como trabajadas
-    const epSplit = paradasDiaNoche(id);
-    const hadEps = (paradasByMachine.get(id)?.length ?? 0) > 0;
-    // Si la máquina TUVO episodios de parada (aunque queden en 0 por reactivación), se usa
-    // el desglose por episodio; el fallback (span/hours_stopped) solo aplica cuando NO hubo
-    // ningún episodio registrado — así una máquina reactivada no "resucita" horas paradas.
-    // Inactiva: sin paradas (0) — está fuera de servicio, no en jornada.
-    const paradasDia = inactiva ? 0 : n2(hadEps ? epSplit.dia : Math.min(12, par));
-    const paradasNoche = inactiva ? 0 : n2(hadEps ? epSplit.noche : 0);
-    const horaIni = seg && seg.minStart !== Infinity ? horaCaracas(new Date(seg.minStart).toISOString()) : '—';
-    const horaFin = seg && seg.maxEnd !== -Infinity ? horaCaracas(new Date(seg.maxEnd).toISOString()) : '—';
-    const averiaBase = averiaTxt(id);
-    // Las ACTIVAS solo se listan si TRABAJARON (horas > 0). Una máquina PARADA o AVERIADA
-    // que no trabajó NO se toma en cuenta en este reporte (pedido del cliente) — mismo
-    // criterio que el Informe por jornada (`if (totalH <= 0) return`), por eso coinciden.
-    // Las INACTIVAS (fuera de servicio) sí aparecen aparte con su estado 🚫 INACTIVA.
-    if (!inactiva && trab <= 0) return;
-    totDayH = n2(totDayH + dh); totNightH = n2(totNightH + nh);
-    totParDay = n2(totParDay + paradasDia); totParNight = n2(totParNight + paradasNoche);
-    const averia = inactiva ? (averiaBase ? `🚫 INACTIVA · ${averiaBase}` : '🚫 INACTIVA') : averiaBase;
+    const averiaBase = averiaTxt(id); // '' si es SOS "siempre activo"
+    // CLASIFICACIÓN en 3 grupos:
+    //  · inactiva  → fuera de servicio (⛔ del catálogo).
+    //  · averia    → averiada/parada que NO trabajó (trab<=0 con avería/parada); se marca en 0.
+    //  · activa    → trabajó (trab>0).
+    // Una máquina sin actividad y SIN avería (pendiente pura) no se lista.
+    const esAveria = !inactiva && trab <= 0 && !!averiaBase;
+    if (!inactiva && trab <= 0 && !esAveria) return;
+    const grupo: Grupo = inactiva ? 'inactiva' : esAveria ? 'averia' : 'activa';
+    // Solo las ACTIVAS muestran horario y suman a los totales; las demás van en 0.
+    const ddAct = grupo === 'activa' ? dd : 0;
+    const nnAct = grupo === 'activa' ? nn : 0;
+    const dayOpen = isToday && jShift === 'day' && jStart != null && jStartHoy;
+    const nightOpen = isToday && jShift === 'night' && jStart != null && jStartHoy;
+    totDayH = n2(totDayH + ddAct); totNightH = n2(totNightH + nnAct);
     const fila: Fila = {
-      inactiva,
+      grupo,
       code: m?.code || '—',
       modelo: (m?.tipo && String(m.tipo).trim()) || '—',
       serialPlaca: m?.serial || m?.plate || '—',
       inspector: inspTxt(id),
-      horaIni, horaFin,
-      // Horas trabajadas REALES sin redondear (pedido cliente 09/08/2026: dejarlas como
-      // aparecen). Misma fórmula que el informe (workedFromShifts).
-      trabajadas: n2(trab), paradasDia, paradasNoche, averia,
-      timeline: buildTimeline(id),
+      // Horario DÍA (7am→7pm) y NOCHE (7pm→7am). Si la jornada de ese turno sigue ABIERTA
+      // hoy, el FIN muestra la hora actual (en curso); si ya cerró, el fin del turno.
+      diaIni: ddAct > 0 ? HORA_DIA_INI : '—',
+      diaFin: ddAct > 0 ? (dayOpen ? nowHora : HORA_DIA_FIN) : '—',
+      nocheIni: nnAct > 0 ? HORA_NOCHE_INI : '—',
+      nocheFin: nnAct > 0 ? (nightOpen ? nowHora : HORA_NOCHE_FIN) : '—',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
     porEmpresa.get(empresa)!.push(fila);
@@ -411,62 +398,51 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   const empresas = Array.from(porEmpresa.entries()).sort((a, b) => cmpText(a[0], b[0]));
 
-  // Tabla de un GRUPO (activas o inactivas) con su fila de TOTAL etiquetada.
-  const tabla = (filas: Fila[], totalLabel: string): string => {
+  // Tabla de un GRUPO con columnas: Nº · Máquina · Modelo/Marca · Serial/Placa ·
+  // Inspector · Horario DÍA (inicio arriba / fin abajo) · Horario NOCHE (idem).
+  const tabla = (filas: Fila[]): string => {
+    const cls = (g: Grupo) => g === 'inactiva' ? ' class="inact"' : g === 'averia' ? ' class="aver"' : '';
     const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) =>
-      `<tr${f.inactiva ? ' class="inact"' : ''}>
+      `<tr${cls(f.grupo)}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
-        <td class="r b">${f.trabajadas}</td>
-        <td class="r${f.paradasDia > 0 ? ' par' : ''}">${f.paradasDia > 0 ? `☀️ ${f.paradasDia}` : '—'}</td>
-        <td class="r${f.paradasNoche > 0 ? ' par' : ''}">${f.paradasNoche > 0 ? `🌙 ${f.paradasNoche}` : '—'}</td>
-        <td>${esc(dash(f.averia))}</td>
+        <td class="hr"><div class="ini">${esc(f.diaIni)}</div><div class="fin">${esc(f.diaFin)}</div></td>
+        <td class="hr"><div class="ini">${esc(f.nocheIni)}</div><div class="fin">${esc(f.nocheFin)}</div></td>
       </tr>`).join('');
-    const tTrab = n2(filas.reduce((s, f) => s + f.trabajadas, 0));
-    const tParDia = n2(filas.reduce((s, f) => s + f.paradasDia, 0));
-    const tParNoche = n2(filas.reduce((s, f) => s + f.paradasNoche, 0));
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Serial/Placa</th><th>Inspector asignado</th>
-      <th class="r">Horas trab.</th><th class="r">Paradas día</th><th class="r">Paradas noche</th><th>Avería / motivo</th>
-    </tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="5">${totalLabel} · ${filas.length} equipo(s)</td><td class="r ok">${tTrab}</td><td class="r${tParDia > 0 ? ' par' : ''}">${tParDia > 0 ? `☀️ ${tParDia}` : '—'}</td><td class="r${tParNoche > 0 ? ' par' : ''}">${tParNoche > 0 ? `🌙 ${tParNoche}` : '—'}</td><td></td></tr></tfoot></table>`;
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo / Marca</th><th>Serial/Placa</th><th>Inspector asignado</th>
+      <th>Horario DÍA<br><span class="sub">inicio · fin</span></th><th>Horario NOCHE<br><span class="sub">inicio · fin</span></th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
   };
 
-  // Por empresa: PRIMERO las activas (con "Total activas"), luego, aparte, las
-  // inactivas agrupadas (con "Total inactivas"). Si no hay inactivas, no se muestra
-  // ese bloque.
+  // Por empresa: ACTIVAS, luego AVERIADAS/PARADAS (agrupadas, en 0), luego INACTIVAS.
   const secciones = empresas.map(([name, filas]) => {
-    const activas = filas.filter((f) => !f.inactiva);
-    const inactivas = filas.filter((f) => f.inactiva);
+    const activas = filas.filter((f) => f.grupo === 'activa');
+    const averias = filas.filter((f) => f.grupo === 'averia');
+    const inactivas = filas.filter((f) => f.grupo === 'inactiva');
     let out = `<h3>🏢 ${esc(name)} · ${filas.length} máquina(s)</h3>`;
     out += `<div class="grp grp-ok">✅ Activas · ${activas.length}</div>`;
-    out += activas.length ? tabla(activas, 'Total activas') : '<p class="vacio">Sin máquinas activas con actividad este día.</p>';
+    out += activas.length ? tabla(activas) : '<p class="vacio">Sin máquinas activas este día.</p>';
+    if (averias.length) {
+      out += `<div class="grp grp-aver">🔴 Averiadas / Paradas (en 0) · ${averias.length}</div>`;
+      out += tabla(averias);
+    }
     if (inactivas.length) {
       out += `<div class="grp grp-inact">🚫 Inactivas · ${inactivas.length}</div>`;
-      out += tabla(inactivas, 'Total inactivas');
+      out += tabla(inactivas);
     }
     return out;
   }).join('');
 
   const totMach = empresas.reduce((s, [, f]) => s + f.length, 0);
-  const totTrab = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.trabajadas, 0), 0));
-  const totParDia = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasDia, 0), 0));
-  const totParNoche = n2(empresas.reduce((s, [, f]) => s + f.reduce((x, y) => x + y.paradasNoche, 0), 0));
 
-  // TOTAL DE JORNADA = solo el total de horas ACTIVAS (trabajadas). NO se le restan las
-  // paradas (pedido del cliente): antes daba negativo cuando las paradas en vivo eran
-  // grandes. Las paradas se ven aparte en sus propias tarjetas.
-  const totJornada = totTrab;
-  // Tarjetas de TOTALES arriba: HRS DÍA · PARADAS DÍA · HRS NOCHE · PARADA NOCHE · JORNADA.
+  // Tarjetas de TOTALES arriba: TOTAL HORAS DÍA · TOTAL HORAS NOCHE · TOTAL DE JORNADA.
   const kpis = `
     <div class="kpis">
-      <div class="kpi"><div class="k">Total hrs día</div><div class="v">${totDayH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">☀️ ${totParDay > 0 ? totParDay : '0'} H</div></div>
-      <div class="kpi"><div class="k">Total hrs noche</div><div class="v">${totNightH} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">🌙 ${totParNight > 0 ? totParNight : '0'} H</div></div>
-      <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${totJornada} H</div></div>
-    </div>
-    <div class="kpi-note">Horas trabajadas = día + noche − paradas + extras (horas REALES, sin redondear; las paradas SÍ se descuentan; una máquina parada que no trabajó queda en 0). Misma fórmula que el <b>Informe por jornada</b> → ambos reportes coinciden. La jornada abierta cuenta desde el inicio de su turno (día 7am · noche 7pm). Total de jornada = total de horas trabajadas. · ⏱️ Horas EN VIVO al momento de generar.</div>`;
+      <div class="kpi"><div class="k">Total horas día</div><div class="v">${n2(totDayH)} H</div></div>
+      <div class="kpi"><div class="k">Total horas noche</div><div class="v">${n2(totNightH)} H</div></div>
+      <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${n2(totDayH + totNightH)} H</div></div>
+    </div>`;
 
   const extraCss = `
     /* Orientación HORIZONTAL (se aprecian mejor los textos largos). Mantiene el
@@ -478,24 +454,25 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     table.ir th{background:#1E3A5F;color:#fff}
     td.r,th.r{text-align:right} td.b{font-weight:800}
     td.ok{color:#067647;font-weight:800}
-    td.par{color:#B42318;font-weight:700}
-    table.ir tr.inact td.par{color:#B42318}
+    /* Horario por turno: inicio arriba (negro) y fin abajo (gris). */
+    td.hr{white-space:nowrap} td.hr .ini{font-weight:700} td.hr .fin{color:#6B7280;font-size:10px}
+    th .sub{font-weight:400;font-size:8.5px;opacity:.85}
+    table.ir tr.aver td{color:#B42318;background:#FEF3F2}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
     .grp{margin:10px 0 2px;font-size:11px;font-weight:800;letter-spacing:.4px;padding:3px 8px;border-radius:6px;display:inline-block}
     .grp-ok{color:#067647;background:#ECFDF3;border:1px solid #ABEFC6}
+    .grp-aver{color:#B42318;background:#FEF3F2;border:1px solid #FECDCA}
     .grp-inact{color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB}
     .vacio{font-size:10.5px;color:#9CA3AF;margin:2px 0 10px}
-    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
+    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
     .kpi{flex:1;min-width:120px;border:1px solid #E5E7EB;border-radius:10px;padding:9px 12px;background:#F8FAFC}
     .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
     .kpi .v{font-size:20px;font-weight:800;color:#1E3A5F;margin-top:2px}
-    .kpi.warn{background:#FEF3F2;border-color:#FECDCA} .kpi.warn .v{color:#B42318}
     .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
-    .kpi-note{font-size:10px;color:#6B7280;margin:0 0 12px}
   `;
 
   const filtroEnc = encargados.length ? ` · 👤 ${encargados.length} encargado(s): ${encargados.join(', ')}` : '';
-  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
+  const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · ☀️ ${n2(totDayH)} h día · 🌙 ${n2(totNightH)} h noche`;
 
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',
