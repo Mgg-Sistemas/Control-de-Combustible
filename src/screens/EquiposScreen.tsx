@@ -538,7 +538,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     const s = route?.params?.status;
     if (!s) return;
     setKind('maquinaria');
-    setDetailStatus(s === 'averiada' ? 'averiada' : s === 'retirada' || s === 'inactive' ? 'retirada' : 'active');
+    setDetailStatus(s === 'averiada' ? 'averiada' : s === 'espera' ? 'espera' : s === 'retirada' || s === 'inactive' ? 'retirada' : 'active');
     navigation.setParams?.({ status: undefined }); // evita reabrir al volver
   }, [route?.params?.status]);
 

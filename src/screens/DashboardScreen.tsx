@@ -88,7 +88,7 @@ export default function DashboardScreen({ navigation }: any) {
   const [showActive, setShowActive] = useState(false);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
-  const [states, setStates] = useState<{ op: number; ave: number; ret: number } | null>(null);
+  const [states, setStates] = useState<{ op: number; ave: number; ret: number; esp: number } | null>(null);
 
   // Gráfica de ingreso por empresa + modo (día / mes / año).
   const [chartMode, setChartMode] = useState<'dia' | 'mes' | 'anio'>('mes');
@@ -129,18 +129,20 @@ export default function DashboardScreen({ navigation }: any) {
       setActiveByCompany([...map.values()].sort((a, b) => a.company.localeCompare(b.company, 'es')));
     } else setActiveByCompany([]);
     setActiveLocations(locCount ?? 0);
-    // Estado de la flota completa (3 cubos exclusivos que suman el total):
+    // Estado de la flota completa (4 cubos exclusivos que suman el total, igual que Equipos):
     //  · RETIRADAS: operational=false (sacadas de servicio).
+    //  · ESPERANDO INSTRUCCIONES: en_espera=true (cargadas pero sin decidir Operativa/Parada).
     //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
     //  · OPERATIVAS: el resto (operativas sin avería).
-    let op = 0, ave = 0, ret = 0, activas = 0;
+    let op = 0, ave = 0, ret = 0, esp = 0, activas = 0;
     (machs ?? []).forEach((m: any) => {
       if (m.operational === false) { ret++; return; }
       activas++;
+      if (m.en_espera) { esp++; return; } // esperando instrucciones (excluyente, antes de avería/operativa)
       if (averiaSet.has(m.id)) ave++;
       else op++;
     });
-    setStates({ op, ave, ret });
+    setStates({ op, ave, ret, esp });
     setActiveAssets(activas + (vehCount ?? 0));
   }, []);
 
@@ -258,6 +260,7 @@ export default function DashboardScreen({ navigation }: any) {
           {([
             { key: 'active', n: states?.op, color: colors.success, label: '🟢 Operativas' },
             { key: 'averiada', n: states?.ave, color: colors.warning, label: '🔴 Averiadas' },
+            { key: 'espera', n: states?.esp, color: '#3B82F6', label: '🔵 Esperando instrucciones' },
             { key: 'retirada', n: states?.ret, color: colors.danger, label: '⬛ Retiradas' },
           ] as const).map((s) => (
             <TouchableOpacity
