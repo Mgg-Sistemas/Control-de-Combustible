@@ -443,6 +443,8 @@ export default function ReportsScreen({ route }: any) {
   const [mode, setMode] = useState<'fuel' | 'rounds' | 'fleet' | 'deploy' | 'camiones' | 'conteo' | 'inspeccion' | 'inspectores'>('fuel');
   // Turno del reporte de INSPECTORES (jornadas de inspección): Día / Noche / Ambos.
   const [inspShift, setInspShift] = useState<InspectorShift>('both');
+  // Agrupamiento del reporte de INSPECTORES: por Inspector (de siempre) o por Encargado.
+  const [inspGroupBy, setInspGroupBy] = useState<'inspector' | 'encargado'>('inspector');
   // Inspectores disponibles para el día/turno/empresas actuales (se recalcula dinámicamente,
   // con la MISMA agregación que usa el PDF, para que la lista siempre calce con lo que sale).
   const [inspAvailable, setInspAvailable] = useState<string[]>([]);
@@ -2117,6 +2119,33 @@ export default function ReportsScreen({ route }: any) {
               })}
             </View>
 
+            <Text style={[styles.lbl, { marginTop: spacing.sm }]}>Agrupar por</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+              {([
+                { v: 'inspector', label: '👷 Inspector' },
+                { v: 'encargado', label: '🧑‍🔧 Encargado' },
+              ] as const).map((g) => {
+                const on = inspGroupBy === g.v;
+                return (
+                  <TouchableOpacity
+                    key={g.v}
+                    onPress={() => setInspGroupBy(g.v)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: spacing.sm,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: on ? colors.brand : colors.border,
+                      backgroundColor: on ? colors.brand : colors.surfaceAlt,
+                    }}
+                  >
+                    <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{g.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             {/* Inspectores del turno elegido (checks, dinámico según día/turno/empresa) */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm }}>
               <Text style={{ color: colors.muted, fontSize: 12 }}>Inspectores (marca uno o varios)</Text>
@@ -2284,7 +2313,7 @@ export default function ReportsScreen({ route }: any) {
               : mode === 'inspeccion'
               ? generateInspeccion(from)
               : mode === 'inspectores'
-              ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies, inspectors: inspSelected }); } finally { setLoading(false); } })()
+              ? (async () => { setLoading(true); try { await generateInspectorReport({ date: from, shift: inspShift, companies: repCompanies, inspectors: inspSelected, groupBy: inspGroupBy }); } finally { setLoading(false); } })()
               : generateCamiones()
           }
           disabled={loading}
