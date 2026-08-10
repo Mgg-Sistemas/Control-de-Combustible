@@ -6,7 +6,7 @@ import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { Screen, Card, SectionTitle, EmptyState, Loading } from '../../components/ui';
 import { RecordForm, Field } from '../../components/RecordForm';
 import { useTable } from '../../hooks/useTable';
-import { Machinery } from '../../types/database';
+import { Machinery, Company } from '../../types/database';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { norm, cmpText } from '../../lib/text';
@@ -30,18 +30,26 @@ const FIELDS: Field[] = [
 export default function HaulEquiposScreen() {
   const { colors } = useTheme();
   const { data, loading, refetch } = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
+  const { data: companies } = useTable<Company>('companies', { select: 'id, name', orderBy: 'name' });
   const [editing, setEditing] = useState<Machinery | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [q, setQ] = useState('');
 
+  const companyName = useMemo(() => {
+    const map = new Map<string, string>();
+    companies.forEach((c) => map.set(c.id, c.name));
+    return (id: string | null) => (id ? map.get(id) ?? '' : '');
+  }, [companies]);
+
   const shown = useMemo(() => {
     const nq = norm(q.trim());
     const activas = data.filter((m) => m.active !== false);
+    // Busca por cualquier característica: código, empresa, serial, placa, modelo, clasificación.
     const list = nq
-      ? activas.filter((m) => norm([m.code, m.serial, m.plate, m.tipo, m.clasificacion].filter(Boolean).join(' ')).includes(nq))
+      ? activas.filter((m) => norm([m.code, companyName(m.company_id), m.serial, m.plate, m.tipo, m.clasificacion].filter(Boolean).join(' ')).includes(nq))
       : activas;
     return [...list].sort((a, b) => cmpText(a.code, b.code));
-  }, [data, q]);
+  }, [data, q, companyName]);
 
   return (
     <Screen>
@@ -52,7 +60,7 @@ export default function HaulEquiposScreen() {
       <TextInput
         value={q}
         onChangeText={setQ}
-        placeholder="🔎 Buscar por código, serial, placa, modelo…"
+        placeholder="🔎 Buscar por código, empresa, serial, placa, modelo…"
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.md }}
       />
@@ -70,7 +78,7 @@ export default function HaulEquiposScreen() {
                 {m.transport_status ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>{'  · '}{TSTATUS[m.transport_status] ?? m.transport_status}</Text> : null}
               </Text>
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-                {[m.serial ? `Serial ${m.serial}` : null, m.plate ? `Placa ${m.plate}` : null, m.tipo].filter(Boolean).join(' · ') || 'Sin identificación'}
+                {[companyName(m.company_id) || null, m.plate ? `Placa ${m.plate}` : (m.serial ? `Serial ${m.serial}` : null), m.tipo].filter(Boolean).join(' · ') || 'Sin identificación'}
               </Text>
               <Text style={{ color: m.weight_ton != null ? colors.text : colors.muted, fontSize: 12, marginTop: 2 }}>
                 {m.weight_ton != null ? `⚖️ ${m.weight_ton} t` : '⚖️ Peso sin cargar'}
