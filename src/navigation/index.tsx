@@ -24,6 +24,7 @@ import MargenGananciaScreen from '../screens/MargenGananciaScreen';
 import MantenimientoMaquinariaScreen from '../screens/MantenimientoMaquinariaScreen';
 import RoleHomeScreen from '../screens/RoleHomeScreen';
 import OperadoresScreen from '../screens/OperadoresScreen';
+import CoordinadorOperadoresScreen from '../screens/CoordinadorOperadoresScreen';
 import EmpresasScreen from '../screens/EmpresasScreen';
 import OperatorScreen from '../screens/OperatorScreen';
 import SupervisorScreen from '../screens/SupervisorScreen';
@@ -214,6 +215,7 @@ function MoreStack() {
       <Stack.Screen name="MargenGanancia" component={MargenGananciaScreen} options={{ title: 'Margen de ganancia' }} />
       <Stack.Screen name="MantenimientoMaquinaria" component={MantenimientoMaquinariaScreen} options={{ title: 'Mantenimiento maquinaria' }} />
       <Stack.Screen name="Operadores" component={OperadoresScreen} options={{ title: 'Operadores' }} />
+      <Stack.Screen name="CoordOperadores" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
       <Stack.Screen name="Supervision" component={SupervisionScreen} options={{ title: 'Inspecciones' }} />
       <Stack.Screen name="HistoricoJornadas" component={HistoricoJornadasScreen} options={{ title: 'Histórico por inspector' }} />
       {/* Vista de INSPECTOR (la del teléfono) abierta en la PC desde el módulo de
@@ -646,6 +648,7 @@ const moreScreens = {
   MargenGanancia: 'margen-ganancia',
   MantenimientoMaquinaria: 'mantenimiento',
   Operadores: 'operadores',
+  CoordOperadores: 'coordinacion-operadores',
   Supervision: 'inspecciones',
   HistoricoJornadas: 'historico',
   InspectorTlf: 'vista-inspector',
