@@ -24,6 +24,7 @@ export type PorAsignarMachine = {
   company: string | null;
   inspector: string | null; // nombre del inspector asignado (o cajón faltantes/vacío)
   sinInspector: boolean;     // true = sin inspector real → sección "por asignar"
+  tipo?: string | null;      // MODELO/marca de la máquina (CAT 320, Komatsu PC200…)
 };
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -47,14 +48,14 @@ export async function generatePorAsignarReport(opts: { date: string; shift: 'day
 
   const tablePend = (list: PorAsignarMachine[]): string => {
     const rows = list.map((m, i) =>
-      `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b></td><td>${esc(dash(m.plate))}</td><td>${esc(dash(m.company))}</td><td>${esc(dash(m.inspector))}</td></tr>`).join('');
-    return `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Placa</th><th>Empresa</th><th>Inspector asignado</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="5">Total · ${list.length} equipo(s)</td></tr></tfoot></table>`;
+      `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b></td><td>${esc(dash(m.tipo))}</td><td>${esc(dash(m.plate))}</td><td>${esc(dash(m.company))}</td><td>${esc(dash(m.inspector))}</td></tr>`).join('');
+    return `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Placa</th><th>Empresa</th><th>Inspector asignado</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6">Total · ${list.length} equipo(s)</td></tr></tfoot></table>`;
   };
 
   const tableSin = (list: PorAsignarMachine[]): string => {
     const rows = list.map((m, i) =>
-      `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b></td><td>${esc(dash(m.plate))}</td><td>${esc(dash(m.company))}</td></tr>`).join('');
-    return `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Placa</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="4">Total · ${list.length} equipo(s)</td></tr></tfoot></table>`;
+      `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b></td><td>${esc(dash(m.tipo))}</td><td>${esc(dash(m.plate))}</td><td>${esc(dash(m.company))}</td></tr>`).join('');
+    return `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Placa</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="5">Total · ${list.length} equipo(s)</td></tr></tfoot></table>`;
   };
 
   const section = (icon: string, title: string, count: number, table: string): string =>

@@ -804,6 +804,12 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // Precio POR JORNADA (12 h) de cada máquina. Monto = precio × unidades (12h=1, 6h=0.5).
     const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
     const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
+    // Marca/modelo (tipo) actual de la máquina, por id/serial/código — el cierre archivado
+    // no guarda `tipo`, así que se busca en la máquina viva (igual que el precio).
+    const tipoById = new Map(machines.filter((mm) => mm.tipo).map((mm) => [mm.id, mm.tipo as string]));
+    const tipoBySerial = new Map(machines.filter((mm) => mm.serial && mm.tipo).map((mm) => [mm.serial as string, mm.tipo as string]));
+    const tipoByCode = new Map(machines.filter((mm) => mm.tipo).map((mm) => [mm.code, mm.tipo as string]));
+    const tipoOf = (m: ClosureMachine) => (m.machineId ? tipoById.get(m.machineId) : undefined) ?? (m.serial ? tipoBySerial.get(m.serial) : undefined) ?? tipoByCode.get(m.code) ?? null;
     // Si el cierre ya trae el precio CONGELADO, se usa ese (semana cerrada = inmutable);
     // si es un cierre viejo sin precio, se calcula con el precio actual de la máquina.
     const priceOf = (m: ClosureMachine) => (m.price != null && Number(m.price) > 0 ? Number(m.price) : ((m.serial ? priceBySerial.get(m.serial) : undefined) ?? priceByCode.get(m.code) ?? 0));
@@ -812,8 +818,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       .map((m) => {
         const price = priceOf(m);
         const amount = (Number(m.worked) || 0) / 12 * price;
+        const tipo = tipoOf(m);
         return (
-          `<tr><td>${m.date ?? '—'}</td><td>${m.code}${m.serial ? `<br/><span style="color:#888">${m.serial}</span>` : ''}</td><td>${m.company || '—'}</td>` +
+          `<tr><td>${m.date ?? '—'}</td><td>${m.code}${m.serial ? `<br/><span style="color:#888">${m.serial}</span>` : ''}${tipo ? `<br/><span style="color:#888">🏷️ ${tipo}</span>` : ''}</td><td>${m.company || '—'}</td>` +
           `<td style="text-align:center">${shiftCell(m.dayHours)}</td><td>${opCell(m.dayOperator, m.dayCedula)}</td>` +
           `<td style="text-align:center">${shiftCell(m.nightHours)}</td><td>${opCell(m.nightOperator, m.nightCedula)}</td>` +
           `<td style="text-align:center">${m.hoursStopped ? m.hoursStopped.toLocaleString() : '—'}</td><td style="text-align:center">${m.overtime ? m.overtime.toLocaleString() : '—'}</td><td style="text-align:center;font-weight:700">${m.worked} h</td>` +
@@ -941,7 +948,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     });
     const inScope = machines.filter((m) => (scope === '__all__' ? true : scope === '__none__' ? !m.company_id : m.company_id === scope) && inEncargado(m));
     // Agrupa por empresa → máquinas con sus totales (horas y $), sin detalle diario.
-    type Row = { name: string; serial: string | null; worked: number; amount: number };
+    type Row = { name: string; serial: string | null; tipo: string | null; worked: number; amount: number };
     type Viaje = { code: string; viajes: number; precio: number };
     const groups = new Map<string, { company: string; rows: Row[]; worked: number; amount: number; viajes: Viaje[]; viajesUSD: number }>();
     const getGroup = (cname: string) => {
@@ -955,7 +962,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       const amount = amountByMachine.get(m.id) ?? 0; // suma por ronda con precio efectivo (congelado o actual)
       const cname = m.company_id ? companies[m.company_id] ?? 'Empresa' : 'Sin empresa';
       const g = getGroup(cname);
-      g.rows.push({ name: m.code, serial: m.serial ?? null, worked, amount });
+      g.rows.push({ name: m.code, serial: m.serial ?? null, tipo: m.tipo ?? null, worked, amount });
       g.worked += worked; g.amount += amount;
     }
     // Fletes/viajes CON FECHA dentro del rango del reporte: se suman al TOTAL POR PAGAR
@@ -1004,7 +1011,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       .map((g) => {
         const rows = g.rows
           .map((r) =>
-            `<tr><td>${r.name}${r.serial ? `<br/><span style="color:#888;font-size:9px">${r.serial}</span>` : ''}</td>` +
+            `<tr><td>${r.name}${r.serial ? `<br/><span style="color:#888;font-size:9px">${r.serial}</span>` : ''}${r.tipo ? `<br/><span style="color:#888;font-size:9px">🏷️ ${r.tipo}</span>` : ''}</td>` +
             `<td style="text-align:center;font-weight:700">${r.worked} h</td>` +
             `<td style="text-align:right;font-weight:700">${r.amount ? usd(r.amount) : '—'}</td></tr>`
           )
@@ -1316,6 +1323,9 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     norm(m.plate).includes(q) ||
     norm(m.identifier).includes(q) ||
     norm(m.tipo).includes(q) ||
+    norm(m.clasificacion).includes(q) ||
+    norm(m.encargado).includes(q) ||
+    norm(m.referencia).includes(q) ||
     (m.company_id ? norm(companies[m.company_id]).includes(q) : false);
   // El control SOLO muestra equipos ACTIVOS: si una máquina se desactiva (active=false)
   // desaparece del control; al reactivarla, vuelve a aparecer automáticamente.
@@ -1502,7 +1512,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const q = norm(averiaMachQ.trim());
     return machines
       .filter((m) => (averiaCompany === '__none__' ? !m.company_id : m.company_id === averiaCompany) && m.operational !== false)
-      .filter((m) => !q || norm(m.code).includes(q) || norm(m.serial).includes(q) || norm(m.plate).includes(q) || norm(m.tipo).includes(q))
+      .filter((m) => !q || norm(m.code).includes(q) || norm(m.serial).includes(q) || norm(m.plate).includes(q) || norm(m.identifier).includes(q) || norm(m.tipo).includes(q) || norm(m.encargado).includes(q))
       .sort((a, b) => cmpText(a.code, b.code));
   })();
 
@@ -1660,7 +1670,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="🔎 Buscar por nombre, serial o empresa…"
+        placeholder="🔎 Buscar por código, serial, placa, tipo, empresa o encargado…"
         placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }}
       />
@@ -1749,6 +1759,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: colors.text, fontWeight: '700', fontSize: 15 }}>{m.code}</Text>
+                          {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5 }} numberOfLines={1}>🏷️ {m.tipo}</Text> : null}
                           {m.identifier || m.plate || m.serial ? (
                             <Text style={{ color: colors.muted, fontSize: 12 }}>
                               🔖 {[m.identifier ? `ID ${m.identifier}` : '', m.plate ? `Placa ${m.plate}` : '', m.serial ? `Serial ${m.serial}` : ''].filter(Boolean).join(' · ')}
@@ -1860,6 +1871,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                   <Text style={{ fontWeight: '700', color: colors.text, fontSize: 16 }}>
                     {m.code}{puedeEditarPrecio ? <Text style={{ color: colors.brandText, fontSize: 13 }}> ✎</Text> : null}
                   </Text>
+                  {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5 }} numberOfLines={1}>🏷️ {m.tipo}</Text> : null}
                   {averiadas.has(m.id) ? (
                     <Text style={{ color: colors.danger, fontSize: 12.5, fontWeight: '900', marginTop: 2 }}>
                       {averiaTipo[m.id] === 'parada' ? '🟡 MÁQUINA PARADA' : '🔴 AVERIADA'}
@@ -2170,7 +2182,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                       <TextInput
                         value={averiaMachQ}
                         onChangeText={setAveriaMachQ}
-                        placeholder="🔎 Buscar por nombre, serial o placa…"
+                        placeholder="🔎 Buscar por código, serial, placa, tipo o encargado…"
                         placeholderTextColor={colors.muted}
                         style={{ backgroundColor: colors.surface, padding: spacing.sm, color: colors.text, borderBottomWidth: 1, borderBottomColor: colors.border }}
                       />
@@ -2203,6 +2215,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               {averiaMachine ? (
                 <View style={{ marginTop: spacing.md, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, borderLeftWidth: 3, borderLeftColor: colors.warning, padding: spacing.md }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{averiaMachine.code}</Text>
+                  {averiaMachine.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5 }} numberOfLines={1}>🏷️ {averiaMachine.tipo}</Text> : null}
                   {[averiaMachine.serial, averiaMachine.plate].filter(Boolean).length ? (
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔖 {[averiaMachine.serial, averiaMachine.plate].filter(Boolean).join(' · ')}</Text>
                   ) : null}
@@ -2254,6 +2267,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               return (
                 <ScrollView>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{isGen ? `🚚 Flete general · ${coName}` : `➕ Flete / viaje · ${fleteFor!.code}`}</Text>
+                  {!isGen && fleteFor!.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }} numberOfLines={1}>🏷️ {fleteFor!.tipo}</Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
                     🏢 {coName}{isGen ? ' · flete general (no asignado a una máquina)' : ''} · el monto se suma al TOTAL POR PAGAR de la empresa en la semana de la fecha del flete.
                   </Text>
@@ -2356,6 +2370,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               return (
                 <>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17, marginBottom: 2 }}>{priceFor.code}</Text>
+                  {priceFor.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5, marginBottom: 2 }} numberOfLines={1}>🏷️ {priceFor.tipo}</Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.md }}>
                     El precio se aplica al RANGO de fechas que elijas. No afecta otros cortes.
                   </Text>
@@ -2564,7 +2579,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
               <TextInput
                 value={closureSearch}
                 onChangeText={setClosureSearch}
-                placeholder="🔎 Buscar máquina o empresa..."
+                placeholder="🔎 Buscar por código, serial, tipo o empresa..."
                 placeholderTextColor={colors.muted}
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm }}
               />
@@ -2573,21 +2588,28 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 // Precio por SERIAL (único) y por código (respaldo para datos viejos).
                 const priceBySerial = new Map(machines.filter((mm) => mm.serial).map((mm) => [mm.serial as string, Number(mm.price_per_hour) || 0]));
                 const priceByCode = new Map(machines.map((mm) => [mm.code, Number(mm.price_per_hour) || 0]));
+                // Marca/modelo (tipo) actual de la máquina, por id/serial/código — el cierre
+                // archivado no guarda `tipo`, así que se busca en la máquina viva (igual que el precio).
+                const tipoById = new Map(machines.filter((mm) => mm.tipo).map((mm) => [mm.id, mm.tipo as string]));
+                const tipoBySerial = new Map(machines.filter((mm) => mm.serial && mm.tipo).map((mm) => [mm.serial as string, mm.tipo as string]));
+                const tipoByCode = new Map(machines.filter((mm) => mm.tipo).map((mm) => [mm.code, mm.tipo as string]));
+                const tipoOf = (m: ClosureMachine) => (m.machineId ? tipoById.get(m.machineId) : undefined) ?? (m.serial ? tipoBySerial.get(m.serial) : undefined) ?? tipoByCode.get(m.code) ?? null;
                 // Agrupar los registros del cierre POR MÁQUINA ÚNICA (serial/id, no el nombre que puede repetirse).
-                const map = new Map<string, { key: string; code: string; serial: string | null; company: string; days: ClosureMachine[] }>();
+                const map = new Map<string, { key: string; code: string; serial: string | null; company: string; tipo: string | null; days: ClosureMachine[] }>();
                 (closureSel.detail?.machines ?? [])
                   .filter((m) => !closureCompany || (m.company || 'Sin empresa') === closureCompany)
                   .forEach((m) => {
                   const key = (m.machineId || m.serial || m.code) as string;
-                  const g = map.get(key) ?? { key, code: m.code, serial: m.serial ?? null, company: m.company || '', days: [] };
+                  const g = map.get(key) ?? { key, code: m.code, serial: m.serial ?? null, company: m.company || '', tipo: tipoOf(m), days: [] };
                   if (!g.company && m.company) g.company = m.company;
                   if (!g.serial && m.serial) g.serial = m.serial;
+                  if (!g.tipo) g.tipo = tipoOf(m);
                   g.days.push(m);
                   map.set(key, g);
                 });
                 const q = norm(closureSearch.trim());
                 let groups = Array.from(map.values());
-                if (q) groups = groups.filter((g) => norm(g.code).includes(q) || norm(g.serial).includes(q) || norm(g.company).includes(q));
+                if (q) groups = groups.filter((g) => norm(g.code).includes(q) || norm(g.serial).includes(q) || norm(g.company).includes(q) || norm(g.tipo).includes(q));
                 groups.sort((a, b) => cmpText(a.code, b.code));
                 if (groups.length === 0)
                   return <EmptyState title="Sin resultados" subtitle="Ninguna máquina coincide con la búsqueda." />;
@@ -2617,7 +2639,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <Card key={g.key}>
                       <TouchableOpacity activeOpacity={0.7} onPress={() => setClosureExpanded((p) => ({ ...p, [g.key]: !p[g.key] }))}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}{g.serial ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>  ·  {g.serial}</Text> : null}</Text>
+                          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{g.code}{g.serial ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>  ·  {g.serial}</Text> : null}{g.tipo ? <Text style={{ color: colors.muted, fontWeight: '600', fontSize: 12 }}>  ·  {g.tipo}</Text> : null}</Text>
                           <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>{open ? '▲ ocultar' : '▼ ver detalle'}</Text>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.xs }}>🏢 {g.company || 'Sin empresa'} · {g.days.length} día(s)</Text>
@@ -2670,6 +2692,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, marginBottom: 2 }}>
               🕒 Tramos del día{segmentsFor ? ` · ${segmentsFor.m.code}` : ''}
             </Text>
+            {segmentsFor?.m.tipo ? <Text style={{ color: colors.muted, fontSize: 11.5 }} numberOfLines={1}>🏷️ {segmentsFor.m.tipo}</Text> : null}
             <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>
               {segmentsFor ? dayLabel(segmentsFor.d) : ''}
             </Text>

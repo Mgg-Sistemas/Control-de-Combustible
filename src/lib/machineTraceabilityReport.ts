@@ -32,12 +32,13 @@ const fmtDuration = (ms: number) => {
 
 export async function generateMachineTraceabilityReport(opts: {
   machineLabel: string;
+  machineTipo?: string | null; // MODELO/marca de la máquina (CAT 320, Komatsu PC200…)
   fromISO: string;
   toISO: string;
   events: TraceEvent[];
   workedDays: TraceWorkedDay[];
 }): Promise<boolean> {
-  const { machineLabel, fromISO, toISO, events, workedDays } = opts;
+  const { machineLabel, machineTipo, fromISO, toISO, events, workedDays } = opts;
 
   const diasTrabajados = workedDays.filter((d) => d.dayH + d.nightH > 0).length;
   const horasTotales = workedDays.reduce((s, d) => s + d.dayH + d.nightH, 0);
@@ -104,9 +105,10 @@ export async function generateMachineTraceabilityReport(opts: {
     table.hs th{background:#1E3A5F;color:#fff}
   `;
 
+  const tipoTxt = machineTipo && String(machineTipo).trim() ? ` · Marca/Modelo: ${esc(machineTipo)}` : '';
   const html = pdfDocument({
     title: 'Trazabilidad e Historial por Equipo',
-    subtitle: `Máquina: ${esc(machineLabel)} · ${dateRangeLabel(fromISO, toISO) || `${dmy(fromISO)} a ${dmy(toISO)}`}`,
+    subtitle: `Máquina: ${esc(machineLabel)}${tipoTxt} · ${dateRangeLabel(fromISO, toISO) || `${dmy(fromISO)} a ${dmy(toISO)}`}`,
     body: resumen + tablaEventos + tablaDias,
     extraCss,
   });

@@ -513,7 +513,14 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   const renderGroupBody = (turno: Turno, machList: Mach[], icon: string, roleWord: string, name: string): string => {
     const list = [...machList].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
     // SOLO las horas del TURNO de este inspector (día si es de día, noche si es de noche).
-    const hLabel = turno === 'day' ? 'H. Día' : 'H. Noche';
+    // Celda de HORARIO — MISMO formato que el Reporte por Empresa (porEmpresaReport.ts):
+    // INICIO (arriba) · FIN abajo ("EN CURSO" en verde si la jornada de este turno
+    // sigue abierta, o la hora fija de cierre del turno si ya cerró) · TOTAL de horas
+    // trabajadas EN VERDE. Reemplaza las columnas sueltas "H. Día/H. Noche" y "Jornada"
+    // (pedido del cliente 10-ago-2026: que se vea igual que el reporte por empresa).
+    const hLabel = turno === 'day' ? 'Horario DÍA' : 'Horario NOCHE';
+    const HORA_INI = turno === 'day' ? '07:00 a. m.' : '07:00 p. m.';
+    const HORA_FIN_FIJA = turno === 'day' ? '07:00 p. m.' : '07:00 a. m.';
     let tWork = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
@@ -526,18 +533,37 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
         : '—';
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r b">${shiftH}</td><td class="r b">${jornada}</td></tr>`;
+      // Horario: solo se muestra si la jornada de este turno inició (en curso) o dejó
+      // horas trabajadas (finalizada, o avería/parada con trabajo parcial antes de parar).
+      // Una máquina que nunca inició este turno (pendiente, sin horas) muestra "—".
+      const enCurso = m.estado === 'encurso';
+      // BUG evitado: una máquina 🔴 Averiada/🟡 Parada con horas parciales (trabajó
+      // unas horas y LUEGO se averió/paró) NO cerró a la hora fija del turno — mostrar
+      // HORA_FIN_FIJA ahí sugeriría falsamente que completó la jornada normal. Solo se
+      // usa la hora fija cuando el cierre fue realmente normal (estado 'finalizada').
+      const cerroNormal = m.estado === 'finalizada';
+      const finTxt = enCurso ? 'EN CURSO' : cerroNormal ? HORA_FIN_FIJA : 'Detenida';
+      const horarioCell = (enCurso || shiftH > 0)
+        ? `<td class="hr"><div class="ini">${esc(HORA_INI)}</div>` +
+          `<div class="${enCurso ? 'curso' : 'fin'}">${esc(finTxt)}</div>` +
+          `${shiftH > 0 ? `<div class="tot">${shiftH} h</div>` : ''}</td>`
+        : `<td class="hr">—</td>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td>${horarioCell}</tr>`;
     }).join('');
     // Columna "Parada" quitada (pedido del cliente 10-ago-2026, guiándose por el formato
     // del reporte por empresa): quién está averiada/parada ya se ve en Estado/Motivo.
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">${hLabel}</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b">${tWork}</td><td class="r b">${tJor}</td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th>${hLabel}<br><span class="sub">inicio · fin</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b">${tWork} h</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales (solo horas del turno de este inspector).
     const bySec = new Map<string, { c: number; h: number }>();
     list.forEach((m) => { const s = bySec.get(m.sector) ?? { c: 0, h: 0 }; s.c += 1; s.h += (turno === 'day' ? m.dayH : m.nightH); bySec.set(m.sector, s); });
     const secRows = [...bySec.entries()].sort((a, b) => cmpText(a[0], b[0]))
       .map(([s, v]) => `<tr><td>${esc(s)}</td><td class="r">${v.c}</td><td class="r b">${r2(v.h)}</td></tr>`).join('');
-    const secTable = `<div class="sub">📍 Desglose por sector</div><table class="ir"><thead><tr><th>Sector</th><th class="r">Equipos</th><th class="r">${hLabel}</th></tr></thead><tbody>${secRows}</tbody></table>`;
+    // Etiqueta PROPIA (no `hLabel`): esta columna es un total NUMÉRICO de horas
+    // ("5.5"), no el par inicio·fin de la tabla principal — reusar "Horario DÍA/NOCHE"
+    // aquí quedaría encima de un simple número y confundiría al lector.
+    const horasSecLabel = turno === 'day' ? 'Horas día' : 'Horas noche';
+    const secTable = `<div class="sub">📍 Desglose por sector</div><table class="ir"><thead><tr><th>Sector</th><th class="r">Equipos</th><th class="r">${horasSecLabel}</th></tr></thead><tbody>${secRows}</tbody></table>`;
 
     // Ubicaciones múltiples: solo máquinas que cambiaron de sitio en la jornada.
     // Una fila por CADA transición consecutiva (origen → destino), con sector,
@@ -714,6 +740,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     table.ir td.b{font-weight:800}
     table.ir td.coord{white-space:nowrap;font-size:10.5px;color:#374151}
     table.ir tfoot td{background:#EEF2F7;font-weight:800}
+    /* Horario por turno (mismo formato que porEmpresaReport.ts): inicio arriba (negro),
+       fin/EN CURSO abajo, total de horas EN VERDE. */
+    td.hr{white-space:nowrap} td.hr .ini{font-weight:700} td.hr .fin{color:#6B7280;font-size:10px}
+    td.hr .curso{color:#067647;font-weight:800;font-size:10px}
+    td.hr .tot{color:#067647;font-weight:800;font-size:11px;margin-top:1px}
+    th .sub{font-weight:400;font-size:8.5px;opacity:.85}
     .moved{color:#B45309;font-size:10px;font-weight:700}
     table.loc-table{font-size:11px}
     table.loc-table th{background:#B45309}

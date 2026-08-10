@@ -202,7 +202,7 @@ export interface CompanyPayment {
 
 /** Snapshot que se guarda al marcar como pagada una cuenta. */
 export interface PaymentDetail {
-  machines: { machine: string; hours: number; price: number; subtotal: number }[];
+  machines: { machine: string; tipo?: string | null; hours: number; price: number; subtotal: number }[];
   totalHours: number;
   total: number;
 }

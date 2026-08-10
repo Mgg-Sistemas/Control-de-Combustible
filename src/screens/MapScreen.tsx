@@ -38,7 +38,7 @@ function iconFor(cat: string): string {
   return '🔧';
 }
 
-type TraceRow = { id: string; machinery_id: string; code: string; company: string; plate: string | null; serial: string | null; referencia: string | null; encargado: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string; recorded_by: string | null };
+type TraceRow = { id: string; machinery_id: string; code: string; tipo: string | null; company: string; plate: string | null; serial: string | null; referencia: string | null; encargado: string | null; note: string | null; latitude: number | null; longitude: number | null; recorded_at: string; recorded_by: string | null };
 type RoutePoint = { id: string; latitude: number | null; longitude: number | null; note: string | null; recorded_at: string };
 
 function fmt(ts: string): string {
@@ -75,7 +75,7 @@ export default function MapScreen({ navigation, route }: any) {
   const [focus, setFocus] = useState<{ id: string; code: string } | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   // Ruta de una máquina (al tocar un registro): puntos por fecha y hora.
-  const [routeFor, setRouteFor] = useState<{ code: string; company: string; plate: string | null; serial: string | null } | null>(null);
+  const [routeFor, setRouteFor] = useState<{ code: string; tipo: string | null; company: string; plate: string | null; serial: string | null } | null>(null);
   const [routePoints, setRoutePoints] = useState<RoutePoint[] | null>(null);
   // Capas: categorías y máquinas apagadas (ocultas del mapa).
   const [hiddenCats, setHiddenCats] = useState<Set<string>>(new Set());
@@ -96,9 +96,9 @@ export default function MapScreen({ navigation, route }: any) {
   const toggleZone = (i: number) => setZonesOn((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; });
   // TODAS las máquinas (incluidas las SIN ubicar): para el conteo "ubicadas/total"
   // de las capas y para el selector de la ubicación manual (solo admin).
-  const [allMachines, setAllMachines] = useState<{ id: string; code: string; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null; activa: boolean }[]>([]);
+  const [allMachines, setAllMachines] = useState<{ id: string; code: string; tipo: string | null; located: boolean; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; lat: number | null; lng: number | null; activa: boolean }[]>([]);
   // Ubicación manual (solo admin): máquina elegida + modo "tocar el mapa".
-  const [locateFor, setLocateFor] = useState<{ id: string; code: string; plate: string | null; serial: string | null; company: string } | null>(null);
+  const [locateFor, setLocateFor] = useState<{ id: string; code: string; tipo: string | null; plate: string | null; serial: string | null; company: string } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -142,9 +142,9 @@ export default function MapScreen({ navigation, route }: any) {
 
     // TODAS las máquinas (con y sin ubicación): para el conteo "ubicadas/total" y para
     // LISTAR las que faltan por ubicar con su placa/serial y empresa.
-    const { data: every } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude, encargado, referencia, active, operational, en_espera, company:company_id(name)');
+    const { data: every } = await supabase.from('machinery').select('id, code, tipo, plate, serial, latitude, longitude, encargado, referencia, active, operational, en_espera, company:company_id(name)');
     setAllMachines((every ?? []).map((m: any) => ({
-      id: m.id, code: m.code ?? '', located: m.latitude != null,
+      id: m.id, code: m.code ?? '', tipo: (m.tipo && String(m.tipo).trim()) || null, located: m.latitude != null,
       plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa',
       encargado: m.encargado ?? null, referencia: m.referencia ?? null,
       lat: m.latitude != null ? Number(m.latitude) : null, lng: m.longitude != null ? Number(m.longitude) : null,
@@ -156,7 +156,7 @@ export default function MapScreen({ navigation, route }: any) {
     // Trazabilidad reciente (incluye los eventos con nota, p. ej. eliminaciones manuales).
     const { data: tr } = await supabase
       .from('machinery_locations')
-      .select('id, machinery_id, note, latitude, longitude, recorded_at, recorded_by, machinery:machinery_id(code, plate, serial, referencia, encargado, company:company_id(name))')
+      .select('id, machinery_id, note, latitude, longitude, recorded_at, recorded_by, machinery:machinery_id(code, tipo, plate, serial, referencia, encargado, company:company_id(name))')
       .order('recorded_at', { ascending: false })
       .limit(80);
     setTrace(
@@ -164,6 +164,7 @@ export default function MapScreen({ navigation, route }: any) {
         id: r.id,
         machinery_id: r.machinery_id,
         code: r.machinery?.code ?? '—',
+        tipo: (r.machinery?.tipo && String(r.machinery.tipo).trim()) || null,
         company: r.machinery?.company?.name ?? 'Sin empresa',
         plate: r.machinery?.plate ?? null,
         serial: r.machinery?.serial ?? null,
@@ -215,10 +216,10 @@ export default function MapScreen({ navigation, route }: any) {
         const blocks = subs.map((sub) => {
           const items = list.filter((m) => m.sub === sub).sort((a, b) => cmpText(a.code, b.code));
           const rows = items.map((m, i) =>
-            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(edificio(m.referencia))}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc((m.encargado || '').trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
+            `<tr><td class="c">${i + 1}</td><td>${esc(m.code)}</td><td>${esc(m.tipo || '—')}</td><td>${esc(placaSerial(m.plate, m.serial) || '—')}</td><td>${esc(edificio(m.referencia))}</td><td>${esc(inspectors[m.id]?.name?.trim() || '—')}</td><td>${esc((m.encargado || '').trim() || '—')}</td><td>${esc(m.company)}</td></tr>`
           ).join('');
           return `<h4 class="sub2">📍 ${esc(sub)} <span>· ${items.length} máquina(s)</span></h4>
-            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Placa / Serial</th><th>Edificio / Referencia</th><th>Inspector</th><th>Encargado</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
+            <table><thead><tr><th class="c">#</th><th>Máquina</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / Referencia</th><th>Inspector</th><th>Encargado</th><th>Empresa</th></tr></thead><tbody>${rows}</tbody></table>`;
         }).join('');
         return `<h3 class="sect">${mac.emoji} ${mac.title} <span class="sub">· ${list.length} máquina(s)</span></h3>${blocks}`;
       }).join('');
@@ -301,7 +302,7 @@ export default function MapScreen({ navigation, route }: any) {
 
   // Abre la RUTA de una máquina (todos sus registros de ubicación, por fecha/hora).
   const openRoute = React.useCallback(async (t: TraceRow) => {
-    setRouteFor({ code: t.code, company: t.company, plate: t.plate, serial: t.serial });
+    setRouteFor({ code: t.code, tipo: t.tipo, company: t.company, plate: t.plate, serial: t.serial });
     setRoutePoints(null);
     // Ubicamos la máquina por su registro (para traer TODO su historial).
     const { data: base } = await supabase
@@ -438,9 +439,10 @@ export default function MapScreen({ navigation, route }: any) {
   }, [allMachines]);
   // Máquinas para el selector de ubicación manual: primero las SIN ubicar.
   const pickerList = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase();
+    const q = norm(pickerQuery.trim());
     return allMachines
-      .filter((a) => !q || a.code.toLowerCase().includes(q))
+      .filter((a) => !q || [a.code, a.tipo, a.plate, a.serial, a.company, a.encargado, a.referencia]
+        .some((v) => norm(String(v ?? '')).includes(q)))
       .sort((a, b) => (a.located === b.located ? cmpText(a.code, b.code) : a.located ? 1 : -1));
   }, [allMachines, pickerQuery]);
 
@@ -521,6 +523,7 @@ export default function MapScreen({ navigation, route }: any) {
                           <Text style={{ fontSize: 15 }}>🚙</Text>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{a.code}</Text>
+                            {a.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {a.tipo}</Text> : null}
                             <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {a.encargado || 'Sin asignar'}</Text>
                             {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
                           </View>
@@ -544,6 +547,7 @@ export default function MapScreen({ navigation, route }: any) {
                           <TouchableOpacity onPress={() => { setFocus({ id: p.id, code: p.name }); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
                             <View style={{ flex: 1 }}>
                               <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{p.name}</Text>
+                              {p.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {p.tipo}</Text> : null}
                               {ps ? <Text style={{ color: colors.muted, fontSize: 11 }}>🔖 {ps}</Text> : null}
                               <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>🗺️ Ver en el mapa ›</Text>
                             </View>
@@ -566,13 +570,14 @@ export default function MapScreen({ navigation, route }: any) {
                               <TouchableOpacity key={a.id} onPress={() => {
                                 if (!isAdmin) { setNotice('🔒 Solo un administrador puede ubicar máquinas en el mapa.'); return; }
                                 showAll(); // asegura que el mapa se muestre (si el tipo estaba aislado y sin pines, no habría mapa que tocar)
-                                setLocateFor({ id: a.id, code: a.code, plate: a.plate, serial: a.serial, company: a.company });
+                                setLocateFor({ id: a.id, code: a.code, tipo: a.tipo, plate: a.plate, serial: a.serial, company: a.company });
                                 setNotice(`📍 Toca el mapa en el punto donde está ${a.code} para ubicarla.`);
                                 scrollRef.current?.scrollTo({ y: 0, animated: true });
                               }} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 5 }}>
                                 <Text style={{ fontSize: 15 }}>📍</Text>
                                 <View style={{ flex: 1 }}>
                                   <Text style={{ color: colors.danger, fontSize: 13, fontWeight: '800' }}>{a.code}</Text>
+                                  {a.tipo ? <Text style={{ color: colors.danger, fontSize: 11 }}>🏷️ {a.tipo}</Text> : null}
                                   {ps ? <Text style={{ color: colors.danger, fontSize: 11 }}>🔖 {ps}</Text> : null}
                                   <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>{isAdmin ? '👉 Tócala para ubicarla en el mapa' : '🔒 Solo admin puede ubicarla'}</Text>
                                 </View>
@@ -728,7 +733,7 @@ export default function MapScreen({ navigation, route }: any) {
               <TouchableOpacity onPress={() => setPickerOpen(true)} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, backgroundColor: colors.surfaceAlt }}>
                 <Text style={{ color: locateFor ? colors.text : colors.muted, fontWeight: '700' }}>{locateFor ? `🎯 ${locateFor.code}` : 'Elegir máquina…'}</Text>
                 {locateFor ? (
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{[placaSerial(locateFor.plate, locateFor.serial), `🏢 ${locateFor.company}`].filter(Boolean).join('  ·  ')}</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>{[locateFor.tipo ? `🏷️ ${locateFor.tipo}` : '', placaSerial(locateFor.plate, locateFor.serial), `🏢 ${locateFor.company}`].filter(Boolean).join('  ·  ')}</Text>
                 ) : null}
               </TouchableOpacity>
               {locateFor ? (
@@ -777,6 +782,7 @@ export default function MapScreen({ navigation, route }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 }} numberOfLines={1}>📍 {t.code}</Text>
                     <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
                   </View>
+                  {t.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {t.tipo}</Text> : null}
                   <Text style={{ color: t.note ? colors.danger : colors.brandText, fontSize: 12, fontWeight: '700' }}>
                     {t.note ? `🗑️ ${recorderName(t.recorded_by)} · ${t.note}` : `👤 ${recorderName(t.recorded_by)}`}
                   </Text>
@@ -810,6 +816,7 @@ export default function MapScreen({ navigation, route }: any) {
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{fmt(t.recorded_at)}</Text>
                 </View>
                 <Text style={{ color: colors.brandText, fontSize: 12, marginTop: 2 }}>🏢 {t.company}</Text>
+                {t.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {t.tipo}</Text> : null}
                 {t.plate || t.serial ? (
                   <Text style={{ color: colors.muted, fontSize: 12 }}>
                     🔖 {t.plate ? `Placa: ${t.plate}` : ''}{t.plate && t.serial ? ' · ' : ''}{t.serial ? `Serial: ${t.serial}` : ''}
@@ -871,7 +878,7 @@ export default function MapScreen({ navigation, route }: any) {
               <TextInput
                 value={pickerQuery}
                 onChangeText={setPickerQuery}
-                placeholder="Buscar por código…"
+                placeholder="Buscar: código, marca/modelo, placa, serial, empresa, encargado…"
                 placeholderTextColor={colors.muted}
                 style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }}
               />
@@ -882,12 +889,12 @@ export default function MapScreen({ navigation, route }: any) {
               ) : pickerList.map((a) => (
                 <TouchableOpacity
                   key={a.id}
-                  onPress={() => { setLocateFor({ id: a.id, code: a.code, plate: a.plate, serial: a.serial, company: a.company }); setPickerOpen(false); setPickerQuery(''); setNotice(null); }}
+                  onPress={() => { setLocateFor({ id: a.id, code: a.code, tipo: a.tipo, plate: a.plate, serial: a.serial, company: a.company }); setPickerOpen(false); setPickerQuery(''); setNotice(null); }}
                   style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>{a.code || '—'}</Text>
-                    <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>{[placaSerial(a.plate, a.serial), `🏢 ${a.company}`].filter(Boolean).join('  ·  ')}</Text>
+                    <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>{[a.tipo ? `🏷️ ${a.tipo}` : '', placaSerial(a.plate, a.serial), `🏢 ${a.company}`].filter(Boolean).join('  ·  ')}</Text>
                   </View>
                   <Text style={{ color: a.located ? colors.success : colors.danger, fontSize: 12, fontWeight: '700' }}>{a.located ? '📍 Ubicada' : '⬜ Sin ubicar'}</Text>
                 </TouchableOpacity>
@@ -907,6 +914,7 @@ export default function MapScreen({ navigation, route }: any) {
             <View style={{ padding: spacing.lg }}>
               <Text style={{ color: colors.text, fontWeight: '800', fontSize: 18 }}>🧭 Ruta · {routeFor?.code}</Text>
               <Text style={{ color: colors.brandText, fontSize: 13 }}>🏢 {routeFor?.company}</Text>
+              {routeFor?.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {routeFor.tipo}</Text> : null}
               {routeFor?.plate || routeFor?.serial ? (
                 <Text style={{ color: colors.muted, fontSize: 12 }}>
                   🔖 {routeFor?.plate ? `Placa: ${routeFor.plate}` : ''}{routeFor?.plate && routeFor?.serial ? ' · ' : ''}{routeFor?.serial ? `Serial: ${routeFor.serial}` : ''}

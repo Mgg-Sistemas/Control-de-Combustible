@@ -458,7 +458,9 @@ export default function ReportsScreen({ route }: any) {
   // Reporte "Conteo de equipos": cantidad por clasificación y por tipo + totales de estado.
   type ConteoRow = { name: string; count: number; conHoras: number; sinHoras: number };
   type ConteoMachine = { code: string; serial: string | null; clas: string; company: string };
-  type MachineDetail = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
+  // `tipo` aquí es la CATEGORÍA (equipCategory, ej. "JUMBO"), no la marca/modelo real.
+  // `modelo` es machinery.tipo (marca/modelo real, ej. "CAT 320") — se muestra aparte.
+  type MachineDetail = { code: string; serial: string | null; plate: string | null; company: string; tipo: string; modelo: string | null; clas: string; estado: 'activo' | 'inactivo' | 'standby'; encargado: string | null };
   // Fila activa cruda: ZONA geográfica (GPS) + A DISPOSICIÓN DE (Gobernación/FANB/CVM…),
   // para recalcular el conteo al filtrar y para el cruce disposición×zona, en vivo.
   type ActiveRow = { code: string; serial: string | null; company: string; tipo: string; clas: string; zona: string; dispo: string; tieneHoras: boolean };
@@ -496,7 +498,7 @@ export default function ReportsScreen({ route }: any) {
   const [camYear, setCamYear] = useState(nowRef.getFullYear());
   const [camMonth0, setCamMonth0] = useState(nowRef.getMonth());
   const [camPreview, setCamPreview] = useState(false);
-  const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null }[] }[] } | null>(null);
+  const [camData, setCamData] = useState<{ monthLabel: string; weeks: MonthWeek[]; companies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[]; escompanies: { company: string; items: { code: string; plate: string | null; serial: string | null; tipo: string | null }[] }[] } | null>(null);
   const [roundGroups, setRoundGroups] = useState<RoundCompany[]>([]);
   const [roundsPreview, setRoundsPreview] = useState(false);
   // Al cerrar la vista previa del reporte de jornada, se apaga la actualización en vivo.
@@ -1241,7 +1243,7 @@ export default function ReportsScreen({ route }: any) {
   const generateConteo = async () => {
     setLoading(true);
     liveRef.current = generateConteo; // se sincroniza solo cuando se cambia/actualiza una máquina
-    const mach = await selectAllRows('machinery', 'id, code, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, company:company_id(name)');
     const all = (mach ?? []) as any[];
     // El CONTEO cuenta SOLO los equipos activos: se excluyen los inactivos
     // (active/operational = false) y los que están en espera (stand by).
@@ -1285,7 +1287,7 @@ export default function ReportsScreen({ route }: any) {
     // Detalle de TODAS las máquinas con su estado (para ver el detalle al tocar una tarjeta).
     const estadoOf = (m: any): 'activo' | 'inactivo' | 'standby' => m.en_espera === true ? 'standby' : (m.active === false || m.operational === false) ? 'inactivo' : 'activo';
     const machinesAll: MachineDetail[] = all
-      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
+      .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, plate: m.plate ?? null, company: companyOf(m), tipo: equipCategory(m.code), modelo: (m.tipo && String(m.tipo).trim()) || null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', estado: estadoOf(m), encargado: (m.encargado && String(m.encargado).trim()) || null }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Sector MACRO por máquina para el REPORTE: si tiene GPS, su sector real (Este/Oeste);
     // si NO tiene ubicación, se reparte 50/50 entre Este y Oeste. Esto es SOLO para el
@@ -1490,7 +1492,7 @@ export default function ReportsScreen({ route }: any) {
     try {
       const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
-      const mach = await selectAllRows('machinery', 'id, code, serial, plate, active, latitude, longitude, zona, encargado, referencia, company:company_id(name)');
+      const mach = await selectAllRows('machinery', 'id, code, tipo, serial, plate, active, latitude, longitude, zona, encargado, referencia, company:company_id(name)');
       const rounds = await selectAllRows('machine_rounds', 'machinery_id, day_hours, night_hours', (q) => q.eq('round_date', date));
       const insp = await latestInspectorByMachine();
       const hoursBy = new Map<string, { d: number; n: number }>();
@@ -1518,11 +1520,11 @@ export default function ReportsScreen({ route }: any) {
           const tot = Math.round((h.d + h.n) * 100) / 100;
           totD += h.d; totN += h.n;
           const encCol = isFalta ? `<td>${esc((m.encargado && String(m.encargado).trim()) || '—')}</td>` : '';
-          return `<tr><td>${i + 1}</td><td><b>${esc(m.code ?? '—')}</b></td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(sectorOfM(m))}</td><td>${esc(edificioOf(m))}</td>${encCol}<td class="r">${h.d || 0}</td><td class="r">${h.n || 0}</td><td class="r" style="font-weight:800">${tot}</td></tr>`;
+          return `<tr><td>${i + 1}</td><td><b>${esc(m.code ?? '—')}</b></td><td>${esc((m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(sectorOfM(m))}</td><td>${esc(edificioOf(m))}</td>${encCol}<td class="r">${h.d || 0}</td><td class="r">${h.n || 0}</td><td class="r" style="font-weight:800">${tot}</td></tr>`;
         }).join('');
         const encHead = isFalta ? '<th>Encargado</th>' : '';
         return `<div class="insp ${isFalta ? 'falta' : ''}">${isFalta ? '⚠️ ' : '👷 '}Inspector: <b>${esc(name)}</b> <span class="cnt">${items.length} equipo(s)</span></div>
-          <table class="tac"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Serial/Placa</th><th>Sector</th><th>Edificio</th>${encHead}<th class="r">Día</th><th class="r">Noche</th><th class="r">Nº Horas</th></tr></thead><tbody>${rows || ''}</tbody></table>`;
+          <table class="tac"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Serial/Placa</th><th>Sector</th><th>Edificio</th>${encHead}<th class="r">Día</th><th class="r">Noche</th><th class="r">Nº Horas</th></tr></thead><tbody>${rows || ''}</tbody></table>`;
       }).join('');
       const body = `
         <style>
@@ -1547,7 +1549,7 @@ export default function ReportsScreen({ route }: any) {
   // presentaciones/demos). Por defecto el reporte es REAL y sincronizado con el mapa.
   const downloadTacticalPdf = async (conPersonal = false, ficticio = false) => {
     const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const mach = await selectAllRows('machinery', 'id, code, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
+    const mach = await selectAllRows('machinery', 'id, code, tipo, serial, clasificacion, active, operational, en_espera, latitude, longitude, zona, encargado, referencia, location, sector, company:company_id(name)');
     const vehs = await selectAllRows('vehicles', 'plate, brand, model, vehicle_type, active');
     // Torontos y volquetas INACTIVOS (inoperativos, en espera o dados de baja) NO se
     // toman en cuenta en NINGÚN conteo del reporte (real ni ficticio).
@@ -1618,7 +1620,8 @@ export default function ReportsScreen({ route }: any) {
         .map((m, i) => {
           const est = estadoOf(m);
           const opCols = showOps ? `<td>${esc(opAssign.get(m)?.dia ?? '—')}</td><td>${esc(opAssign.get(m)?.noche ?? '—')}</td>` : '';
-          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
+          const marca = (m.tipo && String(m.tipo).trim()) || '';
+          return `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}${m.serial ? ' · ' + esc(m.serial) : ''}${marca ? ' · 🏷️ ' + esc(marca) : ''}</span></td><td>${esc(ubicOf(m))}</td>${opCols}<td style="color:${estadoColor(est)};font-weight:700">${est}</td></tr>`;
         }).join('');
       const opHead = showOps ? '<th>Operador (día)</th><th>Operador (noche)</th>' : '';
       return `<div class="ente">🚜 A cargo de: <b>${esc(ente)}</b> <span class="cnt-pill">${groups.get(ente)!.length} equipo(s)</span></div>
@@ -1629,7 +1632,7 @@ export default function ReportsScreen({ route }: any) {
     const vehPickups = ((vehs ?? []) as any[]).filter((v) => v.active !== false && /pick|camioneta/i.test(String(v.vehicle_type ?? '')));
     // Máquinas pick-up + vehículos pick-up en UNA lista, ordenada ALFABÉTICAMENTE (serial/placa). Sin columna de ubicación.
     const pickItems = [
-      ...pickupMachines.map((m) => ({ label: `<b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}`, key: String(m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) })),
+      ...pickupMachines.map((m) => ({ label: `<b>${esc(m.code ?? '—')}</b>${m.serial ? ' · ' + esc(m.serial) : ''}${m.tipo ? ' · 🏷️ ' + esc(String(m.tipo).trim()) : ''}`, key: String(m.serial || m.code || ''), estado: estadoOf(m), color: estadoColor(estadoOf(m)) })),
       ...vehPickups.map((v) => ({ label: `<b>${esc(v.plate ?? '—')}</b>${v.brand || v.model ? ' · ' + esc([v.brand, v.model].filter(Boolean).join(' ')) : ''}`, key: String(v.plate || ''), estado: 'Operativo', color: '#0B7A3B' })),
     ].sort((a, b) => cmpText(a.key, b.key));
     const pickupsHtml = pickItems.length
@@ -1746,7 +1749,7 @@ export default function ReportsScreen({ route }: any) {
     const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
     const sinUbicHtml = sinUbicSorted.length
       ? `<div class="ente">⚪ <b>SIN UBICACIÓN</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span> <span class="muted">no aparecen en el mapa (sin GPS)</span></div>
-         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Marca/Modelo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc((m.tipo && String(m.tipo).trim()) || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
       : '';
     const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
       + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
@@ -1833,14 +1836,14 @@ export default function ReportsScreen({ route }: any) {
     const items = kind === 'flota' ? conteo.machinesAll : conteo.machinesAll.filter((m) => m.estado === kind);
     const estLbl = (e: MachineDetail['estado']) => e === 'activo' ? 'ACTIVO' : e === 'inactivo' ? 'INACTIVO' : 'STAND BY';
     const showEstado = kind === 'flota';
-    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estado)}</td>` : ''}</tr>`).join('');
+    const rows = items.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.company)}</td><td style="font-weight:700">${esc(m.code)}</td><td>${esc(m.serial ?? '—')}</td><td>${esc(m.tipo)}</td><td>${esc(m.modelo ?? '—')}</td><td>${esc(m.encargado ?? '—')}</td>${showEstado ? `<td>${estLbl(m.estado)}</td>` : ''}</tr>`).join('');
     const body = `
       <style>
         table.cnt{width:100%;border-collapse:collapse;margin:6px 0 16px;font-size:12px}
         table.cnt th,table.cnt td{border:1px solid #ccc;padding:6px 10px;text-align:left}
         table.cnt th{background:#1E3A5F;color:#fff}
       </style>
-      <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th><th>Encargado</th>${showEstado ? '<th>Estado</th>' : ''}</tr></thead>
+      <table class="cnt"><thead><tr><th style="width:30px">#</th><th>Empresa</th><th>Máquina</th><th>Serial</th><th>Tipo de equipo</th><th>Marca/Modelo</th><th>Encargado</th>${showEstado ? '<th>Estado</th>' : ''}</tr></thead>
         <tbody>${rows}</tbody></table>`;
     await exportPdf(pdfShell(titulo.toUpperCase(), `${items.length} equipos`, body), `Reportes - ${titulo}`);
   };
@@ -1855,10 +1858,10 @@ export default function ReportsScreen({ route }: any) {
     const mach = await selectAllRows('machinery', 'code, plate, serial, tipo, clasificacion, company:company_id(name)');
     const trucks = (mach ?? [])
       .filter((m: any) => re.test(`${m.code || ''} ${canonTipo(m.tipo) || ''} ${m.clasificacion || ''}`.toUpperCase()))
-      .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, company: m.company?.name || 'Sin empresa' }))
+      .map((m: any) => ({ code: m.code as string, plate: (m.plate ?? null) as string | null, serial: (m.serial ?? null) as string | null, tipo: (m.tipo && String(m.tipo).trim()) || null, company: m.company?.name || 'Sin empresa' }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
-    const map = new Map<string, { code: string; plate: string | null; serial: string | null }[]>();
-    trucks.forEach((t) => { const a = map.get(t.company) ?? []; a.push({ code: t.code, plate: t.plate, serial: t.serial }); map.set(t.company, a); });
+    const map = new Map<string, { code: string; plate: string | null; serial: string | null; tipo: string | null }[]>();
+    trucks.forEach((t) => { const a = map.get(t.company) ?? []; a.push({ code: t.code, plate: t.plate, serial: t.serial, tipo: t.tipo }); map.set(t.company, a); });
     return [...map.entries()].map(([company, items]) => ({ company, items }));
   }, []);
 
@@ -1884,7 +1887,7 @@ export default function ReportsScreen({ route }: any) {
         const companiesHtml = camData.companies
           .map((co) => {
             const rows = co.items
-              .map((t) => `<tr><td class="nm">${esc(t.code)}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
+              .map((t) => `<tr><td class="nm">${esc(t.code)}${t.tipo ? `<br/><span style="font-weight:400;color:#6B7280">🏷️ ${esc(t.tipo)}</span>` : ''}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
               .join('');
             return `<h3 class="emp">🏢 ${esc(co.company)} — ${co.items.length} camión(es)</h3>
               <table class="cam"><thead><tr><th class="nm">Máquina</th><th class="ps">Placa/Serial</th>${w.days.map(dayTh).join('')}</tr></thead>
@@ -1935,7 +1938,7 @@ export default function ReportsScreen({ route }: any) {
         const companiesHtml = cos
           .map((co) => {
             const rows = co.items
-              .map((t) => `<tr><td class="nm">${esc(t.code)}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
+              .map((t) => `<tr><td class="nm">${esc(t.code)}${t.tipo ? `<br/><span style="font-weight:400;color:#6B7280">🏷️ ${esc(t.tipo)}</span>` : ''}</td><td class="ps">${esc(t.plate || t.serial || '—')}</td>${w.days.map(() => cell).join('')}</tr>`)
               .join('');
             return `<h3 class="emp">🏢 ${esc(co.company)} — ${co.items.length} equipo(s)</h3>
               <table class="cam"><thead><tr><th class="nm">Equipo</th><th class="ps">Placa/Serial</th>${w.days.map(dayTh).join('')}</tr></thead>
@@ -2003,13 +2006,13 @@ export default function ReportsScreen({ route }: any) {
     const trazaRows = fleetItems
       .slice()
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.name, b.name))
-      .map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.company)}</td><td style="text-align:right">${it.diasTrabajados}</td><td style="text-align:right">${it.worked.toFixed(1)} h</td><td style="text-align:right">${it.averias}</td><td style="text-align:right">${it.paradas}</td><td>${ESTADO_LABEL[it.estado]}</td></tr>`)
+      .map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.marcaModelo)}</td><td>${esc(it.company)}</td><td style="text-align:right">${it.diasTrabajados}</td><td style="text-align:right">${it.worked.toFixed(1)} h</td><td style="text-align:right">${it.averias}</td><td style="text-align:right">${it.paradas}</td><td>${ESTADO_LABEL[it.estado]}</td></tr>`)
       .join('');
     const trazabilidadBlock = `
       <h2 style="margin-top:16px">Trazabilidad de maquinaria</h2>
       <p class="muted">Días/horas trabajadas y # de averías/paradas MARCADAS dentro del rango; el estado es el ACTUAL (ahora mismo).</p>
-      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Empresa</th><th style="text-align:right">Días trab.</th><th style="text-align:right">Horas</th><th style="text-align:right">Averías</th><th style="text-align:right">Paradas</th><th style="text-align:left">Estado actual</th></tr></thead>
-      <tbody>${trazaRows || '<tr><td colspan="7" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
+      <table><thead><tr><th style="text-align:left">Equipo</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Empresa</th><th style="text-align:right">Días trab.</th><th style="text-align:right">Horas</th><th style="text-align:right">Averías</th><th style="text-align:right">Paradas</th><th style="text-align:left">Estado actual</th></tr></thead>
+      <tbody>${trazaRows || '<tr><td colspan="8" style="text-align:center">Sin equipos</td></tr>'}</tbody></table>`;
 
     const body = `
       <div class="muted">${esc(alcance)} · Del ${fmtDMY(from)} al ${fmtDMY(to)}</div>
@@ -2048,10 +2051,11 @@ export default function ReportsScreen({ route }: any) {
       .join('');
     // Listado AGRUPADO por empresa: nombre de la máquina, serial/placa y encargado.
     const listRows = empresas.map((e) => `
-      <tr><td colspan="4" style="background:#eef2f7;font-weight:800;color:#1E3A5F">🏢 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
+      <tr><td colspan="5" style="background:#eef2f7;font-weight:800;color:#1E3A5F">🏢 ${esc(e.company)}${companyRif[e.company] ? ` · RIF ${esc(companyRif[e.company])}` : ''} — ${e.count}</td></tr>
       ${e.items.map((m, i) => `<tr>
         <td style="width:26px;text-align:right;color:#888">${i + 1}</td>
         <td>${esc(m.code)}</td>
+        <td>${esc(m.modelo || '—')}</td>
         <td>${esc(m.serial || m.plate || '—')}</td>
         <td>${esc(m.encargado || '—')}</td>
       </tr>`).join('')}
@@ -2071,8 +2075,8 @@ export default function ReportsScreen({ route }: any) {
       <tbody>${clasifRows || '<tr><td colspan="2" style="text-align:center">Sin datos</td></tr>'}</tbody>
       <tfoot><tr><td style="text-align:right">TOTAL</td><td style="text-align:right;font-weight:800">${total}</td></tr></tfoot></table>
       <h2 style="margin-top:16px">Listado por empresa</h2>
-      <table><thead><tr><th style="text-align:right">#</th><th style="text-align:left">Máquina</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Encargado</th></tr></thead>
-      <tbody>${listRows || '<tr><td colspan="4" style="text-align:center">Sin coincidencias</td></tr>'}</tbody></table>`;
+      <table><thead><tr><th style="text-align:right">#</th><th style="text-align:left">Máquina</th><th style="text-align:left">Marca/Modelo</th><th style="text-align:left">Serial / Placa</th><th style="text-align:left">Encargado</th></tr></thead>
+      <tbody>${listRows || '<tr><td colspan="5" style="text-align:center">Sin coincidencias</td></tr>'}</tbody></table>`;
     await exportPdf(pdfShell('CANTIDAD POR TIPO DE EQUIPO', `${sel.length} tipo(s) · ${estadoLbl}`, body), 'Reportes - Cantidad por tipo');
   };
 
@@ -2644,6 +2648,7 @@ export default function ReportsScreen({ route }: any) {
                             <Text style={{ color: colors.muted, fontSize: 11, width: 20 }}>{i + 1}.</Text>
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12.5, fontWeight: '700' }}>{m.code}</Text>
+                              {m.modelo ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.modelo}</Text> : null}
                               <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 11 }}>
                                 🔖 {m.serial || m.plate || 'Sin serial/placa'}{m.encargado ? `  ·  👤 ${m.encargado}` : ''}
                               </Text>
@@ -2834,6 +2839,7 @@ export default function ReportsScreen({ route }: any) {
                             <Text style={{ color: colors.muted, fontSize: 12, width: 26, textAlign: 'right' }}>{i + 1}</Text>
                             <View style={{ flex: 1 }}>
                               <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{m.code}</Text>
+                              {m.modelo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.modelo}</Text> : null}
                               <Text style={{ color: colors.muted, fontSize: 11 }}>🏢 {m.company}{m.serial ? ` · Serial ${m.serial}` : ''} · {m.tipo}</Text>
                               {m.encargado ? <Text style={{ color: colors.brandText, fontSize: 11, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                             </View>
@@ -3345,6 +3351,7 @@ export default function ReportsScreen({ route }: any) {
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
                           {it.name} {it.estado === 'averia' ? '🔴' : it.estado === 'parada' ? '🟡' : '🟢'}
                         </Text>
+                        {it.marcaModelo && it.marcaModelo !== '—' ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {it.marcaModelo}</Text> : null}
                         <Text style={{ color: colors.muted, fontSize: 11 }}>
                           {it.company} · {it.diasTrabajados} día(s) trab. · {it.worked.toFixed(1)} h · {it.averias} avería(s) · {it.paradas} parada(s)
                         </Text>
@@ -3437,7 +3444,10 @@ export default function ReportsScreen({ route }: any) {
                   <Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 14, marginBottom: spacing.xs }}>🏢 {co.company} — {co.items.length} camión(es)</Text>
                   {co.items.map((t) => (
                     <View key={t.code} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-                      <Text style={{ color: colors.text, fontSize: 13, flex: 1 }}>{t.code}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontSize: 13 }}>{t.code}</Text>
+                        {t.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {t.tipo}</Text> : null}
+                      </View>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>{t.plate || t.serial || '—'}</Text>
                     </View>
                   ))}

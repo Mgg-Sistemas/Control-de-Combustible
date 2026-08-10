@@ -107,7 +107,8 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     || norm((m as any).serial || '').includes(q)
     || norm((m as any).plate || '').includes(q)
     || norm((m as any).encargado || '').includes(q)
-    || norm((m as any).referencia || '').includes(q);
+    || norm((m as any).referencia || '').includes(q)
+    || norm((m as any).tipo || '').includes(q);
 
   // Listado del CHECK: máquinas ACTIVAS y OPERATIVAS (mismo criterio que el teléfono).
   const checkList = useMemo(() => {
@@ -358,7 +359,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                                 <View key={sh} style={{ marginTop: spacing.xs }}>
                                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{sh === 'day' ? '☀️ Día' : '🌙 Noche'} ({g[sh].length})</Text>
                                   {g[sh].map((m) => (
-                                    <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code} · {m.companyName}</Text>
+                                    <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName}</Text>
                                   ))}
                                 </View>
                               ) : null
@@ -384,7 +385,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                           const f = faltaEncargadoReal(m);
                           return (
                             <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingVertical: 1 }}>
-                              • {m.code} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
+                              • {m.code}{m.tipo ? ` · 🏷️ ${m.tipo}` : ''} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
                             </Text>
                           );
                         })}
@@ -458,7 +459,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                     </TouchableOpacity>
                   ) : null}
                 </View>
-                <TextInput value={pendQuery} onChangeText={setPendQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+                <TextInput value={pendQuery} onChangeText={setPendQuery} placeholder="🔎 Buscar: nombre, serial, placa, tipo, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
                 <ScrollView style={{ marginTop: spacing.xs }} keyboardShouldPersistTaps="handled">
                   {pendientesList.slice(0, 200).map((m) => {
                     const f = faltaEncargadoReal(m);
@@ -559,7 +560,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                         );
                       })}
                     </View>
-                    <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
+                    <TextInput value={checkQuery} onChangeText={setCheckQuery} placeholder="🔎 Buscar: nombre, serial, placa, tipo, empresa, encargado…" placeholderTextColor={colors.muted} style={input} />
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
                       <TouchableOpacity onPress={() => setSelIds(allSel ? new Set() : new Set(shown.map((m) => m.id)))} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: allSel ? colors.primary : colors.border, backgroundColor: allSel ? colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
@@ -662,6 +663,7 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>👮 Asignar inspector</Text>
                     <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code} · {af.companyName}</Text>
+                    {af.tipo ? <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>🏷️ {af.tipo}</Text> : null}
                   </View>
                   <TouchableOpacity onPress={() => { setAssignFor(null); setPickShift(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>

@@ -84,7 +84,7 @@ export default function DashboardScreen({ navigation }: any) {
 
   const [activeMachines, setActiveMachines] = useState<number | null>(null);
   // Detalle de las máquinas activas (con ronda) agrupadas por empresa.
-  const [activeByCompany, setActiveByCompany] = useState<{ company: string; items: { code: string; serial: string | null }[] }[]>([]);
+  const [activeByCompany, setActiveByCompany] = useState<{ company: string; items: { code: string; serial: string | null; tipo: string | null }[] }[]>([]);
   const [showActive, setShowActive] = useState(false);
   const [activeLocations, setActiveLocations] = useState<number | null>(null);
   const [activeAssets, setActiveAssets] = useState<number | null>(null);
@@ -116,14 +116,14 @@ export default function DashboardScreen({ navigation }: any) {
     if (ids.length) {
       const { data: actMd } = await supabase
         .from('machinery')
-        .select('code, serial, company:company_id(name)')
+        .select('code, serial, tipo, company:company_id(name)')
         .in('id', ids as any)
         .order('code');
-      const map = new Map<string, { company: string; items: { code: string; serial: string | null }[] }>();
+      const map = new Map<string, { company: string; items: { code: string; serial: string | null; tipo: string | null }[] }>();
       (actMd ?? []).forEach((m: any) => {
         const cn = (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
-        const g = map.get(cn) ?? { company: cn, items: [] as { code: string; serial: string | null }[] };
-        g.items.push({ code: m.code ?? '—', serial: m.serial ?? null });
+        const g = map.get(cn) ?? { company: cn, items: [] as { code: string; serial: string | null; tipo: string | null }[] };
+        g.items.push({ code: m.code ?? '—', serial: m.serial ?? null, tipo: (m.tipo && String(m.tipo).trim()) || null });
         map.set(cn, g);
       });
       setActiveByCompany([...map.values()].sort((a, b) => a.company.localeCompare(b.company, 'es')));
@@ -370,6 +370,7 @@ export default function DashboardScreen({ navigation }: any) {
                       <Text style={{ color: colors.muted, fontSize: 12, width: 24, textAlign: 'right' }}>{i + 1}</Text>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>{it.code}</Text>
+                        {it.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {it.tipo}</Text> : null}
                         {it.serial ? <Text style={{ color: colors.muted, fontSize: 11 }}>Serial {it.serial}</Text> : null}
                       </View>
                       <Text style={{ color: colors.primary, fontSize: 12, fontWeight: '700' }}>ver ›</Text>

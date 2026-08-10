@@ -48,7 +48,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 };
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
-type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
+type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null };
 // Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
@@ -101,7 +101,7 @@ export default function MantenimientoMaquinariaScreen() {
 
   // Escanear una máquina para REPORTAR una avería (desde la vista de admin).
   const [scanOpen, setScanOpen] = useState(false);
-  const [avMachine, setAvMachine] = useState<{ id: string; code: string; plate: string | null } | null>(null);
+  const [avMachine, setAvMachine] = useState<{ id: string; code: string; plate: string | null; tipo: string | null } | null>(null);
   const [avMaterial, setAvMaterial] = useState<string | null>(null);
   const [avQty, setAvQty] = useState('');
   const [avNote, setAvNote] = useState('');
@@ -141,7 +141,7 @@ export default function MantenimientoMaquinariaScreen() {
       // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
       supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
-      supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
+      supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
     ]);
@@ -149,7 +149,7 @@ export default function MantenimientoMaquinariaScreen() {
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
-    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
+    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa' })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
     setLoading(false);
   };
@@ -229,10 +229,10 @@ export default function MantenimientoMaquinariaScreen() {
 
   // Estadística por MÁQUINA: total de averías (todas), desglose por material y fechas.
   const machineStats = useMemo(() => {
-    const by = new Map<string, { id: string; code: string; company: string; plate: string | null; serial: string | null; clasificacion: string | null; total: number; byMat: Record<string, number>; }>();
+    const by = new Map<string, { id: string; code: string; company: string; plate: string | null; serial: string | null; clasificacion: string | null; tipo: string | null; total: number; byMat: Record<string, number>; }>();
     reqs.forEach((r) => {
       const mac = machById.get(r.machinery_id);
-      const g = by.get(r.machinery_id) ?? { id: r.machinery_id, code: r.code, company: r.company, plate: r.plate, serial: r.serial, clasificacion: mac?.clasificacion ?? null, total: 0, byMat: {} };
+      const g = by.get(r.machinery_id) ?? { id: r.machinery_id, code: r.code, company: r.company, plate: r.plate, serial: r.serial, clasificacion: mac?.clasificacion ?? null, tipo: mac?.tipo ?? r.tipo ?? null, total: 0, byMat: {} };
       g.total += 1;
       g.byMat[r.material] = (g.byMat[r.material] ?? 0) + 1;
       by.set(r.machinery_id, g);
@@ -292,7 +292,7 @@ export default function MantenimientoMaquinariaScreen() {
     setScanOpen(false);
     const id = parseMachineId(text);
     if (!id) { setNotice('❌ QR no reconocido. Escanea el QR de una máquina.'); return; }
-    const { data } = await supabase.from('machinery').select('id, code, plate').eq('id', id).single();
+    const { data } = await supabase.from('machinery').select('id, code, plate, tipo').eq('id', id).single();
     if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
     setAvMachine(data as any); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); setNotice(null);
   };
@@ -336,7 +336,7 @@ export default function MantenimientoMaquinariaScreen() {
       if (statById.has(id)) return;
       const mac = machById.get(id); // rendimiento: índice en vez de machines.find()
       if (!mac) return;
-      universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> });
+      universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, tipo: mac.tipo ?? null, total: 0, byMat: {} as Record<string, number> });
     });
     const flaggedOf = (id: string) => { const ins = inspByMachine[id] ?? []; return ins.length ? (ins[0].items ?? []).filter((it: any) => it.nivel === 'warn' || it.nivel === 'bad').length : 0; };
     const casoTxt = (id: string, total: number) => (total > 0 ? ((inspByMachine[id] ?? []).length ? `🔧🔍 Avería + insp. (${flaggedOf(id)} obs.)` : '🔧 Avería sin insp.') : `🔍 Insp. sin avería (${flaggedOf(id)} obs.)`);
@@ -356,7 +356,7 @@ export default function MantenimientoMaquinariaScreen() {
         if (s.total > 0) { if ((inspByMachine[s.id] ?? []).length) cnt.con++; else cnt.sin_insp++; } else cnt.sin_averia++;
         const matCells = mats.map((m) => `<td style="text-align:center">${s.byMat[m] ?? 0}</td>`).join('');
         const ident = [s.plate, s.serial].filter(Boolean).join(' · ') || '—';
-        return `<tr><td>${s.code}</td><td style="color:#666">${ident}</td><td style="text-align:center;font-weight:700">${s.total}</td>${matCells}<td style="text-align:right;font-weight:700">${usd(g)}</td><td style="font-size:11px">${casoTxt(s.id, s.total)}</td></tr>`;
+        return `<tr><td>${s.code}${s.tipo ? `<br/><span style="color:#888;font-weight:400">🏷️ ${s.tipo}</span>` : ''}</td><td style="color:#666">${ident}</td><td style="text-align:center;font-weight:700">${s.total}</td>${matCells}<td style="text-align:right;font-weight:700">${usd(g)}</td><td style="font-size:11px">${casoTxt(s.id, s.total)}</td></tr>`;
       }).join('');
       grandAv += cAv; grandGasto += cGasto;
       return `<h3 style="margin:14px 0 4px">🏢 ${company} · ${list.length} equipo(s) · ${cAv} avería(s) · ${usd(cGasto)}</h3>
@@ -490,6 +490,7 @@ export default function MantenimientoMaquinariaScreen() {
             {horoOpen ? horometroAlertas.map(({ m, alerta }) => (
               <View key={m.id} style={{ marginTop: spacing.sm, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm }}>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🚜 {m.code}{m.serial ? ` · #️⃣ ${m.serial}` : ''}</Text>
+                {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {m.tipo}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {m.company}</Text>
                 <Text style={{ color: alerta.color, fontWeight: '800', fontSize: 12, marginTop: 2 }}>Próxima a mantenimiento · {alerta.label} · {alerta.horas} h acumuladas</Text>
                 <TouchableOpacity onPress={() => confirmarMantenimientoHorometro(m)} disabled={confirmingHoro === m.id} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center', opacity: confirmingHoro === m.id ? 0.6 : 1 }}>
@@ -599,6 +600,7 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
                 <Badge {...TIPO_BADGE(r.tipo)} />
               </View>
+              {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
               <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>🔧 Salió a reparación: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
               {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {r.estimated_note}</Text> : null}
@@ -619,6 +621,7 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15, flex: 1 }}>{r.code}</Text>
                 <Badge {...TIPO_BADGE(r.tipo)} />
               </View>
+              {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
               <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📅 {fmtDMY(r.out_at)} → {fmtDMY(r.back_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Operativa</Text></Text>
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔩 Se cambió: {r.work_done}</Text> : null}
@@ -753,7 +756,7 @@ export default function MantenimientoMaquinariaScreen() {
             if (statById.has(id)) return;
             const mac = machById.get(id); // rendimiento: índice en vez de machines.find()
             if (!mac) return; // inspección de un equipo ya inactivo/borrado
-            universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} });
+            universe.push({ id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, tipo: mac.tipo ?? null, total: 0, byMat: {} });
           });
           if (universe.length === 0) return <EmptyState title="Sin averías ni inspecciones" subtitle="Cuando se reporten averías o inspecciones podrás ver aquí el reporte y el dashboard." />;
           const gastoOf = (id: string) => gastoByMachine[id] ?? 0;
@@ -781,7 +784,7 @@ export default function MantenimientoMaquinariaScreen() {
               const flagged = flaggedOf(s.id);
               const inspHint = hasInsp(s.id) ? ` · 🔍 ${flagged} obs.` : '';
               const ident = [s.plate, s.serial].filter(Boolean).join(' · ');
-              return { key: s.id, title: s.code, sub: `🏢 ${s.company}${ident ? ` · ${ident}` : ''}${inspHint}`, total: s.total, gasto: gastoOf(s.id), caso: casoOf(s.id, s.total), onPress: () => setRepDetailId(s.id) };
+              return { key: s.id, title: s.code, sub: `${s.tipo ? `🏷️ ${s.tipo} · ` : ''}🏢 ${s.company}${ident ? ` · ${ident}` : ''}${inspHint}`, total: s.total, gasto: gastoOf(s.id), caso: casoOf(s.id, s.total), onPress: () => setRepDetailId(s.id) };
             });
           } else {
             const agg = new Map<string, { total: number; gasto: number; machs: Set<string> }>();
@@ -905,6 +908,7 @@ export default function MantenimientoMaquinariaScreen() {
                 return (
                   <TouchableOpacity key={m.id} onPress={() => !inRep && openRepair(m)} disabled={inRep} style={{ padding: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs, backgroundColor: colors.surface, opacity: inRep ? 0.5 : 1 }}>
                     <Text style={{ color: colors.text, fontWeight: '800' }}>{m.code}{inRep ? '  · ya en reparación' : ''}</Text>
+                    {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {m.tipo}</Text> : null}
                     <Text style={{ color: colors.muted, fontSize: 12 }}>{m.company}{m.operational ? '' : ' · No operativa'}</Text>
                   </TouchableOpacity>
                 );
@@ -925,7 +929,7 @@ export default function MantenimientoMaquinariaScreen() {
             {repFor ? (
               <ScrollView>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>🔧 Enviar a reparación</Text>
-                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{repFor.code} · {repFor.company}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{repFor.code}{repFor.tipo ? ` · 🏷️ ${repFor.tipo}` : ''} · {repFor.company}</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
@@ -1024,7 +1028,7 @@ export default function MantenimientoMaquinariaScreen() {
             {retFor ? (
               <ScrollView>
                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 17 }}>✓ Retorno operativo</Text>
-                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{retFor.code} · salió el {fmtDMY(retFor.out_at)}</Text>
+                <Text style={{ color: colors.muted, fontSize: 13, marginBottom: spacing.sm }}>{retFor.code}{retFor.machineTipo ? ` · 🏷️ ${retFor.machineTipo}` : ''} · salió el {fmtDMY(retFor.out_at)}</Text>
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginBottom: 2 }}>¿Cuándo volvió operativa?</Text>
                 <DateField value={retBack} onChange={setRetBack} />
@@ -1063,6 +1067,7 @@ export default function MantenimientoMaquinariaScreen() {
             {avMachine ? (
               <ScrollView>
                 <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18, textAlign: 'center' }}>🛠️ Avería · {avMachine.code}</Text>
+                {avMachine.tipo ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 2 }}>🏷️ {avMachine.tipo}</Text> : null}
                 {avMachine.plate ? <Text style={{ color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 2 }}>Placa: {avMachine.plate}</Text> : null}
                 <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>¿Qué necesita?</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
@@ -1120,7 +1125,7 @@ export default function MantenimientoMaquinariaScreen() {
               // El equipo puede venir de las averías o SOLO de inspección (sin avería).
               const sStat = machineStats.find((x) => x.id === repDetailId);
               const mac = machById.get(repDetailId); // rendimiento: índice en vez de machines.find()
-              const s = sStat ?? (mac ? { id: mac.id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, total: 0, byMat: {} as Record<string, number> } : null);
+              const s = sStat ?? (mac ? { id: mac.id, code: mac.code, company: mac.company, plate: mac.plate, serial: mac.serial, clasificacion: mac.clasificacion, tipo: mac.tipo ?? null, total: 0, byMat: {} as Record<string, number> } : null);
               if (!s) return null;
               const list = reqs.filter((r) => r.machinery_id === repDetailId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
               const gasto = gastoByMachine[repDetailId] ?? 0;
@@ -1131,7 +1136,8 @@ export default function MantenimientoMaquinariaScreen() {
                   <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>🚜 {s.code}</Text>
                   <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.sm, marginTop: spacing.sm, gap: 3 }}>
                     <Text style={{ color: colors.muted, fontSize: 13 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.company}</Text></Text>
-                    {s.clasificacion ? <Text style={{ color: colors.muted, fontSize: 13 }}>🏷️ Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.clasificacion}</Text></Text> : null}
+                    {s.tipo ? <Text style={{ color: colors.muted, fontSize: 13 }}>🏷️ Marca - Modelo: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.tipo}</Text></Text> : null}
+                    {s.clasificacion ? <Text style={{ color: colors.muted, fontSize: 13 }}>🗂️ Tipo: <Text style={{ color: colors.text, fontWeight: '700' }}>{s.clasificacion}</Text></Text> : null}
                     {ident ? <Text style={{ color: colors.muted, fontSize: 13 }}>🔖 Placa / Serial: <Text style={{ color: colors.text, fontWeight: '700' }}>{ident}</Text></Text> : null}
                   </View>
 

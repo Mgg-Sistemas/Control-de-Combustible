@@ -235,11 +235,11 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   const tableAveriadas = (list: Row[]): string => {
     const rows = list.slice().sort((a, b) => cmpText(a.code, b.code)).map((r, i) =>
       `<tr>
-        <td>${i + 1}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.motivo || 'Avería')}</td>
+        <td>${i + 1}</td><td><b>${esc(r.code)}</b></td><td>${esc(r.tipo)}</td><td>${esc(r.motivo || 'Avería')}</td>
         <td>${esc(psTxt(r.plate, r.serial))}</td><td>${esc(r.edificio)}</td><td>${esc(r.companyName)}</td>
       </tr>`).join('');
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Máquina</th><th>Motivo de la avería</th>
+      <th style="width:24px">Nº</th><th>Máquina</th><th>Marca/Modelo</th><th>Motivo de la avería</th>
       <th>Serial/Placa</th><th>Edificio</th><th>Empresa</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
   };

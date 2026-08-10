@@ -14,7 +14,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { generateMachineTraceabilityReport, TraceEvent, TraceWorkedDay } from '../lib/machineTraceabilityReport';
 
-type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null; encargado: string | null; operational: boolean };
+type MachineryRow = { id: string; code: string; tipo: string | null; serial: string | null; plate: string | null; company_id: string | null; encargado: string | null; operational: boolean };
 type CompanyRow = { id: string; name: string | null };
 
 function caracasTodayISO(): string {
@@ -47,7 +47,7 @@ export default function MachineTraceabilityScreen({ route }: any) {
   const { colors } = useTheme();
   const today = caracasTodayISO();
 
-  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, tipo, serial, plate, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
   const { data: companies } = useTable<CompanyRow>('companies', { select: 'id, name', orderBy: 'name' });
   const companiesMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -68,7 +68,7 @@ export default function MachineTraceabilityScreen({ route }: any) {
     const q = norm(machineQuery);
     const withInfo = machinery.map((m) => ({ ...m, companyName: m.company_id ? (companiesMap[m.company_id] ?? '') : '' }));
     const list = q
-      ? withInfo.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.companyName} ${m.encargado ?? ''}`).includes(q))
+      ? withInfo.filter((m) => norm(`${m.code} ${m.serial ?? ''} ${m.plate ?? ''} ${m.tipo ?? ''} ${m.companyName} ${m.encargado ?? ''}`).includes(q))
       : withInfo;
     return list.slice().sort((a, b) => cmpText(a.code, b.code)).slice(0, 30);
   }, [machinery, machineQuery, companiesMap]);
@@ -143,7 +143,7 @@ export default function MachineTraceabilityScreen({ route }: any) {
     if (!machineId) return;
     setExporting(true);
     try {
-      await generateMachineTraceabilityReport({ machineLabel, fromISO, toISO, events, workedDays });
+      await generateMachineTraceabilityReport({ machineLabel, machineTipo: machineInfo?.tipo ?? null, fromISO, toISO, events, workedDays });
     } finally {
       setExporting(false);
     }
@@ -163,15 +163,19 @@ export default function MachineTraceabilityScreen({ route }: any) {
           </Text>
           <Text style={{ color: colors.brandText, fontWeight: '800' }}>{machineOpen ? '▲' : '▼'}</Text>
         </TouchableOpacity>
+        {machineId && machineInfo?.tipo ? (
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>🏷️ {machineInfo.tipo}</Text>
+        ) : null}
         {machineOpen ? (
           <View style={{ marginTop: spacing.xs }}>
-            <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="🔎 Buscar por código, serial, placa, empresa o encargado…" placeholderTextColor={colors.muted} style={input} />
+            <TextInput value={machineQuery} onChangeText={setMachineQuery} placeholder="🔎 Buscar por código, serial, placa, tipo, empresa o encargado…" placeholderTextColor={colors.muted} style={input} />
             <View style={{ maxHeight: 240, marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, overflow: 'hidden' }}>
               {machineOptions.length === 0 ? (
                 <Text style={{ color: colors.muted, fontSize: 12, padding: spacing.sm }}>Sin resultados.</Text>
               ) : machineOptions.map((m) => (
                 <TouchableOpacity key={m.id} onPress={() => { setMachineId(m.id); setMachineOpen(false); setMachineQuery(''); setQueried(false); }} style={{ paddingVertical: 8, paddingHorizontal: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surface }}>
                   <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}{!m.operational ? '  ⛔' : ''}</Text>
+                  {m.tipo ? <Text style={{ color: colors.muted, fontSize: 11 }}>🏷️ {m.tipo}</Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 11 }}>{[m.serial, m.plate, (m as any).companyName].filter(Boolean).join(' · ')}</Text>
                 </TouchableOpacity>
               ))}

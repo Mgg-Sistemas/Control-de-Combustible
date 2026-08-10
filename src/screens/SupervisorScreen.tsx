@@ -2578,7 +2578,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                               <View key={sh} style={{ marginTop: spacing.xs }}>
                                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{sh === 'day' ? '☀️ Día' : '🌙 Noche'} ({g[sh].length})</Text>
                                 {g[sh].map((m) => (
-                                  <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code} · {m.companyName}</Text>
+                                  <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code}{m.tipo ? ` (🏷️ ${m.tipo})` : ''} · {m.companyName}</Text>
                                 ))}
                               </View>
                             ) : null
@@ -2605,7 +2605,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         const f = faltaEncargadoReal(m);
                         return (
                           <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingVertical: 1 }}>
-                            • {m.code} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
+                            • {m.code}{m.tipo ? ` (🏷️ ${m.tipo})` : ''} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
                           </Text>
                         );
                       })}
@@ -2896,7 +2896,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>👮 Asignar inspector</Text>
-                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code} · {af.companyName}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code}{af.tipo ? ` · 🏷️ ${af.tipo}` : ''} · {af.companyName}</Text>
                   </View>
                   <TouchableOpacity onPress={() => { setAssignFor(null); setPickShift(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
