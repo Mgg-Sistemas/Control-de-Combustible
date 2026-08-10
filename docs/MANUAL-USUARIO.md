@@ -730,6 +730,11 @@ próxima(s) a mantenimiento ▸/▾"** (toca para abrir/cerrar). Los niveles son
 - **🟠 MEDIA** — 220 h acumuladas.
 - **🔴 ALTA (máxima)** — 250 h acumuladas.
 
+> **Se mantiene hasta repararla:** una vez que una máquina llega a las **250 h (vencida)**, queda
+> marcada como *requiere mantenimiento* y **NO se sale de la lista** aunque una lectura posterior
+> baje el acumulado. La ÚNICA forma de sacarla es el botón **"✓ Confirmar mantenimiento y reiniciar
+> horómetro"** (marcarla reparada). Igual que una avería pendiente, arrastra hasta resolverla.
+
 Cada máquina en alerta muestra su **Serial/Código**, su **Empresa** y el **nivel de severidad**, con
 el botón **"✓ Confirmar mantenimiento y reiniciar horómetro"**: al confirmar, reinicia el conteo de
 horas acumuladas (NO toca el horómetro físico de la máquina). Esta misma alerta también sale en

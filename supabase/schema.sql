@@ -2259,3 +2259,25 @@ begin
     execute format('create policy %I_write on public.%I for all to authenticated using (public.can_write_module(''acarreo'')) with check (public.can_write_module(''acarreo''));', t, t);
   end loop;
 end $$;
+
+-- ============================================================================
+-- MANTENIMIENTO POR HORÓMETRO PEGAJOSO (arrastre): una máquina que llega a
+-- >= 250 h acumuladas queda "requiere mantenimiento" hasta CONFIRMAR el
+-- mantenimiento (reparada + reiniciar horómetro). Ver MantenimientoMaquinariaScreen.
+-- ============================================================================
+alter table public.machinery
+  add column if not exists horometro_maint_pending boolean not null default false;
+
+create or replace function public.horometro_flag_pending()
+returns trigger language plpgsql as $$
+begin
+  if new.last_horometro is not null and new.horometro_base is not null
+     and (new.last_horometro - new.horometro_base) >= 250 then
+    new.horometro_maint_pending := true;
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_horometro_flag_pending on public.machinery;
+create trigger trg_horometro_flag_pending
+  before insert or update of last_horometro, horometro_base on public.machinery
+  for each row execute function public.horometro_flag_pending();
