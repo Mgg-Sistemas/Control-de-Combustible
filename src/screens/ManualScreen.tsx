@@ -613,6 +613,24 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '🚛',
+    title: 'Acarreo / Transporte',
+    blocks: [
+      { t: 'p', text: 'Módulo para trasladar maquinaria en chutos y bateas/lowboys: desde el registro de la flota y los choferes hasta la orden de acarreo, la ejecución del viaje (check-in/out con fotos y firma) y el control de costos. Se entra por Más → Acarreo / Transporte.' },
+      { t: 'p', text: 'Datos maestros (lo primero que se carga):' },
+      { t: 'bullets', items: [
+        '🚛 Chutos: los camiones de arrastre — placa, capacidad de arrastre, kilometraje y estado. Avisa cuántos km faltan para el mantenimiento.',
+        '🛻 Bateas / lowboys: los remolques — tipo, ejes, capacidad de carga (toneladas) y dimensiones útiles.',
+        '👷 Choferes: nombre, teléfono, licencia con su vigencia y disponibilidad (disponible, en ruta, de reposo, suspendido). Avisa si la licencia está vencida.',
+        '🚜 Equipos a trasladar: se toma la máquina del Catálogo y se le carga su peso y dimensiones (sirven para validar que no supere la carga del remolque).',
+        '🏢 Clientes y proyectos: emisor y receptor. Los EXTERNOS (a los que se factura) usan tarifario; los internos solo controlan costos.',
+        '📍 Ubicaciones: obras, almacenes, talleres, minas y pozos de origen/destino.',
+        '📄 Documentos y vencimientos: permisos de carga pesada, pólizas, revisiones técnicas y licencias — con su fecha de vencimiento (dispara alertas).',
+      ] },
+      { t: 'note', text: 'El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
+    ],
+  },
+  {
     icon: '⚙️',
     title: 'Ajustes',
     blocks: [
