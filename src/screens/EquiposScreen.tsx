@@ -409,11 +409,12 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Las máquinas INACTIVAS (No operativa) NO se muestran en el catálogo: solo
   // aparecen en la sección "⛔ Maquinaria inactiva". Al reactivarlas (Operativa)
   // vuelven al catálogo automáticamente. Sus horas pasadas no se tocan.
-  // La TAPA solo aplica a los equipos de TRANSPORTE DE ESCOMBROS (volteos/volquetas/
-  // toronto/batea) — mismo criterio que los reportes (ESCOMBRO_RE por nombre/tipo/
-  // clasificación). El filtro por tapa se limita a ese conjunto (pedido del cliente).
-  const esEscombro = (m: Machinery) =>
-    /VOLQUETA|VOLTEO|TORONTO|ESCOMBRO|BATEA/.test(`${m.code ?? ''} ${(m as any).tipo ?? ''} ${(m as any).clasificacion ?? ''}`.toUpperCase());
+  // La TAPA solo aplica a los equipos de la CLASIFICACIÓN "Transporte de escombros"
+  // (pedido del cliente: son exactamente esos los que se cuentan para CON TAPA / SIN
+  // TAPA). Antes se detectaba por nombre/tipo (regex VOLQUETA|VOLTEO|…), lo que colaba
+  // 1 máquina de "Manejo de carga" cuyo nombre tenía "volteo" → el total de tapa salía
+  // 59 en vez de 58. Ahora se ata a la clasificación para que cuadre con ese chip.
+  const esEscombro = (m: Machinery) => norm(String((m as any).clasificacion ?? '')).includes('escombro');
   // Filtro por tapa: sencilla (con tapa, no doble) · doble (con tapa doble) · sin tapa.
   // Al activar cualquier filtro de tapa, se muestran SOLO equipos de transporte de escombros.
   const matchTapa = (m: Machinery) =>
