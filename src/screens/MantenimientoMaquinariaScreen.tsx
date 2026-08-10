@@ -130,6 +130,7 @@ export default function MantenimientoMaquinariaScreen() {
   const [horoLoaded, setHoroLoaded] = useState(false);
   const [horoLoading, setHoroLoading] = useState(false);
   const [horoPhotoView, setHoroPhotoView] = useState<string | null>(null); // foto del horómetro ampliada
+  const [horoFilter, setHoroFilter] = useState<'all' | 'proximas' | 'vencidas'>('all'); // filtro por los KPIs de arriba
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -630,22 +631,43 @@ export default function MantenimientoMaquinariaScreen() {
           const total = horometroList.length;
           const conAlerta = horometroList.filter((x) => !!x.alerta).length;
           const vencidas = horometroList.filter((x) => x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA).length;
+          // Los KPIs de arriba son botones: filtran la lista (toca de nuevo el activo para quitar el filtro).
+          const shown = horometroList.filter((x) =>
+            horoFilter === 'proximas' ? !!x.alerta
+            : horoFilter === 'vencidas' ? (x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA)
+            : true);
+          const toggle = (f: 'all' | 'proximas' | 'vencidas') => setHoroFilter((cur) => (cur === f ? 'all' : f));
+          const kpi = (f: 'all' | 'proximas' | 'vencidas', label: string, value: number, valueColor: string) => {
+            const on = horoFilter === f || (f === 'all' && horoFilter === 'all');
+            return (
+              <TouchableOpacity onPress={() => toggle(f)} style={{ paddingBottom: 3, borderBottomWidth: 2, borderBottomColor: on ? colors.accent : 'transparent' }}>
+                <Text style={{ color: colors.brandContrast, opacity: on ? 1 : 0.8, fontSize: 11 }}>{label}</Text>
+                <Text style={{ color: valueColor, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{value}</Text>
+              </TouchableOpacity>
+            );
+          };
           return (
             <View>
               <Card style={{ backgroundColor: colors.brand }}>
                 <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 15 }}>⏱️ Horómetros · mantenimiento preventivo</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
-                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Máquinas</Text><Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{total}</Text></View>
-                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Próximas (≥200 h)</Text><Text style={{ color: colors.accent, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{conAlerta}</Text></View>
-                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Vencidas (≥{HOROMETRO_UMBRAL_ALTA} h)</Text><Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{vencidas}</Text></View>
+                  {kpi('all', 'Máquinas', total, colors.brandContrast)}
+                  {kpi('proximas', 'Próximas (≥200 h)', conAlerta, colors.accent)}
+                  {kpi('vencidas', `Vencidas (≥${HOROMETRO_UMBRAL_ALTA} h)`, vencidas, colors.brandContrast)}
                 </View>
-                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>Objetivo de mantenimiento: {HOROMETRO_UMBRAL_ALTA} h acumuladas. La lectura y la foto vienen de la última jornada registrada por el inspector/operador.</Text>
+                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>Toca un total para filtrar la lista. Objetivo de mantenimiento: {HOROMETRO_UMBRAL_ALTA} h acumuladas. La lectura y la foto vienen de la última jornada registrada por el inspector/operador.</Text>
               </Card>
 
-              {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
-              {total === 0 ? <EmptyState title="Sin resultados" subtitle="No hay máquinas para esta búsqueda." /> : null}
+              {horoFilter !== 'all' ? (
+                <TouchableOpacity onPress={() => setHoroFilter('all')} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{horoFilter === 'proximas' ? `⏱️ Próximas a mantenimiento · ${shown.length}` : `🔴 Vencidas · ${shown.length}`}  ✕ Quitar filtro</Text>
+                </TouchableOpacity>
+              ) : null}
 
-              {horometroList.map(({ m, acum, alerta, restante, horo }) => {
+              {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
+              {shown.length === 0 ? <EmptyState title="Sin resultados" subtitle={horoFilter === 'all' ? 'No hay máquinas para esta búsqueda.' : 'Ninguna máquina en este filtro.'} /> : null}
+
+              {shown.map(({ m, acum, alerta, restante, horo }) => {
                 const pct = acum != null ? Math.min(1, acum / HOROMETRO_UMBRAL_ALTA) : 0;
                 const vencido = restante != null && restante <= 0;
                 const barColor = alerta?.color ?? (vencido ? colors.danger : colors.success);
