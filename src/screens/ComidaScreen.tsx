@@ -71,29 +71,38 @@ export default function ComidaScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [rr, cm, { data: comps }] = await Promise.all([
-      listFoodByDate(date),
-      listCompanyMealsByDate(date),
-      // Solo empresas ACTIVAS (las ocultas/desactivadas, p. ej. HBS, no generan QR).
-      supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
-    ]);
-    setRows(rr);
-    setCompanyMeals(cm);
-    setCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
-    setLoading(false);
+    try {
+      const [rr, cm, { data: comps }] = await Promise.all([
+        listFoodByDate(date),
+        listCompanyMealsByDate(date),
+        // Solo empresas ACTIVAS (las ocultas/desactivadas, p. ej. HBS, no generan QR).
+        supabase.from('companies').select('id, name, hidden').order('name', { ascending: true }),
+      ]);
+      setRows(rr);
+      setCompanyMeals(cm);
+      setCompanies(((comps ?? []) as any[]).filter((c) => !c.hidden).map((c) => ({ id: c.id, name: c.name })));
+    } finally {
+      // SIEMPRE se apaga el "cargando", aunque alguna consulta falle (p. ej. sin
+      // conexión desde el teléfono): si no, la pantalla se quedaba congelada en el
+      // esqueleto para siempre, aunque los datos sí hayan llegado a bajar antes.
+      setLoading(false);
+    }
   }, [date]);
   useEffect(() => { load(); }, [load]);
 
   // Carga del control por rango (solo en modo control): comidas por empresa + entregas por persona.
   const loadRange = useCallback(async () => {
     setRangeLoading(true);
-    const [comp, persons] = await Promise.all([
-      listCompanyMealsBetween(from, to),
-      listFoodByDate(from, to),
-    ]);
-    setRangeRows(comp);
-    setRangePersons(persons);
-    setRangeLoading(false);
+    try {
+      const [comp, persons] = await Promise.all([
+        listCompanyMealsBetween(from, to),
+        listFoodByDate(from, to),
+      ]);
+      setRangeRows(comp);
+      setRangePersons(persons);
+    } finally {
+      setRangeLoading(false);
+    }
   }, [from, to]);
   useEffect(() => { if (mode === 'control') loadRange(); }, [mode, loadRange]);
 
@@ -275,6 +284,11 @@ export default function ComidaScreen() {
       await exportCardImage({
         styles, card, mmW: 90, mmH: 54, dpi: 300,
         fileName: `QR comida - ${c.name}`,
+        // En NATIVO (teléfono) no hay canvas/DOM para rasterizar la imagen: sin este
+        // respaldo, exportCardImage simplemente no hacía nada (botón "Generando…" y
+        // listo, sin descarga ni aviso). Con esto cae al PDF, igual que el resto de
+        // pantallas (ficha aliado, carnet, organigrama).
+        htmlForFallback: `<!doctype html><html><head><meta charset="utf-8"/><style>${styles}</style></head><body>${card}</body></html>`,
       });
     } finally {
       setQrBusy(null);
