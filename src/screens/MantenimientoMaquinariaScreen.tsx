@@ -49,7 +49,7 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 };
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
-type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string };
+type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; machineTipo: string | null; company: string; createdByName: string | null; closedByName: string | null };
 type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null; horometro_maint_pending: boolean };
 // Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
 // (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
@@ -145,7 +145,7 @@ export default function MantenimientoMaquinariaScreen() {
       // no es un material real, así que NO debe aparecer aquí (usa el flujo "Parada
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
       supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
-      supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
+      supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, created_by, closed_by, machinery:machinery_id(code, tipo, company:company_id(name))').order('created_at', { ascending: false }),
       supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, horometro_maint_pending, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
     ]);
@@ -153,7 +153,7 @@ export default function MantenimientoMaquinariaScreen() {
     const nameById = new Map<string, string>();
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
-    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa' })));
+    setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', machineTipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', createdByName: r.created_by ? (nameById.get(r.created_by) ?? null) : null, closedByName: r.closed_by ? (nameById.get(r.closed_by) ?? null) : null })));
     setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null, horometro_maint_pending: m.horometro_maint_pending === true })));
     setLoading(false);
   };
@@ -598,6 +598,7 @@ export default function MantenimientoMaquinariaScreen() {
                     {rep ? (
                       <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.warning }}>
                         <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>🔧 En reparación desde {fmtDMY(rep.out_at)}{rep.estimated_days != null ? ` · estimado ${rep.estimated_days} día(s)` : ''}</Text>
+                        {rep.createdByName ? <Text style={{ color: colors.muted, fontSize: 11 }}>👮 Enviada por {rep.createdByName}</Text> : null}
                         <TouchableOpacity onPress={() => openReturn(rep)} style={{ marginTop: spacing.xs, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.xs, alignItems: 'center' }}>
                           <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>✓ Registrar retorno operativo</Text>
                         </TouchableOpacity>
@@ -627,6 +628,7 @@ export default function MantenimientoMaquinariaScreen() {
               {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
               <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>🔧 Salió a reparación: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
+              {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
               {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {r.estimated_note}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔩 {r.work_done}</Text> : null}
               <TouchableOpacity onPress={() => openReturn(r)} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
@@ -648,6 +650,8 @@ export default function MantenimientoMaquinariaScreen() {
               {r.machineTipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ {r.machineTipo}</Text> : null}
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
               <Text style={{ color: colors.text, fontSize: 13, marginTop: spacing.xs }}>📅 {fmtDMY(r.out_at)} → {fmtDMY(r.back_at)} <Text style={{ color: colors.success, fontWeight: '700' }}>· Operativa</Text></Text>
+              {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
+              {r.closedByName ? <Text style={{ color: colors.success, fontSize: 11.5, fontWeight: '700' }}>✅ Reactivada por {r.closedByName}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔩 Se cambió: {r.work_done}</Text> : null}
             </Card>
           ))

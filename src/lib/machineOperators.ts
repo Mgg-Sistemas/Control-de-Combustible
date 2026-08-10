@@ -23,6 +23,7 @@ export type OperatorAssignmentRow = {
   companyName: string; referencia: string | null; encargado: string | null; sector: string | null;
   tipo: string | null;
   machineActive: boolean | null; machineOperational: boolean | null; machineEnEspera: boolean | null;
+  assignedByName: string | null; // quién hizo la asignación/reasignación (coordinador)
 };
 
 /** Asigna un operador a una máquina en un TURNO (día/noche). Reemplaza al que
@@ -57,7 +58,7 @@ export async function unassignOperator(machineryId: string, shift: Shift): Promi
 export async function listOperatorAssignments(): Promise<{ rows: OperatorAssignmentRow[]; missing: boolean }> {
   const { data, error } = await supabase
     .from('machine_operators')
-    .select('id, machinery_id, employee_id, operator_name, cedula, shift, assigned_at, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, active, operational, en_espera, company:company_id(name))')
+    .select('id, machinery_id, employee_id, operator_name, cedula, shift, assigned_at, assigned_by, machine:machinery_id(code, serial, plate, tipo, sector, referencia, encargado, active, operational, en_espera, company:company_id(name))')
     .eq('active', true)
     .order('assigned_at', { ascending: false });
   if (error) return { rows: [], missing: isMissingTable(error.message) };
@@ -72,6 +73,13 @@ export async function listOperatorAssignments(): Promise<{ rows: OperatorAssignm
       const nm = `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim();
       if (nm) liveName[e.id] = nm;
     });
+  }
+  // Quién hizo la asignación (coordinador): mismo batch, sin query extra por fila.
+  const byIds = Array.from(new Set(((data ?? []) as any[]).map((r) => r.assigned_by).filter(Boolean)));
+  const nameByProfile: Record<string, string> = {};
+  if (byIds.length) {
+    const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', byIds);
+    ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameByProfile[p.id] = p.full_name; });
   }
   const rows = ((data ?? []) as any[]).map((r) => ({
     id: r.id as string,
@@ -92,6 +100,7 @@ export async function listOperatorAssignments(): Promise<{ rows: OperatorAssignm
     machineActive: (r.machine?.active ?? null) as boolean | null,
     machineOperational: (r.machine?.operational ?? null) as boolean | null,
     machineEnEspera: (r.machine?.en_espera ?? null) as boolean | null,
+    assignedByName: (r.assigned_by && nameByProfile[r.assigned_by]) || null,
   }));
   return { rows, missing: false };
 }

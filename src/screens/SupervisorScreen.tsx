@@ -2230,7 +2230,6 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
           <View style={{ marginTop: spacing.sm }}>
             <InspectorHeroCard
-              statsLine={`Revisadas hoy: ${revisadas}${mine.length > 0 ? ` · Mis máquinas: ${mine.length}` : ''}`}
               onScanPress={() => setScanOpen(true)}
               secondaryActions={[
                 ...(canAsistencia ? [{ key: 'asistencia', label: 'MARCAR ASISTENCIA', icon: '🕒', color: '#0EA5E9', onPress: () => { setAsisOpen(true); setAsisEmp(null); setAsisToday([]); setAsisQuery(''); setAsisResults([]); setAsisNotice(null); } }] : []),
