@@ -87,6 +87,7 @@ const TABLE_LABEL: Record<string, string> = {
   food_company_meals: 'Comida por empresa', attendance: 'Asistencia', uniform_deliveries: 'Uniforme',
   operator_assignments: 'Jornada de operador', module_permissions: 'Permiso', purchase_orders: 'Compra',
   purchase_requests: 'Requisición', staff_pay_payments: 'Pago a personal', vehicles: 'Vehículo', fletes: 'Flete',
+  machine_operators: 'Operador asignado a máquina', machine_inspectors: 'Inspector asignado a máquina',
 };
 const tableLabel = (t: string) => TABLE_LABEL[t] ?? t;
 
@@ -98,7 +99,7 @@ type ModuleDef = { key: string; label: string; icon: string; tables: string[] };
 const MODULES: ModuleDef[] = [
   { key: 'combustible', label: 'Combustible', icon: '⛽', tables: ['tanks', 'fuel_intakes', 'dispatches', 'transfers', 'authorizations', 'price_tariffs', 'company_price_tariffs'] },
   { key: 'maquinaria', label: 'Maquinaria y flota', icon: '🚜', tables: ['machinery', 'machine_rounds', 'maintenance_requests', 'machinery_repairs', 'vehicles', 'fletes', 'truck_yard_logs'] },
-  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments'] },
+  { key: 'inspecciones', label: 'Inspecciones y jornadas', icon: '📋', tables: ['supervisor_visits', 'control_closures', 'operator_assignments', 'machine_operators', 'machine_inspectors'] },
   { key: 'nomina', label: 'Nómina y personal', icon: '👷', tables: ['employees', 'attendance', 'uniform_deliveries', 'staff_pay_payments', 'aliados'] },
   { key: 'empresas', label: 'Empresas y facturación', icon: '🏢', tables: ['companies', 'company_payments'] },
   { key: 'inventario', label: 'Inventario y compras', icon: '📦', tables: ['inventory_items', 'inventory_movements', 'inventory_transfers', 'purchase_orders', 'purchase_requests'] },
@@ -184,7 +185,7 @@ const AuditRowCard = React.memo(function AuditRowCard({ r, colors, onPress }: { 
           <Text style={{ fontSize: 22 }}>{a.icon}</Text>
           <View style={{ flex: 1 }}>
             <Text style={{ color: colors.text, fontSize: 14 }}>
-              <Text style={{ fontWeight: '800' }}>{r.user_name || 'Alguien'}</Text>
+              <Text style={{ fontWeight: '800' }}>{r.user_name || 'Sin usuario (registro antiguo)'}</Text>
               <Text style={{ color: a.color, fontWeight: '700' }}> {a.label}</Text>
               {EVENT_ACTIONS.has(r.action)
                 ? (r.detail ? <Text style={{ fontWeight: '700' }}> {r.detail}</Text> : null)
@@ -517,7 +518,7 @@ export default function AuditScreen() {
     if (groupBy === 'none') return null;
     const titleOf = (r: AuditLog): string => {
       if (groupBy === 'modulo') { const m = moduleOf(r.table_name); return m ? `${m.icon} ${m.label}` : '📁 Otro'; }
-      if (groupBy === 'usuario') return r.user_name || 'Alguien';
+      if (groupBy === 'usuario') return r.user_name || 'Sin usuario (registro antiguo)';
       return dmy(caracasDateISO(r.at));
     };
     const map = new Map<string, AuditLog[]>();
@@ -539,7 +540,7 @@ export default function AuditScreen() {
       else if (r.action === 'UPDATE') modifico++;
       else if (r.action === 'DELETE') elimino++;
       else eventos++;
-      const u = r.user_name || 'Alguien';
+      const u = r.user_name || 'Sin usuario (registro antiguo)';
       porUsuario.set(u, (porUsuario.get(u) ?? 0) + 1);
     });
     const topUsuarios = Array.from(porUsuario.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -595,7 +596,7 @@ export default function AuditScreen() {
         : `<b>${esc(targetTxt(r))}</b>${r.detail && r.detail !== r.row_label ? `<div class="sub">${esc(r.detail)}</div>` : ''}${changesHtml(r)}`;
       return `<tr>
         <td class="nowrap">${esc(caracasDT(r.at))}</td>
-        <td>${esc(r.user_name || 'Alguien (sistema)')}</td>
+        <td>${esc(r.user_name || 'Sin usuario (registro antiguo)')}</td>
         <td><span class="tag" style="background:${a.color}">${esc(a.icon ?? '')} ${esc(ev ? a.label : `${a.label} ${tableLabel(r.table_name)}`)}</span></td>
         <td>${detalle}</td>
         <td class="nowrap">${esc(r.device ?? '—')}</td>
@@ -826,7 +827,7 @@ export default function AuditScreen() {
                     <Text style={{ fontSize: 26 }}>{a.icon}</Text>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>Detalle de la acción</Text>
                   </View>
-                  <Row k="Quién" v={detail.user_name || 'Sin usuario asociado (acción automática del sistema o registro anterior a activar este dato)'} />
+                  <Row k="Quién" v={detail.user_name || 'Sin usuario (registro antiguo)'} />
                   <Row k="Qué hizo" v={EVENT_ACTIONS.has(detail.action) ? a.label.toUpperCase() : `${a.label.toUpperCase()} · ${tableLabel(detail.table_name)}`} />
                   <Row k={EVENT_ACTIONS.has(detail.action) ? 'Máquina / detalle' : 'A qué registro'} v={detail.detail ?? detail.row_label ?? (targetLoading ? 'Buscando…' : (targetName ?? (detail.row_id ? `ID ${detail.row_id}` : '—')))} />
                   <Row k="Cuándo" v={caracasDT(detail.at)} />
@@ -859,9 +860,8 @@ export default function AuditScreen() {
                   ) : null}
                   {detail.user_name ? null : (
                     <Text style={{ color: colors.muted, fontSize: 11, marginTop: 2 }}>
-                      ℹ️ Esta acción no tiene un usuario asociado: puede ser un proceso automático del
-                      sistema (ej. cierre de jornada por cron) o un registro de antes de activar el
-                      seguimiento de usuario en esta tabla.
+                      ℹ️ Este registro es de antes del 10-ago-2026 (cuando se corrigió el seguimiento de
+                      usuario). Las acciones nuevas siempre quedan con quién las hizo.
                     </Text>
                   )}
                   <TouchableOpacity onPress={() => setDetail(null)} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>

@@ -149,7 +149,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   const [kind, setKind] = useState<Kind>('vehiculo');
 
   const vehicles = useTable<Vehicle>('vehicles', { orderBy: 'plate', ascending: true });
-  const machinery = useTable<Machinery>('machinery', { orderBy: 'code', ascending: true });
+  // select con los nombres de quién inactivó/reactivó embebidos (join por FK, sin
+  // query aparte) — se usan en EstadoFechaLine para mostrar "por {nombre}".
+  const machinery = useTable<Machinery>('machinery', {
+    orderBy: 'code',
+    ascending: true,
+    select: '*, inactivated_by_profile:inactivated_by(full_name), reactivated_by_profile:reactivated_by(full_name)',
+  });
   const companies = useTable<Company>('companies');
   const [query, setQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('__all__'); // '__all__' | '__none__' | company id
@@ -650,7 +656,13 @@ export default function EquiposScreen({ navigation, route }: any) {
       // reactivated_at (y limpiamos inactivated_at para no confundir). Se muestra en el
       // catálogo, en el listado de inactivas y en los reportes.
       const nowIso = new Date().toISOString();
-      const stamp = activando ? { reactivated_at: nowIso } : { inactivated_at: nowIso, reactivated_at: null };
+      const actorId = session?.user?.id ?? null;
+      // Guardamos también QUIÉN hizo el cambio (no solo la fecha): se muestra en
+      // EstadoFechaLine ("🟢 Reactivada el DD/MM por Fulano") y queda además en
+      // audit_log con el antes/después vía el trigger de auditoría.
+      const stamp = activando
+        ? { reactivated_at: nowIso, reactivated_by: actorId }
+        : { inactivated_at: nowIso, reactivated_at: null, inactivated_by: actorId };
       const { error } = await supabase.from('machinery').update({ operational: !m.operational, ...stamp }).eq('id', m.id);
       if (error) return { ok: false, error: error.message };
       // Al ACTIVAR (volver operativa) se limpia la etiqueta de avería/parada: se resuelven
@@ -1075,11 +1087,13 @@ export default function EquiposScreen({ navigation, route }: any) {
   // reactivada (volvió operativa). Se muestra en el catálogo, listado de inactivas y reportes.
   const EstadoFechaLine = ({ m }: { m: Machinery }) => {
     if (!m.operational) {
-      const f = fmtEstadoFecha((m as any).inactivated_at);
-      return f ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🔴 Inactivada el {f}</Text> : null;
+      const f = fmtEstadoFecha(m.inactivated_at);
+      const who = m.inactivated_by_profile?.full_name;
+      return f ? <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '700' }}>🔴 Inactivada el {f}{who ? ` por ${who}` : ''}</Text> : null;
     }
-    const f = fmtEstadoFecha((m as any).reactivated_at);
-    return f ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>🟢 Reactivada el {f}</Text> : null;
+    const f = fmtEstadoFecha(m.reactivated_at);
+    const who = m.reactivated_by_profile?.full_name;
+    return f ? <Text style={{ color: colors.success, fontSize: 11, fontWeight: '700' }}>🟢 Reactivada el {f}{who ? ` por ${who}` : ''}</Text> : null;
   };
   // Insignia de estatus EN VIVO (independiente de Operativa/No operativa) — sincronizada
   // con lo que marcó el inspector desde su teléfono y con la jornada abierta.

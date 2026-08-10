@@ -155,6 +155,10 @@ export interface Machinery {
   en_espera: boolean; // 3er estado: "En espera por recepción" (aún no recibida en control)
   inactivated_at?: string | null; // fecha en que se marcó NO OPERATIVA (inactivó)
   reactivated_at?: string | null; // fecha en que se volvió a marcar OPERATIVA (reactivó)
+  inactivated_by?: string | null; // profiles.id de quién la inactivó
+  reactivated_by?: string | null; // profiles.id de quién la reactivó
+  inactivated_by_profile?: { full_name: string | null } | null; // embebido (join) para mostrar el nombre sin query aparte
+  reactivated_by_profile?: { full_name: string | null } | null;
   con_tapa?: boolean | null; // ¿el equipo cuenta con tapa? (check Sí/No en el Catálogo)
   tapa_doble?: boolean | null; // ¿la tapa es doble? (solo aplica si con_tapa)
   qr_blocked?: boolean; // QR bloqueado: al escanear solo se muestra el logo (sin datos ni acciones)

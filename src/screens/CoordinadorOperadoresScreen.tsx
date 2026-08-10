@@ -210,6 +210,9 @@ export default function CoordinadorOperadoresScreen() {
   const applyAssign = async (s: Shift, op: Operator | null) => {
     if (!assignFor || assignBusy) return;
     setAssignBusy(true); setAssignNotice(null);
+    // Operador ANTES del cambio (para dejar "de X a Y" en la auditoría, no solo el
+    // resultado final — así se sabe qué pasó cuando se reasigna una máquina averiada).
+    const before = plannedByMachine.get(assignFor.id)?.[s] ?? null;
     const res = op
       ? await assignOperator(assignFor.id, op.id, op.name, op.cedula, s, uid || null)
       : await unassignOperator(assignFor.id, s);
@@ -218,7 +221,9 @@ export default function CoordinadorOperadoresScreen() {
       setAssignNotice(res.missing ? '❌ Falta activar la tabla machine_operators en Supabase.' : '❌ ' + res.error);
       return;
     }
-    logAudit('CHECK', 'machinery', assignFor.id, `Operador ${assignFor.code} · ${shiftIcon(s)} ${shiftLabel(s)} → ${op ? op.name : 'quitado'}`);
+    const beforeTxt = before ? before.operator_name : 'sin operador';
+    const afterTxt = op ? op.name : 'sin operador';
+    logAudit('CHECK', 'machinery', assignFor.id, `Operador ${assignFor.code} · ${shiftIcon(s)} ${shiftLabel(s)}: ${beforeTxt} → ${afterTxt}`);
     await load();
     setAssignNotice(op ? `✅ ${shiftIcon(s)} ${shiftLabel(s)} → ${op.name}` : `➖ ${shiftIcon(s)} ${shiftLabel(s)} quitado`);
   };
@@ -283,6 +288,7 @@ export default function CoordinadorOperadoresScreen() {
         </View>
         <View style={{ marginTop: spacing.xs, gap: 2 }}>
           <Text style={{ color: colors.muted, fontSize: 11.5 }}>Planeado <Text style={{ color: colors.text, fontWeight: '700' }}>{r.planned ? `👷 ${r.planned.operator_name}` : '— sin asignar'}</Text></Text>
+          {r.planned?.assignedByName ? <Text style={{ color: colors.muted, fontSize: 10.5 }}>👤 Asignado por {r.planned.assignedByName}</Text> : null}
           {r.liveName ? (
             <Text style={{ color: colors.muted, fontSize: 11.5 }}>En sitio <Text style={{ color: r.mismatch ? colors.danger : colors.text, fontWeight: '700' }}>👷 {r.liveName}</Text></Text>
           ) : null}
@@ -407,7 +413,7 @@ export default function CoordinadorOperadoresScreen() {
                   <View style={{ paddingHorizontal: spacing.md, marginBottom: spacing.sm }}>
                     {current ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm }}>
-                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}</Text>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700', flex: 1 }} numberOfLines={1}>Planeado ahora: 👷 {current.operator_name}{current.assignedByName ? ` · por ${current.assignedByName}` : ''}</Text>
                         <TouchableOpacity disabled={assignBusy} onPress={() => applyAssign(assignShift, null)} style={{ borderWidth: 1, borderColor: colors.warning, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 5, opacity: assignBusy ? 0.5 : 1 }}>
                           <Text style={{ color: colors.warning, fontWeight: '800', fontSize: 12 }}>➖ Quitar</Text>
                         </TouchableOpacity>
