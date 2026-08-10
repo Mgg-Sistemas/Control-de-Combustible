@@ -514,11 +514,11 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const list = [...machList].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
     // SOLO las horas del TURNO de este inspector (día si es de día, noche si es de noche).
     const hLabel = turno === 'day' ? 'H. Día' : 'H. Noche';
-    let tWork = 0, tPar = 0, tJor = 0;
+    let tWork = 0, tJor = 0;
     const rows = list.map((m, i) => {
       const shiftH = r2(turno === 'day' ? m.dayH : m.nightH);       // horas de SU turno
       const jornada = shiftH;                                        // jornada = horas ACTIVAS (trabajadas)
-      tWork = r2(tWork + shiftH); tPar = r2(tPar + m.horasParada); tJor = r2(tJor + jornada);
+      tWork = r2(tWork + shiftH); tJor = r2(tJor + jornada);
       const moved = machineLocs(m.id).length > 1;
       const em = ESTADO_META[m.estado];
       const estCell = `<span style="color:${em.color};font-weight:700;white-space:nowrap">${esc(em.txt)}</span>`;
@@ -526,9 +526,11 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
         : '—';
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r b">${shiftH}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r b">${shiftH}</td><td class="r b">${jornada}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">${hLabel}</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b">${tWork}</td><td class="r">${tPar}</td><td class="r b">${tJor}</td></tr></tfoot></table>`;
+    // Columna "Parada" quitada (pedido del cliente 10-ago-2026, guiándose por el formato
+    // del reporte por empresa): quién está averiada/parada ya se ve en Estado/Motivo.
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">${hLabel}</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b">${tWork}</td><td class="r b">${tJor}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales (solo horas del turno de este inspector).
     const bySec = new Map<string, { c: number; h: number }>();
@@ -559,7 +561,7 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     // Total de horas del TURNO de esta sección (junto a la firma). Para el inspector
     // de día muestra el total de horas de día; para el de noche, las de noche.
     const totLabel = turno === 'day' ? 'día' : 'noche';
-    const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${tWork} h</b> · Parada: <b>${tPar} h</b> · Jornada: <b>${tJor} h</b></div>`;
+    const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${tWork} h</b> · Jornada: <b>${tJor} h</b></div>`;
 
     // Firma de ESTA sección (nombre completo + línea + rótulo del rol).
     const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(name)}</div><div class="frole">${roleWord}</div></div>`;
@@ -655,11 +657,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   // por lo que en "Ambos" cada turno/inspector queda con su propia línea de firma.
 
   const shiftTxt = shift === 'day' ? 'Turno día ☀️' : shift === 'night' ? 'Turno noche 🌙' : 'Ambos turnos ☀️ 🌙';
-  // TOTALES arriba, MISMO formato que el reporte por empresa (día y noche se muestran
-  // igual): HRS DÍA · PARADAS DÍA · HRS NOCHE · PARADA NOCHE · JORNADA. Se suman de los
-  // turnos e inspectores REALMENTE incluidos: día usa dayH/parada del turno día; noche,
-  // nightH/parada del turno noche. Jornada = trabajando − paradas.
-  let tDayH = 0, tParDay = 0, tNightH = 0, tParNight = 0;
+  // TOTALES arriba, mismo formato que el reporte por empresa: HRS DÍA · HRS NOCHE ·
+  // JORNADA · ACTIVAS · AVERIADAS (pedido del cliente 10-ago-2026: sin tarjetas de
+  // "horas paradas", que confundían al quedar siempre en 0). Se suman de los turnos e
+  // inspectores REALMENTE incluidos: día usa dayH del turno día; noche, nightH del
+  // turno noche.
+  let tDayH = 0, tNightH = 0;
   // Conteo de máquinas (mismo alcance que las horas de arriba: turnos e
   // inspectores REALMENTE incluidos en este reporte).
   let tActivas = 0, tAveriadas = 0;
@@ -668,8 +671,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     tMap.forEach((mm, insp) => {
       if (inspFilter && !inspFilter.has(insp)) return;
       mm.forEach((m) => {
-        if (t === 'day') { tDayH += m.dayH; tParDay += m.horasParada; }
-        else { tNightH += m.nightH; tParNight += m.horasParada; }
+        if (t === 'day') tDayH += m.dayH;
+        else tNightH += m.nightH;
         if (m.estado === 'encurso') tActivas++;
         if (m.estado === 'averia') tAveriadas++;
       });
@@ -682,10 +685,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   const showNight = turnos.includes('night');
   const kpis = `
     <div class="kpis">
-      ${showDay ? `<div class="kpi"><div class="k">Total hrs día</div><div class="v">${r2(tDayH)} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs paradas día</div><div class="v">${r2(tParDay)} H</div></div>` : ''}
-      ${showNight ? `<div class="kpi"><div class="k">Total hrs noche</div><div class="v">${r2(tNightH)} H</div></div>
-      <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${r2(tParNight)} H</div></div>` : ''}
+      ${showDay ? `<div class="kpi"><div class="k">Total hrs día</div><div class="v">${r2(tDayH)} H</div></div>` : ''}
+      ${showNight ? `<div class="kpi"><div class="k">Total hrs noche</div><div class="v">${r2(tNightH)} H</div></div>` : ''}
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${tJornada} H</div></div>
       <div class="kpi ok"><div class="k">Máquinas activas</div><div class="v">${tActivas}</div></div>
       <div class="kpi warn"><div class="k">Total de máquinas averiadas</div><div class="v">${tAveriadas}</div></div>
