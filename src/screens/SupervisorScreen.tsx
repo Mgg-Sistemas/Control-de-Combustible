@@ -7,6 +7,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
+import { motivoParada } from '../lib/paradaMotivo';
 import EdificioPicker from '../components/EdificioPicker';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
@@ -1029,8 +1030,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const paradaMotivoDe = (id: string): string => {
     const sh = shiftOfMine(id);
     const mm = estadoIndex.paMot.get(id); if (!mm) return '';
-    if (sh === null) { for (const v of mm.values()) if (v) return v; return ''; }
-    return mm.get(sh) || '';
+    let raw = '';
+    if (sh === null) { for (const v of mm.values()) if (v) { raw = v; break; } }
+    else raw = mm.get(sh) || '';
+    return raw ? motivoParada(raw) : ''; // "NO TRABAJÓ · motivo" (sin Edificio/Ubicación) — igual que Inspecciones
   };
   // Buscador sobre MIS máquinas asignadas (nombre/serial/placa/empresa/encargado/
   // edificio) + chip de segmento activo. `mine` ya excluye inactivas (TAREA 4).

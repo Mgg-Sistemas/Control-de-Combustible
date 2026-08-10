@@ -6,6 +6,7 @@ import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { computeMachineVisibilitySets } from './inspectorDaySets';
+import { motivoParada } from './paradaMotivo';
 
 /**
  * Reporte de INSPECTORES (jornadas de inspección) en PDF.
@@ -198,13 +199,9 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // máquina se reactivó y está EN CURSO (la vieja pierde).
   // Deja SOLO el motivo en la nota: quita la Ubicación (GPS) y el Edificio — el
   // reporte muestra POR QUÉ, no dónde (el Edificio ya tiene su propia columna).
-  const soloMotivo = (notes: any): string =>
-    String(notes ?? '')
-      .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')
-      .replace(/\s*·\s*Edificio:.*$/i, '')
-      .replace(/^NO TRABAJ[ÓO](?: LA M[ÁA]QUINA)?\s*·?\s*/i, 'No trabajó · ')
-      .replace(/·\s*$/, '')
-      .trim();
+  // Normalización ÚNICA compartida (src/lib/paradaMotivo): "NO TRABAJÓ" fijo + motivo del
+  // inspector, sin Ubicación/Edificio. Para averías (sin el marcador) devuelve el motivo limpio.
+  const soloMotivo = (notes: any): string => motivoParada(notes);
   const paradaHoyByShift = new Map<string, Map<Turno, EventoParada>>();
   const paradaArrByShift = new Map<string, Map<Turno, EventoParada>>();
   const dayStartMs = new Date(`${date}T00:00:00-04:00`).getTime();
