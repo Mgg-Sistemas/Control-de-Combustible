@@ -4,6 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle } from '../../components/ui';
 import { StatusBadge, statusMeta } from './AcarreoUI';
+import HaulExecutionPanel from './HaulExecutionPanel';
+import HaulExpensesPanel from './HaulExpensesPanel';
+import { pickTariff, computeValuation } from '../../lib/haulValuation';
+import { exportGuiaTraslado, exportActaRecepcion, exportLiquidacion } from '../../lib/guides/haulPdf';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -47,18 +51,24 @@ export default function HaulOrderDetail({
   }, [refs]);
 
   const load = async () => {
+    const empresa = new Map(refs.companies.map((c) => [c.id, c.name]));
     const { data: it } = await supabase
       .from('haul_order_items')
-      .select('weight_ton_snap, machinery:machinery_id(code, serial, tipo)')
+      .select('weight_ton_snap, machinery:machinery_id(code, serial, plate, tipo, company_id)')
       .eq('order_id', order.id);
     setItems((it ?? []).map((r: any) => ({
       code: r.machinery?.code ?? '—',
-      extra: [r.machinery?.serial, r.machinery?.tipo, r.weight_ton_snap != null ? `${r.weight_ton_snap} t` : null].filter(Boolean).join(' · '),
+      extra: [
+        r.machinery?.company_id ? empresa.get(r.machinery.company_id) : null,
+        r.machinery?.plate ? `Placa ${r.machinery.plate}` : (r.machinery?.serial ? `Serial ${r.machinery.serial}` : null),
+        r.machinery?.tipo,
+        r.weight_ton_snap != null ? `${r.weight_ton_snap} t` : null,
+      ].filter(Boolean).join(' · '),
     })));
     const { data: ev } = await supabase.from('haul_status_events').select('*').eq('order_id', order.id).order('at', { ascending: true });
     setEvents((ev ?? []) as HaulStatusEvent[]);
   };
-  useEffect(() => { load(); }, [order.id]);
+  useEffect(() => { load(); }, [order.id, refs.companies]);
 
   const advance = async () => {
     const nx = NEXT[order.status];
@@ -87,6 +97,19 @@ export default function HaulOrderDetail({
   }, 0);
   const nx = NEXT[order.status];
   const terminal = order.status === 'completado' || order.status === 'cancelado';
+
+  // Valorización (servicio a terceros): solo si emisor/receptor es un cliente EXTERNO.
+  const esExterno = [order.client_to_id, order.client_from_id].some((id) => refs.clients.find((c) => c.id === id)?.kind === 'externo');
+  const tariff = esExterno ? pickTariff(order, refs.tariffs) : null;
+  const val = tariff ? computeValuation(order, tariff, totalTon) : null;
+  const saveValuation = async () => {
+    if (!val?.amount || !tariff) return;
+    setBusy(true);
+    const { error } = await supabase.from('haul_orders').update({ billed_amount: Math.round(val.amount * 100) / 100, tariff_mode: tariff.mode }).eq('id', order.id);
+    setBusy(false);
+    if (error) { onError(error.message); return; }
+    onChanged();
+  };
 
   const Row = ({ label, value }: { label: string; value?: string | null }) => value ? (
     <Text style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>
@@ -131,9 +154,57 @@ export default function HaulOrderDetail({
           ))}
       </Card>
 
+      {/* Documentos PDF */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>📄 Documentos</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {[
+            { label: '📋 Guía de traslado', fn: () => exportGuiaTraslado(order, refs) },
+            { label: '📝 Acta de recepción', fn: () => exportActaRecepcion(order, refs) },
+            { label: '💵 Liquidación', fn: () => exportLiquidacion(order, refs) },
+          ].map((b) => (
+            <TouchableOpacity key={b.label} onPress={() => { b.fn().catch((e: any) => onError(String(e?.message ?? e))); }}
+              style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{b.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Card>
+
+      {/* Valorización (servicio a terceros) */}
+      {val ? (
+        <Card>
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 2 }}>🧾 Valorización (cliente externo)</Text>
+          <Text style={{ color: colors.muted, fontSize: 12 }}>Tarifa: {tariff?.mode} · ${Number(tariff?.unit_price).toFixed(2)} — {val.detail}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.xs }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>
+              {val.amount != null ? `$${val.amount.toFixed(2)}` : '—'}
+              {order.billed_amount != null ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '600' }}>  (guardado: ${Number(order.billed_amount).toFixed(2)})</Text> : null}
+            </Text>
+            {val.amount != null && !terminal ? (
+              <TouchableOpacity onPress={saveValuation} disabled={busy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 12 }}>Guardar valorización</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </Card>
+      ) : null}
+
+      {/* Control de costos (gastos, viáticos, combustible) */}
+      {order.status !== 'programado' ? (
+        <HaulExpensesPanel order={order} onError={onError} onChanged={onChanged} />
+      ) : null}
+
+      {/* Ejecución del viaje (check-in de salida, incidencias, check-out con firma).
+          El avance de estado en_carga→…→completado lo maneja el panel; en 'programado'
+          basta el botón simple (la unidad llega a origen). */}
+      {!terminal && order.status !== 'programado' ? (
+        <HaulExecutionPanel order={order} onChanged={() => { onChanged(); load(); }} onError={onError} />
+      ) : null}
+
       {!terminal ? (
         <View style={{ gap: spacing.sm }}>
-          {nx ? (
+          {order.status === 'programado' && nx ? (
             <TouchableOpacity onPress={advance} disabled={busy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>{busy ? '…' : nx.label}</Text>
             </TouchableOpacity>

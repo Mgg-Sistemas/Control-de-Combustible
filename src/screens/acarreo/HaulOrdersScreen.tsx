@@ -12,10 +12,11 @@ import { spacing, radius } from '../../theme';
 import { norm, cmpText } from '../../lib/text';
 import { caracasParts } from '../../lib/jornada';
 import { StatusBadge, statusMeta } from './AcarreoUI';
+import { exportConsolidado } from '../../lib/guides/haulPdf';
 import HaulOrderForm, { HaulRefs } from './HaulOrderForm';
 import HaulOrderDetail from './HaulOrderDetail';
 import {
-  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, Machinery,
+  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, HaulTariff, Machinery, Company,
 } from '../../types/database';
 
 const FILTERS: { key: string; label: string }[] = [
@@ -39,8 +40,10 @@ export default function HaulOrdersScreen() {
   const { data: drivers } = useTable<HaulDriver>('haul_drivers', { orderBy: 'full_name' });
   const { data: machinery } = useTable<Machinery>('machinery', { orderBy: 'code' });
   const { data: docs } = useTable<HaulDocument>('haul_documents', { orderBy: 'expires_at' });
+  const { data: tariffs } = useTable<HaulTariff>('haul_tariffs', { orderBy: 'created_at', ascending: false });
+  const { data: companies } = useTable<Company>('companies', { select: 'id, name', orderBy: 'name' });
 
-  const refs: HaulRefs = { clients, locations, trucks, trailers, drivers, machinery, docs, orders };
+  const refs: HaulRefs = { clients, locations, trucks, trailers, drivers, machinery, docs, orders, tariffs, companies };
 
   const [filter, setFilter] = useState('todos');
   const [q, setQ] = useState('');
@@ -114,10 +117,17 @@ export default function HaulOrdersScreen() {
       <TextInput value={q} onChangeText={setQ} placeholder="🔎 Buscar por folio, ruta, chofer…" placeholderTextColor={colors.muted}
         style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, marginBottom: spacing.sm }} />
 
-      <TouchableOpacity onPress={() => setView({ mode: 'form', order: null })}
-        style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.md }}>
-        <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 15 }}>+ Nueva orden de acarreo</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+        <TouchableOpacity onPress={() => setView({ mode: 'form', order: null })}
+          style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: colors.primaryContrast, fontWeight: '700', fontSize: 15 }}>+ Nueva orden</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => { exportConsolidado(shown, refs, `${FILTERS.find((f) => f.key === filter)?.label ?? 'Todos'} · ${shown.length} acarreo(s)`).catch((e: any) => toast.error(String(e?.message ?? e))); }}
+          style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, justifyContent: 'center' }}>
+          <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>📄 Consolidado</Text>
+        </TouchableOpacity>
+      </View>
 
       {loading ? (
         <Loading />

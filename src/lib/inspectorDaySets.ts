@@ -224,6 +224,15 @@ export function buildDaySets(params: {
       else closedSet.add(id);
       return;
     }
+    // SOS LA GUAIRA "siempre activo": nunca quedan en PENDIENTE. Aunque todavía no
+    // hayan sumado horas (jornada recién abierta), cuentan como iniciada/activa
+    // ("siempre trabajando"). Coincide con el teléfono (visibleParaInspector).
+    if (siempreActivoSet.has(id)) {
+      startedSet.add(id);
+      if (openSet.has(id)) activeNowSet.add(id);
+      else closedSet.add(id);
+      return;
+    }
     pendSet.add(id);
   });
 

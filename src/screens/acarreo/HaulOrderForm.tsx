@@ -13,13 +13,13 @@ import { spacing, radius } from '../../theme';
 import { norm, cmpText, onlyDecimal } from '../../lib/text';
 import { allWarnings } from '../../lib/haulValidations';
 import {
-  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, Machinery,
+  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, HaulTariff, Machinery, Company,
 } from '../../types/database';
 
 export type HaulRefs = {
   clients: HaulClient[]; locations: HaulLocation[]; trucks: HaulTruck[];
   trailers: HaulTrailer[]; drivers: HaulDriver[]; machinery: Machinery[];
-  docs: HaulDocument[]; orders: HaulOrder[];
+  docs: HaulDocument[]; orders: HaulOrder[]; tariffs: HaulTariff[]; companies: Company[];
 };
 
 export default function HaulOrderForm({
@@ -65,16 +65,32 @@ export default function HaulOrderForm({
 
   const clientOpts: Opt[] = useMemo(() => refs.clients.map((c) => ({ value: c.id, label: `${c.kind === 'externo' ? '🏢' : '🏠'} ${c.name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.clients]);
   const locOpts: Opt[] = useMemo(() => refs.locations.map((l) => ({ value: l.id, label: l.name })).sort((a, b) => cmpText(a.label, b.label)), [refs.locations]);
-  const truckOpts: Opt[] = useMemo(() => refs.trucks.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🚛 ${t.plate}${t.max_tow_ton != null ? ` · ${t.max_tow_ton} t` : ''}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trucks]);
-  const trailerOpts: Opt[] = useMemo(() => refs.trailers.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🛻 ${t.plate}${t.max_load_ton != null ? ` · ${t.max_load_ton} t` : ''}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trailers]);
+  // Etiquetas enriquecidas: placa + marca/modelo (chuto) o tipo (remolque) para
+  // poder buscar por cualquier característica (el Dropdown filtra por la etiqueta).
+  const truckOpts: Opt[] = useMemo(() => refs.trucks.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🚛 ${[t.plate, [t.brand, t.model].filter(Boolean).join(' '), t.max_tow_ton != null ? `${t.max_tow_ton} t` : ''].filter(Boolean).join(' · ')}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trucks]);
+  const trailerOpts: Opt[] = useMemo(() => refs.trailers.filter((t) => t.status !== 'inactivo').map((t) => ({ value: t.id, label: `🛻 ${[t.plate, t.kind, t.max_load_ton != null ? `${t.max_load_ton} t` : ''].filter(Boolean).join(' · ')}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.trailers]);
   const driverOpts: Opt[] = useMemo(() => refs.drivers.filter((d) => d.active !== false).map((d) => ({ value: d.id, label: `👷 ${d.full_name}` })).sort((a, b) => cmpText(a.label, b.label)), [refs.drivers]);
+
+  // Nombre de la empresa por id (para mostrar y para poder BUSCAR por empresa).
+  const companyName = useMemo(() => {
+    const map = new Map<string, string>();
+    refs.companies.forEach((c) => map.set(c.id, c.name));
+    return (id: string | null) => (id ? map.get(id) ?? '' : '');
+  }, [refs.companies]);
 
   const machList = useMemo(() => {
     const nq = norm(machSearch.trim());
     const activas = refs.machinery.filter((m) => m.active !== false);
-    const list = nq ? activas.filter((m) => norm([m.code, m.serial, m.plate, m.tipo].filter(Boolean).join(' ')).includes(nq)) : activas;
+    // Se busca por CUALQUIER característica: código, empresa, placa, serial,
+    // identificador, modelo (tipo), clasificación y descripción.
+    const list = nq
+      ? activas.filter((m) => norm([
+          m.code, companyName(m.company_id), m.plate, m.serial, m.identifier,
+          m.tipo, m.clasificacion, m.description,
+        ].filter(Boolean).join(' ')).includes(nq))
+      : activas;
     return [...list].sort((a, b) => cmpText(a.code, b.code));
-  }, [refs.machinery, machSearch]);
+  }, [refs.machinery, machSearch, companyName]);
 
   const selMachines = useMemo(() => refs.machinery.filter((m) => sel.has(m.id)), [refs.machinery, sel]);
   const totalTon = selMachines.reduce((s, m) => s + (Number(m.weight_ton) || 0), 0);
@@ -176,8 +192,13 @@ export default function HaulOrderForm({
                 <Text style={{ fontSize: 16 }}>{on ? '☑️' : '⬜'}</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{m.code}</Text>
+                  {/* Empresa · placa/serial (para identificarla) */}
                   <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11 }}>
-                    {[m.serial, m.tipo, m.weight_ton != null ? `${m.weight_ton} t` : 'sin peso'].filter(Boolean).join(' · ')}
+                    {[companyName(m.company_id) || null, m.plate ? `Placa ${m.plate}` : (m.serial ? `Serial ${m.serial}` : null), m.tipo]
+                      .filter(Boolean).join(' · ') || 'Sin datos'}
+                  </Text>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.muted, fontSize: 11, opacity: 0.85 }}>
+                    {[m.clasificacion, m.weight_ton != null ? `${m.weight_ton} t` : 'sin peso'].filter(Boolean).join(' · ')}
                   </Text>
                 </View>
               </TouchableOpacity>

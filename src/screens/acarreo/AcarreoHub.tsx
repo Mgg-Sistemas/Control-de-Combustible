@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
   {
     title: 'Operación',
     items: [
+      { label: 'Panel (KPIs y alertas)', desc: 'Acarreos, tiempo de tránsito, a tiempo, costo/km y alertas de vencimientos/retrasos', icon: '📊', route: 'HaulDashboard' },
       { label: 'Órdenes de acarreo', desc: 'Crear y despachar viajes, con validación de peso, vencimientos y solapamiento', icon: '📋', route: 'HaulOrders' },
     ],
   },
@@ -29,6 +30,12 @@ const GROUPS: Group[] = [
       { label: 'Clientes y proyectos', desc: 'Emisor y receptor, internos o externos (con tarifario)', icon: '🏢', route: 'HaulClients' },
       { label: 'Ubicaciones', desc: 'Obras, almacenes, talleres, minas y pozos de origen/destino', icon: '📍', route: 'HaulLocations' },
       { label: 'Documentos y vencimientos', desc: 'Permisos de carga pesada, pólizas, revisiones y licencias', icon: '📄', route: 'HaulDocuments' },
+    ],
+  },
+  {
+    title: 'Financiero',
+    items: [
+      { label: 'Tarifario', desc: 'Precios por km, tonelada, hora o tarifa plana para valorizar acarreos a terceros', icon: '🧾', route: 'HaulTariffs' },
     ],
   },
 ];

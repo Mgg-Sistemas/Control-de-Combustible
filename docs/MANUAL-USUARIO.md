@@ -730,6 +730,11 @@ próxima(s) a mantenimiento ▸/▾"** (toca para abrir/cerrar). Los niveles son
 - **🟠 MEDIA** — 220 h acumuladas.
 - **🔴 ALTA (máxima)** — 250 h acumuladas.
 
+> **Se mantiene hasta repararla:** una vez que una máquina llega a las **250 h (vencida)**, queda
+> marcada como *requiere mantenimiento* y **NO se sale de la lista** aunque una lectura posterior
+> baje el acumulado. La ÚNICA forma de sacarla es el botón **"✓ Confirmar mantenimiento y reiniciar
+> horómetro"** (marcarla reparada). Igual que una avería pendiente, arrastra hasta resolverla.
+
 Cada máquina en alerta muestra su **Serial/Código**, su **Empresa** y el **nivel de severidad**, con
 el botón **"✓ Confirmar mantenimiento y reiniciar horómetro"**: al confirmar, reinicia el conteo de
 horas acumuladas (NO toca el horómetro físico de la máquina). Esta misma alerta también sale en
@@ -2056,8 +2061,41 @@ puede marcar "Forzar guardado". Los avisos amarillos (vencimientos, solapamiento
 
 **Estados del viaje:** Programado → En carga → En tránsito → En descarga → **Completado** (o
 **Cancelado** con motivo). Desde el detalle de la orden se avanza el estado y cada cambio queda en
-la **bitácora**. (El check-in/out con fotos y firma, el módulo financiero y los reportes en PDF
-llegan en las fases siguientes.)
+la **bitácora**.
+
+### 4.27c. Ejecución del viaje (check-in / check-out)
+
+Desde el **detalle de la orden**, según el estado, aparece la acción que toca:
+
+- **📦 En carga → Check-in de salida:** nivel de combustible, cauchos y fajas/cadenas de amarre OK,
+  observaciones y **fotos "antes"/"amarre"**. Al guardar, la orden pasa a **EN TRÁNSITO**.
+- **🚚 En tránsito:** registrar **incidencias** en ruta (mecánica, clima, permiso, alcabala). El
+  botón **"Llegó"** la pasa a **EN DESCARGA**.
+- **📥 En descarga → Check-out de recepción:** estado de la maquinaria a la llegada, **fotos
+  "después"** y **FIRMA** (nombre de quien recibe + foto de la firma/recepción). Al confirmar, la
+  orden queda **COMPLETADA**.
+
+Cada inspección, foto e incidencia queda guardada en la orden.
+
+### 4.27d. Control de costos y tarifario
+
+- **💵 Costos del viaje** (en el detalle de la orden): registra **combustible** (con litros →
+  **rendimiento km/L**), **viáticos** de comida/hospedaje (con **foto del comprobante**), **peajes**
+  y otros. Arriba muestra el **total**, los **viáticos otorgados vs. comprobados** y el rendimiento.
+- **🧾 Tarifario** (Acarreo → Financiero): precios **por km, por tonelada, por hora o tarifa plana**,
+  general o por **cliente/ruta**. Para los clientes **externos**, la orden calcula sola la
+  **valorización sugerida** (según la tarifa más específica que aplique) y la puedes **guardar**.
+
+### 4.27e. Documentos PDF y panel (KPIs + alertas)
+
+- **📄 Documentos** (en el detalle de la orden): **Guía de traslado** (para el chofer, con la
+  maquinaria y espacios de firma salida/llegada), **Acta de recepción** (estado pre/post con **fotos**
+  y **firma** de conformidad) y **Liquidación de viaje** (gastos, viáticos otorgados vs. comprobados,
+  combustible/rendimiento e incidencias). Desde la **lista de órdenes**, el botón **"📄 Consolidado"**
+  descarga el resumen de los acarreos según el filtro elegido.
+- **📊 Panel** (Acarreo → Operación): **KPIs** — total de acarreos, tiempo promedio de tránsito, %
+  a tiempo (On-Time), costo por km — y **alertas**: documentos/licencias **vencidos o por vencer**
+  (30 días), **mantenimiento** de unidades por km recorridos y **viajes retrasados** en ruta.
 
 ---
 
