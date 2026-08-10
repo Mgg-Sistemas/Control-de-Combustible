@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
   {
     title: 'Operación',
     items: [
+      { label: 'Panel (KPIs y alertas)', desc: 'Acarreos, tiempo de tránsito, a tiempo, costo/km y alertas de vencimientos/retrasos', icon: '📊', route: 'HaulDashboard' },
       { label: 'Órdenes de acarreo', desc: 'Crear y despachar viajes, con validación de peso, vencimientos y solapamiento', icon: '📋', route: 'HaulOrders' },
     ],
   },

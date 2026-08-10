@@ -7,6 +7,7 @@ import { StatusBadge, statusMeta } from './AcarreoUI';
 import HaulExecutionPanel from './HaulExecutionPanel';
 import HaulExpensesPanel from './HaulExpensesPanel';
 import { pickTariff, computeValuation } from '../../lib/haulValuation';
+import { exportGuiaTraslado, exportActaRecepcion, exportLiquidacion } from '../../lib/guides/haulPdf';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -145,6 +146,23 @@ export default function HaulOrderDetail({
           items.map((it, i) => (
             <Text key={i} style={{ color: colors.text, fontSize: 13, marginTop: 2 }}>• {it.code} <Text style={{ color: colors.muted, fontSize: 11 }}>{it.extra}</Text></Text>
           ))}
+      </Card>
+
+      {/* Documentos PDF */}
+      <Card>
+        <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.xs }}>📄 Documentos</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
+          {[
+            { label: '📋 Guía de traslado', fn: () => exportGuiaTraslado(order, refs) },
+            { label: '📝 Acta de recepción', fn: () => exportActaRecepcion(order, refs) },
+            { label: '💵 Liquidación', fn: () => exportLiquidacion(order, refs) },
+          ].map((b) => (
+            <TouchableOpacity key={b.label} onPress={() => { b.fn().catch((e: any) => onError(String(e?.message ?? e))); }}
+              style={{ backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{b.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </Card>
 
       {/* Valorización (servicio a terceros) */}
