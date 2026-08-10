@@ -972,17 +972,18 @@ export default function EquiposScreen({ navigation, route }: any) {
   // y el de ESTADO tildado (vacío = todos). Antes el conteo solo incluía Operativas +
   // Averiadas (sin poder ver ni imprimir Retiradas/Esperando instrucciones); ahora es un
   // filtro de verdad, con los MISMOS 4 estados excluyentes que las tarjetas del Catálogo.
-  type EstadoConteo = 'operativa' | 'averiada' | 'retirada' | 'espera';
-  const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'retirada', 'espera'];
+  type EstadoConteo = 'operativa' | 'averiada' | 'parada' | 'retirada' | 'espera';
+  const ESTADO_CONTEO_ORDER: EstadoConteo[] = ['operativa', 'averiada', 'parada', 'retirada', 'espera'];
   const ESTADO_CONTEO_META: Record<EstadoConteo, { label: string; icon: string; color: string; hex: string }> = {
     operativa: { label: 'Operativa', icon: '✅', color: colors.success, hex: '#15803D' },
     averiada: { label: 'Averiada', icon: '🔴', color: colors.danger, hex: '#B91C1C' },
+    parada: { label: 'Parada', icon: '🟡', color: colors.warning, hex: '#B45309' },
     retirada: { label: 'Retirada', icon: '⬛', color: colors.muted, hex: '#4B5563' },
     espera: { label: 'Esperando instrucciones', icon: '⏳', color: colors.warning, hex: '#B45309' },
   };
-  // Mismo criterio EXCLUYENTE que las 4 tarjetas del Catálogo (averiadaMachines/
+  // Mismo criterio EXCLUYENTE que las tarjetas del Catálogo (averiadaMachines/
   // activeMachines/retiradaMachines/esperaMachines más arriba): retirada > espera >
-  // averiada (según maintenance_requests, no un campo fijo) > operativa.
+  // averiada/parada (según maintenance_requests, no un campo fijo) > operativa.
   const estadoConteoOf = (m: Machinery): EstadoConteo => {
     if (!m.operational) return 'retirada';
     if (m.en_espera) return 'espera';
@@ -990,7 +991,12 @@ export default function EquiposScreen({ navigation, route }: any) {
     // directo, así que una máquina que YA volvió a trabajar (jornada abierta DESPUÉS
     // de la avería) seguía saliendo "Averiada" en el reporte aunque la ficha de la
     // máquina (que sí usa liveStatusOf) ya mostrara "🟢 Trabajando".
-    if (liveStatusOf(m.id).estado === 'averiada') return 'averiada';
+    // Antes solo distinguía 'averiada'; una máquina "parada" caía por descarte en
+    // 'operativa' aquí (aunque su ficha SÍ mostraba "🟡 Parada"), por eso el reporte
+    // no tenía forma de filtrarlas ni de mostrar su estado real en la columna Estado.
+    const live = liveStatusOf(m.id).estado;
+    if (live === 'averiada') return 'averiada';
+    if (live === 'parada') return 'parada';
     return 'operativa';
   };
   const [reportEstados, setReportEstados] = useState<Set<EstadoConteo>>(new Set());
@@ -1026,9 +1032,9 @@ export default function EquiposScreen({ navigation, route }: any) {
     return Array.from(m.values()).sort((a, b) => cmpText(a.tipo, b.tipo));
   }, [reportCompany, reportEstados, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
   // Conteo por ESTADO dentro del alcance elegido (empresa), para los chips del filtro —
-  // NO se filtra por el propio reportEstados, así los 4 números siempre se ven completos.
+  // NO se filtra por el propio reportEstados, así los números siempre se ven completos.
   const reportEstadoCounts = useMemo(() => {
-    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, retirada: 0, espera: 0 };
+    const counts: Record<EstadoConteo, number> = { operativa: 0, averiada: 0, parada: 0, retirada: 0, espera: 0 };
     scopedMachines(reportCompany).forEach((m) => { counts[estadoConteoOf(m)] += 1; });
     return counts;
   }, [reportCompany, machinery.data, averiaCat, jornadaCat, nowTick, inspByShift]);
@@ -2036,6 +2042,7 @@ export default function EquiposScreen({ navigation, route }: any) {
                           <AveriaBadge id={m.id} />
                           <UltimaInactividadLine id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
+                          {m.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {m.tipo}</Text> : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
