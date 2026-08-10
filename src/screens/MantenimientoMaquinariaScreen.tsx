@@ -10,7 +10,7 @@ import { exportPdf, pdfDocument } from '../lib/pdf';
 import { supabase } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
-import { horometroAlertaDe, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
+import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
 import { caracasParts } from '../lib/jornada';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -49,9 +49,12 @@ const edificioText = (lat?: number | null, lng?: number | null, referencia?: str
 
 type Req = { id: string; machinery_id: string; material: string; quantity: number | null; notes: string | null; status: string; created_at: string; code: string; tipo: string | null; company: string; photo_url: string | null; photos: string[] | null; plate: string | null; serial: string | null; last_horometro: number | null; operational: boolean; referencia: string | null; sector: string | null; parroquia: string | null; latitude: number | null; longitude: number | null; requested_by: string | null; requestedByName: string | null };
 type Rep = { id: string; machinery_id: string; tipo: string; out_at: string; estimated_days: number | null; estimated_note: string | null; work_done: string | null; back_at: string | null; status: string; created_at: string; code: string; company: string };
-type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; operational: boolean; last_horometro: number | null; horometro_base: number | null };
+type Mach = { id: string; code: string; tipo: string | null; clasificacion: string | null; plate: string | null; serial: string | null; company: string; encargado: string | null; referencia: string | null; latitude: number | null; longitude: number | null; operational: boolean; last_horometro: number | null; horometro_base: number | null };
+// Lectura de horómetro + foto que ingresa el inspector/operador al iniciar/finalizar la jornada
+// (machine_rounds). Se muestra en la pestaña Horómetros junto a las horas acumuladas.
+type HoroRound = { reading: number | null; at: string | null; operator: string | null; inicial: number | null; final: number | null; photo: string | null };
 
-type Tab = 'averias' | 'reparacion' | 'historial' | 'reporte';
+type Tab = 'averias' | 'reparacion' | 'historial' | 'horometros' | 'reporte';
 const usd = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
@@ -122,6 +125,12 @@ export default function MantenimientoMaquinariaScreen() {
   const [repCaseFilter, setRepCaseFilter] = useState<'all' | 'con' | 'sin_insp' | 'sin_averia'>('all'); // avería+insp / avería sin insp / insp sin avería
   const [repDetailId, setRepDetailId] = useState<string | null>(null);   // máquina cuyo detalle se ve
 
+  // ── Pestaña Horómetros: última lectura + foto que ingresó el inspector/operador ──
+  const [horoByMachine, setHoroByMachine] = useState<Record<string, HoroRound>>({});
+  const [horoLoaded, setHoroLoaded] = useState(false);
+  const [horoLoading, setHoroLoading] = useState(false);
+  const [horoPhotoView, setHoroPhotoView] = useState<string | null>(null); // foto del horómetro ampliada
+
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
   const load = async () => {
@@ -132,7 +141,7 @@ export default function MantenimientoMaquinariaScreen() {
       // / No trabajó" de Inspecciones, que no genera una solicitud de Mantenimiento).
       supabase.from('maintenance_requests').select('id, machinery_id, material, quantity, notes, status, created_at, photo_url, photos, requested_by, machinery:machinery_id(code, tipo, plate, serial, referencia, sector, parroquia, latitude, longitude, last_horometro, operational, company:company_id(name))').neq('material', 'MÁQUINA PARADA').order('created_at', { ascending: false }),
       supabase.from('machinery_repairs').select('id, machinery_id, tipo, out_at, estimated_days, estimated_note, work_done, back_at, status, created_at, machinery:machinery_id(code, company:company_id(name))').order('created_at', { ascending: false }),
-      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
+      supabase.from('machinery').select('id, code, tipo, clasificacion, plate, serial, encargado, referencia, latitude, longitude, operational, active, last_horometro, horometro_base, company:company_id(name)').eq('active', true).order('code'),
       supabase.from('profiles').select('id, full_name'),
     ]);
     // Mapa uuid → nombre para resolver quién reportó cada avería (requested_by).
@@ -140,7 +149,7 @@ export default function MantenimientoMaquinariaScreen() {
     (profs ?? []).forEach((p: any) => { if (p.full_name) nameById.set(p.id, p.full_name); });
     setReqs((mr ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, material: r.material, quantity: r.quantity != null ? Number(r.quantity) : null, notes: r.notes ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', tipo: r.machinery?.tipo ?? null, company: r.machinery?.company?.name ?? 'Sin empresa', photo_url: r.photo_url ?? null, photos: Array.isArray(r.photos) ? r.photos : null, plate: r.machinery?.plate ?? null, serial: r.machinery?.serial ?? null, last_horometro: r.machinery?.last_horometro != null ? Number(r.machinery.last_horometro) : null, operational: r.machinery?.operational !== false, referencia: r.machinery?.referencia ?? null, sector: r.machinery?.sector ?? null, parroquia: r.machinery?.parroquia ?? null, latitude: r.machinery?.latitude != null ? Number(r.machinery.latitude) : null, longitude: r.machinery?.longitude != null ? Number(r.machinery.longitude) : null, requested_by: r.requested_by ?? null, requestedByName: r.requested_by ? (nameById.get(r.requested_by) ?? null) : null })));
     setRepairs((rp ?? []).map((r: any) => ({ id: r.id, machinery_id: r.machinery_id, tipo: r.tipo, out_at: r.out_at, estimated_days: r.estimated_days != null ? Number(r.estimated_days) : null, estimated_note: r.estimated_note ?? null, work_done: r.work_done ?? null, back_at: r.back_at ?? null, status: r.status, created_at: r.created_at, code: r.machinery?.code ?? '—', company: r.machinery?.company?.name ?? 'Sin empresa' })));
-    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
+    setMachines((mac ?? []).map((m: any) => ({ id: m.id, code: m.code, tipo: m.tipo ?? null, clasificacion: m.clasificacion ?? null, plate: m.plate ?? null, serial: m.serial ?? null, company: m.company?.name ?? 'Sin empresa', encargado: m.encargado ?? null, referencia: m.referencia ?? null, latitude: m.latitude != null ? Number(m.latitude) : null, longitude: m.longitude != null ? Number(m.longitude) : null, operational: m.operational !== false, last_horometro: m.last_horometro != null ? Number(m.last_horometro) : null, horometro_base: m.horometro_base != null ? Number(m.horometro_base) : null })));
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -180,6 +189,39 @@ export default function MantenimientoMaquinariaScreen() {
   useEffect(() => { if (tab === 'reporte' && !reportLoaded && !loading) loadReportData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
   // Solo refresca el reporte si ya se cargó (evita gastar la consulta cuando nadie visitó la pestaña).
   useRealtimeRefresh(['inventory_movements', 'inventory_items', 'machine_inspections'], () => { if (reportLoaded) loadReportData(); });
+
+  // Última jornada con horómetro por máquina (lectura + foto + quién la registró).
+  // La foto y la lectura las coloca el inspector/operador al iniciar/finalizar la jornada
+  // (machine_rounds.horometro_photo / _inicial / _final). Tomamos la jornada MÁS RECIENTE
+  // con datos; si esa no trae foto, completamos con la última foto disponible.
+  const loadHoroData = async () => {
+    setHoroLoading(true);
+    const { data } = await supabase
+      .from('machine_rounds')
+      .select('machinery_id, round_date, horometro_inicial, horometro_final, horometro_photo, day_operator, night_operator')
+      .or('horometro_photo.not.is.null,horometro_final.not.is.null,horometro_inicial.not.is.null')
+      .order('round_date', { ascending: false })
+      .limit(4000);
+    const by: Record<string, HoroRound> = {};
+    (data ?? []).forEach((r: any) => {
+      const id = r.machinery_id;
+      if (!id) return;
+      const inicial = r.horometro_inicial != null ? Number(r.horometro_inicial) : null;
+      const final = r.horometro_final != null ? Number(r.horometro_final) : null;
+      const reading = final ?? inicial;
+      const op = r.night_operator || r.day_operator || null;
+      if (!by[id]) {
+        by[id] = { reading, at: r.round_date ?? null, operator: op, inicial, final, photo: r.horometro_photo ?? null };
+      } else if (!by[id].photo && r.horometro_photo) {
+        by[id].photo = r.horometro_photo; // conserva la lectura más reciente, completa la última foto
+      }
+    });
+    setHoroByMachine(by);
+    setHoroLoaded(true);
+    setHoroLoading(false);
+  };
+  useEffect(() => { if (tab === 'horometros' && !horoLoaded && !loading) loadHoroData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
+  useRealtimeRefresh(['machine_rounds'], () => { if (horoLoaded) loadHoroData(); });
 
   // Rendimiento: índice id → máquina para evitar machines.find() dentro de bucles (O(n²) → O(n)).
   const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
@@ -383,6 +425,22 @@ export default function MantenimientoMaquinariaScreen() {
       .sort((a, b) => cmpText(a.company, b.company));
   }, [reqs, nq]);
 
+  // HORÓMETROS: todas las máquinas activas con sus horas acumuladas y lo que falta
+  // para el mantenimiento (objetivo = HOROMETRO_UMBRAL_ALTA). Buscable por TODAS las
+  // características (máquina, serial, placa, empresa, encargado, ubicación/referencia, tipo).
+  const horometroList = useMemo(() => {
+    const arr = machines.map((m) => {
+      const acum = horasAcumuladas(m.last_horometro, m.horometro_base);
+      const alerta = horometroAlertaDe(m.last_horometro, m.horometro_base);
+      const restante = acum != null ? Math.round((HOROMETRO_UMBRAL_ALTA - acum) * 100) / 100 : null;
+      return { m, acum, alerta, restante, horo: horoByMachine[m.id] ?? null };
+    });
+    const filtered = !nq ? arr : arr.filter(({ m }) =>
+      [m.code, m.serial, m.plate, m.company, m.encargado, m.referencia, m.tipo, m.clasificacion].some((f) => f && norm(String(f)).includes(nq)));
+    // Más cerca del mantenimiento primero; empate → A→Z natural por código.
+    return filtered.sort((a, b) => (b.acum ?? -1) - (a.acum ?? -1) || cmpText(a.m.code, b.m.code));
+  }, [machines, horoByMachine, nq]);
+
   const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesQ(r.code, r.company)), [repairs, nq]);
   const historial = useMemo(() => repairs.filter((r) => r.status === 'operativa' && matchesQ(r.code, r.company)), [repairs, nq]);
 
@@ -404,7 +462,7 @@ export default function MantenimientoMaquinariaScreen() {
 
       {/* Pestañas */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
+        {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['horometros', '⏱️ Horómetros'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
             <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
@@ -451,7 +509,7 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       </View>
 
-      <TextInput value={query} onChangeText={setQuery} placeholder="🔎 Buscar empresa o máquina…" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+      <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, ubicación…' : '🔎 Buscar empresa o máquina…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
 
       {loading ? (
         <Loading />
@@ -478,7 +536,7 @@ export default function MantenimientoMaquinariaScreen() {
               </TouchableOpacity>
               {open ? g.machines.map((mm) => {
                 const rep = activeRepairByMachine.get(mm.machinery_id);
-                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, operational: true, last_horometro: null, horometro_base: null };
+                const mac = machById.get(mm.machinery_id) ?? { id: mm.machinery_id, code: mm.code, tipo: mm.tipo, clasificacion: null, plate: null, serial: null, company: g.company, encargado: null, referencia: null, latitude: null, longitude: null, operational: true, last_horometro: null, horometro_base: null };
                 return (
                   <Card key={mm.code}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{mm.code}{mm.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {mm.tipo}</Text> : null}</Text>
@@ -566,6 +624,93 @@ export default function MantenimientoMaquinariaScreen() {
             </Card>
           ))
         )
+      ) : tab === 'horometros' ? (
+        // ── ⏱️ HORÓMETROS: horas acumuladas + lo que falta para el mantenimiento ──
+        (() => {
+          const total = horometroList.length;
+          const conAlerta = horometroList.filter((x) => !!x.alerta).length;
+          const vencidas = horometroList.filter((x) => x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA).length;
+          return (
+            <View>
+              <Card style={{ backgroundColor: colors.brand }}>
+                <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 15 }}>⏱️ Horómetros · mantenimiento preventivo</Text>
+                <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
+                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Máquinas</Text><Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{total}</Text></View>
+                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Próximas (≥200 h)</Text><Text style={{ color: colors.accent, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{conAlerta}</Text></View>
+                  <View><Text style={{ color: colors.brandContrast, opacity: 0.8, fontSize: 11 }}>Vencidas (≥{HOROMETRO_UMBRAL_ALTA} h)</Text><Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 22, fontVariant: ['tabular-nums'] as any }}>{vencidas}</Text></View>
+                </View>
+                <Text style={{ color: colors.brandContrast, opacity: 0.7, fontSize: 10, marginTop: 4 }}>Objetivo de mantenimiento: {HOROMETRO_UMBRAL_ALTA} h acumuladas. La lectura y la foto vienen de la última jornada registrada por el inspector/operador.</Text>
+              </Card>
+
+              {horoLoading ? <View style={{ paddingVertical: spacing.md }}><Loading /></View> : null}
+              {total === 0 ? <EmptyState title="Sin resultados" subtitle="No hay máquinas para esta búsqueda." /> : null}
+
+              {horometroList.map(({ m, acum, alerta, restante, horo }) => {
+                const pct = acum != null ? Math.min(1, acum / HOROMETRO_UMBRAL_ALTA) : 0;
+                const vencido = restante != null && restante <= 0;
+                const barColor = alerta?.color ?? (vencido ? colors.danger : colors.success);
+                const coords = coordText(m.latitude, m.longitude);
+                const edif = edificioText(m.latitude, m.longitude, m.referencia);
+                const ident = [m.plate, m.serial].filter(Boolean).join(' · ');
+                const photo = horo?.photo ?? null;
+                return (
+                  <Card key={m.id}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🚜 {m.code}{m.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {m.tipo}</Text> : null}</Text>
+                    <View style={{ marginTop: 3, gap: 1 }}>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.company}</Text></Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.encargado || '—'}</Text></Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Placa / Serial: <Text style={{ color: colors.text, fontWeight: '600' }}>{ident || '—'}</Text></Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>📍 Ubicación: <Text style={{ color: colors.text, fontWeight: '600' }}>{coords || '—'}</Text></Text>
+                      {m.referencia ? <Text style={{ color: colors.muted, fontSize: 12 }}>🧭 Ref / Edificio: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.referencia}</Text></Text> : null}
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Edificio / sector: <Text style={{ color: colors.text, fontWeight: '600' }}>{edif}</Text></Text>
+                    </View>
+
+                    {/* Horas acumuladas + lo que falta para el mantenimiento */}
+                    <View style={{ marginTop: spacing.sm, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <View><Text style={{ color: colors.muted, fontSize: 11 }}>⏱️ Horómetro actual</Text><Text style={{ color: colors.text, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{m.last_horometro != null ? m.last_horometro : '—'}</Text></View>
+                        <View style={{ alignItems: 'center' }}><Text style={{ color: colors.muted, fontSize: 11 }}>📊 Acumuladas</Text><Text style={{ color: barColor, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{acum != null ? `${acum} h` : '—'}</Text></View>
+                        <View style={{ alignItems: 'flex-end' }}><Text style={{ color: colors.muted, fontSize: 11 }}>🎯 Falta</Text><Text style={{ color: vencido ? colors.danger : colors.text, fontWeight: '900', fontSize: 16, fontVariant: ['tabular-nums'] as any }}>{restante == null ? '—' : (restante > 0 ? `${restante} h` : 'Vencido')}</Text></View>
+                      </View>
+                      <View style={{ height: 8, backgroundColor: colors.border, borderRadius: 4, marginTop: spacing.xs, overflow: 'hidden' }}>
+                        <View style={{ width: `${pct * 100}%`, height: 8, backgroundColor: barColor, borderRadius: 4 }} />
+                      </View>
+                      {alerta ? (
+                        <Text style={{ color: alerta.color, fontWeight: '800', fontSize: 12, marginTop: 4 }}>{alerta.label} · próxima a mantenimiento</Text>
+                      ) : vencido ? (
+                        <Text style={{ color: colors.danger, fontWeight: '800', fontSize: 12, marginTop: 4 }}>🔴 Mantenimiento vencido</Text>
+                      ) : m.last_horometro == null ? (
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: 4 }}>Sin lectura de horómetro registrada aún.</Text>
+                      ) : null}
+                    </View>
+
+                    {/* Foto del horómetro (del inspector) + datos que ingresó */}
+                    <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center' }}>
+                      {photo ? (
+                        <TouchableOpacity onPress={() => setHoroPhotoView(photo)}>
+                          <Image source={{ uri: photo }} style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt }} resizeMode="cover" />
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 22 }}>📷</Text></View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>📷 Foto del horómetro (inspector){photo ? ' · toca para ampliar' : ' · sin foto'}</Text>
+                        <Text style={{ color: colors.muted, fontSize: 12 }}>📅 Última jornada: <Text style={{ color: colors.text, fontWeight: '600' }}>{horo?.at ? fmtDMY(horo.at) : '—'}</Text></Text>
+                        {horo?.operator ? <Text style={{ color: colors.muted, fontSize: 12 }}>👷 Registró: <Text style={{ color: colors.text, fontWeight: '600' }}>{horo.operator}</Text></Text> : null}
+                        {horo && (horo.inicial != null || horo.final != null) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🕒 Lectura: <Text style={{ color: colors.text, fontWeight: '600' }}>{horo.inicial ?? '—'} → {horo.final ?? '—'}</Text></Text> : null}
+                      </View>
+                    </View>
+
+                    <TouchableOpacity onPress={() => confirmarMantenimientoHorometro(m)} disabled={confirmingHoro === m.id || m.last_horometro == null} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: (confirmingHoro === m.id || m.last_horometro == null) ? 0.5 : 1 }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 12 }}>{confirmingHoro === m.id ? 'Guardando…' : '✓ Confirmar mantenimiento · reiniciar horómetro'}</Text>
+                    </TouchableOpacity>
+                  </Card>
+                );
+              })}
+              <View style={{ height: spacing.lg }} />
+            </View>
+          );
+        })()
       ) : (
         // ── 📊 REPORTE / DASHBOARD ────────────────────────────────────────────
         (() => {
@@ -1041,6 +1186,13 @@ export default function MantenimientoMaquinariaScreen() {
             })() : null}
           </View>
         </View>
+      </Modal>
+      {/* Modal: foto del horómetro ampliada (la que colocó el inspector/operador) */}
+      <Modal visible={!!horoPhotoView} transparent animationType="fade" onRequestClose={() => setHoroPhotoView(null)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setHoroPhotoView(null)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: spacing.lg }}>
+          {horoPhotoView ? <Image source={{ uri: horoPhotoView }} style={{ width: '100%', height: '80%' }} resizeMode="contain" /> : null}
+          <Text style={{ color: '#fff', textAlign: 'center', marginTop: spacing.md, fontWeight: '700' }}>Toca para cerrar</Text>
+        </TouchableOpacity>
       </Modal>
     </Screen>
   );
