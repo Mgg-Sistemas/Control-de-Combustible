@@ -49,12 +49,15 @@ type RoundMachine = {
 };
 // Viaje registrado en una máquina (solo Golden Touch): nº de viajes y precio unitario.
 type ViajeItem = { code: string; clasificacion: string; viajes: number; precio: number };
+// Máquina AVERIADA/PARADA (pendiente) que no trabajó — se lista en 0 y en ROJO.
+type RoundAveria = { machine: string; tipo: string; clasificacion: string; serial: string | null; motivo: string };
 type RoundCompany = {
   company: string;
   machines: RoundMachine[];
   days: number; dayH: number; nightH: number; totalH: number; totalUSD: number;
   viajes: ViajeItem[];      // viajes por máquina (Golden)
   viajesUSD: number;        // total $ de viajes
+  averias: RoundAveria[];   // averiadas/paradas (0 horas, en rojo) — no suman a totales
   abonado?: number;         // abonos (pagos) de la empresa dentro del rango del reporte
 };
 
@@ -729,7 +732,8 @@ export default function ReportsScreen({ route }: any) {
     // Horas trabajadas = día + noche − parada + extras (igual que el reporte de Maquinaria),
     // por eso restamos paradas: así Jornada y Maquinaria cuadran con el Excel.
     const groups = new Map<string, RoundCompany>();
-    accs.forEach((a) => {
+    const workedIds = new Set<string>(); // ids de máquinas que SÍ trabajaron (para no duplicarlas como averiadas)
+    accs.forEach((a, key) => {
       if (cos && !cos.includes(a.company)) return; // filtro por empresa(s)
       let dayH = 0, nightH = 0, totalH = 0, days = 0, totalUSD = 0, repPrice: number | null = null;
       a.byDate.forEach(({ d, n, s, o, price, js, jsh }, dateKey) => {
@@ -753,8 +757,9 @@ export default function ReportsScreen({ route }: any) {
         if (p != null) { totalUSD += (w / 12) * p; if (w > 0) repPrice = p; }
       });
       if (totalH <= 0) return; // solo equipos que SÍ trabajaron (nada en 0)
+      workedIds.add(key);
       const rm: RoundMachine = { machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, entryDate: a.entry, days, dayH, nightH, totalH, priceJornada: repPrice != null ? repPrice : a.price, totalUSD };
-      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0 };
+      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
       g.machines.push(rm);
       g.days += days; g.dayH += dayH; g.nightH += nightH; g.totalH += totalH; g.totalUSD += totalUSD;
       groups.set(a.company, g);
@@ -787,12 +792,49 @@ export default function ReportsScreen({ route }: any) {
       abonoByCompany.set(co, (abonoByCompany.get(co) ?? 0) + (Number(p.amount) || 0));
     });
 
+    // AVERIADAS/PARADAS: máquinas con avería/parada PENDIENTE (a la fecha de corte) que
+    // NO trabajaron en el rango — se agregan en 0 y en ROJO (no suman a horas ni $).
+    const toEndBound = `${toArg}T23:59:59-04:00`;
+    const { data: mrPend } = await supabase
+      .from('maintenance_requests')
+      .select('machinery_id, material, notes, created_at, machinery:machinery_id(code, tipo, clasificacion, serial, active, company:company_id(name))')
+      .eq('status', 'pendiente')
+      .lte('created_at', toEndBound)
+      .order('created_at', { ascending: false });
+    const averiaByMachine = new Map<string, RoundAveria & { company: string }>();
+    ((mrPend ?? []) as any[]).forEach((r) => {
+      const mm = r.machinery;
+      if (!mm || mm.active === false) return;         // inactivas fuera
+      const mid = r.machinery_id as string;
+      if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
+      const co = mm.company?.name ?? 'Sin empresa';
+      if (cos && !cos.includes(co)) return;            // fuera del alcance
+      const existing = averiaByMachine.get(mid);
+      if (existing && r.material === 'MÁQUINA PARADA') return; // prefiere el motivo REAL
+      const notes = (r.notes && String(r.notes).trim()) || '';
+      const motivo = r.material === 'MÁQUINA PARADA' ? (notes || 'Parada') : (notes || String(r.material || 'Avería'));
+      averiaByMachine.set(mid, {
+        company: co,
+        machine: mm.code || '—',
+        tipo: (mm.tipo && String(mm.tipo).trim()) || '—',
+        clasificacion: (mm.clasificacion && String(mm.clasificacion).trim()) || 'Sin clasificación',
+        serial: mm.serial ?? null,
+        motivo,
+      });
+    });
+    averiaByMachine.forEach((a) => {
+      const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
+      g.averias.push({ machine: a.machine, tipo: a.tipo, clasificacion: a.clasificacion, serial: a.serial, motivo: a.motivo });
+      groups.set(a.company, g);
+    });
+
     const list = Array.from(groups.values()).sort((x, y) =>
       x.company === 'Sin empresa' ? 1 : y.company === 'Sin empresa' ? -1 : cmpText(x.company, y.company)
     );
     // Alfabético por NOMBRE de máquina (acentos/mayúsculas indiferentes), luego serial.
     list.forEach((g) => {
       g.machines.sort((x, y) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial));
+      g.averias.sort((x, y) => cmpText(x.machine, y.machine) || cmpText(x.serial, y.serial));
       g.abonado = abonoByCompany.get(g.company) ?? 0;
     });
 
@@ -872,10 +914,27 @@ export default function ReportsScreen({ route }: any) {
               `<td style="text-align:right;font-weight:700">${m.priceJornada != null ? usd(m.totalUSD) : '—'}</td></tr>`
           )
           .join('');
+        // Filas de AVERIADAS/PARADAS: en 0 y en ROJO, con su motivo. No suman a totales.
+        const averiaRows = g.averias
+          .map(
+            (a) =>
+              `<tr style="color:#B42318">` +
+              `<td>${esc(a.machine)}${a.serial ? `<br/><span style="color:#c99">${esc(a.serial)}</span>` : ''}</td>` +
+              `<td>${esc(a.tipo)}</td>` +
+              `<td>🔴 ${esc(a.clasificacion)}${a.motivo ? ` · ${esc(a.motivo)}` : ''}</td>` +
+              `<td style="text-align:center">0</td>` +
+              `<td style="text-align:center">${nH(0)}</td>` +
+              `<td style="text-align:center">${nH(0)}</td>` +
+              `<td style="text-align:center;font-weight:700">${nH(0)}</td>` +
+              `<td style="text-align:right">—</td>` +
+              `<td style="text-align:right">—</td></tr>`
+          )
+          .join('');
         // Bloque de VIAJES (extra al subtotal). Agrupa las máquinas por precio unitario.
         const viajesBlock = renderViajes(g);
-        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span></h2>
-          <table><thead>${head}</thead><tbody>${rows}</tbody>
+        const averiaTag = g.averias.length ? ` <span style="color:#B42318;font-weight:400">· 🔴 ${g.averias.length} averiada${g.averias.length === 1 ? '' : 's'}</span>` : '';
+        return `<h2>🏢 ${esc(g.company)}${companyRif[g.company] ? ` <span style="color:#666;font-weight:400;font-size:13px">· RIF ${esc(companyRif[g.company])}</span>` : ''} <span style="color:#666;font-weight:400">(${g.machines.length} máquina${g.machines.length === 1 ? '' : 's'})</span>${averiaTag}</h2>
+          <table><thead>${head}</thead><tbody>${rows}${averiaRows}</tbody>
           <tfoot><tr><td colspan="4" style="text-align:right;font-weight:800">${g.viajes.length ? 'SUB TOTAL' : 'TOTAL'} ${esc(g.company)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.dayH)}</td>
             <td style="text-align:center;font-weight:800">${nH(g.nightH)}</td>
