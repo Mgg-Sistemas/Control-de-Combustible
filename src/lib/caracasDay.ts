@@ -40,6 +40,33 @@ export function isoYesterday(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Fecha ISO (AAAA-MM-DD) y hora (0–23) de un instante ARBITRARIO en Caracas
+ *  (mismo cálculo que `caracasToday()`/`caracasNowHour()`, pero para un `Date`
+ *  dado en vez de "ahora"). */
+function caracasPartsOf(d: Date): { iso: string; hour: number } {
+  const p: any = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CARACAS_TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
+  }).formatToParts(d).reduce((a: any, x: any) => { a[x.type] = x.value; return a; }, {});
+  return { iso: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
+}
+
+/**
+ * `round_date` de NEGOCIO de un instante `d` para un turno dado — misma regla que
+ * `caracasBusinessToday()` (turno noche cruza la medianoche y sigue perteneciendo
+ * al día en que arrancó hasta las 7am) pero aplicable a CUALQUIER timestamp, no
+ * solo "ahora". Hace falta porque `machine_rounds`/`machine_work_segments` bucketean
+ * por la fecha en que arrancó la jornada, y una jornada de NOCHE que se INICIA (o se
+ * reanuda tras una parada) ya pasada la medianoche —ej. 00:13am— tiene un timestamp
+ * cuya fecha de calendario es HOY, pero de negocio pertenece a la noche de AYER.
+ * Turno DÍA nunca se ajusta (siempre su fecha de calendario tal cual, sin regla de
+ * cruce de medianoche).
+ */
+export function businessRoundDateOf(d: Date, shift: 'day' | 'night'): string {
+  const { iso, hour } = caracasPartsOf(d);
+  if (shift === 'night' && hour < 7) return isoYesterday(iso);
+  return iso;
+}
+
 /**
  * VENTANA DE GRACIA DE LA NOCHE (regla cliente 09-ago-2026): una jornada de NOCHE
  * (7pm–7am) ya FINALIZADA debe seguir viéndose CERRADA/finalizada hasta las 8am del día

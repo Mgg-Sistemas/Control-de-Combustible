@@ -1352,7 +1352,16 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           {/* KPIs del día elegido. */}
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }}>
             <KpiCard label={`Activas ahora ${shiftIcon} (${shortDate(selDay)})`} value={top.iniciadas} tone="brand" onPress={() => openList(`✅ Activas ahora (jornada abierta) · ${shortDate(selDay)} ${shiftIcon}`, topIds.ini)} />
-            <KpiCard label="Cerradas (finalizadas)" value={top.cerradas} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.cer)} />
+            {/* Si el turno de HOY todavía no ha arrancado (`shiftNotStarted`), "Cerradas"
+                DEBE ser 0 por regla de negocio (nada puede haberse cerrado de un turno que
+                aún no empieza) — pero un residuo de datos ARRASTRADO de un round mal
+                fechado (BUG 10-ago-2026: round_date de HOY en vez de AYER cerca de
+                medianoche, con night_hours residual ~0.02h) podía inflar `closedSet` con
+                casos históricos ya guardados así. `buildDaySets` ya filtra esto con un
+                umbral mínimo (ver `MIN_WORKED_HOURS` en inspectorDaySets.ts), pero esta
+                tarjeta se protege también acá — a diferencia de Paradas/Averiadas, que SÍ
+                deben seguir mostrando su conteo real arrastrado (regla de negocio distinta). */}
+            <KpiCard label="Cerradas (finalizadas)" value={shiftNotStarted ? 0 : top.cerradas} tone="brand" onPress={() => openList(`🏁 Cerradas / finalizadas · ${shortDate(selDay)} ${shiftIcon}`, shiftNotStarted ? [] : topIds.cer)} />
             <KpiCard label="Pendientes por iniciar" value={top.pendientes} tone="muted" onPress={() => openList(`⏳ Pendientes por iniciar · ${shortDate(selDay)} ${shiftIcon}`, topIds.pend)} />
             <KpiCard label="Paradas / no trabajó" value={top.paradas} tone="warn" onPress={() => openList(`🟡 Paradas / no trabajó · ${shortDate(selDay)} ${shiftIcon}`, topIds.par)} />
             <KpiCard label="Averiadas" value={top.averiadas} tone="crit" onPress={() => openList(`🔴 Averiadas · ${shortDate(selDay)} ${shiftIcon}`, topIds.ave)} />
