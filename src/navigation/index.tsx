@@ -74,6 +74,15 @@ import {
 } from '../screens/modules';
 // Piloto de rediseño: Traslados restilizado (mismo comportamiento, look nuevo).
 import TransfersPilot from '../screens/redesign/TransfersPilot';
+// Módulo de Acarreo / Transporte (traslado de maquinaria en chutos + bateas).
+import AcarreoHub from '../screens/acarreo/AcarreoHub';
+import HaulTrucksScreen from '../screens/acarreo/HaulTrucksScreen';
+import HaulTrailersScreen from '../screens/acarreo/HaulTrailersScreen';
+import HaulDriversScreen from '../screens/acarreo/HaulDriversScreen';
+import HaulEquiposScreen from '../screens/acarreo/HaulEquiposScreen';
+import HaulClientsScreen from '../screens/acarreo/HaulClientsScreen';
+import HaulLocationsScreen from '../screens/acarreo/HaulLocationsScreen';
+import HaulDocumentsScreen from '../screens/acarreo/HaulDocumentsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -240,6 +249,14 @@ function MoreStack() {
       <Stack.Screen name="WorkOrders" component={WorkOrdersScreen} options={{ title: 'Órdenes de trabajo' }} />
       <Stack.Screen name="PlantaKiosk" component={PlantaKioskScreen} options={{ title: 'Kiosco de planta' }} />
       <Stack.Screen name="ManufacturingReports" component={ManufacturingReportsScreen} options={{ title: 'Reportes de Fabricación' }} />
+      <Stack.Screen name="AcarreoHub" component={AcarreoHub} options={{ title: 'Acarreo / Transporte' }} />
+      <Stack.Screen name="HaulTrucks" component={HaulTrucksScreen} options={{ title: 'Chutos' }} />
+      <Stack.Screen name="HaulTrailers" component={HaulTrailersScreen} options={{ title: 'Bateas / lowboys' }} />
+      <Stack.Screen name="HaulDrivers" component={HaulDriversScreen} options={{ title: 'Choferes' }} />
+      <Stack.Screen name="HaulEquipos" component={HaulEquiposScreen} options={{ title: 'Equipos a trasladar' }} />
+      <Stack.Screen name="HaulClients" component={HaulClientsScreen} options={{ title: 'Clientes y proyectos' }} />
+      <Stack.Screen name="HaulLocations" component={HaulLocationsScreen} options={{ title: 'Ubicaciones' }} />
+      <Stack.Screen name="HaulDocuments" component={HaulDocumentsScreen} options={{ title: 'Documentos y vencimientos' }} />
       <Stack.Screen name="ScanQr" component={ScanQrScreen} options={{ title: 'Escanear QR', headerShown: false }} />
       <Stack.Screen name="MachineQuick" component={MachineQuickScreen} options={{ title: 'Máquina' }} />
       <Stack.Screen name="Transfers" component={TransfersPilot} options={{ title: 'Traslados' }} />
@@ -634,6 +651,14 @@ const moreScreens = {
   WorkOrders: 'fabricacion/ordenes-trabajo',
   PlantaKiosk: 'fabricacion/kiosco',
   ManufacturingReports: 'fabricacion/reportes',
+  AcarreoHub: 'acarreo',
+  HaulTrucks: 'acarreo/chutos',
+  HaulTrailers: 'acarreo/bateas',
+  HaulDrivers: 'acarreo/choferes',
+  HaulEquipos: 'acarreo/equipos',
+  HaulClients: 'acarreo/clientes',
+  HaulLocations: 'acarreo/ubicaciones',
+  HaulDocuments: 'acarreo/documentos',
   ScanQr: 'escanear',
   MachineQuick: 'maquina',
   Transfers: 'traslados',

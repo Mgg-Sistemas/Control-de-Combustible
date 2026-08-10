@@ -26,6 +26,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Escanear QR', route: 'ScanQr', desc: 'Escanea el QR de una máquina con la cámara', icon: '📷', module: 'equipos' },
   { label: 'Reportes', route: 'Reports', desc: 'Combustible y rondas (PDF)', icon: '📊', module: 'reportes' },
   { label: 'Fabricación', route: 'FabricacionHub', desc: 'Taller: mangueras, centros de trabajo, recetas (BoM) y rutas de producción', icon: '🏭', module: 'mangueras' },
+  { label: 'Acarreo / Transporte', route: 'AcarreoHub', desc: 'Traslado de maquinaria: flota (chutos/bateas), choferes, órdenes de acarreo y costos', icon: '🚛', module: 'acarreo' },
   // (Kiosco de planta se quitó del menú: salía duplicado con la tarjeta del hub de
   //  Fabricación. Los roles "solo kiosco" entran directo al Kiosco por su panel, ver
   //  navigation `fabricacionPlanta`. La pantalla/ruta PlantaKiosk sigue existiendo.)

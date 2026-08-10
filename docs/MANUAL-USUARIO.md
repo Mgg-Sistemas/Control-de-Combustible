@@ -2015,7 +2015,36 @@ en PDF.
 
 ---
 
-## 4.27. Guías descargables por rol (PDF)
+## 4.27. Acarreo / Transporte 🚛
+
+Módulo para **trasladar maquinaria en chutos y bateas/lowboys**: desde el registro de la flota y
+los choferes hasta la orden de acarreo, la ejecución del viaje (check-in/out con fotos y firma) y el
+control de costos. Se entra por **"Más → 🚛 Acarreo / Transporte"**. El acceso es **por usuario**
+(módulo `acarreo` en la matriz de permisos; un administrador lo habilita en Usuarios). Es
+**independiente** de "Traslados", que mueve combustible entre tanques.
+
+### 4.27a. Datos maestros (lo primero que se carga)
+
+- **🚛 Chutos:** camiones de arrastre — placa, capacidad de arrastre (t), kilometraje y estado
+  (operativo / en taller / inactivo). Avisa cuántos km faltan para el mantenimiento.
+- **🛻 Bateas / lowboys:** remolques — tipo, ejes, capacidad de carga (t) y dimensiones útiles.
+- **👷 Choferes:** nombre, teléfono, licencia con vigencia y disponibilidad (disponible, en ruta,
+  de reposo, suspendido). Avisa si la licencia está vencida. Se puede enlazar a un usuario del sistema.
+- **🚜 Equipos a trasladar:** se toma la máquina del Catálogo y se le carga su **peso y dimensiones**
+  (sirven para validar que no supere la carga del remolque). No crea máquinas nuevas.
+- **🏢 Clientes y proyectos:** emisor y receptor. Los **externos** (a los que se factura) usan
+  tarifario; los internos solo controlan costos.
+- **📍 Ubicaciones:** obras, almacenes, talleres, minas y pozos de origen/destino.
+- **📄 Documentos y vencimientos:** permisos de carga pesada, pólizas, revisiones técnicas y
+  licencias — con su fecha de vencimiento (disparan alertas).
+
+Todo se busca por sus características y las listas salen en orden natural A→Z. (Las órdenes de
+acarreo, la ejecución del viaje, el módulo financiero y los reportes se agregan en las fases
+siguientes.)
+
+---
+
+## 4.28. Guías descargables por rol (PDF)
 
 Dentro de **Más → Manual / Ayuda**, arriba de los temas del manual, hay una tarjeta
 **"📄 Guías descargables"** (plegada por defecto — toca el encabezado para desplegarla): un PDF
@@ -2045,7 +2074,7 @@ cualquier otro reporte del sistema.
 
 ---
 
-## 4.28. Ajustes
+## 4.29. Ajustes
 Se llega desde **Más → Ajustes**. La **apariencia** (modo oscuro/claro) y la **seguridad**
 (contraseña, huella/Face ID) viven en la **tuerca ⚙️** del encabezado, no aquí — ver 5. En
 Ajustes solo quedan:
