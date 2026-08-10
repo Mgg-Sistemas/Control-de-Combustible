@@ -1,6 +1,6 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
-import { cmpText } from './text';
+import { cmpText, norm } from './text';
 import { turnoH, workedFromShifts } from './hours';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
@@ -494,7 +494,15 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .kpi-note{font-size:10px;color:#6B7280;margin:0 0 12px}
   `;
 
-  const filtroEnc = encargados.length ? ` · 👤 ${encargados.length} encargado(s): ${encargados.join(', ')}` : '';
+  // `encargados` trae TODAS las variantes de escritura seleccionadas (p. ej. "Alberto"
+  // y "ALBERTO" del mismo encargado); se unifican por clave normalizada para no
+  // mostrar duplicados ni inflar el conteo en el subtítulo del PDF.
+  const encargadosUnicos = (() => {
+    const vistos = new Map<string, string>();
+    encargados.forEach((e) => { const k = norm(e); if (!vistos.has(k)) vistos.set(k, e); });
+    return [...vistos.values()];
+  })();
+  const filtroEnc = encargadosUnicos.length ? ` · 👤 ${encargadosUnicos.length} encargado(s): ${encargadosUnicos.join(', ')}` : '';
   const subtitle = `${fecha} · ${empresas.length} empresa(s) · ${totMach} máquina(s)${filtroEnc} · 🏁 ${totTrab} h trabajadas · 🟡 ${totParDia} h paradas día · 🌙 ${totParNoche} h paradas noche`;
 
   const html = pdfDocument({
