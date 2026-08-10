@@ -1,6 +1,6 @@
 import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf, nowStamp } from './pdf';
-import { cmpText } from './text';
+import { cmpText, norm } from './text';
 import { sectorOf, sectorLabel } from './mapZones';
 import { listVisits } from './supervisorVisits';
 import { edificioLabel } from './edificios';
@@ -55,7 +55,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number; encargado: string | null };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
@@ -276,7 +276,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
-  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; tipo: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
+  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; tipo: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null; encargado: string | null }) => {
     if (cos && !cos.includes(base.company)) return;
     if (inactiveIds.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
@@ -419,6 +419,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       estado,
       motivo,
       horasParada,
+      encargado: base.encargado,
     });
   };
 
@@ -434,6 +435,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       referencia: (a.referencia && String(a.referencia).trim()) || '',
       lat: a.latitude != null ? Number(a.latitude) : null,
       lng: a.longitude != null ? Number(a.longitude) : null,
+      encargado: (a.encargado && String(a.encargado).trim()) || null,
     });
   });
   // NOTA (08/08/2026): el reporte por inspector agrupa EXCLUSIVAMENTE por ASIGNACIÓN
@@ -473,10 +475,17 @@ export async function listInspectorNames(date: string, companies?: string[] | nu
  * @param companies (opcional) filtra por nombre de empresa (vacío/null = todas)
  * @param inspectors (opcional) nombres de inspectores marcados en la pantalla
  *   (vacío/null = todos los del turno, igual que "companies")
+ * @param groupBy (opcional) 'inspector' (default, comportamiento de siempre) o
+ *   'encargado': agrupa las máquinas del turno por `machinery.encargado`
+ *   (normalizado con `norm()` para no duplicar por tildes/mayúsculas) en vez de
+ *   por inspector. El filtro `inspectors` sigue aplicando (limita qué máquinas
+ *   entran, según a qué inspector están asignadas), solo cambia cómo se agrupan
+ *   visualmente.
  * @returns true si el usuario confirmó (imprimió/guardó), false si canceló.
  */
-export async function generateInspectorReport(opts: { date: string; shift: InspectorShift; companies?: string[] | null; inspectors?: string[] | null }): Promise<boolean> {
+export async function generateInspectorReport(opts: { date: string; shift: InspectorShift; companies?: string[] | null; inspectors?: string[] | null; groupBy?: 'inspector' | 'encargado' }): Promise<boolean> {
   const { date, shift } = opts;
+  const groupBy = opts.groupBy ?? 'inspector';
   const inspFilter = opts.inspectors && opts.inspectors.length ? new Set(opts.inspectors) : null;
   const { data, machineLocs } = await computeInspectorData(date, opts.companies);
 
@@ -487,8 +496,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   };
 
   const estRank = (e: EstadoKey) => (e === 'averia' ? 0 : e === 'encurso' ? 1 : e === 'parada' ? 2 : e === 'pendiente' ? 3 : 4);
-  const renderInspector = (turno: Turno, insp: string, machMap: Map<string, Mach>): string => {
-    const list = [...machMap.values()].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
+  // Cuerpo de sección (tabla de máquinas + desglose por sector + ubicaciones +
+  // total de horas + firma) compartido por el agrupamiento por INSPECTOR y por
+  // ENCARGADO — misma tabla/columnas/CSS (clases `table.ir`, `firma-insp`, etc.),
+  // solo cambian el ícono, la palabra del rol (Inspector/Encargado) y el nombre.
+  const renderGroupBody = (turno: Turno, machList: Mach[], icon: string, roleWord: string, name: string): string => {
+    const list = [...machList].sort((a, b) => estRank(a.estado) - estRank(b.estado) || cmpText(a.code, b.code));
     // SOLO las horas del TURNO de este inspector (día si es de día, noche si es de noche).
     const hLabel = turno === 'day' ? 'H. Día' : 'H. Noche';
     let tWork = 0, tPar = 0, tJor = 0;
@@ -538,10 +551,10 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
     const totLabel = turno === 'day' ? 'día' : 'noche';
     const totHoras = `<div class="tot-horas">🕒 Total de horas de ${totLabel}: <b>${tWork} h</b> · Parada: <b>${tPar} h</b> · Jornada: <b>${tJor} h</b></div>`;
 
-    // Firma del inspector de ESTA sección (nombre completo + línea + rótulo).
-    const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(insp)}</div><div class="frole">Inspector</div></div>`;
+    // Firma de ESTA sección (nombre completo + línea + rótulo del rol).
+    const firmaInsp = `<div class="firma-insp"><div class="line"></div><div class="fname">${esc(name)}</div><div class="frole">${roleWord}</div></div>`;
 
-    // Resumen de estados del inspector (todas sus máquinas a ese nivel).
+    // Resumen de estados de esta sección (todas sus máquinas a ese nivel).
     const cAve = list.filter((m) => m.estado === 'averia').length;
     const cEn = list.filter((m) => m.estado === 'encurso').length;
     const cPar = list.filter((m) => m.estado === 'parada').length;
@@ -555,8 +568,12 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       cFin ? `<span style="color:#166534">✅ ${cFin} finalizada(s)</span>` : '',
     ].filter(Boolean).join(' · ');
 
-    return `<div class="insp">👷 Inspector: <b>${esc(insp)}</b> <span class="cnt">${list.length} equipo(s)</span>${resumen ? `<div class="estres">${resumen}</div>` : ''}</div>${machTable}${secTable}${locHtml}${totHoras}${firmaInsp}`;
+    return `<div class="insp">${icon} ${roleWord}: <b>${esc(name)}</b> <span class="cnt">${list.length} equipo(s)</span>${resumen ? `<div class="estres">${resumen}</div>` : ''}</div>${machTable}${secTable}${locHtml}${totHoras}${firmaInsp}`;
   };
+
+  // Agrupamiento por INSPECTOR (comportamiento de siempre, `groupBy: 'inspector'`).
+  const renderInspector = (turno: Turno, insp: string, machMap: Map<string, Mach>): string =>
+    renderGroupBody(turno, [...machMap.values()], '👷', 'Inspector', insp);
 
   const renderTurno = (turno: Turno): string => {
     const tMap = data.get(turno);
@@ -570,6 +587,51 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">Sin inspectores seleccionados en este turno.</p>`;
     }
     return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${inspNames.length} inspector(es)</span></h2>${inspNames.map((n) => renderInspector(turno, n, tMap.get(n)!)).join('')}`;
+  };
+
+  // Agrupamiento por ENCARGADO (`groupBy: 'encargado'`): mismas máquinas del
+  // turno (respetando el filtro de inspectores, si lo hay), pero agrupadas por
+  // `machinery.encargado` normalizado (TAREA 3: "José Pérez" === "Jose Perez").
+  // La CLAVE del Map es `norm(encargado)`; la ETIQUETA mostrada es el valor
+  // ORIGINAL más frecuente dentro del grupo (o el primero, en empate). Sin
+  // encargado (null/vacío) cae aparte en "Sin encargado".
+  const gatherByEncargado = (turno: Turno): Map<string, { label: string; list: Mach[] }> => {
+    const tMap = data.get(turno);
+    const groups = new Map<string, { label: string; freq: Map<string, number>; list: Mach[] }>();
+    if (tMap) {
+      tMap.forEach((mm, insp) => {
+        if (inspFilter && !inspFilter.has(insp)) return;
+        mm.forEach((m) => {
+          const raw = (m.encargado && String(m.encargado).trim()) || '';
+          const key = raw ? norm(raw) : '__sin_encargado__';
+          const g = groups.get(key) ?? { label: 'Sin encargado', freq: new Map<string, number>(), list: [] };
+          if (raw) g.freq.set(raw, (g.freq.get(raw) ?? 0) + 1);
+          g.list.push(m);
+          groups.set(key, g);
+        });
+      });
+    }
+    const out = new Map<string, { label: string; list: Mach[] }>();
+    groups.forEach((g, key) => {
+      let label = g.label; // 'Sin encargado' por defecto
+      let bestN = -1;
+      g.freq.forEach((n, v) => { if (n > bestN) { bestN = n; label = v; } }); // más frecuente; primero en empate
+      out.set(key, { label, list: g.list });
+    });
+    return out;
+  };
+
+  const renderEncargado = (turno: Turno, label: string, list: Mach[]): string =>
+    renderGroupBody(turno, list, '🧑‍🔧', 'Encargado', label);
+
+  const renderTurnoEncargado = (turno: Turno): string => {
+    const meta = turnoMeta[turno];
+    const groups = gatherByEncargado(turno);
+    if (!groups.size) {
+      return `<h2 class="turno">${meta.icon} ${meta.label}</h2><p class="none">Sin jornadas de inspección en este turno.</p>`;
+    }
+    const entries = [...groups.entries()].sort((a, b) => cmpText(a[1].label, b[1].label));
+    return `<h2 class="turno">${meta.icon} ${meta.label} <span class="tcnt">${entries.length} encargado(s)</span></h2>${entries.map(([, g]) => renderEncargado(turno, g.label, g.list)).join('')}`;
   };
 
   const turnos: Turno[] = shift === 'day' ? ['day'] : shift === 'night' ? ['night'] : ['day', 'night'];
@@ -588,6 +650,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
   // turnos e inspectores REALMENTE incluidos: día usa dayH/parada del turno día; noche,
   // nightH/parada del turno noche. Jornada = trabajando − paradas.
   let tDayH = 0, tParDay = 0, tNightH = 0, tParNight = 0;
+  // Conteo de máquinas (mismo alcance que las horas de arriba: turnos e
+  // inspectores REALMENTE incluidos en este reporte).
+  let tActivas = 0, tAveriadas = 0;
   turnos.forEach((t) => {
     const tMap = data.get(t); if (!tMap) return;
     tMap.forEach((mm, insp) => {
@@ -595,6 +660,8 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       mm.forEach((m) => {
         if (t === 'day') { tDayH += m.dayH; tParDay += m.horasParada; }
         else { tNightH += m.nightH; tParNight += m.horasParada; }
+        if (m.estado === 'encurso') tActivas++;
+        if (m.estado === 'averia') tAveriadas++;
       });
     });
   });
@@ -610,10 +677,13 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       ${showNight ? `<div class="kpi"><div class="k">Total hrs noche</div><div class="v">${r2(tNightH)} H</div></div>
       <div class="kpi warn"><div class="k">Total hrs parada noche</div><div class="v">${r2(tParNight)} H</div></div>` : ''}
       <div class="kpi ok"><div class="k">Total de jornada</div><div class="v">${tJornada} H</div></div>
+      <div class="kpi ok"><div class="k">Máquinas activas</div><div class="v">${tActivas}</div></div>
+      <div class="kpi warn"><div class="k">Total de máquinas averiadas</div><div class="v">${tAveriadas}</div></div>
     </div>
     <div class="kpi-note">Total de jornada = total de horas ACTIVAS (trabajadas).</div>`;
+  const renderTurnoFn = groupBy === 'encargado' ? renderTurnoEncargado : renderTurno;
   const body = hasAny
-    ? (kpis + turnos.map(renderTurno).join(''))
+    ? (kpis + turnos.map(renderTurnoFn).join(''))
     : `<p class="none">Sin jornadas de inspección para el día ${dmy(date)}${shift === 'both' ? '' : ` (${shift === 'day' ? 'turno día' : 'turno noche'})`}.</p>`;
 
   const extraCss = `
