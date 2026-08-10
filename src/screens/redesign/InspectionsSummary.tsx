@@ -4,6 +4,7 @@ import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
+import { motivoParada, stripUbicEdif } from '../../lib/paradaMotivo';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
@@ -95,23 +96,6 @@ type MInfo = {
   machinery_type: string | null; lastHoro: number | null;
 };
 type Estado = 'iniciada' | 'cerrada' | 'pendiente' | 'parada' | 'averiada';
-
-// Quita el "· Edificio: …" y el "· Ubicación: …" del texto de la nota (ya salen en sus
-// propias líneas), dejando solo el POR QUÉ.
-const stripUbicEdif = (s: string): string =>
-  String(s ?? '')
-    .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')
-    .replace(/\s*·\s*Edificio:.*$/i, '')
-    .replace(/·\s*$/, '')
-    .trim();
-// PARADA "no trabajó": texto FIJO "NO TRABAJÓ" + el motivo que escribió el inspector al
-// lado (si lo puso). Normaliza el marcador viejo "NO TRABAJÓ LA MÁQUINA" a "NO TRABAJÓ".
-const motivoParadaDisplay = (raw: string): string => {
-  const s = stripUbicEdif(raw);
-  const m = s.match(/^NO TRABAJ[ÓO](?: LA M[ÁA]QUINA)?\s*·?\s*(.*)$/i);
-  if (m) { const rest = (m[1] || '').trim(); return rest ? `NO TRABAJÓ · ${rest}` : 'NO TRABAJÓ'; }
-  return s || 'NO TRABAJÓ';
-};
 
 // Turno de la ronda (una ronda pertenece a UN turno). Igual que inspectorReport.
 const roundShift = (r: Round): 'day' | 'night' =>
@@ -1648,7 +1632,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         </View>
                         {motivo ? (
                           <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
-                            {r.estado === 'averiada' ? `🔧 ${stripUbicEdif(motivo)}` : `🟡 ${motivoParadaDisplay(motivo)}`}
+                            {r.estado === 'averiada' ? `🔧 ${stripUbicEdif(motivo)}` : `🟡 ${motivoParada(motivo)}`}
                           </Text>
                         ) : null}
                         <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
@@ -1897,7 +1881,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {/* El PORQUÉ de la parada/avería (de maintenance_requests.notes / material). */}
                           {motivo ? (
                             <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11.5, fontWeight: '700', marginTop: 2 }} numberOfLines={open ? undefined : 2}>
-                              {r.estado === 'averiada' ? `🔧 Motivo avería: ${stripUbicEdif(motivo)}` : `🟡 ${motivoParadaDisplay(motivo)}`}
+                              {r.estado === 'averiada' ? `🔧 Motivo avería: ${stripUbicEdif(motivo)}` : `🟡 ${motivoParada(motivo)}`}
                             </Text>
                           ) : null}
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={open ? undefined : 1}>
@@ -1982,7 +1966,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         <View style={{ marginTop: spacing.sm, marginLeft: 26 + spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                           {detailRow('Código', r.code)}
                           {detailRow('Estado', em.label)}
-                          {motivo ? detailRow(r.estado === 'averiada' ? 'Motivo avería' : 'Motivo', r.estado === 'averiada' ? stripUbicEdif(motivo) : motivoParadaDisplay(motivo)) : null}
+                          {motivo ? detailRow(r.estado === 'averiada' ? 'Motivo avería' : 'Motivo', r.estado === 'averiada' ? stripUbicEdif(motivo) : motivoParada(motivo)) : null}
                           {detailRow('Inspector asignado', sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : r.inspector!)}
                           {detailRow('Empresa', info?.company || '—')}
                           {detailRow('Placa', info?.plate || '—')}
