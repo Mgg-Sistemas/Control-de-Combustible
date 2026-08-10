@@ -24,7 +24,7 @@ const LOW_PCT = 20;
 export default function TanksShowcase() {
   const { colors } = useTheme();
   const fontsReady = useBrandFonts();
-  const { data, loading } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
+  const { data, loading, refetch } = useTable<TankLevelType>('tank_levels', { realtimeFrom: ['stock_movements', 'tanks'] });
   // Usuarios que tienen combustible (conductores/choferes de combustible) para
   // vincular el RESPONSABLE del tanque a una persona real en vez de texto libre.
   const { data: usuarios } = useTable<any>('profiles', { orderBy: 'full_name' });
@@ -39,7 +39,9 @@ export default function TanksShowcase() {
   const [filter, setFilter] = useState<'all' | 'diesel' | 'gasolina' | 'low'>('all');
   // Edición del RESPONSABLE del tanque directamente desde la tarjeta (toca el renglón
   // "Responsable"). Actualiza `tanks.responsable` (la vista tank_levels es de solo
-  // lectura, pero el id coincide). El realtime de `tanks` refresca la tarjeta sola.
+  // lectura, pero el id coincide). Tras guardar refrescamos nosotros mismos (refetch):
+  // la vista `tank_levels` no siempre está en la publicación de realtime, así que no
+  // dependemos de que el evento llegue solo — el que edita ve su cambio al instante.
   const [editTank, setEditTank] = useState<{ id: string; name: string } | null>(null);
   const [respInput, setRespInput] = useState('');
   const [savingResp, setSavingResp] = useState(false);
@@ -50,7 +52,7 @@ export default function TanksShowcase() {
     const clean = respInput.trim();
     const { error } = await supabase.from('tanks').update({ responsable: clean || null }).eq('id', editTank.id);
     setSavingResp(false);
-    if (!error) setEditTank(null);
+    if (!error) { setEditTank(null); refetch(); }
   };
 
   const tanks = useMemo(() => {
