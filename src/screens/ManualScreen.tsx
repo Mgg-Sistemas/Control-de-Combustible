@@ -6,6 +6,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { generateInspectorGuide } from '../lib/guides/inspectorGuide';
 import { generateOperadorGuide } from '../lib/guides/operadorGuide';
+import { generateCoordinadorOperadoresGuide } from '../lib/guides/coordinadorOperadoresGuide';
 import { generateCocinaGuide } from '../lib/guides/cocinaGuide';
 import { generatePatioGuide } from '../lib/guides/patioGuide';
 import { generateChoferCombustibleGuide } from '../lib/guides/choferCombustibleGuide';
@@ -19,6 +20,7 @@ import { generateFabricacionGuide } from '../lib/guides/fabricacionGuide';
 const ROLE_GUIDES: { key: string; label: string; desc: string; icon: string; run: () => Promise<boolean> }[] = [
   { key: 'inspector', label: 'Inspector', desc: 'Iniciar sesión, escanear la máquina y llevar la jornada', icon: '🪖', run: generateInspectorGuide },
   { key: 'operador', label: 'Operador', desc: 'Registrar tu jornada y el combustible desde el teléfono', icon: '👷', run: generateOperadorGuide },
+  { key: 'coordoperadores', label: 'Coordinador de Operadores', desc: 'Asignar operadores a máquinas, asistencia y novedades', icon: '👷‍♂️', run: generateCoordinadorOperadoresGuide },
   { key: 'cocina', label: 'Cocina', desc: 'Verificarte y entregar comidas por carnet', icon: '🍽️', run: generateCocinaGuide },
   { key: 'patio', label: 'Coordinador de Patio', desc: 'Jornada de camiones, entrada/salida, gasoil y averías', icon: '🚚', run: generatePatioGuide },
   { key: 'chofer', label: 'Chofer de Combustible', desc: 'Surtir combustible a las máquinas', icon: '⛽', run: generateChoferCombustibleGuide },
