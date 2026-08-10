@@ -634,7 +634,14 @@ const SECTIONS: Sec[] = [
         'Solapamiento: si el chofer, el chuto o el remolque ya tienen otro viaje en esa misma ventana de fechas.',
       ] },
       { t: 'note', text: 'Las alertas son bloqueo SUAVE: avisan y, si de verdad hace falta, un administrador puede "forzar" el guardado. Los avisos amarillos (vencimientos/solapamiento) no bloquean.' },
-      { t: 'p', text: 'Estados del viaje: Programado → En carga → En tránsito → En descarga → Completado (o Cancelado con motivo). Desde el detalle de la orden se avanza el estado y todo queda en la bitácora. El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
+      { t: 'p', text: 'Estados del viaje: Programado → En carga → En tránsito → En descarga → Completado (o Cancelado con motivo). Desde el detalle de la orden se avanza el estado y todo queda en la bitácora.' },
+      { t: 'p', text: '🚚 Ejecución del viaje (desde el detalle de la orden, según el estado):' },
+      { t: 'bullets', items: [
+        '📦 En carga → Check-in de salida: nivel de combustible, cauchos y fajas de amarre OK, observaciones y fotos "antes"/"amarre". Al guardar, pasa a EN TRÁNSITO.',
+        '🚚 En tránsito: registrar incidencias en ruta (mecánica, clima, permiso, alcabala). Botón "Llegó" → EN DESCARGA.',
+        '📥 En descarga → Check-out de recepción: estado a la llegada, fotos "después" y FIRMA (nombre de quien recibe + foto). Al confirmar, la orden queda COMPLETADA.',
+      ] },
+      { t: 'note', text: 'El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
     ],
   },
   {

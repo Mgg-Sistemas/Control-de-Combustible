@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TouchableOpacity, TextInput } from 'react-native';
 import { Screen, Card, SectionTitle } from '../../components/ui';
 import { StatusBadge, statusMeta } from './AcarreoUI';
+import HaulExecutionPanel from './HaulExecutionPanel';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
@@ -131,9 +132,16 @@ export default function HaulOrderDetail({
           ))}
       </Card>
 
+      {/* Ejecución del viaje (check-in de salida, incidencias, check-out con firma).
+          El avance de estado en_carga→…→completado lo maneja el panel; en 'programado'
+          basta el botón simple (la unidad llega a origen). */}
+      {!terminal && order.status !== 'programado' ? (
+        <HaulExecutionPanel order={order} onChanged={() => { onChanged(); load(); }} onError={onError} />
+      ) : null}
+
       {!terminal ? (
         <View style={{ gap: spacing.sm }}>
-          {nx ? (
+          {order.status === 'programado' && nx ? (
             <TouchableOpacity onPress={advance} disabled={busy} style={{ backgroundColor: colors.primary, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
               <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 15 }}>{busy ? '…' : nx.label}</Text>
             </TouchableOpacity>
