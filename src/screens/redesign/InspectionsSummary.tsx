@@ -4,6 +4,7 @@ import { supabase, selectAllRows } from '../../lib/supabase';
 import { useTheme } from '../../theme/ThemeContext';
 import { spacing, radius } from '../../theme';
 import { cmpText, norm } from '../../lib/text';
+import { motivoParada, stripUbicEdif } from '../../lib/paradaMotivo';
 import { useAuth } from '../../context/AuthContext';
 import { logAudit } from '../../lib/audit';
 import { useRealtimeRefresh } from '../../hooks/useRealtime';
@@ -95,23 +96,6 @@ type MInfo = {
   machinery_type: string | null; lastHoro: number | null;
 };
 type Estado = 'iniciada' | 'cerrada' | 'pendiente' | 'parada' | 'averiada';
-
-// Quita el "· Edificio: …" y el "· Ubicación: …" del texto de la nota (ya salen en sus
-// propias líneas), dejando solo el POR QUÉ.
-const stripUbicEdif = (s: string): string =>
-  String(s ?? '')
-    .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')
-    .replace(/\s*·\s*Edificio:.*$/i, '')
-    .replace(/·\s*$/, '')
-    .trim();
-// PARADA "no trabajó": texto FIJO "NO TRABAJÓ" + el motivo que escribió el inspector al
-// lado (si lo puso). Normaliza el marcador viejo "NO TRABAJÓ LA MÁQUINA" a "NO TRABAJÓ".
-const motivoParadaDisplay = (raw: string): string => {
-  const s = stripUbicEdif(raw);
-  const m = s.match(/^NO TRABAJ[ÓO](?: LA M[ÁA]QUINA)?\s*·?\s*(.*)$/i);
-  if (m) { const rest = (m[1] || '').trim(); return rest ? `NO TRABAJÓ · ${rest}` : 'NO TRABAJÓ'; }
-  return s || 'NO TRABAJÓ';
-};
 
 // Turno de la ronda (una ronda pertenece a UN turno). Igual que inspectorReport.
 const roundShift = (r: Round): 'day' | 'night' =>
@@ -235,6 +219,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           company: info?.company ?? null,
           inspector,
           sinInspector: sinInspectorReal(inspector),
+          tipo: info?.tipo ?? null,
         };
       });
       await generatePorAsignarReport({ date: selDay, shift, machines });
@@ -1233,7 +1218,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   const horasShown = useMemo(() => {
     const nq = norm(horasQ.trim());
     let rows = horasRows.filter((r) => horasEstadoFilter === 'all' || r.estado === horasEstadoFilter);
-    if (nq) rows = rows.filter((r) => [r.code, r.info?.plate, r.info?.serial, r.info?.identifier].some((v) => norm(v).includes(nq)));
+    if (nq) rows = rows.filter((r) => [r.code, r.info?.plate, r.info?.serial, r.info?.identifier, r.info?.company, r.info?.encargado, r.info?.location, r.info?.referencia, r.info?.sector, r.info?.zona, r.info?.tipo, r.info?.clasificacion, r.info?.machinery_type].some((v) => norm(v).includes(nq)));
     const byTotal = horasModal?.sortBy === 'total';
     return [...rows].sort((a, b) => (byTotal ? b.horasTotal - a.horasTotal : b.horasDia - a.horasDia) || cmpText(a.code, b.code));
   }, [horasRows, horasQ, horasEstadoFilter, horasModal]);
@@ -1269,6 +1254,12 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
 
   const shiftIcon = shift === 'day' ? '☀️' : '🌙';
   const shiftLbl = shift === 'day' ? 'DÍA' : 'NOCHE';
+  // El turno de HOY que todavía no arrancó (p. ej. noche antes de las 19:00) no tiene
+  // datos propios todavía: la eficiencia "por inspector" solo reflejaría paradas/averías
+  // ARRASTRADAS de turnos anteriores, no el trabajo (inexistente aún) de este turno —
+  // mostrarla confunde ("64% de eficiencia" cuando el turno ni ha empezado). Mismo
+  // criterio que `shiftElapsedHours` (caracasDay.ts): 0h transcurridas = no ha arrancado.
+  const shiftNotStarted = selDay === caracasBusinessToday() && shiftElapsedHours(selDay, shift) === 0;
 
   // Color de la eficiencia: verde 100%, ámbar 50-99%, rojo <50% (mismo criterio que el PDF).
   const efiColor = (e: number | null): string => (e === null ? colors.muted : e >= 100 ? colors.success : e >= 50 ? colors.warning : colors.danger);
@@ -1632,12 +1623,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         </View>
                         {motivo ? (
                           <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11, fontWeight: '700' }} numberOfLines={2}>
-                            {r.estado === 'averiada' ? `🔧 ${stripUbicEdif(motivo)}` : `🟡 ${motivoParadaDisplay(motivo)}`}
+                            {r.estado === 'averiada' ? `🔧 ${stripUbicEdif(motivo)}` : `🟡 ${motivoParada(motivo)}`}
                           </Text>
                         ) : null}
                         <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>
                           {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
                         </Text>
+                        {info?.tipo ? (
+                          <Text style={{ color: colors.muted, fontSize: 11 }} numberOfLines={1}>🏷️ {info.tipo}</Text>
+                        ) : null}
                         {info?.encargado ? (
                           <Text style={{ fontSize: 11 }} numberOfLines={1}>
                             <Text style={{ color: colors.muted }}>👤 Encargado </Text><Text style={{ color: colors.text, fontWeight: '700' }}>{info.encargado}</Text>
@@ -1691,7 +1685,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 12.5 }}>{pdfBusy === EFICIENCIA_KEY ? 'Generando…' : '📄 Reporte de eficiencia (todos los inspectores)'}</Text>
           </TouchableOpacity>
 
-          {inspShown.length === 0 ? (
+          {shiftNotStarted ? (
+            <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>
+              ⏳ El turno {shiftIcon} {shiftLbl} de hoy todavía no ha comenzado.
+            </Text>
+          ) : inspShown.length === 0 ? (
             inspQ.trim() ? null : <Text style={{ color: colors.muted, fontSize: 12.5, paddingVertical: spacing.md, textAlign: 'center' }}>Sin inspectores {shiftIcon} para el {shortDate(selDay)}.</Text>
           ) : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingVertical: spacing.xs, alignItems: 'flex-end' }}>
@@ -1874,12 +1872,15 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {/* El PORQUÉ de la parada/avería (de maintenance_requests.notes / material). */}
                           {motivo ? (
                             <Text style={{ color: r.estado === 'averiada' ? colors.dangerSoftText : colors.accentSoftText, fontSize: 11.5, fontWeight: '700', marginTop: 2 }} numberOfLines={open ? undefined : 2}>
-                              {r.estado === 'averiada' ? `🔧 Motivo avería: ${stripUbicEdif(motivo)}` : `🟡 ${motivoParadaDisplay(motivo)}`}
+                              {r.estado === 'averiada' ? `🔧 Motivo avería: ${stripUbicEdif(motivo)}` : `🟡 ${motivoParada(motivo)}`}
                             </Text>
                           ) : null}
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={open ? undefined : 1}>
                             {[info?.company, info?.plate ? `🚗 ${info.plate}` : null, info?.serial ? `#️⃣ ${info.serial}` : null, ubic ? `📍 ${ubic}` : null].filter(Boolean).join(' · ') || '—'}
                           </Text>
+                          {info?.tipo ? (
+                            <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>🏷️ {info.tipo}</Text>
+                          ) : null}
                           <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
@@ -1956,7 +1957,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         <View style={{ marginTop: spacing.sm, marginLeft: 26 + spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm }}>
                           {detailRow('Código', r.code)}
                           {detailRow('Estado', em.label)}
-                          {motivo ? detailRow(r.estado === 'averiada' ? 'Motivo avería' : 'Motivo', r.estado === 'averiada' ? stripUbicEdif(motivo) : motivoParadaDisplay(motivo)) : null}
+                          {motivo ? detailRow(r.estado === 'averiada' ? 'Motivo avería' : 'Motivo', r.estado === 'averiada' ? stripUbicEdif(motivo) : motivoParada(motivo)) : null}
                           {detailRow('Inspector asignado', sinInspectorReal(r.inspector) ? '⚠️ Sin inspector (por asignar)' : r.inspector!)}
                           {detailRow('Empresa', info?.company || '—')}
                           {detailRow('Placa', info?.plate || '—')}
@@ -2017,7 +2018,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             {/* Buscador: filtra por código, placa, serial o identificador de la máquina. */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
               <Text style={{ fontSize: 14 }}>🔎</Text>
-              <TextInput value={horasQ} onChangeText={setHorasQ} placeholder="Buscar por código, placa, serial…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
+              <TextInput value={horasQ} onChangeText={setHorasQ} placeholder="Buscar por código, placa, serial, empresa, encargado, tipo…" placeholderTextColor={colors.muted} style={{ flex: 1, color: colors.text, fontSize: 14, paddingVertical: 9 }} />
               {horasQ ? <TouchableOpacity onPress={() => setHorasQ('')}><Text style={{ color: colors.muted, fontWeight: '800' }}>✕</Text></TouchableOpacity> : null}
             </View>
             {/* Chips de estado — mismo patrón visual que los filtros de turno/estado del panel "Gestionar Iniciada/Pendiente". */}
@@ -2048,7 +2049,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           </View>
                         </View>
                         <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 2 }} numberOfLines={1}>
-                          {[r.info?.plate ? `🚗 ${r.info.plate}` : null, r.info?.serial ? `#️⃣ ${r.info.serial}` : null].filter(Boolean).join(' · ') || '—'}
+                          {[r.info?.tipo ? `🏷️ ${r.info.tipo}` : null, r.info?.plate ? `🚗 ${r.info.plate}` : null, r.info?.serial ? `#️⃣ ${r.info.serial}` : null].filter(Boolean).join(' · ') || '—'}
                         </Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>

@@ -2,6 +2,7 @@ import { supabase, selectAllRows } from './supabase';
 import { pdfDocument, exportPdf } from './pdf';
 import { cmpText, norm } from './text';
 import { workedFromShifts } from './hours';
+import { motivoParada } from './paradaMotivo';
 import { listInspectorAssignments, inspectorSiempreActivo } from './machineInspectors';
 import { isoYesterday } from './caracasDay';
 
@@ -160,15 +161,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .lte('created_at', nightEndBound)
     .or(`status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`)
     .order('created_at', { ascending: false });
-  // Deja SOLO el motivo: quita la Ubicación (GPS) y el Edificio de la nota — el
-  // reporte no debe mostrar dónde está, solo POR QUÉ no trabajó/paró.
-  const limpiarNoTrabajo = (notes: string): string => {
-    const solomotivo = notes
-      .replace(/\s*·\s*Ubicaci[óo]n:.*$/i, '')   // "· Ubicación: 10.6, -66.9"
-      .replace(/\s*·\s*Edificio:.*$/i, '')       // "· Edificio: ESTE · TANAGUARENA"
-      .trim();
-    return solomotivo.replace(/^NO TRABAJ[ÓO] LA M[ÁA]QUINA\s*·?\s*/i, 'No trabajó · ').replace(/·\s*$/, '').trim() || 'No trabajó';
-  };
+  // Deja SOLO el motivo (texto fijo "NO TRABAJÓ" + motivo del inspector), sin Ubicación
+  // ni Edificio — normalización ÚNICA compartida con Inspecciones/teléfono (src/lib/paradaMotivo).
+  const limpiarNoTrabajo = (notes: string): string => motivoParada(notes) || 'No trabajó';
   const mrByMachine = new Map<string, any[]>();
   ((mr ?? []) as any[]).forEach((m) => {
     const list = mrByMachine.get(m.machinery_id) ?? [];

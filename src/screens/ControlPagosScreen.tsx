@@ -102,6 +102,7 @@ type DayInfo = { stopped: number; overtime: number; day: number; night: number }
 type MachineAgg = {
   machine: string;        // etiqueta visible (nombre · serial/placa)
   serial: string | null;  // serial único (identifica la máquina física)
+  tipo: string | null;    // marca/modelo de la máquina (machinery.tipo) — para mostrar
   price: number | null;   // precio EFECTIVO en uso (actual o del cierre según el modo)
   priceCurrent: number | null; // precio actual de la máquina
   priceFrozen: number | null;  // precio congelado en el cierre de esa semana (si existe)
@@ -252,7 +253,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       // Paginado: con >1000 rondas la consulta simple se truncaba y faltaban pagos.
       selectAllRows(
         'machine_rounds',
-        'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, price_per_hour, company:company_id(id, name))'
+        'round_date, round_no, hours_stopped, overtime_hours, day_hours, night_hours, status, frozen_price, machinery:machinery_id(id, code, serial, plate, tipo, price_per_hour, company:company_id(id, name))'
       ),
       supabase.from('company_payments').select('*').order('paid_at', { ascending: false }),
       supabase.from('payrolls').select('*').order('created_at', { ascending: false }),
@@ -300,6 +301,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       const serial = r.machinery?.serial ?? null;
       const plate = r.machinery?.plate ?? null;
       const code = r.machinery?.code ?? '—';
+      const tipo = r.machinery?.tipo ?? null;
       // Etiqueta visible: nombre + serial (o placa) para distinguir máquinas del mismo nombre.
       const label = `${code}${serial ? ` · ${serial}` : plate ? ` · ${plate}` : ''}`;
       const price = r.machinery?.price_per_hour != null ? Number(r.machinery.price_per_hour) : null;
@@ -310,7 +312,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         ({ key: k, company, companyId, weekStart, weekEnd: periodEndISO(weekStart), machines: {}, total: 0, hoursWorked: 0, noPrice: false, abonos: [], paidAmount: 0, saldo: 0, fullyPaid: false, hasFrozen: false, priceMode: 'actual', fletesUSD: 0 } as Group);
       const priceFrozen = frozen.has(`${machineId}|${weekStart}`) ? Number(frozen.get(`${machineId}|${weekStart}`)) : null;
       if (priceFrozen != null) g.hasFrozen = true;
-      const ma = g.machines[machineId] ?? { machine: label, serial, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
+      const ma = g.machines[machineId] ?? { machine: label, serial, tipo, price, priceCurrent: price, priceFrozen, hours: 0, dayHours: 0, nightHours: 0, subtotal: 0, perDay: {} };
       // Por día: turno de día/noche, parada y extras (todo en el registro base).
       const prev = ma.perDay[r.round_date] ?? { stopped: 0, overtime: 0, day: 0, night: 0 };
       ma.perDay[r.round_date] = {
@@ -718,7 +720,7 @@ export default function ControlPagosScreen({ navigation }: any) {
     }
     const uid = session?.user?.id ?? null;
     const detailOf = (g: Group): PaymentDetail => ({
-      machines: machinesOf(g).map((m) => ({ machine: m.machine, hours: m.hours, price: m.price ?? 0, subtotal: m.subtotal })),
+      machines: machinesOf(g).map((m) => ({ machine: m.machine, tipo: m.tipo, hours: m.hours, price: m.price ?? 0, subtotal: m.subtotal })),
       totalHours: g.hoursWorked,
       total: g.total,
     });
@@ -964,7 +966,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         const mrows = machs
           .map(
             (m) =>
-              `<tr><td>${m.machine}</td>` +
+              `<tr><td>${m.machine}${m.tipo ? `<br/><span class="s">🏷️ ${m.tipo}</span>` : ''}</td>` +
               `<td style="text-align:right">${m.dayHours.toLocaleString()} h</td>` +
               `<td style="text-align:right">${m.nightHours.toLocaleString()} h</td>` +
               `<td style="text-align:right;font-weight:700">${m.hours.toLocaleString()} h</td>` +
@@ -1039,6 +1041,7 @@ export default function ControlPagosScreen({ navigation }: any) {
         th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
         th{background:#1E3A5F;color:#fff}
         tfoot td{background:#EEF2F7}
+        span.s{color:#888;font-size:9px}
         table.ab{margin-bottom:10px}
         table.ab th{background:#087443}
         .abt{font-size:11px;font-weight:800;color:#087443;margin-top:6px}
@@ -1576,6 +1579,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 14, flex: 1 }}>{m.machine}</Text>
                     <Text style={{ color: colors.success, fontWeight: '800' }}>${money(m.subtotal)}</Text>
                   </View>
+                  {m.tipo ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>🏷️ {m.tipo}</Text>
+                  ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     ⏱️ {m.hours.toLocaleString()} h · {m.price != null ? `$${money(m.price)}/jornada` : '⚠️ sin precio'}
                   </Text>
@@ -1790,6 +1796,9 @@ export default function ControlPagosScreen({ navigation }: any) {
                     <Text style={{ color: colors.text, fontWeight: '700', flex: 1 }}>{m.machine}</Text>
                     <Text style={{ color: colors.success, fontWeight: '800' }}>${money(Number(m.subtotal))}</Text>
                   </View>
+                  {m.tipo ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5, marginTop: 1 }} numberOfLines={1}>🏷️ {m.tipo}</Text>
+                  ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
                     ⏱️ {Number(m.hours).toLocaleString()} h × ${money(Number(m.price))}/h
                   </Text>

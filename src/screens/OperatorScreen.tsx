@@ -171,7 +171,7 @@ export default function OperatorScreen() {
 
   const pickList = machines.filter((m) => {
     const q = norm(pickQuery.trim());
-    return !q || norm(m.code).includes(q) || norm(m.companyName).includes(q);
+    return !q || [m.code, m.companyName, (m as any).tipo, (m as any).referencia].some((v) => norm(v).includes(q));
   });
 
   return (
@@ -360,7 +360,7 @@ export default function OperatorScreen() {
             <SectionTitle>Elegir máquina</SectionTitle>
             <TouchableOpacity onPress={() => setPickerOpen(false)}><Text style={{ color: colors.brandText, fontWeight: '800', fontSize: 15 }}>Cerrar</Text></TouchableOpacity>
           </View>
-          <TextInput value={pickQuery} onChangeText={setPickQuery} placeholder="🔎 Buscar por nombre o empresa…" placeholderTextColor={colors.muted} style={input} />
+          <TextInput value={pickQuery} onChangeText={setPickQuery} placeholder="🔎 Buscar por código, tipo o empresa…" placeholderTextColor={colors.muted} style={input} />
           {mine.length > 0 ? (
             <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, fontWeight: '700' }}>Asignada(s) a ti</Text>
           ) : null}

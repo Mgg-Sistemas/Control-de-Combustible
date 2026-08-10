@@ -7,6 +7,7 @@ import { ConfigBanner } from '../components/ConfigBanner';
 import { useAuth } from '../context/AuthContext';
 import { supabase, selectAllRows } from '../lib/supabase';
 import { norm, cmpText } from '../lib/text';
+import { motivoParada } from '../lib/paradaMotivo';
 import EdificioPicker from '../components/EdificioPicker';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { Machinery, SupervisorVisit, VisitStatus, Employee, Attendance } from '../types/database';
@@ -1029,8 +1030,10 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const paradaMotivoDe = (id: string): string => {
     const sh = shiftOfMine(id);
     const mm = estadoIndex.paMot.get(id); if (!mm) return '';
-    if (sh === null) { for (const v of mm.values()) if (v) return v; return ''; }
-    return mm.get(sh) || '';
+    let raw = '';
+    if (sh === null) { for (const v of mm.values()) if (v) { raw = v; break; } }
+    else raw = mm.get(sh) || '';
+    return raw ? motivoParada(raw) : ''; // "NO TRABAJÓ · motivo" (sin Edificio/Ubicación) — igual que Inspecciones
   };
   // Buscador sobre MIS máquinas asignadas (nombre/serial/placa/empresa/encargado/
   // edificio) + chip de segmento activo. `mine` ya excluye inactivas (TAREA 4).
@@ -2584,7 +2587,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                               <View key={sh} style={{ marginTop: spacing.xs }}>
                                 <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12 }}>{sh === 'day' ? '☀️ Día' : '🌙 Noche'} ({g[sh].length})</Text>
                                 {g[sh].map((m) => (
-                                  <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code} · {m.companyName}</Text>
+                                  <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingLeft: spacing.sm }}>• {m.code}{m.tipo ? ` (🏷️ ${m.tipo})` : ''} · {m.companyName}</Text>
                                 ))}
                               </View>
                             ) : null
@@ -2611,7 +2614,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         const f = faltaEncargadoReal(m);
                         return (
                           <Text key={m.id} numberOfLines={1} style={{ color: colors.muted, fontSize: 12, paddingVertical: 1 }}>
-                            • {m.code} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
+                            • {m.code}{m.tipo ? ` (🏷️ ${m.tipo})` : ''} · {m.companyName} — {f.day && f.night ? 'falta día+noche' : f.day ? 'falta día' : 'falta noche'}
                           </Text>
                         );
                       })}
@@ -2902,7 +2905,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: colors.text, fontWeight: '900', fontSize: 18 }}>👮 Asignar inspector</Text>
-                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code} · {af.companyName}</Text>
+                    <Text numberOfLines={1} style={{ color: colors.muted, fontSize: 12 }}>{af.code}{af.tipo ? ` · 🏷️ ${af.tipo}` : ''} · {af.companyName}</Text>
                   </View>
                   <TouchableOpacity onPress={() => { setAssignFor(null); setPickShift(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
                     <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Listo</Text>
