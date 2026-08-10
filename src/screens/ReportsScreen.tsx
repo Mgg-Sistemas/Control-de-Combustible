@@ -1714,6 +1714,51 @@ export default function ReportsScreen({ route }: any) {
       <tbody>${[...porTipoZona.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:right;font-weight:700">${v.total}</td><td style="text-align:right">${v.este}</td><td style="text-align:right">${v.oeste}</td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center">Sin equipos</td></tr>`}</tbody>
       <tfoot><tr><td style="font-weight:800">TOTAL</td><td style="text-align:right;font-weight:800">${list.length}</td><td style="text-align:right;font-weight:800">${tipoZTot.este}</td><td style="text-align:right;font-weight:800">${tipoZTot.oeste}</td></tr></tfoot></table>
       <div style="font-size:12px;color:#374151;margin:6px 0 2px 0">🌙 Las <b>VOLQUETAS</b> y los <b>TORONTOS</b> pernoctan en <b>CAMURÍ CHICO (ESTE)</b>; durante el día son desplegados a los sectores que requieran su servicio (<b>ESTE / OESTE</b>).</div>`;
+    // ── 📍 DESPLIEGUE POR SECTOR (localidad) Y EDIFICIO ─────────────────────────
+    // Pedido: ver las UBICACIONES por sector con su ref/edificio y cuántos equipos de cada
+    // tipo hay en cada sitio (ej. "3 JUMBO en Caraballeda Este"). La localidad sale del GPS
+    // (sectorLabel → "Este · Caraballeda"). Las máquinas que NO están en el mapa (sin GPS) NO
+    // se reparten por sector: van todas a un grupo "SIN UBICACIÓN" mostrando su placa/serial.
+    // El edificio es la referencia del catálogo. Refleja la ubicación REAL al generar el reporte.
+    const edificioDe = (m: any) => { const r = (m.referencia && String(m.referencia).trim()) || ''; return r && !/^[\d.,\s\/-]+$/.test(r) ? r : 'Sin edificio'; };
+    const gpsSectorOf = (m: any) => (ficticio ? (randSectorById.get(m.id) ?? null) : sectorOf(m.latitude, m.longitude));
+    const secDot = (label: string) => (label.startsWith('Oeste') ? '🟠' : label.startsWith('Este') ? '🟢' : '⚪');
+    // localidad → edificio → tipo → cantidad (+ total por localidad). Solo las UBICADAS (GPS).
+    const bySector = new Map<string, { total: number; edificios: Map<string, Map<string, number>> }>();
+    const sinUbicMachines: any[] = []; // sin GPS → no aparecen en el mapa
+    list.forEach((m) => {
+      const gps = gpsSectorOf(m);
+      if (!gps) { sinUbicMachines.push(m); return; }
+      const secL = sectorLabel(gps); // "Este · Caraballeda"
+      const edi = edificioDe(m);
+      const tipo = equipCategory(m.code) || 'SIN TIPO';
+      const g = bySector.get(secL) ?? { total: 0, edificios: new Map<string, Map<string, number>>() };
+      g.total += 1;
+      const em = g.edificios.get(edi) ?? new Map<string, number>();
+      em.set(tipo, (em.get(tipo) ?? 0) + 1);
+      g.edificios.set(edi, em);
+      bySector.set(secL, g);
+    });
+    // Orden: Este primero, luego Oeste; dentro A→Z natural.
+    const secRank = (l: string) => (l.startsWith('Este') ? 0 : l.startsWith('Oeste') ? 1 : 2);
+    const sectorsSorted = [...bySector.entries()].sort((a, b) => secRank(a[0]) - secRank(b[0]) || cmpText(a[0], b[0]));
+    // Grupo SIN UBICACIÓN: las que no marcan GPS, con su placa/serial (para poder ubicarlas).
+    const sinUbicSorted = sinUbicMachines.slice().sort((a, b) => cmpText(equipCategory(a.code), equipCategory(b.code)) || cmpText(a.code ?? '', b.code ?? ''));
+    const sinUbicHtml = sinUbicSorted.length
+      ? `<div class="ente">⚪ <b>SIN UBICACIÓN</b> <span class="cnt-pill">${sinUbicSorted.length} equipo(s)</span> <span class="muted">no aparecen en el mapa (sin GPS)</span></div>
+         <table class="tac"><thead><tr><th style="width:30px">Nº</th><th>Equipo · Tipo</th><th>Placa / Serial</th><th>Edificio / referencia</th></tr></thead><tbody>${sinUbicSorted.map((m, i) => `<tr><td>${i + 1}</td><td><b>${esc(equipCategory(m.code))}</b><br/><span style="color:#6B7280;font-size:11px">${esc(m.code ?? '—')}</span></td><td>${esc(m.plate || m.serial || '—')}</td><td>${esc(edificioDe(m))}</td></tr>`).join('')}</tbody></table>`
+      : '';
+    const despliegueSectorHtml = `<div class="sect">📍 Despliegue por sector y edificio · ubicación al ${new Date().toLocaleString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>`
+      + (sectorsSorted.length ? sectorsSorted.map(([secL, g]) => {
+        const ediRows = [...g.edificios.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([edi, tipos]) => {
+          const tiposTxt = [...tipos.entries()].sort((a, b) => cmpText(a[0], b[0])).map(([t, n]) => `<b>${n}</b> ${esc(t)}`).join(' · ');
+          const sub = [...tipos.values()].reduce((s, n) => s + n, 0);
+          return `<tr><td>${esc(edi)}</td><td>${tiposTxt}</td><td style="text-align:right;font-weight:700">${sub}</td></tr>`;
+        }).join('');
+        return `<div class="ente">${secDot(secL)} <b>${esc(secL)}</b> <span class="cnt-pill">${g.total} equipo(s)</span></div>
+          <table class="tac"><thead><tr><th>Edificio / referencia</th><th>Equipos (por tipo)</th><th style="width:60px;text-align:right">Cant.</th></tr></thead><tbody>${ediRows}</tbody></table>`;
+      }).join('') : (sinUbicHtml ? '' : '<p class="muted">Sin equipos.</p>'))
+      + sinUbicHtml;
     // Resumen: cantidad por CLASIFICACIÓN (Excavadora, Volteo…). A→Z natural.
     const countByClasif = new Map<string, number>();
     list.forEach((m) => { const c = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación'; countByClasif.set(c, (countByClasif.get(c) ?? 0) + 1); });
@@ -1765,6 +1810,7 @@ export default function ReportsScreen({ route }: any) {
         .legend{font-size:11px;color:#374151}.legend b{color:#111}
       </style>
       ${resumenTipoZonaHtml}
+      ${despliegueSectorHtml}
       ${resumenClasifHtml}
       ${resumenZonaHtml}
       ${resumenUbicacionHtml}
