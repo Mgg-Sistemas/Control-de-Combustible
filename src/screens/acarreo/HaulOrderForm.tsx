@@ -13,13 +13,13 @@ import { spacing, radius } from '../../theme';
 import { norm, cmpText, onlyDecimal } from '../../lib/text';
 import { allWarnings } from '../../lib/haulValidations';
 import {
-  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, Machinery,
+  HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver, HaulDocument, HaulTariff, Machinery,
 } from '../../types/database';
 
 export type HaulRefs = {
   clients: HaulClient[]; locations: HaulLocation[]; trucks: HaulTruck[];
   trailers: HaulTrailer[]; drivers: HaulDriver[]; machinery: Machinery[];
-  docs: HaulDocument[]; orders: HaulOrder[];
+  docs: HaulDocument[]; orders: HaulOrder[]; tariffs: HaulTariff[];
 };
 
 export default function HaulOrderForm({

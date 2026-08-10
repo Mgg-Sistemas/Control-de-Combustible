@@ -641,6 +641,7 @@ const SECTIONS: Sec[] = [
         '🚚 En tránsito: registrar incidencias en ruta (mecánica, clima, permiso, alcabala). Botón "Llegó" → EN DESCARGA.',
         '📥 En descarga → Check-out de recepción: estado a la llegada, fotos "después" y FIRMA (nombre de quien recibe + foto). Al confirmar, la orden queda COMPLETADA.',
       ] },
+      { t: 'p', text: '💵 Costos del viaje (en el detalle de la orden): registra gastos de combustible (con litros → rendimiento km/L), viáticos de comida/hospedaje (con foto del comprobante), peajes y otros. Muestra el total, los viáticos otorgados vs. comprobados y el rendimiento. 🧾 Tarifario (Acarreo → Financiero): precios por km, tonelada, hora o tarifa plana (general o por cliente/ruta); para los clientes EXTERNOS, la orden calcula sola la valorización sugerida y la puedes guardar.' },
       { t: 'note', text: 'El acceso es por usuario: un administrador lo habilita en Usuarios (módulo "Acarreo / Transporte"). Todo se busca por sus características y las listas salen en orden natural A→Z.' },
     ],
   },

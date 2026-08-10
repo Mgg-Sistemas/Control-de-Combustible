@@ -31,6 +31,12 @@ const GROUPS: Group[] = [
       { label: 'Documentos y vencimientos', desc: 'Permisos de carga pesada, pólizas, revisiones y licencias', icon: '📄', route: 'HaulDocuments' },
     ],
   },
+  {
+    title: 'Financiero',
+    items: [
+      { label: 'Tarifario', desc: 'Precios por km, tonelada, hora o tarifa plana para valorizar acarreos a terceros', icon: '🧾', route: 'HaulTariffs' },
+    ],
+  },
 ];
 
 export default function AcarreoHub() {
