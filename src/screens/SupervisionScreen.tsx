@@ -596,7 +596,13 @@ export default function SupervisionScreen({ navigation }: any) {
       const openForShift = !!rd?.startAt && (shiftCtx == null || rd?.shift === shiftCtx);
       const enCurso = !paradaHoy && openForShift;                 // trabajando gana sobre parada vieja
       const parada = paradaHoy || (paradaVieja && !enCurso);      // parada vieja solo si no trabaja hoy
-      const finalizada = !parada && !enCurso && hoursForShift > 0;
+      // Umbral mínimo defensivo (mismo criterio que MIN_WORKED_HOURS en
+      // inspectorDaySets.ts): un round con round_date mal calculado por cruce de
+      // medianoche del turno NOCHE (BUG 10-ago-2026) podía dejar un residuo mínimo de
+      // horas (~0.02h) pegado al round de HOY, mostrando la jornada como "Terminada"
+      // en un turno que en realidad todavía no ha arrancado. 0.05h (3 min) está muy
+      // por debajo de cualquier jornada real.
+      const finalizada = !parada && !enCurso && hoursForShift > 0.05;
       const pendiente = !parada && !enCurso && !finalizada;
       return {
         machinery_id,

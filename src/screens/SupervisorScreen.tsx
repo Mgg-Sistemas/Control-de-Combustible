@@ -19,7 +19,7 @@ import HistoricoJornadasScreen from './HistoricoJornadasScreen';
 import { SurtidoGasoilModal } from '../components/SurtidoGasoil';
 import { parseMachineId, parseEmployeeId } from './ScanQrScreen';
 import { startJornada, isOperatorCargo, shiftOf, shiftFromKey, caracasParts } from '../lib/jornada';
-import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow } from '../lib/caracasDay';
+import { caracasBusinessToday, nightGraceRoundDate, inNightGraceWindow, businessRoundDateOf } from '../lib/caracasDay';
 import { VISIT_STATUS_META } from '../lib/statusMeta';
 import { getMachineRound, upsertMachineRound, lastHorometroFinal } from '../lib/machineRounds';
 import { listInspectorAssignments, assignInspector, unassignInspector, Shift, shiftIcon, shiftLabel, PLACEHOLDER_INSPECTOR_ID, inspectorSiempreActivo } from '../lib/machineInspectors';
@@ -1541,11 +1541,18 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     }
     const limitIso = sh === 'night' ? `${limitDay}T21:30:00-04:00` : `${limitDay}T09:30:00-04:00`;
     const retrasoMin = Math.round((now.getTime() - new Date(limitIso).getTime()) / 60000);
+    // round_date de NEGOCIO del inicio: una jornada de NOCHE iniciada (o reanudada
+    // tras una parada) YA pasada la medianoche (ej. 00:13am) sigue perteneciendo a
+    // la noche que arrancó AYER a las 7pm — usar `today` (calendario) aquí creaba un
+    // round "fantasma" del día de HOY con horas de noche residuales que después
+    // contaminaban la clasificación del turno noche de HOY (BUG real 10-ago-2026:
+    // máquinas mostradas "Cerradas" horas ANTES de que el turno noche empezara).
+    const roundDate = businessRoundDateOf(new Date(declaredIso), sh);
 
     setJornadaBusy(true); setNotice(null);
     const vis = await registrarVisita('trabajando');
     if (!vis) { setJornadaBusy(false); return; }
-    const res = await upsertMachineRound(ci.id, today, { jornada_start_at: declaredIso, jornada_shift: sh, ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
+    const res = await upsertMachineRound(ci.id, roundDate, { jornada_start_at: declaredIso, jornada_shift: sh, ...(hiHas ? { horometro_inicial: hi } : {}), ...(horoIniPhoto ? { horometro_photo: horoIniPhoto } : {}) }, uid || null);
     setJornadaBusy(false);
     if (res.error) { setNotice('❌ ' + res.error); return; }
     setJornadaShift(sh);
@@ -1588,7 +1595,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const alertaRetraso = veniaAveriada ? 0 : retrasoMin;
     // Guarda el desfase (minutos) para que Inspecciones muestre "inició tarde".
     // Best-effort: si la columna jornada_late_min no existe aún, se ignora el error.
-    supabase.from('machine_rounds').update({ jornada_late_min: alertaRetraso > 0 ? alertaRetraso : null }).eq('machinery_id', ci.id).eq('round_date', today).then(() => {}, () => {});
+    supabase.from('machine_rounds').update({ jornada_late_min: alertaRetraso > 0 ? alertaRetraso : null }).eq('machinery_id', ci.id).eq('round_date', roundDate).then(() => {}, () => {});
     logAudit('JORNADA_INICIO', 'machinery', ci.id, `${ci.code} · inicio ${hh}:${mm} ${sh === 'night' ? '🌙' : '☀️'}${retrasoMin > 0 ? (veniaAveriada ? ' · inicio tardío por avería (sin alerta)' : ` · declarada ${retrasoLabel(retrasoMin)} tarde`) : ''}`); // bitácora
     // Camión: al INICIAR la jornada, se registra su SALIDA del patio.
     logTruckYardIfTruck(ci.id, ci.code, 'salida', uid || null, fullName || null);
@@ -1641,7 +1648,11 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // round del día en que empezó (mismo criterio que el auto-cierre del servidor,
     // ver supabase/auto_close_jornadas.sql). Usar "today" aquí cerraba el round del
     // día EQUIVOCADO y dejaba el round original "en curso" para siempre.
-    const roundDate = caracasParts(new Date(jornadaStart)).iso;
+    // `businessRoundDateOf` (no `caracasParts` a secas) porque `jornadaStart` puede
+    // ser un inicio de NOCHE declarado él mismo ya pasada la medianoche (ej. 00:13am):
+    // su fecha de calendario es HOY, pero de negocio pertenece a la noche de AYER —
+    // mismo bucket que `iniciarJornada` usó para crear el round (ver su comentario).
+    const roundDate = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
     const prev = await getMachineRound(ci.id, roundDate);
     const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
     const base = Number((prev as any)?.[key] ?? 0);
@@ -1720,7 +1731,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // "hoy" de calendario): mismo criterio que finalizarJornada (ver su comentario)
       // para que una parada marcada después de medianoche, en una jornada de noche
       // que sigue abierta, no cree un round huérfano en el día equivocado.
-      const roundDate = caracasParts(new Date(jornadaStart)).iso;
+      const roundDate = businessRoundDateOf(new Date(jornadaStart), jornadaShift);
       const prevRound = await getMachineRound(ci.id, roundDate);
       const key = jornadaShift === 'night' ? 'night_hours' : 'day_hours';
       const base = Number((prevRound as any)?.[key] ?? 0);
@@ -1762,7 +1773,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
       // parada se encola después de medianoche con una jornada de noche abierta.
       const hourBanking = jornadaStart
-        ? { machineryId: ci.id, roundDate: caracasParts(new Date(jornadaStart)).iso, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        ? { machineryId: ci.id, roundDate: businessRoundDateOf(new Date(jornadaStart), jornadaShift), shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
       await enqueueParada({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },
@@ -1827,7 +1838,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       // que registrarParadaBase/finalizarJornada — evita un round huérfano si la
       // parada se encola después de medianoche con una jornada de noche abierta.
       const hourBanking = jornadaStart
-        ? { machineryId: ci.id, roundDate: caracasParts(new Date(jornadaStart)).iso, shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
+        ? { machineryId: ci.id, roundDate: businessRoundDateOf(new Date(jornadaStart), jornadaShift), shiftKey: (jornadaShift === 'night' ? 'night_hours' : 'day_hours') as 'day_hours' | 'night_hours', horas: Math.max(0, Math.round(((Date.now() - new Date(jornadaStart).getTime()) / 3600000) * 100) / 100) }
         : null;
       await enqueueParada({
         visita: { machineryId: ci.id, supervisorId: uid || null, supervisorName: fullName || 'Inspector', visitDate: today, status: 'parada', lat: gps?.lat ?? null, lng: gps?.lng ?? null, note: ciNote, machineLat: ci.latitude ?? null, machineLng: ci.longitude ?? null },

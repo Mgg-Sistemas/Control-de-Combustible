@@ -95,11 +95,25 @@ export function buildDaySets(params: {
     r.jornada_shift === 'night' ? 'night'
       : r.jornada_shift === 'day' ? 'day'
       : paradaShiftOf(r.jornada_start_at as string);
+  // Umbral mínimo defensivo (RED DE SEGURIDAD, no reemplaza la causa raíz): un
+  // round con `round_date` mal calculado por cruce de medianoche del turno NOCHE
+  // (BUG 10-ago-2026, ver `caracasBusinessToday()` en caracasDay.ts — a veces se
+  // guardaba la fecha de HOY en vez de AYER) puede dejar un residuo mínimo de
+  // horas (visto en datos reales: ~0.02h) pegado al round de HOY. Sin este
+  // umbral, ese residuo hace que `workedInShift` cuente el turno de HOY como
+  // "trabajado" aunque en realidad todavía no haya arrancado — y esas máquinas
+  // salen "Cerradas" en InspectionsSummary/el PDF cuando en verdad están
+  // pendientes. 0.05h (3 min) está muy por debajo de cualquier jornada real
+  // (se miden en horas), así que no debería enmascarar jornadas cortas legítimas;
+  // protege tanto los 3 casos ya contaminados en la BD (que no se van a corregir
+  // retroactivamente) como cualquier otro flujo futuro no detectado que reproduzca
+  // el mismo tipo de residuo.
+  const MIN_WORKED_HOURS = 0.05;
   // ¿La ronda tuvo actividad en ESTE turno? Una máquina "corrido" (12h día + N noche)
   // cuenta en AMBOS turnos: en DÍA por sus day_hours, en NOCHE por sus night_hours.
   const workedInShift = (r: DaySetRound, sh: 'day' | 'night'): boolean => {
-    if (sh === 'day' && (Number(r.day_hours) || 0) > 0) return true;
-    if (sh === 'night' && (Number(r.night_hours) || 0) > 0) return true;
+    if (sh === 'day' && (Number(r.day_hours) || 0) > MIN_WORKED_HOURS) return true;
+    if (sh === 'night' && (Number(r.night_hours) || 0) > MIN_WORKED_HOURS) return true;
     return !!r.jornada_start_at && openShiftOf(r) === sh; // jornada abierta de ese turno
   };
 
