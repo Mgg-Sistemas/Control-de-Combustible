@@ -802,6 +802,12 @@ export default function ReportsScreen({ route }: any) {
       .lte('created_at', toEndBound)
       .order('created_at', { ascending: false });
     const averiaByMachine = new Map<string, RoundAveria & { company: string }>();
+    // Con varias filas pendientes por máquina, ids cuya entrada actual YA es una avería
+    // REAL (no "MÁQUINA PARADA"): protege esa entrada de otra avería más vieja que llegue
+    // después (viene ordenado por created_at DESC, así que la primera avería que se
+    // procesa por máquina ya es la más reciente) — antes solo se protegía de que una
+    // PARADA pisara una avería, pero una segunda avería más antigua sí la pisaba.
+    const averiaRealSet = new Set<string>();
     ((mrPend ?? []) as any[]).forEach((r) => {
       const mm = r.machinery;
       if (!mm || mm.active === false) return;         // inactivas fuera
@@ -809,10 +815,11 @@ export default function ReportsScreen({ route }: any) {
       if (workedIds.has(mid)) return;                  // ya trabajó → está en el informe
       const co = mm.company?.name ?? 'Sin empresa';
       if (cos && !cos.includes(co)) return;            // fuera del alcance
+      const esParada = r.material === 'MÁQUINA PARADA';
       const existing = averiaByMachine.get(mid);
-      if (existing && r.material === 'MÁQUINA PARADA') return; // prefiere el motivo REAL
+      if (existing && (esParada || averiaRealSet.has(mid))) return; // prefiere el motivo REAL más reciente
       const notes = (r.notes && String(r.notes).trim()) || '';
-      const motivo = r.material === 'MÁQUINA PARADA' ? (notes || 'Parada') : (notes || String(r.material || 'Avería'));
+      const motivo = esParada ? (notes || 'Parada') : (notes || String(r.material || 'Avería'));
       averiaByMachine.set(mid, {
         company: co,
         machine: mm.code || '—',
@@ -821,6 +828,7 @@ export default function ReportsScreen({ route }: any) {
         serial: mm.serial ?? null,
         motivo,
       });
+      if (esParada) averiaRealSet.delete(mid); else averiaRealSet.add(mid);
     });
     averiaByMachine.forEach((a) => {
       const g = groups.get(a.company) ?? { company: a.company, machines: [], days: 0, dayH: 0, nightH: 0, totalH: 0, totalUSD: 0, viajes: [], viajesUSD: 0, averias: [] };
