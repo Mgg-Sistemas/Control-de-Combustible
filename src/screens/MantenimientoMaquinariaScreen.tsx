@@ -130,7 +130,7 @@ export default function MantenimientoMaquinariaScreen() {
   const [horoLoaded, setHoroLoaded] = useState(false);
   const [horoLoading, setHoroLoading] = useState(false);
   const [horoPhotoView, setHoroPhotoView] = useState<string | null>(null); // foto del horómetro ampliada
-  const [horoFilter, setHoroFilter] = useState<'all' | 'proximas' | 'vencidas'>('all'); // filtro por los KPIs de arriba
+  const [horoFilter, setHoroFilter] = useState<'all' | 'proximas' | 'vencidas' | 'con' | 'sin'>('all'); // filtro por los KPIs de arriba
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -631,13 +631,19 @@ export default function MantenimientoMaquinariaScreen() {
           const total = horometroList.length;
           const conAlerta = horometroList.filter((x) => !!x.alerta).length;
           const vencidas = horometroList.filter((x) => x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA).length;
+          // Con horómetro = ya tiene lectura registrada; Sin marcar = todavía no le marcan el horómetro.
+          const conHorometro = horometroList.filter((x) => x.m.last_horometro != null).length;
+          const sinMarcar = horometroList.filter((x) => x.m.last_horometro == null).length;
+          type HF = 'all' | 'proximas' | 'vencidas' | 'con' | 'sin';
           // Los KPIs de arriba son botones: filtran la lista (toca de nuevo el activo para quitar el filtro).
           const shown = horometroList.filter((x) =>
             horoFilter === 'proximas' ? !!x.alerta
             : horoFilter === 'vencidas' ? (x.acum != null && x.acum >= HOROMETRO_UMBRAL_ALTA)
+            : horoFilter === 'con' ? (x.m.last_horometro != null)
+            : horoFilter === 'sin' ? (x.m.last_horometro == null)
             : true);
-          const toggle = (f: 'all' | 'proximas' | 'vencidas') => setHoroFilter((cur) => (cur === f ? 'all' : f));
-          const kpi = (f: 'all' | 'proximas' | 'vencidas', label: string, value: number, valueColor: string) => {
+          const toggle = (f: HF) => setHoroFilter((cur) => (cur === f ? 'all' : f));
+          const kpi = (f: HF, label: string, value: number, valueColor: string) => {
             const on = horoFilter === f || (f === 'all' && horoFilter === 'all');
             return (
               <TouchableOpacity onPress={() => toggle(f)} style={{ paddingBottom: 3, borderBottomWidth: 2, borderBottomColor: on ? colors.accent : 'transparent' }}>
@@ -652,6 +658,8 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.brandContrast, fontWeight: '900', fontSize: 15 }}>⏱️ Horómetros · mantenimiento preventivo</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.lg, marginTop: spacing.xs, flexWrap: 'wrap' }}>
                   {kpi('all', 'Máquinas', total, colors.brandContrast)}
+                  {kpi('con', 'Con horómetro', conHorometro, colors.brandContrast)}
+                  {kpi('sin', 'Sin marcar', sinMarcar, sinMarcar > 0 ? colors.accent : colors.brandContrast)}
                   {kpi('proximas', 'Próximas (≥200 h)', conAlerta, colors.accent)}
                   {kpi('vencidas', `Vencidas (≥${HOROMETRO_UMBRAL_ALTA} h)`, vencidas, colors.brandContrast)}
                 </View>
@@ -660,7 +668,7 @@ export default function MantenimientoMaquinariaScreen() {
 
               {horoFilter !== 'all' ? (
                 <TouchableOpacity onPress={() => setHoroFilter('all')} style={{ marginTop: spacing.sm, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs }}>
-                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{horoFilter === 'proximas' ? `⏱️ Próximas a mantenimiento · ${shown.length}` : `🔴 Vencidas · ${shown.length}`}  ✕ Quitar filtro</Text>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 12 }}>{(horoFilter === 'proximas' ? '⏱️ Próximas a mantenimiento' : horoFilter === 'vencidas' ? '🔴 Vencidas' : horoFilter === 'con' ? '✅ Con horómetro' : '⚠️ Sin marcar horómetro')} · {shown.length}  ✕ Quitar filtro</Text>
                 </TouchableOpacity>
               ) : null}
 
