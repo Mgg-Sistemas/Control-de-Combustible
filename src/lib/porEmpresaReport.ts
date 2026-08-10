@@ -42,6 +42,8 @@ type Fila = {
   code: string; modelo: string; serialPlaca: string; inspector: string;
   // Horario por turno: DÍA (7am→7pm) y NOCHE (7pm→7am). "—" si no trabajó ese turno.
   diaIni: string; diaFin: string; nocheIni: string; nocheFin: string;
+  // Motivo de avería/parada (solo grupo 'averia') — se muestra EN LÍNEA en la fila.
+  motivo: string;
 };
 
 /**
@@ -391,6 +393,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
       diaFin: ddAct > 0 ? (dayOpen ? nowHora : HORA_DIA_FIN) : '—',
       nocheIni: nnAct > 0 ? HORA_NOCHE_INI : '—',
       nocheFin: nnAct > 0 ? (nightOpen ? nowHora : HORA_NOCHE_FIN) : '—',
+      motivo: esAveria ? averiaBase : '',
     };
     if (!porEmpresa.has(empresa)) porEmpresa.set(empresa, []);
     porEmpresa.get(empresa)!.push(fila);
@@ -402,13 +405,18 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   // Inspector · Horario DÍA (inicio arriba / fin abajo) · Horario NOCHE (idem).
   const tabla = (filas: Fila[]): string => {
     const cls = (g: Grupo) => g === 'inactiva' ? ' class="inact"' : g === 'averia' ? ' class="aver"' : '';
-    const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) =>
-      `<tr${cls(f.grupo)}>
+    const rows = filas.slice().sort((a, b) => cmpText(a.code, b.code)).map((f, i) => {
+      // Averiadas/Paradas: en 0, y el MOTIVO va EN LÍNEA ocupando las dos columnas de horario.
+      const horario = f.grupo === 'averia'
+        ? `<td colspan="2" class="mot">🔴 ${esc(dash(f.motivo))}</td>`
+        : `<td class="hr"><div class="ini">${esc(f.diaIni)}</div><div class="fin">${esc(f.diaFin)}</div></td>`
+          + `<td class="hr"><div class="ini">${esc(f.nocheIni)}</div><div class="fin">${esc(f.nocheFin)}</div></td>`;
+      return `<tr${cls(f.grupo)}>
         <td>${i + 1}</td><td><b>${esc(f.code)}</b></td><td>${esc(dash(f.modelo))}</td><td>${esc(dash(f.serialPlaca))}</td>
         <td>${esc(f.inspector)}</td>
-        <td class="hr"><div class="ini">${esc(f.diaIni)}</div><div class="fin">${esc(f.diaFin)}</div></td>
-        <td class="hr"><div class="ini">${esc(f.nocheIni)}</div><div class="fin">${esc(f.nocheFin)}</div></td>
-      </tr>`).join('');
+        ${horario}
+      </tr>`;
+    }).join('');
     return `<table class="ir"><thead><tr>
       <th style="width:24px">Nº</th><th>Máquina</th><th>Modelo / Marca</th><th>Serial/Placa</th><th>Inspector asignado</th>
       <th>Horario DÍA<br><span class="sub">inicio · fin</span></th><th>Horario NOCHE<br><span class="sub">inicio · fin</span></th>
@@ -456,6 +464,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     td.ok{color:#067647;font-weight:800}
     /* Horario por turno: inicio arriba (negro) y fin abajo (gris). */
     td.hr{white-space:nowrap} td.hr .ini{font-weight:700} td.hr .fin{color:#6B7280;font-size:10px}
+    td.mot{color:#B42318;font-weight:700}
     th .sub{font-weight:400;font-size:8.5px;opacity:.85}
     table.ir tr.aver td{color:#B42318;background:#FEF3F2}
     table.ir tr.inact td{color:#9CA3AF;background:#F9FAFB;font-style:italic}
