@@ -61,6 +61,15 @@ export async function generateGuardiasReport(opts: {
     .legend{font-size:10px;color:#333;margin:2px 0 10px}
     .swatch{display:inline-block;width:11px;height:11px;border:1px solid #ccc;vertical-align:middle;margin:0 3px 0 8px}
     .criterio{font-size:11px;color:#333;margin:8px 0 4px}
+    .wk{border-collapse:collapse;width:100%;margin:6px 0 10px;font-size:10.5px}
+    .wk th,.wk td{border:1px solid #ccc;padding:6px 7px;text-align:center}
+    .wk th{background:#1E3A5F;color:#fff}
+    .wk td.name,.wk th.name{text-align:left}
+    .wk td.activo{background:#ECFDF3;color:#067647;font-weight:700}
+    .wk td.descanso{background:#FEF3F2;color:#B42318;font-weight:800}
+    .wk tfoot th{background:#EEF2F7;color:#1E3A5F}
+    .obs{background:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;padding:8px 14px;font-size:11px;color:#333;margin:6px 0 10px}
+    .obs ul{margin:4px 0;padding-left:18px} .obs li{margin:3px 0}
   `;
 
   if (!inspectors.length) {
@@ -116,6 +125,65 @@ export async function generateGuardiasReport(opts: {
   };
   const orden = inspectors.slice().sort((a, b) =>
     grupoRank(a.grupo) - grupoRank(b.grupo) || cmpText(a.name, b.name));
+
+  // Modo SEMANAL: cuando CADA descanso dura exactamente 7 días (rotación por grupo,
+  // una semana completa libre), se arma una tabla "Inspector × Semana" con
+  // ACTIVO/DESCANSO — mucho más legible que un T/D por cada uno de los ~21-35 días
+  // del ciclo (estilo pedido por el cliente 09-ago-2026). El modo "1 día libre/
+  // semana" (descansos de 1 día) sigue con el calendario diario de abajo, donde sí
+  // hace falta ver el día exacto.
+  const descansos = shifts.filter((s) => s.kind === 'descanso');
+  const spanDays = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000) + 1;
+  const isWeekly = descansos.length > 0 && descansos.every((s) => spanDays(s.from_date, s.to_date) === 7);
+  // Ciclo dividido en bloques de 7 días (a partir de `dias`, ya calculado abajo, pero
+  // se reutiliza el mismo rango from..to aquí arriba para no duplicar el cálculo).
+  const semanas: string[][] = [];
+  if (isWeekly) {
+    const d = new Date(from + 'T00:00:00Z');
+    const end = new Date(to + 'T00:00:00Z');
+    let semana: string[] = [];
+    while (d.getTime() <= end.getTime()) {
+      const y = d.getUTCFullYear(); const m = String(d.getUTCMonth() + 1).padStart(2, '0'); const dd = String(d.getUTCDate()).padStart(2, '0');
+      semana.push(`${y}-${m}-${dd}`);
+      if (semana.length === 7) { semanas.push(semana); semana = []; }
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    if (semana.length) semanas.push(semana);
+  }
+  const semanaEstado = (name: string, semana: string[]): 'D' | 'T' => (semana.length ? estado(name, semana[0]) : 'T');
+  const nSemanas = semanas.length;
+  const activosPorSemana = semanas.map((sem) => orden.reduce((n, i) => n + (semanaEstado(i.name, sem) === 'T' ? 1 : 0), 0));
+  const descansoPorSemana = activosPorSemana.map((n) => inspectors.length - n);
+  const headSemanas = semanas.map((sem, idx) => `<th>Sem ${idx + 1}<br/>(${dm(sem[0])}-${dm(sem[sem.length - 1])})</th>`).join('');
+  const filasSemanal = orden.map((i) => {
+    const celdas = semanas.map((sem) => {
+      const st = semanaEstado(i.name, sem);
+      return st === 'D' ? `<td class="descanso">DESCANSO</td>` : `<td class="activo">ACTIVO</td>`;
+    }).join('');
+    return `<tr><td class="name"><b>${esc(i.name)}</b></td>${celdas}</tr>`;
+  }).join('');
+  const tablaSemanal = nSemanas
+    ? `<table class="wk"><thead><tr><th class="name">Inspector</th>${headSemanas}</tr></thead>` +
+      `<tbody>${filasSemanal}</tbody>` +
+      `<tfoot>` +
+      `<tr><th class="name">Inspectores Activos</th>${activosPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
+      `<tr><th class="name">Inspectores en Descanso</th>${descansoPorSemana.map((n) => `<th>${n}</th>`).join('')}</tr>` +
+      `<tr><th class="name">% Cobertura Operativa</th>${activosPorSemana.map((n) => `<th>${inspectors.length ? Math.round((n / inspectors.length) * 100) : 0}%</th>`).join('')}</tr>` +
+      `</tfoot></table>`
+    : '';
+  // Observaciones: si alguna semana del ciclo queda con todos activos (100%), se
+  // destaca; si no, se informa el nivel de cobertura mínimo garantizado del ciclo.
+  const semanaCompletaIdx = activosPorSemana.findIndex((n) => n === inspectors.length);
+  const coberturaMin = activosPorSemana.length ? Math.round((Math.min(...activosPorSemana) / inspectors.length) * 100) : 100;
+  const observaciones = isWeekly
+    ? `<div class="obs"><b>OBSERVACIONES Y CONCLUSIONES OPERATIVAS:</b><ul>` +
+      `<li><b>Rotación de descansos:</b> a lo largo de ${nSemanas} semana(s), cada inspector tiene su semana de descanso completa (lunes a domingo) de forma secuencial por grupo.</li>` +
+      (semanaCompletaIdx >= 0
+        ? `<li><b>Semana completa operativa:</b> la <b>Sem ${semanaCompletaIdx + 1}</b> (${dm(semanas[semanaCompletaIdx][0])}-${dm(semanas[semanaCompletaIdx][semanas[semanaCompletaIdx].length - 1])}) es la única semana del ciclo donde los ${inspectors.length} inspectores quedan trabajando simultáneamente (100%).</li>`
+        : `<li><b>Cobertura del ciclo:</b> en este ciclo siempre hay al menos un grupo de descanso — ninguna semana llega al 100% de inspectores activos a la vez.</li>`) +
+      `<li><b>Continuidad operativa:</b> durante todo el ciclo se garantiza un mínimo de ${coberturaMin}% de cobertura activa.</li>` +
+      `</ul></div>`
+    : '';
 
   // KPIs del ciclo.
   const nInspectores = inspectors.length;
@@ -209,9 +277,8 @@ export async function generateGuardiasReport(opts: {
 
   const body =
     `<h3>Calendario del ciclo</h3>` +
-    kpis +
-    tablaCal +
-    leyenda +
+    (isWeekly ? tablaSemanal : (kpis + tablaCal + leyenda)) +
+    observaciones +
     `<h3>Conformación de los grupos</h3>` +
     tablaGrupos +
     `<h3>Cobertura por grupo</h3>` +
