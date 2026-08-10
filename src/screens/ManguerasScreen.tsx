@@ -19,7 +19,7 @@ import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { useToast } from '../components/ToastProvider';
 
-type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; company_id: string | null; encargado: string | null; operational: boolean };
+type MachineryRow = { id: string; code: string; serial: string | null; plate: string | null; tipo: string | null; company_id: string | null; encargado: string | null; operational: boolean };
 type ProfileRow = { id: string; full_name: string | null };
 type CompanyRow = { id: string; name: string | null };
 
@@ -88,7 +88,7 @@ export default function ManguerasScreen() {
   const canApprove = levelMeets(level, 'full');
 
   const { data: hoses, loading, refetch } = useTable<HoseService>('hose_services', { orderBy: 'service_date', ascending: false, realtimeFrom: 'hose_services' });
-  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
+  const { data: machinery } = useTable<MachineryRow>('machinery', { select: 'id, code, serial, plate, tipo, company_id, encargado, operational', orderBy: 'code', realtimeFrom: 'machinery' });
   const { data: profiles } = useTable<ProfileRow>('profiles', { select: 'id, full_name', realtimeFrom: 'profiles' });
   const { data: companies } = useTable<CompanyRow>('companies', { select: 'id, name', orderBy: 'name' });
   const { rate: bcvRate } = useBcvRate();
@@ -99,8 +99,8 @@ export default function ManguerasScreen() {
     return m;
   }, [companies]);
   const machineryMap = useMemo(() => {
-    const m: Record<string, { code: string; serial: string | null; plate: string | null; encargado: string | null; companyName: string | null; operational: boolean }> = {};
-    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate, encargado: r.encargado, companyName: r.company_id ? (companiesMap[r.company_id] ?? null) : null, operational: r.operational }; });
+    const m: Record<string, { code: string; serial: string | null; plate: string | null; tipo: string | null; encargado: string | null; companyName: string | null; operational: boolean }> = {};
+    machinery.forEach((r) => { m[r.id] = { code: r.code, serial: r.serial, plate: r.plate, tipo: r.tipo, encargado: r.encargado, companyName: r.company_id ? (companiesMap[r.company_id] ?? null) : null, operational: r.operational }; });
     return m;
   }, [machinery, companiesMap]);
   const profilesMap = useMemo(() => {

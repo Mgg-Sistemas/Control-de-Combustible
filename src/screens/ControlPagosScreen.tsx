@@ -849,7 +849,7 @@ export default function ControlPagosScreen({ navigation }: any) {
       const p = periods.get(key) ?? { key, label, end, order, companies: new Map() };
       const cname = m.company?.name ?? 'Sin empresa';
       const comp = p.companies.get(cname) ?? new Map<string, Map<string, number>>();
-      const tkey = m.tipo && String(m.tipo).trim() ? String(m.tipo).trim().toUpperCase() : 'SIN TIPO';
+      const tkey = m.tipo && String(m.tipo).trim() ? String(m.tipo).trim().toUpperCase() : 'SIN MARCA/MODELO';
       const tmap = comp.get(tkey) ?? new Map<string, number>();
       tmap.set(m.id, (tmap.get(m.id) ?? 0) + worked);
       comp.set(tkey, tmap);
@@ -899,7 +899,7 @@ export default function ControlPagosScreen({ navigation }: any) {
               .join('');
             pWorked += cWorked; pAmount += cAmount;
             return `<h3 class="emp">🏢 ${cn} — ${cWorked} h · $${money(cAmount)}</h3>
-              <table><thead><tr><th>Tipo / Máquina</th><th>Días transc.</th><th>Horas trab.</th><th>Total a pagar</th></tr></thead>
+              <table><thead><tr><th>Marca-Modelo / Máquina</th><th>Días transc.</th><th>Horas trab.</th><th>Total a pagar</th></tr></thead>
               <tbody>${rowsHtml}</tbody>
               <tfoot><tr><td class="r">TOTAL ${cn}</td><td class="c b">${diasStr(earliest || null, p.end)}</td><td class="c b">${cWorked} h</td><td class="r b">$${money(cAmount)}</td></tr></tfoot></table>`;
           })

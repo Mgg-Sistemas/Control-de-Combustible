@@ -55,7 +55,7 @@ const dmyHm = (iso: string): string => {
 
 type Turno = 'day' | 'night';
 type EstadoKey = 'averia' | 'encurso' | 'parada' | 'finalizada' | 'pendiente';
-type Mach = { id: string; code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number };
+type Mach = { id: string; code: string; serial: string | null; plate: string | null; tipo: string; company: string; sector: string; referencia: string; edificio: string; lat: number | null; lng: number | null; dayH: number; nightH: number; estado: EstadoKey; motivo: string; horasParada: number };
 /** Hora (Caracas) "HH:MM am/pm" de un instante (ms). */
 const horaCaracasMs = (ms: number): string => {
   try { return new Intl.DateTimeFormat('es-VE', { timeZone: CARACAS_TZ, hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); } catch { return '—'; }
@@ -276,7 +276,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundByMachine.has(r.machinery_id)) roundByMachine.set(r.machinery_id, r); });
 
   const data = new Map<Turno, Map<string, Map<string, Mach>>>();
-  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
+  const putMach = (turno: Turno, insp: string, id: string, base: { code: string; serial: string | null; plate: string | null; tipo: string | null; company: string; sector: string; referencia: string; lat: number | null; lng: number | null }) => {
     if (cos && !cos.includes(base.company)) return;
     if (inactiveIds.has(id)) return; // INACTIVA del catálogo: fuera del reporte de inspectores
     const tMap = data.get(turno) ?? new Map<string, Map<string, Mach>>();
@@ -407,6 +407,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       code: base.code,
       serial: base.serial,
       plate: base.plate,
+      tipo: (base.tipo && String(base.tipo).trim()) || '—',
       company: base.company,
       sector: base.sector || 'Sin sector',
       referencia: base.referencia,
@@ -427,6 +428,7 @@ export async function computeInspectorData(date: string, companies?: string[] | 
       code: a.code,
       serial: a.serial ?? null,
       plate: a.plate ?? null,
+      tipo: a.tipo ?? null,
       company: a.companyName,
       sector: (a.sector && String(a.sector).trim()) || 'Sin sector',
       referencia: (a.referencia && String(a.referencia).trim()) || '',
@@ -501,9 +503,9 @@ export async function generateInspectorReport(opts: { date: string; shift: Inspe
       const motivoCell = ((m.estado === 'averia' || m.estado === 'parada') && m.motivo)
         ? `<span style="color:${m.estado === 'averia' ? '#B91C1C' : '#B45309'};font-size:10px">${esc(m.motivo)}</span>`
         : '—';
-      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r b">${shiftH}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
+      return `<tr><td>${i + 1}</td><td><b>${esc(m.code)}</b>${moved ? ' <span class="moved">↔ cambió de ubicación</span>' : ''}</td><td>${esc(m.tipo)}</td><td>${estCell}</td><td>${motivoCell}</td><td>${esc(m.company)}</td><td>${esc(m.sector)}</td><td>${esc(m.edificio || '—')}</td><td>${esc(m.plate || m.serial || '—')}</td><td class="r b">${shiftH}</td><td class="r">${r2(m.horasParada)}</td><td class="r b">${jornada}</td></tr>`;
     }).join('');
-    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">${hLabel}</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="8">Total · ${list.length} equipo(s)</td><td class="r b">${tWork}</td><td class="r">${tPar}</td><td class="r b">${tJor}</td></tr></tfoot></table>`;
+    const machTable = `<table class="ir"><thead><tr><th style="width:26px">Nº</th><th>Máquina</th><th>Marca-Modelo</th><th>Estado</th><th>Motivo</th><th>Empresa</th><th>Sector</th><th>Edificio</th><th>Placa / Serial</th><th class="r">${hLabel}</th><th class="r">Parada</th><th class="r">Jornada</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="9">Total · ${list.length} equipo(s)</td><td class="r b">${tWork}</td><td class="r">${tPar}</td><td class="r b">${tJor}</td></tr></tfoot></table>`;
 
     // Desglose por SECTOR con subtotales (solo horas del turno de este inspector).
     const bySec = new Map<string, { c: number; h: number }>();

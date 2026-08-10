@@ -58,7 +58,7 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
 
   let query = supabase
     .from('supervisor_visits')
-    .select('supervisor_name, machinery_id, visited_at, status, lat, lng, distance_m, near, machine:machinery_id(code, serial, plate, referencia, company:company_id(name))')
+    .select('supervisor_name, machinery_id, visited_at, status, lat, lng, distance_m, near, machine:machinery_id(code, serial, plate, tipo, referencia, company:company_id(name))')
     .eq('visit_date', date);
   if (inspectors && inspectors.length) query = query.in('supervisor_name', inspectors);
   const { data } = await query.order('visited_at', { ascending: true });
@@ -82,6 +82,7 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
         <td>${i + 1}</td>
         <td>${esc(horaCaracas(v.visited_at))}</td>
         <td><b>${esc(m.code || '—')}</b></td>
+        <td>${esc((m.tipo && String(m.tipo).trim()) || '—')}</td>
         <td>${esc(m.serial || m.plate || '—')}</td>
         <td>${esc(ubicacionTxt(v.lat, v.lng, m))}</td>
         <td>${esc(estadoTxt(v.status))}</td>
@@ -89,7 +90,7 @@ export async function generateInspectorTrazaReport(opts: { date: string; inspect
       </tr>`;
     }).join('');
     return `<table class="ir"><thead><tr>
-      <th style="width:24px">Nº</th><th>Hora</th><th>Máquina</th><th>Serial/Placa</th>
+      <th style="width:24px">Nº</th><th>Hora</th><th>Máquina</th><th>Marca/Modelo</th><th>Serial/Placa</th>
       <th>Sector/Ubicación</th><th>Estado</th><th>Cerca</th>
     </tr></thead><tbody>${trs}</tbody></table>`;
   };

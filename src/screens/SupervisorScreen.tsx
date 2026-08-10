@@ -2941,6 +2941,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
               {ci ? (
                 <View style={{ marginBottom: spacing.sm }}>
                   <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{ci.code}</Text>
+                  {ci.tipo ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {ci.tipo}</Text> : null}
                   <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {ci.companyName}</Text>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Serial/Placa: {((ci as any).plate || (ci as any).serial || '—')}</Text>
                   {(ci as any).encargado ? <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: {(ci as any).encargado}</Text> : null}
