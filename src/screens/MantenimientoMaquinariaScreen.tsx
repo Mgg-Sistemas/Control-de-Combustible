@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { norm, onlyDecimal, cmpText } from '../lib/text';
 import { sectorOf, sectorLabel } from '../lib/mapZones';
 import { horometroAlertaDe, horasAcumuladas, HOROMETRO_UMBRAL_ALTA, NIVEL_RANK, HorometroAlerta } from '../lib/horometroAlertas';
+import { listInspectorAssignments } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../components/ConfirmProvider';
@@ -131,6 +132,9 @@ export default function MantenimientoMaquinariaScreen() {
   const [horoLoading, setHoroLoading] = useState(false);
   const [horoPhotoView, setHoroPhotoView] = useState<string | null>(null); // foto del horómetro ampliada
   const [horoFilter, setHoroFilter] = useState<'all' | 'proximas' | 'vencidas' | 'con' | 'sin'>('all'); // filtro por los KPIs de arriba
+  // Inspector(es) ASIGNADO(s) a cada máquina (machine_inspectors), por turno, para
+  // mostrarlos en la tarjeta de Horómetros ("desde acá muéstrame los inspectores").
+  const [asigByMachine, setAsigByMachine] = useState<Record<string, { day?: string; night?: string }>>({});
 
   const input = { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text } as const;
 
@@ -197,12 +201,23 @@ export default function MantenimientoMaquinariaScreen() {
   // con datos; si esa no trae foto, completamos con la última foto disponible.
   const loadHoroData = async () => {
     setHoroLoading(true);
-    const { data } = await supabase
-      .from('machine_rounds')
-      .select('machinery_id, round_date, horometro_inicial, horometro_final, horometro_photo, day_operator, night_operator')
-      .or('horometro_photo.not.is.null,horometro_final.not.is.null,horometro_inicial.not.is.null')
-      .order('round_date', { ascending: false })
-      .limit(4000);
+    const [{ data }, asig] = await Promise.all([
+      supabase
+        .from('machine_rounds')
+        .select('machinery_id, round_date, horometro_inicial, horometro_final, horometro_photo, day_operator, night_operator')
+        .or('horometro_photo.not.is.null,horometro_final.not.is.null,horometro_inicial.not.is.null')
+        .order('round_date', { ascending: false })
+        .limit(4000),
+      listInspectorAssignments(),
+    ]);
+    // Inspector asignado por máquina y turno (☀️ día / 🌙 noche).
+    const asigBy: Record<string, { day?: string; night?: string }> = {};
+    (asig.rows ?? []).forEach((r) => {
+      const g = asigBy[r.machinery_id] ?? {};
+      if (r.shift === 'night') g.night = r.inspector_name; else g.day = r.inspector_name;
+      asigBy[r.machinery_id] = g;
+    });
+    setAsigByMachine(asigBy);
     const by: Record<string, HoroRound> = {};
     (data ?? []).forEach((r: any) => {
       const id = r.machinery_id;
@@ -222,7 +237,7 @@ export default function MantenimientoMaquinariaScreen() {
     setHoroLoading(false);
   };
   useEffect(() => { if (tab === 'horometros' && !horoLoaded && !loading) loadHoroData(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, loading]);
-  useRealtimeRefresh(['machine_rounds'], () => { if (horoLoaded) loadHoroData(); });
+  useRealtimeRefresh(['machine_rounds', 'machine_inspectors'], () => { if (horoLoaded) loadHoroData(); });
 
   // Rendimiento: índice id → máquina para evitar machines.find() dentro de bucles (O(n²) → O(n)).
   const machById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
@@ -436,11 +451,13 @@ export default function MantenimientoMaquinariaScreen() {
       const restante = acum != null ? Math.round((HOROMETRO_UMBRAL_ALTA - acum) * 100) / 100 : null;
       return { m, acum, alerta, restante, horo: horoByMachine[m.id] ?? null };
     });
-    const filtered = !nq ? arr : arr.filter(({ m }) =>
-      [m.code, m.serial, m.plate, m.company, m.encargado, m.referencia, m.tipo, m.clasificacion].some((f) => f && norm(String(f)).includes(nq)));
+    const filtered = !nq ? arr : arr.filter(({ m }) => {
+      const asig = asigByMachine[m.id];
+      return [m.code, m.serial, m.plate, m.company, m.encargado, m.referencia, m.tipo, m.clasificacion, asig?.day, asig?.night].some((f) => f && norm(String(f)).includes(nq));
+    });
     // Más cerca del mantenimiento primero; empate → A→Z natural por código.
     return filtered.sort((a, b) => (b.acum ?? -1) - (a.acum ?? -1) || cmpText(a.m.code, b.m.code));
-  }, [machines, horoByMachine, nq]);
+  }, [machines, horoByMachine, asigByMachine, nq]);
 
   const enReparacion = useMemo(() => repairs.filter((r) => r.status === 'en_reparacion' && matchesQ(r.code, r.company)), [repairs, nq]);
   const historial = useMemo(() => repairs.filter((r) => r.status === 'operativa' && matchesQ(r.code, r.company)), [repairs, nq]);
@@ -510,7 +527,7 @@ export default function MantenimientoMaquinariaScreen() {
         </TouchableOpacity>
       </View>
 
-      <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, ubicación…' : '🔎 Buscar empresa o máquina…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
+      <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'horometros' ? '🔎 Máquina, serial, placa, empresa, encargado, inspector, ubicación…' : '🔎 Buscar empresa o máquina…'} placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
 
       {loading ? (
         <Loading />
@@ -683,12 +700,20 @@ export default function MantenimientoMaquinariaScreen() {
                 const edif = edificioText(m.latitude, m.longitude, m.referencia);
                 const ident = [m.plate, m.serial].filter(Boolean).join(' · ');
                 const photo = horo?.photo ?? null;
+                // Inspector(es) asignado(s): ☀️ día / 🌙 noche (mismo si cubre ambos turnos).
+                const asig = asigByMachine[m.id];
+                const inspTxt = asig
+                  ? (asig.day && asig.night
+                      ? (asig.day === asig.night ? `${asig.day} (☀️🌙)` : `☀️ ${asig.day} · 🌙 ${asig.night}`)
+                      : asig.day ? `☀️ ${asig.day}` : asig.night ? `🌙 ${asig.night}` : '—')
+                  : '—';
                 return (
                   <Card key={m.id}>
                     <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>🚜 {m.code}{m.tipo ? <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '400' }}>  ·  {m.tipo}</Text> : null}</Text>
                     <View style={{ marginTop: 3, gap: 1 }}>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 Empresa: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.company}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>👤 Encargado: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.encargado || '—'}</Text></Text>
+                      <Text style={{ color: colors.muted, fontSize: 12 }}>👮 Inspector: <Text style={{ color: colors.text, fontWeight: '600' }}>{inspTxt}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 Placa / Serial: <Text style={{ color: colors.text, fontWeight: '600' }}>{ident || '—'}</Text></Text>
                       <Text style={{ color: colors.muted, fontSize: 12 }}>📍 Ubicación: <Text style={{ color: colors.text, fontWeight: '600' }}>{coords || '—'}</Text></Text>
                       {m.referencia ? <Text style={{ color: colors.muted, fontSize: 12 }}>🧭 Ref / Edificio: <Text style={{ color: colors.text, fontWeight: '600' }}>{m.referencia}</Text></Text> : null}
