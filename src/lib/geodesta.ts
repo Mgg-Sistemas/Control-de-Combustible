@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { latLngToUTM } from './utm';
 import { norm } from './text';
 
-export type GpsFix = { ok: boolean; error?: string; lat?: number; lng?: number; accuracy?: number };
+export type GpsFix = { ok: boolean; error?: string; lat?: number; lng?: number; accuracy?: number; altitude?: number };
 
 /** Captura una posición GPS de ALTA precisión (para topografía) devolviendo también
  *  la precisión estimada en metros, para poder rechazar tomas peores a la tolerancia
@@ -18,7 +18,7 @@ export async function captureHighAccuracy(timeoutMs = 12000): Promise<GpsFix> {
       const finish = (r: GpsFix) => { if (!done) { done = true; resolve(r); } };
       try {
         geo.getCurrentPosition(
-          (p: any) => finish({ ok: true, lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? undefined }),
+          (p: any) => finish({ ok: true, lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy ?? undefined, altitude: p.coords.altitude ?? undefined }),
           (e: any) => finish({ ok: false, error: e?.message || 'No se pudo obtener la ubicación. Permite el acceso al GPS.' }),
           { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
         );
@@ -30,7 +30,7 @@ export async function captureHighAccuracy(timeoutMs = 12000): Promise<GpsFix> {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return { ok: false, error: 'Permiso de ubicación denegado.' };
     const cur: any = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation });
-    return { ok: true, lat: cur.coords.latitude, lng: cur.coords.longitude, accuracy: cur.coords.accuracy ?? undefined };
+    return { ok: true, lat: cur.coords.latitude, lng: cur.coords.longitude, accuracy: cur.coords.accuracy ?? undefined, altitude: cur.coords.altitude ?? undefined };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'El GPS tardó demasiado. Inténtalo al aire libre.' };
   }

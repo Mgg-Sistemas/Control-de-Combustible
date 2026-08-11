@@ -140,6 +140,18 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     supabase.from('geodesta_projects').select('*').eq('id', projectId).single().then(({ data }) => { setProject(data as GeodestaProject); setBasemapUrl((data as any)?.basemap_url || ''); setBasemapTms((data as any)?.basemap_kind === 'tms'); });
   }, [projectId]);
 
+  // Mejora — geoide N (altura ortométrica).
+  const [geoidN, setGeoidN] = useState('0');
+  useEffect(() => { if (project) setGeoidN(String(project.geoid_n ?? 0)); }, [project?.id]);
+  const guardarGeoid = async () => {
+    if (!project) return;
+    const n = Number(String(geoidN).replace(',', '.')) || 0;
+    const { error } = await supabase.from('geodesta_projects').update({ geoid_n: n }).eq('id', project.id);
+    if (error) { toast.error(error.message); return; }
+    setProject({ ...project, geoid_n: n });
+    toast.success(`Geoide N = ${n} m guardado.`);
+  };
+
   // Mejora — capa base personalizada (ortofoto).
   const [basemapUrl, setBasemapUrl] = useState('');
   const [basemapTms, setBasemapTms] = useState(false);
@@ -196,7 +208,15 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     setLat(String(fix.lat.toFixed(7))); setLon(String(fix.lng.toFixed(7)));
     setNorte(String(ne.norte.toFixed(3))); setEste(String(ne.este.toFixed(3)));
     if (!code) setCode(nextCode);
-    setCapMsg(`✅ Capturado · precisión ${acc.toFixed(1)} m (tol. ${project.gps_tolerance_m} m). Revisa y guarda.`);
+    // Cota ORTOMÉTRICA = altitud elipsoidal del GPS − N (geoide).
+    let cotaMsg = '';
+    if (fix.altitude != null) {
+      const N = Number(project.geoid_n || 0);
+      const H = fix.altitude - N;
+      setCota(String(H.toFixed(3)));
+      cotaMsg = ` · cota ${H.toFixed(2)} m (elip. ${fix.altitude.toFixed(2)} − N ${N})`;
+    }
+    setCapMsg(`✅ Capturado · precisión ${acc.toFixed(1)} m (tol. ${project.gps_tolerance_m} m)${cotaMsg}. Revisa y guarda.`);
   };
 
   const num = (s: string) => { const n = Number(String(s).replace(',', '.')); return Number.isFinite(n) ? n : null; };
@@ -832,6 +852,15 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
                 <Text style={{ color: colors.primaryContrast, fontWeight: '800' }}>{busy ? '📡 Capturando…' : '📡 Capturar por GPS'}</Text>
               </TouchableOpacity>
               {capMsg ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>{capMsg}</Text> : null}
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs, marginTop: spacing.xs }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={lbl(colors)}>🌊 Geoide N (m) — cota ortométrica = altitud GPS − N</Text>
+                  <TextInput value={geoidN} onChangeText={setGeoidN} keyboardType="numbers-and-punctuation" placeholder="0" placeholderTextColor={colors.muted} style={input} />
+                </View>
+                <TouchableOpacity onPress={guardarGeoid} style={{ borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: 9, paddingHorizontal: spacing.md }}>
+                  <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 12 }}>Guardar N</Text>
+                </TouchableOpacity>
+              </View>
               <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}><Text style={lbl(colors)}>Punto (código)</Text><TextInput value={code} onChangeText={setCode} placeholder={nextCode} placeholderTextColor={colors.muted} style={input} /></View>
                 <View style={{ flex: 1 }}><Text style={lbl(colors)}>Capa / código</Text><TextInput value={layer} onChangeText={setLayer} placeholder="terreno, borde, poste…" placeholderTextColor={colors.muted} style={input} /></View>
