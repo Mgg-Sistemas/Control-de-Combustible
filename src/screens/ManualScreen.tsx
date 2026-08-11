@@ -481,6 +481,21 @@ const SECTIONS: Sec[] = [
     ],
   },
   {
+    icon: '📐',
+    title: 'Geodesta (topografía) — Fase 0',
+    blocks: [
+      { t: 'p', text: 'Módulo de topografía para levantar terreno, generar curvas de nivel y calcular volúmenes de corte/relleno, ligado a las obras/edificios del sistema. Coordenadas de trabajo: UTM SIRGAS-REGVEN 19N (EPSG:2202). Se construye por fases; hoy está disponible la base (crear levantamientos).' },
+      { t: 'steps', items: [
+        'Entra a "Más → 📐 Geodesta".',
+        'Toca "＋ Nuevo levantamiento".',
+        'Escribe el NOMBRE del proyecto, elige la OBRA/EDIFICIO (el mismo catálogo de Ubicaciones) y define la TOLERANCIA GPS en metros (se rechazarán tomas menos precisas que ese valor).',
+        'Toca "Crear levantamiento". Queda listado con su sistema de coordenadas, tolerancia y fecha.',
+      ] },
+      { t: 'note', text: 'Acceso por permiso: quien tenga el módulo "Geodesta" en Lectura solo ve; en Escritura puede crear; en Full control puede eliminar. También existe el rol "Geodesta" para asignarlo directo a un usuario.' },
+      { t: 'note', text: 'Próximas fases: captura de puntos por GPS/importación (estación total/RTK), curvas de nivel automáticas, cubicaciones de corte/relleno, inspección de terreno con foto y firma, exportación DXF/KML y modo campo offline.' },
+    ],
+  },
+  {
     icon: '🛠️',
     title: 'Mantenimiento de Maquinaria y roles de coordinador',
     blocks: [

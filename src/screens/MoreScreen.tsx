@@ -16,6 +16,7 @@ const items: { label: string; route: string; desc: string; icon: string; module:
   { label: 'Inspecciones', route: 'Supervision', desc: 'Rondas de inspectores: quién marcó cada máquina (GPS + estado), jornadas e histórico por inspector', icon: '🪖', module: 'supervision' },
   { label: 'Ubicaciones', route: 'Ubicaciones', desc: 'Catálogo de edificios/ubicaciones (Macuto, Caraballeda…): agregar, editar y eliminar; se sincroniza con el EDIFICIO del inspector y el catálogo', icon: '📍', module: 'supervision' },
   { label: 'Inspecciones de Maquinaria', route: 'InspeccionesMaq', desc: 'Control por equipo: inventario de herramientas/accesorios y REPORTE DE INSPECCIÓN en PDF', icon: '🔍', module: 'inspecciones_maq' },
+  { label: 'Geodesta', route: 'Geodesta', desc: 'Topografía: levantamientos ligados a obra, curvas de nivel y cubicaciones (UTM SIRGAS-REGVEN 19N)', icon: '📐', module: 'geodesta' },
   { label: 'Distribución de comida', route: 'Comida', desc: 'Comidas repartidas por día y por persona (registradas por Cocina al escanear el carnet)', icon: '🍽️', module: 'comida' },
   { label: 'Cocina (escanear)', route: 'CocinaScan', desc: 'Registra las comidas del personal escaneando su carnet — la misma vista que usa Cocina', icon: '🍳', module: 'comida' },
   { label: 'Empresas', route: 'Empresas', desc: 'Editar nombre y RIF de las empresas contratistas, ocultar/mostrar', icon: '🏢', module: 'equipos' },
