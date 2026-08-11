@@ -16,8 +16,10 @@ import { levelMeets } from '../lib/permissions';
 import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
 import { contours, XYZ } from '../lib/tin';
+import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
+import { pdfDocument, exportPdf } from '../lib/pdf';
 
-type Tab = 'lista' | 'mapa' | 'superficie';
+type Tab = 'lista' | 'mapa' | 'superficie' | 'volumen';
 type Surface = { id: string; name: string; kind: string; interval_m: number | null; data: any; created_at: string };
 
 export default function GeodestaProjectDetail({ route, navigation }: any) {
@@ -78,6 +80,16 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   // Puntos válidos con N/E/Z para el MDT.
   const xyz = (): XYZ[] => points.filter((p) => !p.excluded && p.norte_m != null && p.este_m != null && p.cota_z != null)
     .map((p) => ({ x: p.este_m as number, y: p.norte_m as number, z: p.cota_z as number }));
+
+  // Fase 3 — volúmenes.
+  const [volMode, setVolMode] = useState<'versiones' | 'nivel'>('versiones');
+  const [baseSurf, setBaseSurf] = useState<string | null>(null);   // id de superficie, o 'actual'
+  const [newSurf, setNewSurf] = useState<string | null>(null);
+  const [designLevel, setDesignLevel] = useState('');
+  const [vol, setVol] = useState<VolumeResult | null>(null);
+  const [volTitle, setVolTitle] = useState('');
+
+  const surfPoints = (id: string | null): XYZ[] => id === 'actual' ? xyz() : (surfaces.find((s) => s.id === id)?.data?.points ?? []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -252,6 +264,52 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     toast.success('Versión eliminada.'); loadSurfaces();
   };
 
+  // ── Fase 3: volúmenes ────────────────────────────────────────────────────
+  const calcularVolumen = () => {
+    if (volMode === 'versiones') {
+      const b = surfPoints(baseSurf), n = surfPoints(newSurf);
+      if (!b.length || !n.length) { toast.error('Elige la superficie base y la nueva.'); return; }
+      const r = volumeBetween(b, n, undefined, 19, true);
+      if (!r.ok) { toast.error(r.error || 'No se pudo comparar.'); return; }
+      setVol(r); setOverlay(r.geojson);
+      setVolTitle(`${labelSurf(baseSurf)} → ${labelSurf(newSurf)}`);
+    } else {
+      const b = surfPoints(baseSurf || 'actual');
+      const lv = Number(String(designLevel).replace(',', '.'));
+      if (!b.length) { toast.error('Elige la superficie base.'); return; }
+      if (!Number.isFinite(lv)) { toast.error('Escribe la cota de diseño (nivel).'); return; }
+      const r = volumeToLevel(b, lv, undefined, 19, true);
+      if (!r.ok) { toast.error(r.error || 'No se pudo calcular.'); return; }
+      setVol(r); setOverlay(r.geojson);
+      setVolTitle(`${labelSurf(baseSurf || 'actual')} vs nivel ${lv} m`);
+    }
+  };
+
+  const labelSurf = (id: string | null) => id === 'actual' ? 'Puntos actuales' : (surfaces.find((s) => s.id === id)?.name ?? '—');
+
+  const pdfVolumen = async () => {
+    if (!vol || !project) return;
+    const body = `
+      <h2>Cubicación de movimiento de tierra</h2>
+      <table>
+        <tr><td><b>Proyecto</b></td><td>${esc(project.name)}</td></tr>
+        <tr><td><b>Obra / edificio</b></td><td>${esc(project.referencia || '—')}</td></tr>
+        <tr><td><b>Comparación</b></td><td>${esc(volTitle)}</td></tr>
+        <tr><td><b>Sistema</b></td><td>${project.coord_system} · EPSG:${project.srid}</td></tr>
+        <tr><td><b>Tamaño de celda</b></td><td>${vol.cell.toFixed(2)} m</td></tr>
+        <tr><td><b>Área comparada</b></td><td>${vol.area.toLocaleString('es-VE', { maximumFractionDigits: 1 })} m² (${vol.cellsCompared} celdas)</td></tr>
+      </table>
+      <h3>Resultados</h3>
+      <table>
+        <tr><td><b>Corte (excavación)</b></td><td>${fmtM3(vol.cut)}</td></tr>
+        <tr><td><b>Relleno</b></td><td>${fmtM3(vol.fill)}</td></tr>
+        <tr><td><b>Neto (relleno − corte)</b></td><td>${fmtM3(vol.net)} ${vol.net >= 0 ? '(falta traer material)' : '(sobra material)'}</td></tr>
+      </table>
+      <p style="color:#555;font-size:11px">Método de rejilla (Σ Δz · área) sobre el TIN de ambas superficies. Corte = terreno que baja; relleno = terreno que sube.</p>`;
+    const html = pdfDocument({ title: 'Cubicación', subtitle: project.name, body });
+    await exportPdf(html, `Cubicacion - ${project.name}`);
+  };
+
   const validos = points.filter((p) => !p.excluded);
   const conZ = validos.filter((p) => p.cota_z != null);
   const gcps = points.filter((p) => p.is_gcp).length;
@@ -270,14 +328,71 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
 
       {/* Pestañas Lista / Mapa / Superficie */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {(['lista', 'mapa', 'superficie'] as Tab[]).map((t) => (
+        {(['lista', 'mapa', 'superficie', 'volumen'] as Tab[]).map((t) => (
           <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: tab === t ? colors.brand : colors.surface, borderWidth: 1, borderColor: tab === t ? colors.brand : colors.border }}>
-            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>{t === 'lista' ? '📋 Puntos' : t === 'mapa' ? '🗺️ Mapa' : '⛰️ Superficie'}</Text>
+            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 11.5 }}>{t === 'lista' ? '📋 Puntos' : t === 'mapa' ? '🗺️ Mapa' : t === 'superficie' ? '⛰️ Superficie' : '📦 Volumen'}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {tab === 'superficie' ? (
+      {tab === 'volumen' ? (
+        <>
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>📦 Cubicación (corte / relleno)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Compara dos superficies (avance entre fechas) o una superficie contra una cota de diseño. El resultado sale en m³ y como mapa de diferencias.</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+              {(['versiones', 'nivel'] as const).map((m) => (
+                <TouchableOpacity key={m} onPress={() => { setVolMode(m); setVol(null); }} style={{ flex: 1, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: volMode === m ? colors.brand : colors.border, backgroundColor: volMode === m ? colors.brand : colors.surface }}>
+                  <Text style={{ color: volMode === m ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 12 }}>{m === 'versiones' ? 'Entre versiones' : 'Contra nivel'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={lbl(colors)}>Superficie base {volMode === 'versiones' ? '(terreno natural / fecha 1)' : ''}</Text>
+            <SurfPicker surfaces={surfaces} value={baseSurf} onChange={setBaseSurf} includeActual colors={colors} />
+            {volMode === 'versiones' ? (
+              <>
+                <Text style={lbl(colors)}>Superficie nueva (proyecto / fecha 2)</Text>
+                <SurfPicker surfaces={surfaces} value={newSurf} onChange={setNewSurf} includeActual colors={colors} />
+              </>
+            ) : (
+              <>
+                <Text style={lbl(colors)}>Cota de diseño / nivel (m)</Text>
+                <TextInput value={designLevel} onChangeText={setDesignLevel} keyboardType="numbers-and-punctuation" placeholder="Ej. 12.5" placeholderTextColor={colors.muted} style={input} />
+              </>
+            )}
+            <TouchableOpacity onPress={calcularVolumen} style={{ marginTop: spacing.sm, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+              <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>📐 Calcular volumen</Text>
+            </TouchableOpacity>
+          </Card>
+          {vol && vol.ok ? (
+            <Card>
+              <Text style={{ color: colors.muted, fontSize: 12 }}>{volTitle}</Text>
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs }}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(220,38,38,0.10)', borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.danger, fontSize: 11, fontWeight: '800' }}>CORTE</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fmtM3(vol.cut)}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: 'rgba(37,99,235,0.10)', borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '800' }}>RELLENO</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fmtM3(vol.fill)}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.sm }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '800' }}>NETO</Text>
+                  <Text style={{ color: colors.text, fontWeight: '800', fontSize: 15 }}>{fmtM3(vol.net)}</Text>
+                </View>
+              </View>
+              <Text style={{ color: colors.muted, fontSize: 11, marginTop: 6 }}>Área {vol.area.toLocaleString('es-VE', { maximumFractionDigits: 0 })} m² · celda {vol.cell.toFixed(2)} m · neto {vol.net >= 0 ? 'falta traer' : 'sobra'} material.</Text>
+              <TouchableOpacity onPress={pdfVolumen} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 13 }}>📄 Reporte PDF de cubicación</Text>
+              </TouchableOpacity>
+            </Card>
+          ) : null}
+          <View style={{ height: spacing.sm }} />
+          <GeodestaMap points={mapPoints} overlay={vol?.geojson ?? overlay} height={380} />
+          <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>🟥 corte · 🟦 relleno · intensidad = magnitud del movimiento.</Text>
+          <View style={{ height: spacing.lg }} />
+        </>
+      ) : tab === 'superficie' ? (
         <>
           <Card>
             <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>⛰️ Curvas de nivel (MDT/TIN)</Text>
@@ -439,7 +554,26 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
 }
 
 const fmt = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('es-VE', { maximumFractionDigits: 3 }));
+const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const lbl = (colors: any) => ({ color: colors.muted, fontSize: 11, marginTop: 6, marginBottom: 3 } as const);
+
+function SurfPicker({ surfaces, value, onChange, includeActual, colors }: { surfaces: Surface[]; value: string | null; onChange: (id: string) => void; includeActual?: boolean; colors: any }) {
+  const opts: { id: string; label: string }[] = [];
+  if (includeActual) opts.push({ id: 'actual', label: '📍 Puntos actuales' });
+  surfaces.forEach((s) => opts.push({ id: s.id, label: s.name }));
+  if (!opts.length) return <Text style={{ color: colors.muted, fontSize: 12 }}>Guarda al menos una versión de superficie en la pestaña ⛰️ Superficie.</Text>;
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 2 }}>
+      <View style={{ flexDirection: 'row', gap: 6 }}>
+        {opts.map((o) => (
+          <TouchableOpacity key={o.id} onPress={() => onChange(o.id)} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, borderWidth: 1, borderColor: value === o.id ? colors.brand : colors.border, backgroundColor: value === o.id ? colors.brand : colors.surface }}>
+            <Text style={{ color: value === o.id ? colors.brandContrast : colors.text, fontSize: 12, fontWeight: '700' }}>{o.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
 
 function Chip({ children, colors }: { children: React.ReactNode; colors: any }) {
   return (

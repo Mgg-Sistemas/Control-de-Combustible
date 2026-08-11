@@ -218,6 +218,18 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     const q = norm(opQuery.trim());
     return [...operators].sort((a, b) => cmpText(a.name, b.name)).filter((o) => !q || norm(o.name).includes(q) || norm(o.cedula || '').includes(q));
   }, [operators, opQuery]);
+  // "Según disponibilidad": si el operador ya está planeado en OTRA máquina en
+  // este mismo turno, avisa antes de duplicarlo — antes no había ninguna señal
+  // y el coordinador podía asignar a la misma persona dos veces sin darse cuenta.
+  const otroPlaneadoDe = useMemo(() => {
+    const map = new Map<string, string>(); // employee_id -> code de la OTRA máquina
+    planned.forEach((p) => {
+      if (p.shift !== assignShift || !p.employee_id || !assignFor || p.machinery_id === assignFor.id) return;
+      const code = machList.find((m) => m.id === p.machinery_id)?.code;
+      if (code) map.set(p.employee_id, code);
+    });
+    return map;
+  }, [planned, assignShift, assignFor, machList]);
   const applyAssign = async (s: Shift, op: Operator | null) => {
     if (!assignFor || assignBusy) return;
     setAssignBusy(true); setAssignNotice(null);
@@ -324,6 +336,42 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
       await exportPdf(html, `Novedades operadores ${today}`);
     } finally {
       setShareBusy(false);
+    }
+  };
+
+  // ── Informe completo de operadores (PDF) ──────────────────────────────────
+  // A diferencia de "Novedades" (solo excepciones), este lista TODAS las
+  // máquinas del universo del turno con su operador planeado, el que está en
+  // sitio de verdad y su asistencia — para un documento formal que se pueda
+  // compartir con el Coordinador de Operaciones o Recursos Humanos.
+  const [reportBusy, setReportBusy] = useState(false);
+  const exportarInformeCompleto = async () => {
+    if (universeRows.length === 0) return;
+    setReportBusy(true);
+    try {
+      const esc = (t: any) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const asistenciaTxt = (r: Row): string => {
+        if (!r.planned) return '—';
+        if (!r.planned.employee_id) return 'sin ficha';
+        if (r.attendance === 'ok') return `🟢 ${r.attendanceTs ? fmtHora(r.attendanceTs) : ''}`;
+        if (r.attendance === 'out') return `🟡 salió ${r.attendanceTs ? fmtHora(r.attendanceTs) : ''}`;
+        return '🔴 sin marcar';
+      };
+      const body = `
+        <table><thead><tr><th>Máquina</th><th>Empresa</th><th>Estado</th><th>Planeado</th><th>En sitio</th><th>Asistencia</th></tr></thead><tbody>
+          ${universeRows.map((r) => `<tr><td>${esc(r.code)}</td><td>${esc(r.companyName)}</td><td>${esc(STATE_META[r.state].label)}</td><td>${esc(r.planned ? r.planned.operator_name : '—')}</td><td>${esc(r.liveName ?? '—')}</td><td>${esc(asistenciaTxt(r))}</td></tr>`).join('')}
+        </tbody></table>`;
+      const html = pdfDocument({
+        title: 'Informe de Operadores',
+        subtitle: `${shiftIcon(shift)} ${shiftLabel(shift)} · ${today}`,
+        extraCss: `table{width:100%;border-collapse:collapse;margin:6px 0 14px;font-size:11px}
+          th,td{border:1px solid #c9d2dc;padding:5px 7px;text-align:left} th{background:#16324F;color:#fff}
+          tr:nth-child(even) td{background:#f4f7fb} h3{margin:14px 0 2px;font-size:14px;color:#16324F}`,
+        body,
+      });
+      await exportPdf(html, `Informe operadores ${today}`);
+    } finally {
+      setReportBusy(false);
     }
   };
 
@@ -445,9 +493,14 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
 
       {tab === 'novedades' ? (
         <>
-          <TouchableOpacity onPress={compartirNovedades} disabled={shareBusy} style={{ backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginBottom: spacing.md, opacity: shareBusy ? 0.6 : 1 }}>
-            <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{shareBusy ? 'Generando…' : '📤 Compartir novedades'}</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
+            <TouchableOpacity onPress={compartirNovedades} disabled={shareBusy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: shareBusy ? 0.6 : 1 }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{shareBusy ? 'Generando…' : '📤 Compartir novedades'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={exportarInformeCompleto} disabled={reportBusy} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: reportBusy ? 0.6 : 1 }}>
+              <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{reportBusy ? 'Generando…' : '📊 Informe completo'}</Text>
+            </TouchableOpacity>
+          </View>
           {sinAsignarRows.length === 0 && mismatchRows.length === 0 && ausenciaRows.length === 0 ? (
             <EmptyState title="Sin novedades" subtitle="No hay máquinas sin asignar, mismatches ni ausencias en este turno." />
           ) : (
@@ -536,12 +589,14 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
                       <Text style={{ color: colors.muted, textAlign: 'center', paddingVertical: spacing.lg }}>Sin operadores (cargo operador/chofer/obrero/servicios generales).</Text>
                     ) : opsShown.map((o) => {
                       const sel = current?.employee_id === o.id;
+                      const otro = otroPlaneadoDe.get(o.id);
                       return (
                         <TouchableOpacity key={o.id} disabled={assignBusy} onPress={() => applyAssign(assignShift, o)} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.border, opacity: assignBusy ? 0.5 : 1, backgroundColor: sel ? colors.primary + '12' : 'transparent' }}>
-                          <Text style={{ fontSize: 16 }}>{sel ? '✅' : '👷'}</Text>
+                          <Text style={{ fontSize: 16 }}>{sel ? '✅' : otro ? '⚠️' : '👷'}</Text>
                           <View style={{ flex: 1 }}>
                             <Text style={{ color: colors.text, fontWeight: sel ? '800' : '600', fontSize: 14 }}>{o.name}</Text>
                             <Text style={{ color: colors.muted, fontSize: 10.5, textTransform: 'capitalize' }}>{o.cargo || '—'}</Text>
+                            {otro ? <Text style={{ color: colors.warning, fontSize: 10.5, fontWeight: '700' }}>⚠️ Ya planeado en 🚜 {otro} este turno</Text> : null}
                           </View>
                           {sel ? <Text style={{ color: colors.success, fontWeight: '800', fontSize: 12 }}>asignado</Text> : null}
                         </TouchableOpacity>

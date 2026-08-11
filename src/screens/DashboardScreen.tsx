@@ -124,6 +124,33 @@ export default function DashboardScreen({ navigation }: any) {
     const dsDay = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'day', machInactiveSet, machHardInactiveSet });
     const dsNight = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'night', machInactiveSet, machHardInactiveSet });
     const averiaSet = new Set<string>([...dsDay.averSet, ...dsNight.averSet]);
+    // Reactivación CRUZADA de turno (mismo criterio que `liveStatusOf` del
+    // Catálogo, EquiposScreen.tsx): si la máquina tiene una jornada ABIERTA hoy
+    // en CUALQUIER turno que arrancó DESPUÉS de su avería más reciente, ya
+    // volvió a trabajar. `buildDaySets` compara cada turno aislado (para no
+    // mezclar la eficiencia por inspector/turno de Inspecciones), así que una
+    // avería de DÍA con jornada reabierta de NOCHE (o viceversa) seguía
+    // contando "averiada" acá pero "operativa" en el Catálogo — desincronizado
+    // (queja del cliente 11-ago-2026, 2 máquinas: LUMINARIA y PAYLOADER).
+    const latestAveriaMs = new Map<string, number>();
+    (averias ?? []).forEach((r: any) => {
+      if (r.material === 'MÁQUINA PARADA') return;
+      const ms = new Date(r.created_at).getTime();
+      const prev = latestAveriaMs.get(r.machinery_id);
+      if (prev == null || ms > prev) latestAveriaMs.set(r.machinery_id, ms);
+    });
+    const openStartMs = new Map<string, number>();
+    (todayRounds ?? []).forEach((r: any) => {
+      if (!r.jornada_start_at) return;
+      const ms = new Date(r.jornada_start_at).getTime();
+      const prev = openStartMs.get(r.machinery_id);
+      if (prev == null || ms > prev) openStartMs.set(r.machinery_id, ms);
+    });
+    averiaSet.forEach((id) => {
+      const t = latestAveriaMs.get(id);
+      const js = openStartMs.get(id);
+      if (t != null && js != null && js >= t) averiaSet.delete(id);
+    });
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
