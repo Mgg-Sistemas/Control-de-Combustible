@@ -96,6 +96,7 @@ export function RecordForm({
   allowDelete = false,
   headerImageUrl,
   beforeSave,
+  validate,
   onClose,
   onSaved,
 }: {
@@ -119,6 +120,9 @@ export function RecordForm({
    *  payload (mutable) y los valores del formulario. Úsalo para columnas DERIVADAS
    *  (p. ej. mantener `tipo` = marca + modelo sincronizada). */
   beforeSave?: (payload: Record<string, any>, values: Record<string, string>) => void;
+  /** Validación EXTRA (p. ej. "placa O serial"): devuelve un mensaje de error para
+   *  ABORTAR el guardado, o null/undefined si todo está bien. Corre tras los requeridos. */
+  validate?: (values: Record<string, string>) => string | null | undefined;
   onClose: () => void;
   /** Se llama tras guardar. Recibe el id del registro guardado (para resaltarlo sin saltar al inicio). */
   onSaved: (savedId?: string) => void;
@@ -212,6 +216,11 @@ export function RecordForm({
         setError(`El campo "${f.label}" es obligatorio.`);
         return;
       }
+    }
+    // Validación EXTRA de grupo (p. ej. "placa O serial", "marca O modelo").
+    if (validate) {
+      const msg = validate(values);
+      if (msg) { setError(msg); return; }
     }
     const payload: Record<string, any> = {};
     visibleFields.forEach((f) => {

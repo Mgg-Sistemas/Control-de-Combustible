@@ -120,16 +120,19 @@ const MACHINERY_FIELDS: Field[] = [
   // MARCA y MODELO en campos separados (desplegable buscable + escribir nuevo). La
   // columna histórica `tipo` se mantiene = marca+modelo vía beforeSave (ver RecordForm),
   // para no romper los reportes/tarjetas que ya leen m.tipo.
-  { key: 'marca', label: 'Marca (CAT, Komatsu, Kodiak...)', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
-  { key: 'modelo', label: 'Modelo (320, PC200, D6...)', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
+  // Marca O modelo: uno de los dos es obligatorio (validación de grupo en EquiposScreen).
+  { key: 'marca', label: 'Marca (o modelo) — CAT, Komatsu, Kodiak...', type: 'suggest', table: 'machinery', column: 'marca', dropdown: true },
+  { key: 'modelo', label: 'Modelo (o marca) — 320, PC200, D6...', type: 'suggest', table: 'machinery', column: 'modelo', dropdown: true },
   { key: 'clasificacion', label: 'Clasificación (elige una o escribe nueva)', type: 'suggest', table: 'machinery', column: 'clasificacion' },
   { key: 'referencia', label: 'Referencia / Ubicación (edificio)', type: 'text' },
-  { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia' },
-  { key: 'sector', label: 'Sector', type: 'suggest', table: 'machinery', column: 'sector' },
+  // Parroquia/Sector/Empresa como LISTA DESPLEGABLE buscable (sin la rejilla de botones).
+  { key: 'parroquia', label: 'Parroquia', type: 'suggest', table: 'machinery', column: 'parroquia', dropdown: true },
+  { key: 'sector', label: 'Sector', type: 'suggest', table: 'machinery', column: 'sector', dropdown: true },
   { key: 'identifier', label: 'Identificador', type: 'text' },
-  { key: 'plate', label: 'Placa', type: 'text' },
-  { key: 'serial', label: 'Serial', type: 'text' },
-  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', createColumn: 'name', filter: { hidden: false } },
+  // Placa O serial: uno de los dos es obligatorio (validación de grupo en EquiposScreen).
+  { key: 'plate', label: 'Placa (o serial)', type: 'text' },
+  { key: 'serial', label: 'Serial (o placa)', type: 'text' },
+  { key: 'company_id', label: 'Empresa supervisora', type: 'lookup', table: 'companies', labelCol: 'name', dropdown: true, filter: { hidden: false } },
   { key: 'grupo', label: 'Grupo', type: 'text' },
   { key: 'encargado', label: 'Encargado', type: 'text' },
   { key: 'zona', label: 'A disposición de (Gobernación, FANB, CVM… o vacío si es propia)', type: 'suggest', table: 'machinery', column: 'zona' },
@@ -1206,7 +1209,12 @@ export default function EquiposScreen({ navigation, route }: any) {
             <AveriaBadge id={m.id} />
             <UltimaInactividadLine id={m.id} />
             {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-            {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
+            {(String(m.marca ?? m.tipo ?? '').trim() || String(m.modelo ?? '').trim()) ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {String(m.marca ?? m.tipo ?? '').trim() || '—'}</Text>
+                {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
+              </>
+            ) : null}
             {m.clasificacion ? <Text style={{ color: colors.muted, fontSize: 12 }}>🗃️ Clasificación: {m.clasificacion}</Text> : null}
             {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
             {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -1990,7 +1998,12 @@ export default function EquiposScreen({ navigation, route }: any) {
                           <AveriaBadge id={m.id} />
                           <UltimaInactividadLine id={m.id} />
                           {m.identifier ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🆔 {m.identifier}</Text> : null}
-                          {marcaModeloLabel(m) ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca - Modelo: {marcaModeloLabel(m)}</Text> : null}
+                          {(String(m.marca ?? m.tipo ?? '').trim() || String(m.modelo ?? '').trim()) ? (
+              <>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Marca: {String(m.marca ?? m.tipo ?? '').trim() || '—'}</Text>
+                {String(m.modelo ?? '').trim() ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏷️ Modelo: {m.modelo}</Text> : null}
+              </>
+            ) : null}
                           {m.company_id ? <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {companyName(m.company_id)}</Text> : null}
                           {m.encargado ? <Text style={{ color: colors.text, fontSize: 12, fontWeight: '700' }}>👤 Encargado: {m.encargado}</Text> : null}
                           {(m as any).parroquia || (m as any).sector ? <Text style={{ color: colors.muted, fontSize: 12 }}>📍 {[(m as any).parroquia, (m as any).sector].filter(Boolean).join(' · ')}</Text> : null}
@@ -2246,6 +2259,12 @@ export default function EquiposScreen({ navigation, route }: any) {
           const marca = String(payload.marca ?? '').trim();
           const modelo = String(payload.modelo ?? '').trim();
           payload.tipo = [marca, modelo].filter(Boolean).join(' ') || null;
+        }}
+        validate={isVehicle ? undefined : (v) => {
+          // Catálogo: al menos UNO de placa/serial, y al menos UNO de marca/modelo.
+          if (!String(v.plate ?? '').trim() && !String(v.serial ?? '').trim()) return 'Coloca la PLACA o el SERIAL (al menos uno).';
+          if (!String(v.marca ?? '').trim() && !String(v.modelo ?? '').trim()) return 'Coloca la MARCA o el MODELO (al menos uno).';
+          return null;
         }}
         onClose={() => setFormOpen(false)}
         onSaved={handleSaved}
