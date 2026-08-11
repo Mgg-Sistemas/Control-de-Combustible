@@ -849,14 +849,20 @@ function ExistenciasTab({ canWrite }: { canWrite: boolean }) {
               </Text>
               <Text style={{ color: colors.muted, fontSize: 11, marginTop: spacing.xs }}>Categorías válidas: {CATEGORIES.map((c) => c.key).join(', ')}.</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-                <TouchableOpacity onPress={descargarPlantilla} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                  <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla (Excel)</Text>
-                </TouchableOpacity>
+                {/* Descargar/Subir Excel solo en WEB: en el teléfono el navegador embebido
+                    no descarga archivos (el botón antes no hacía nada). */}
                 {Platform.OS === 'web' ? (
-                  <TouchableOpacity onPress={subirArchivo} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>📁 Subir Excel</Text>
-                  </TouchableOpacity>
-                ) : null}
+                  <>
+                    <TouchableOpacity onPress={descargarPlantilla} style={{ backgroundColor: colors.success, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>⬇️ Descargar plantilla (Excel)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={subirArchivo} style={{ backgroundColor: colors.brand, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}>
+                      <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13 }}>📁 Subir Excel</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>La plantilla Excel (descargar/subir) está disponible en la versión web.</Text>
+                )}
               </View>
             </Card>
 

@@ -162,7 +162,11 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // resuelta esa misma madrugada, cae dentro del turno noche de HOY pero antes se
   // quedaba fuera del rango y el reporte no la mostraba en absoluto.
   const nightEndBound = `${nextDate}T07:00:00-04:00`;
-  const resolvedHoyFilter = `status.eq.pendiente,and(resolved_at.gte.${date}T00:00:00-04:00,resolved_at.lte.${nightEndBound})`;
+  // Pendiente O resuelta DESPUÉS del fin del día del reporte (se mantuvo averiada/parada
+  // ese día aunque se resolviera un día posterior). Antes solo recuperaba las resueltas
+  // EL MISMO día → una avería que seguía vigente ese día pero se cerró después desaparecía
+  // y la máquina caía a pendiente. Para HOY el borde es futuro → solo pendientes.
+  const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gt.${nightEndBound}`;
   // Paginado (selectAllRows): con >1000 solicitudes la consulta cruda se truncaba,
   // perdiendo justo las averías/paradas más antiguas y arrastradas. selectAllRows pagina
   // por id (no por fecha), así que se reordena por created_at DESC después de traer todo

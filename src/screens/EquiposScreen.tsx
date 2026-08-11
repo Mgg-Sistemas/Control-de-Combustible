@@ -24,9 +24,11 @@ import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits
 import { caracasParts } from '../lib/jornada';
 import { freezeOpenJornadaNow } from '../lib/machineRounds';
 import {
-  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, makeLiveStatusOf, bucketMachineStatus,
+  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus,
   JornadaEntry, AveriaEntry, InspByShiftEntry,
 } from '../lib/machineLiveStatus';
+import { paradaShiftOf } from '../lib/inspectorDaySets';
+import { inspectorSiempreActivo } from '../lib/machineInspectors';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
@@ -409,13 +411,54 @@ export default function EquiposScreen({ navigation, route }: any) {
   // su propia versión simplificada (solo miraba si había una avería pendiente, sin la
   // regla de reactivación), así que podían mostrar estados distintos para una misma
   // máquina (p. ej. "Averiada" en un lado y "Trabajando"/"Operativa" en otro).
-  // La regla EN SÍ vive en src/lib/machineLiveStatus.ts (ÚNICA fuente de verdad,
-  // compartida con el Dashboard) — acá solo se arman los datos crudos de este render.
   // Máquinas RETIRADAS (operational=false): fuera de servicio → su estatus EN VIVO es
   // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
   // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
   const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
-  const liveStatusOf = makeLiveStatusOf({ retiredIds, jornadaCat, averiaCat, inspByShift, nowMs: nowTick });
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const liveStatusOf = (id: string) => {
+    if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
+    const j = jornadaCat[id];
+    const a = averiaCat[id];
+    const dayH = j?.dayH ?? 0;
+    const nightH = j?.nightH ?? 0;
+    const openStartDay = j?.openStartDay ?? null;
+    const openStartNight = j?.openStartNight ?? null;
+    const elapsedDia = openStartDay ? Math.min(12, Math.max(0, (nowTick - openStartDay) / 3600000)) : 0;
+    const elapsedNoche = openStartNight ? Math.min(12, Math.max(0, (nowTick - openStartNight) / 3600000)) : 0;
+    const workedDia = Math.min(12, dayH + elapsedDia);
+    const workedNoche = Math.min(12, nightH + elapsedNoche);
+    const total = workedDia + workedNoche;
+    const enCurso = elapsedDia + elapsedNoche;
+    const trabajadas = Math.max(0, total - enCurso);
+    const hasOpen = openStartDay != null || openStartNight != null;
+    const openStart = Math.max(openStartDay ?? 0, openStartNight ?? 0);
+    // REGLA "SIEMPRE ACTIVO" (SOS LA GUAIRA): sus máquinas nunca salen averiada/parada.
+    const insp = inspByShift[id];
+    const siempreActivo = inspectorSiempreActivo(insp?.day) || inspectorSiempreActivo(insp?.night);
+    // HOY vs ARRASTRADA (mismo criterio que segmentoDe/segmentoConTurno en SupervisorScreen):
+    // una marca de HOY gana siempre (salvo reactivación por jornada abierta después de la
+    // marca); una marca ARRASTRADA (de días anteriores) solo cuenta si la máquina sigue
+    // totalmente pendiente hoy — si ya está trabajando (jornada abierta) o ya trabajó y
+    // cerró (total > 0), la jornada de hoy tiene prioridad y la arrastrada deja de mostrarse.
+    const todayStartMs = new Date(`${caracasParts(new Date(nowTick)).iso}T00:00:00-04:00`).getTime();
+    const esHoy = !!a && a.createdMs >= todayStartMs;
+    const reactivada = !!a && hasOpen && openStart >= a.createdMs;
+    // POR TURNO: una avería/parada solo vige en SU turno (el de la hora en que se marcó).
+    // Marcarla de DÍA no debe afectar la NOCHE (ni viceversa): en el otro turno la máquina
+    // se ve pendiente/operativa. Mismo criterio que SupervisorScreen (segmentoDe) e
+    // Inspecciones (buildDaySets), que separan por paradaShiftOf(created_at).
+    const nowShift = paradaShiftOf(new Date(nowTick).toISOString());
+    const mismoTurno = !!a && paradaShiftOf(new Date(a.createdMs).toISOString()) === nowShift;
+    const averiaVigente = !siempreActivo && !!a && mismoTurno && !reactivada && (esHoy || (!hasOpen && total <= 0));
+    let estado: 'averiada' | 'parada' | 'trabajando' | 'trabajo_hoy' | 'ninguno';
+    if (averiaVigente && a!.tipo === 'averia') estado = 'averiada';
+    else if (averiaVigente && a!.tipo === 'parada') estado = 'parada';
+    else if (hasOpen) estado = 'trabajando';
+    else if (total > 0) estado = 'trabajo_hoy';
+    else estado = 'ninguno';
+    return { estado, total: round2(total), enCurso: round2(enCurso), trabajadas: round2(trabajadas), motivo: a?.motivo ?? null };
+  };
 
   // Conteo de maquinaria por estado (4 cubos exclusivos, igual que el dashboard):
   //  · OPERATIVAS: operativas, SIN avería (en vivo, con reactivación) y SIN estar esperando instrucciones.
@@ -1004,10 +1047,14 @@ export default function EquiposScreen({ navigation, route }: any) {
     const h = (n: number) => n.toFixed(2);
     if (s.estado === 'averiada' || s.estado === 'parada') {
       const isAveria = s.estado === 'averiada';
+      // Averiada/Parada NO muestra horas "Trabajó/En curso/Total": era contradictorio
+      // ("sale que trabajó pero dice averiado"). El auto-inicio por cron (7am) o tramos
+      // viejos podían dejar horas > 0 aunque la máquina esté averiada/parada. El estado
+      // (🔴 Averiada / 🟡 Parada) + el motivo ya comunican todo; se omiten las horas.
       return (
         <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
           <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={2}>
-            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''} · Trabajó {h(s.trabajadas)}h · En curso 0h · Total {h(s.total)}h
+            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''}
           </Text>
         </View>
       );

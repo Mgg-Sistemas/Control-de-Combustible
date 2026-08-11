@@ -118,8 +118,10 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   // truncaba, perdiendo justo las averías/paradas más antiguas y arrastradas.
   const mr = await selectAllRows(
     'maintenance_requests',
-    'machinery_id, material, notes, created_at',
-    (q) => q.eq('status', 'pendiente').lte('created_at', nightEndBound)
+    'machinery_id, material, notes, created_at, resolved_at',
+    // Pendiente O resuelta DESPUÉS del fin del día consultado (se mantuvo averiada/parada
+    // ese día). Para HOY el borde es futuro → solo pendientes. Igual que InspectionsSummary.
+    (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`).lte('created_at', nightEndBound)
   );
   // selectAllRows pagina por id (no por fecha) — se reordena acá por created_at DESC,
   // que es lo que asume `averiaByMachine` de abajo (la primera fila por máquina = la más reciente).

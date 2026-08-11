@@ -12,7 +12,8 @@ import { workedFromShifts } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
-import { fetchAveriaCat, fetchJornadaCat, fetchInspByShift, makeLiveStatusOf, bucketMachineStatus } from '../lib/machineLiveStatus';
+import { buildDaySets, computeMachineVisibilitySets, paradaShiftOf } from '../lib/inspectorDaySets';
+import { listInspectorAssignments } from '../lib/machineInspectors';
 
 const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Paleta para las barras de empresas.
@@ -99,23 +100,61 @@ export default function DashboardScreen({ navigation }: any) {
   const [chartTotal, setChartTotal] = useState(0);
 
   const loadCounts = useCallback(async () => {
-    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, averiaCat, jornadaCat, inspByShift] = await Promise.all([
+    const today = todayISO();
+    const [{ data: rounds }, { count: locCount }, { data: machs }, { count: vehCount }, { data: comps }, { data: averias }, { data: todayRounds }, { rows: asg }] = await Promise.all([
       supabase.from('machine_rounds').select('machinery_id').eq('status', 'operativa').eq('closed', false),
       supabase.from('machinery').select('id', { count: 'exact', head: true }).not('latitude', 'is', null),
       supabase.from('machinery').select('id, operational, en_espera, active'),
       supabase.from('vehicles').select('id', { count: 'exact', head: true }).eq('active', true),
-      // Estado EN VIVO (avería/parada/reactivación) — MISMOS datos crudos y MISMA
-      // regla que el Catálogo (EquiposScreen.tsx), vía src/lib/machineLiveStatus.ts.
-      // Antes esta tarjeta tenía su PROPIA aproximación (buildDaySets + parches de
-      // "reactivación cruzada"/"arrastrada") que se desincronizaba del Catálogo cada
-      // vez que se ajustaba la regla en un solo lado (queja del cliente 11-ago-2026,
-      // dos veces el mismo día) — eliminada: ahora hay UNA sola implementación.
-      fetchAveriaCat(),
-      fetchJornadaCat(),
-      fetchInspByShift(),
+      supabase.from('companies').select('id, name'),
+      // AVERIADAS: solicitudes de mantenimiento PENDIENTES (arrastran hasta resolverse).
+      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').eq('status', 'pendiente'),
+      supabase.from('machine_rounds').select('machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at').eq('round_date', today),
+      listInspectorAssignments(),
     ]);
-    const retiredIds = new Set((machs ?? []).filter((m: any) => m.operational === false).map((m: any) => m.id));
-    const statusOf = makeLiveStatusOf({ retiredIds, jornadaCat, averiaCat, inspByShift, nowMs: Date.now() });
+    // AVERIADAS: MISMO cálculo que el Catálogo y "Resumen de Inspecciones"
+    // (buildDaySets en inspectorDaySets.ts) — antes esta tarjeta contaba CUALQUIER
+    // ticket pendiente sin aplicar reactivación (máquina que volvió a trabajar tras
+    // la avería, aunque el ticket siga sin cerrar), arrastre resuelto (ya trabajó y
+    // cerró jornada hoy) ni la excepción "SIEMPRE ACTIVO" — se veía desincronizada
+    // del resto de la app (queja del cliente 10-ago-2026).
+    // POR TURNO (11-ago-2026): la avería/parada es INDEPENDIENTE del turno — marcarla de
+    // DÍA no debe afectar la NOCHE (ni viceversa). El Dashboard es una foto EN VIVO de la
+    // flota, así que cuenta solo el turno VIGENTE (por la hora actual), igual que el
+    // Catálogo (liveStatusOf). Antes unía día∪noche y una avería de día seguía contando
+    // toda la noche — desincronizado del Catálogo y contra la regla del cliente.
+    const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets((machs ?? []) as any);
+    const assignments = ((asg ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift }));
+    const nowShift = paradaShiftOf(new Date().toISOString());
+    const ds = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: nowShift, machInactiveSet, machHardInactiveSet });
+    const averiaSet = new Set<string>(ds.averSet);
+    // Reactivación CRUZADA de turno (mismo criterio que `liveStatusOf` del
+    // Catálogo, EquiposScreen.tsx): si la máquina tiene una jornada ABIERTA hoy
+    // en CUALQUIER turno que arrancó DESPUÉS de su avería más reciente, ya
+    // volvió a trabajar. `buildDaySets` compara cada turno aislado (para no
+    // mezclar la eficiencia por inspector/turno de Inspecciones), así que una
+    // avería de DÍA con jornada reabierta de NOCHE (o viceversa) seguía
+    // contando "averiada" acá pero "operativa" en el Catálogo — desincronizado
+    // (queja del cliente 11-ago-2026, 2 máquinas: LUMINARIA y PAYLOADER).
+    const latestAveriaMs = new Map<string, number>();
+    (averias ?? []).forEach((r: any) => {
+      if (r.material === 'MÁQUINA PARADA') return;
+      const ms = new Date(r.created_at).getTime();
+      const prev = latestAveriaMs.get(r.machinery_id);
+      if (prev == null || ms > prev) latestAveriaMs.set(r.machinery_id, ms);
+    });
+    const openStartMs = new Map<string, number>();
+    (todayRounds ?? []).forEach((r: any) => {
+      if (!r.jornada_start_at) return;
+      const ms = new Date(r.jornada_start_at).getTime();
+      const prev = openStartMs.get(r.machinery_id);
+      if (prev == null || ms > prev) openStartMs.set(r.machinery_id, ms);
+    });
+    averiaSet.forEach((id) => {
+      const t = latestAveriaMs.get(id);
+      const js = openStartMs.get(id);
+      if (t != null && js != null && js >= t) averiaSet.delete(id);
+    });
     const uniq = new Set((rounds ?? []).map((r: any) => r.machinery_id));
     setActiveMachines(uniq.size);
     // Detalle de esas máquinas activas agrupado por empresa (para ver al tocar la tarjeta).
@@ -136,16 +175,24 @@ export default function DashboardScreen({ navigation }: any) {
       setActiveByCompany([...map.values()].sort((a, b) => a.company.localeCompare(b.company, 'es')));
     } else setActiveByCompany([]);
     setActiveLocations(locCount ?? 0);
-    // Estado de la flota completa (4 cubos exclusivos que suman el total): MISMA
-    // función que el Catálogo (bucketMachineStatus, src/lib/machineLiveStatus.ts) —
-    // ni un solo dato ni una sola regla reimplementada acá.
-    const { averiadaMachines, activeMachines: operativasCubo, retiradaMachines, esperaMachines } = bucketMachineStatus((machs ?? []) as any[], statusOf);
-    setStates({ op: operativasCubo.length, ave: averiadaMachines.length, ret: retiradaMachines.length, esp: esperaMachines.length });
-    // "Maquinaria/Vehículos activos": operativas + averiadas (operational && !en_espera),
-    // consistente con el widget de 4 cubos de arriba — antes sumaba TODAS las
-    // operational (incluyendo en_espera), así que no cuadraba con "🟢 Operativas" +
-    // "🔴 Averiadas" del mismo panel.
-    setActiveAssets(operativasCubo.length + averiadaMachines.length + (vehCount ?? 0));
+    // Estado de la flota completa (4 cubos exclusivos que suman el total, igual que Equipos):
+    //  · RETIRADAS: operational=false (sacadas de servicio).
+    //  · ESPERANDO INSTRUCCIONES: en_espera=true (cargadas pero sin decidir Operativa/Parada).
+    //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
+    //  · OPERATIVAS: el resto (operativas sin avería).
+    let op = 0, ave = 0, ret = 0, esp = 0;
+    (machs ?? []).forEach((m: any) => {
+      if (m.operational === false) { ret++; return; }
+      if (m.en_espera) { esp++; return; } // esperando instrucciones (excluyente, antes de avería/operativa)
+      if (averiaSet.has(m.id)) ave++;
+      else op++;
+    });
+    setStates({ op, ave, ret, esp });
+    // "Maquinaria/Vehículos activos": operativas + averiadas (excluye retiradas Y
+    // en_espera), consistente con el widget de 4 cubos de arriba — antes sumaba TODAS
+    // las `operational` (incluyendo en_espera), así que no cuadraba con "🟢 Operativas"
+    // + "🔴 Averiadas" del mismo panel.
+    setActiveAssets(op + ave + (vehCount ?? 0));
   }, []);
 
   // Carga las HORAS TRABAJADAS (jornadas) por empresa para el rango del modo elegido.

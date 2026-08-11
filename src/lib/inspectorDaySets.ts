@@ -15,6 +15,32 @@ import { inspectorSiempreActivo } from './machineInspectors';
  * REGLA: cualquier cambio a estas reglas de negocio se hace ACÁ. Quien las use
  * (pantalla o PDF) solo pasa sus propios datos crudos — nunca reimplementa la
  * clasificación en paralelo.
+ *
+ * ── MAPA DE CLASIFICADORES (auditoría sync#2, 11-ago-2026) ──────────────────
+ * Hay CUATRO clasificadores de avería/parada/iniciada/pendiente en la app. NO son
+ * una sola función porque calculan cosas legítimamente distintas; SÍ comparten las
+ * mismas REGLAS de negocio (exención "SIEMPRE ACTIVO", reactivación de jornada,
+ * hoy-vs-arrastrada, prioridad avería>parada). Antes de "unificarlos" a ciegas, leer:
+ *
+ *  1. `buildDaySets` (ESTE archivo) — POR-TURNO AISLADO (día indep. de noche, a
+ *     propósito: la eficiencia por inspector/turno de Inspecciones no puede mezclar
+ *     turnos). Fuente de verdad del panel de Inspecciones (InspectionsSummary) y del
+ *     PDF por inspector (inspectorSummaryReport). Salida: sets por estado.
+ *  2. `DashboardScreen.loadCounts` — usa ESTE `buildDaySets` (día ∪ noche) y ENCIMA
+ *     aplica una reactivación CRUZADA de turno (una avería de día con jornada de
+ *     noche reabierta después ya no cuenta) — caso LUMINARIA/PAYLOADER, 11-ago-2026.
+ *     Esa corrección vive allá porque el Dashboard NO distingue turno; acá sería un
+ *     error (rompería la eficiencia por-turno).
+ *  3. `EquiposScreen.liveStatusOf` — estatus EN VIVO/instantáneo (horas transcurridas
+ *     con `nowTick`), reactivación CRUZADA. Otra forma de salida (trabajando/
+ *     trabajo_hoy/ninguno). No usa sets por turno.
+ *  4. `SupervisorScreen.segmentoDe`/`segmentoConTurno` — teléfono del inspector,
+ *     POR-TURNO (día indep. de noche), con índice O(1) propio por rendimiento.
+ *
+ * El comportamiento de (1) está BLOQUEADO por `scripts/test-clasificacion.mjs`
+ * (`npm run test:clasificacion`): 30 casos que incluyen reactivación, arrastre,
+ * SIEMPRE ACTIVO, prioridad y el cruce de turno. Cualquier refactor que toque las
+ * reglas debe mantener ese test en verde antes de subirse.
  */
 
 /** Turno de una PARADA/AVERÍA por la hora (Caracas, UTC-4 fijo, sin horario de
@@ -125,26 +151,33 @@ export function buildDaySets(params: {
   const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
   const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
   const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
-  // Hora de inicio de la jornada ABIERTA HOY, en CUALQUIER turno (no solo shiftArg).
-  // BUG (11-ago-2026): antes solo se guardaba si `openShiftOf(r) === shiftArg`, así que
-  // una avería/parada marcada de NOCHE con la jornada de HOY reabierta de DÍA (o
-  // viceversa) nunca reactivaba — `reactivadaTras` recibía un mapa vacío para esa
-  // máquina y la seguía contando averiada/parada, aunque ya hubiera vuelto a trabajar
-  // en el otro turno (mismo síntoma que el commit 5f9a2ada corrigió puntualmente y
-  // en paralelo dentro de DashboardScreen.tsx — acá se generaliza para que lo hereden
-  // TODOS los consumidores: Coordinador de Operadores, Inspecciones, el PDF). Mismo
-  // criterio que `liveStatusOf` en EquiposScreen.tsx (Math.max(openStartDay,
-  // openStartNight)). `openSet` sigue siendo estrictamente por-turno (lo usa
-  // activeNowSet/closedSet más abajo, que sí deben distinguir turno).
+  // Hora de inicio de la jornada ABIERTA de ESTE turno (shiftArg) — estrictamente
+  // por-turno, A PROPÓSITO: `buildDaySets` es POR-TURNO AISLADO (día independiente de
+  // noche) para no mezclar la eficiencia por inspector/turno de Inspecciones. Una
+  // avería de DÍA con la jornada de NOCHE reabierta después NO reactiva acá (caso
+  // LUMINARIA/PAYLOADER, 11-ago-2026) — esa reactivación CRUZADA vive en el parche
+  // propio de `DashboardScreen.loadCounts` y en `EquiposScreen.liveStatusOf`
+  // (Math.max(openStartDay, openStartNight)), NO en este archivo compartido. Ver el
+  // "MAPA DE CLASIFICADORES" al inicio de este archivo y
+  // `scripts/test-clasificacion.mjs` (caso 7), que fija este comportamiento.
   const openStartMs = new Map<string, number>();
+  // ARRANCÓ la jornada de ESTE turno (jornada_shift persiste tras el auto-cierre, aunque
+  // se nule jornada_start_at y las horas queden en 0). Regla del cliente: "las de 0 horas
+  // son las paradas" — una máquina que INICIÓ y FINALIZÓ la jornada pero cerró con 0h
+  // NO es "pendiente por iniciar" (arrancó), es PARADA. Solo las que nunca arrancaron
+  // (sin ronda de este turno) quedan pendientes.
+  const declaredSet = new Set<string>();
   rounds.forEach((r) => {
     if (r.round_date !== selDay) return;
     if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
+    if (r.jornada_shift === shiftArg) declaredSet.add(r.machinery_id);
     if (r.jornada_start_at) {
       anyOpenSet.add(r.machinery_id);
-      const ms = new Date(r.jornada_start_at as string).getTime();
-      if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
-      if (openShiftOf(r) === shiftArg) openSet.add(r.machinery_id);
+      if (openShiftOf(r) === shiftArg) {
+        openSet.add(r.machinery_id);
+        const ms = new Date(r.jornada_start_at as string).getTime();
+        if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
+      }
     }
   });
 
@@ -247,6 +280,9 @@ export function buildDaySets(params: {
       else closedSet.add(id);
       return;
     }
+    // ARRANCÓ la jornada de este turno pero cerró con 0h (sin avería/parada marcada):
+    // es PARADA, no "pendiente por iniciar" (regla del cliente: 0 horas = parada).
+    if (declaredSet.has(id)) { paradaSet.add(id); return; }
     pendSet.add(id);
   });
 

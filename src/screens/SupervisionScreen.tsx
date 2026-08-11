@@ -1185,7 +1185,15 @@ export default function SupervisionScreen({ navigation }: any) {
                             <Text style={{ color: colors.muted, fontSize: 12 }}>🔖 {j.serial || '—'} / {j.plate || '—'}{j.encargado ? ` · 👤 ${j.encargado}` : ''}</Text>
                             <Text style={{ color: colors.muted, fontSize: 11 }}>⏲️ Horómetro: {j.horoIni ?? '—'} → {j.horoFin ?? '—'}</Text>
                             {late > 0 ? <Text style={{ color: colors.warning, fontSize: 11, fontWeight: '800' }}>⏰ Inició {lateLabel(late)} tarde (desfasado)</Text> : null}
-                            {j.enCurso ? (
+                            {/* Una máquina AVERIADA/PARADA NO debe mostrar la línea de "trabajó"
+                                (ni la verde "🏁 X h" ni "● En curso"): tiene jornada auto-iniciada
+                                por el cron de las 7am o tramos registrados, pero su estado real es
+                                parada. Verla como que trabajó junto al aviso de avería es
+                                contradictorio ("sale que trabajó pero dice averiado"). El estado +
+                                motivo ya lo comunican. Mismo criterio que InspectionsSummary. */}
+                            {j.parada ? (
+                              <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>🟡 Parada{j.paradaMotivo ? ` · ${j.paradaMotivo}` : ''}</Text>
+                            ) : j.enCurso ? (
                               <Text style={{ color: colors.warning, fontSize: 12, fontWeight: '800' }}>● En curso{j.startAt ? ` desde ${caracasClock(j.startAt)}` : ''}</Text>
                             ) : (
                               <Text style={{ color: colors.success, fontSize: 12, fontWeight: '800' }}>🏁 {j.worked} h · 📍 Ver ubicación en el mapa ›</Text>

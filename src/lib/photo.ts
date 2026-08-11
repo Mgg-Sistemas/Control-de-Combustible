@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { supabase } from './supabase';
 import { cropImageWeb } from '../components/PhotoCropper';
 
@@ -89,8 +90,36 @@ async function resizeImageWeb(uri: string, maxDim = 1600, quality = 0.5): Promis
   } catch { return null; }
 }
 
+/**
+ * (NATIVO) Redimensiona/recomprime con expo-image-manipulator ANTES de subir
+ * (auditoría frontend#4). Antes el nativo subía la foto TAL CUAL (varios MB de la
+ * cámara) → subida lentísima por datos móviles en campo. Ahora se baja a máx
+ * `maxDim` px de lado + JPEG (~100-300 KB). Usa las dimensiones que ya trae el
+ * asset para NO agrandar imágenes pequeñas (solo recomprime). Si algo falla,
+ * devuelve null y el llamador cae al camino anterior (base64/fetch).
+ */
+async function resizeImageNative(
+  uri: string, srcW?: number, srcH?: number, maxDim = 1600, quality = 0.5
+): Promise<Uint8Array | null> {
+  try {
+    const longest = Math.max(srcW ?? 0, srcH ?? 0);
+    const actions = longest > maxDim
+      ? [{ resize: (srcW ?? 0) >= (srcH ?? 0) ? { width: maxDim } : { height: maxDim } }]
+      : []; // ya es pequeña: solo recomprimir a JPEG (baja peso de PNG/HEIC)
+    const out = await manipulateAsync(uri, actions, { compress: quality, format: SaveFormat.JPEG, base64: true });
+    if (out?.base64) return decodeB64(out.base64);
+    if (out?.uri) {
+      const resp = await fetch(out.uri);
+      const blob = await resp.blob();
+      if (blob && blob.size > 0) return new Uint8Array(await blob.arrayBuffer());
+    }
+    return null;
+  } catch { return null; }
+}
+
 /** Convierte el asset elegido en el cuerpo a subir. En WEB redimensiona con canvas
- *  (rápido, archivo liviano) y cae al blob directo si falla; en NATIVO usa base64. */
+ *  y en NATIVO con expo-image-manipulator (rápido, archivo liviano); ambos caen al
+ *  blob/base64 directo si el resize falla. */
 async function assetToBody(asset: any): Promise<Blob | Uint8Array | null> {
   if (Platform.OS === 'web' && asset?.uri) {
     const resized = await resizeImageWeb(asset.uri);
@@ -100,6 +129,10 @@ async function assetToBody(asset: any): Promise<Blob | Uint8Array | null> {
       const blob = await resp.blob();
       if (blob && blob.size > 0) return blob;
     } catch {}
+  }
+  if (Platform.OS !== 'web' && asset?.uri) {
+    const resized = await resizeImageNative(asset.uri, asset.width, asset.height);
+    if (resized) return resized;
   }
   if (asset?.base64) return decodeB64(asset.base64);
   if (asset?.uri) {

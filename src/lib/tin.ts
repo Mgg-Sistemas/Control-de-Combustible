@@ -7,36 +7,32 @@ import { utmToLatLng } from './utm';
 
 export type XYZ = { x: number; y: number; z: number }; // x=Este, y=Norte, z=cota
 export type Grid = { grid: Float64Array; nx: number; ny: number; minX: number; minY: number; cell: number };
+export type GridSpec = { minX: number; minY: number; cell: number; nx: number; ny: number };
 
 const MAX_NODES = 400; // tope por eje (rendimiento)
 
-/** Interpola los puntos a una rejilla regular usando el TIN (baricéntrico). Las
- *  celdas fuera del casco de triángulos quedan NaN. */
-export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
-  if (pts.length < 3) return null;
+/** Caja envolvente (bbox) de un conjunto de puntos en el plano UTM. */
+export function bboxOf(pts: XYZ[]): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  if (!pts.length) return null;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const p of pts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
-  const sizeX = maxX - minX, sizeY = maxY - minY;
-  if (!(sizeX > 0) && !(sizeY > 0)) return null;
-  let cell = cellHint && cellHint > 0 ? cellHint : Math.max(Math.max(sizeX, sizeY) / 150, 0.2);
-  // Respeta el tope de nodos por eje.
-  let nx = Math.floor(sizeX / cell) + 1, ny = Math.floor(sizeY / cell) + 1;
-  if (nx > MAX_NODES || ny > MAX_NODES) { cell = Math.max(sizeX, sizeY) / (MAX_NODES - 1); nx = Math.floor(sizeX / cell) + 1; ny = Math.floor(sizeY / cell) + 1; }
-  const grid = new Float64Array(nx * ny).fill(NaN);
+  return { minX, minY, maxX, maxY };
+}
 
+/** Interpola los puntos al TIN sobre una MALLA DADA (spec). NaN fuera del casco. */
+export function buildGridOn(pts: XYZ[], spec: GridSpec): Float64Array {
+  const { minX, minY, cell, nx, ny } = spec;
+  const grid = new Float64Array(nx * ny).fill(NaN);
+  if (pts.length < 3) return grid;
   const coords = new Float64Array(pts.length * 2);
   for (let i = 0; i < pts.length; i++) { coords[i * 2] = pts[i].x; coords[i * 2 + 1] = pts[i].y; }
-  // Interop ESM/CJS: según el bundler, el default puede venir envuelto en `.default`.
-  const DCtor: any = (Delaunator as any)?.default ?? Delaunator;
+  const DCtor: any = (Delaunator as any)?.default ?? Delaunator; // interop ESM/CJS
   const d = new DCtor(coords);
   const tri = d.triangles as Uint32Array;
-
   for (let t = 0; t < tri.length; t += 3) {
     const a = pts[tri[t]], b = pts[tri[t + 1]], c = pts[tri[t + 2]];
-    const bxMin = Math.min(a.x, b.x, c.x), bxMax = Math.max(a.x, b.x, c.x);
-    const byMin = Math.min(a.y, b.y, c.y), byMax = Math.max(a.y, b.y, c.y);
-    const gx0 = Math.max(0, Math.floor((bxMin - minX) / cell)), gx1 = Math.min(nx - 1, Math.ceil((bxMax - minX) / cell));
-    const gy0 = Math.max(0, Math.floor((byMin - minY) / cell)), gy1 = Math.min(ny - 1, Math.ceil((byMax - minY) / cell));
+    const gx0 = Math.max(0, Math.floor((Math.min(a.x, b.x, c.x) - minX) / cell)), gx1 = Math.min(nx - 1, Math.ceil((Math.max(a.x, b.x, c.x) - minX) / cell));
+    const gy0 = Math.max(0, Math.floor((Math.min(a.y, b.y, c.y) - minY) / cell)), gy1 = Math.min(ny - 1, Math.ceil((Math.max(a.y, b.y, c.y) - minY) / cell));
     const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
     if (Math.abs(det) < 1e-12) continue;
     for (let gy = gy0; gy <= gy1; gy++) {
@@ -50,7 +46,26 @@ export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
       }
     }
   }
-  return { grid, nx, ny, minX, minY, cell };
+  return grid;
+}
+
+/** Deriva una malla (spec) para una bbox con un tamaño de celda (respeta el tope). */
+export function specFor(minX: number, minY: number, maxX: number, maxY: number, cellHint?: number): GridSpec | null {
+  const sizeX = maxX - minX, sizeY = maxY - minY;
+  if (!(sizeX > 0) && !(sizeY > 0)) return null;
+  let cell = cellHint && cellHint > 0 ? cellHint : Math.max(Math.max(sizeX, sizeY) / 150, 0.2);
+  let nx = Math.floor(sizeX / cell) + 1, ny = Math.floor(sizeY / cell) + 1;
+  if (nx > MAX_NODES || ny > MAX_NODES) { cell = Math.max(sizeX, sizeY) / (MAX_NODES - 1); nx = Math.floor(sizeX / cell) + 1; ny = Math.floor(sizeY / cell) + 1; }
+  return { minX, minY, cell, nx, ny };
+}
+
+/** Interpola los puntos a una rejilla regular usando el TIN. NaN fuera del casco. */
+export function buildGrid(pts: XYZ[], cellHint?: number): Grid | null {
+  const bb = bboxOf(pts);
+  if (!bb) return null;
+  const spec = specFor(bb.minX, bb.minY, bb.maxX, bb.maxY, cellHint);
+  if (!spec) return null;
+  return { grid: buildGridOn(pts, spec), nx: spec.nx, ny: spec.ny, minX: spec.minX, minY: spec.minY, cell: spec.cell };
 }
 
 /** Segmentos (en coord. mundo UTM) de la curva de nivel `level` sobre la rejilla. */
@@ -87,6 +102,181 @@ export function marchingSquares(g: Grid, level: number): [number, number][][] {
     }
   }
   return segs;
+}
+
+/** Muestrea la cota (Z) interpolada en (x,y) sobre una rejilla (bilineal). NaN fuera. */
+export function sampleZ(g: Grid, x: number, y: number): number {
+  const { grid, nx, ny, minX, minY, cell } = g;
+  const fx = (x - minX) / cell, fy = (y - minY) / cell;
+  const gx = Math.floor(fx), gy = Math.floor(fy);
+  if (gx < 0 || gy < 0 || gx >= nx - 1 || gy >= ny - 1) return NaN;
+  const q11 = grid[gy * nx + gx], q21 = grid[gy * nx + gx + 1], q12 = grid[(gy + 1) * nx + gx], q22 = grid[(gy + 1) * nx + gx + 1];
+  if (isNaN(q11) || isNaN(q21) || isNaN(q12) || isNaN(q22)) return NaN;
+  const tx = fx - gx, ty = fy - gy;
+  return q11 * (1 - tx) * (1 - ty) + q21 * tx * (1 - ty) + q12 * (1 - tx) * ty + q22 * tx * ty;
+}
+
+/** Perfil longitudinal entre A y B (UTM): muestrea la superficie en `n` estaciones. */
+export function profile(g: Grid, ax: number, ay: number, bx: number, by: number, n = 80): { dist: number; z: number | null }[] {
+  const out: { dist: number; z: number | null }[] = [];
+  const total = Math.hypot(bx - ax, by - ay);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const z = sampleZ(g, ax + (bx - ax) * t, ay + (by - ay) * t);
+    out.push({ dist: total * t, z: isNaN(z) ? null : z });
+  }
+  return out;
+}
+
+/** Densifica el conjunto de puntos insertando vértices a lo largo de cada LÍNEA DE
+ *  ROTURA (breakline), con z interpolada. Así el TIN sigue la línea sin cruzarla
+ *  (aproximación estándar sin triangulación con restricciones). */
+export function densifyBreaklines(pts: XYZ[], breaklines: XYZ[][], step = 1): XYZ[] {
+  const extra: XYZ[] = [];
+  for (const bl of breaklines) {
+    for (let i = 0; i < bl.length - 1; i++) {
+      const a = bl[i], b = bl[i + 1];
+      const d = Math.hypot(b.x - a.x, b.y - a.y);
+      const n = Math.max(1, Math.min(500, Math.floor(d / step)));
+      for (let k = 0; k <= n; k++) { const t = k / n; extra.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }); }
+    }
+  }
+  return extra.length ? pts.concat(extra) : pts;
+}
+
+/** Color (0-1 por hex) por elevación normalizada t∈[0,1]: azul→verde→marrón→blanco. */
+function elevRgb(t: number): [number, number, number] {
+  const stops: [number, [number, number, number]][] = [
+    [0, [0.15, 0.35, 0.75]], [0.35, [0.13, 0.62, 0.29]], [0.7, [0.57, 0.40, 0.16]], [1, [0.96, 0.96, 0.96]],
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [a, ca] = stops[i], [b, cb] = stops[i + 1];
+    if (t <= b) { const u = (t - a) / (b - a || 1); return [ca[0] + (cb[0] - ca[0]) * u, ca[1] + (cb[1] - ca[1]) * u, ca[2] + (cb[2] - ca[2]) * u]; }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/** Malla 3D del terreno (para el visor WebGL): posiciones normalizadas (plano X/Z,
+ *  altura Y), colores por elevación e índices de triángulos. `vExag` exagera la altura. */
+export function terrainMesh(pts: XYZ[], vExag = 2): { positions: number[]; colors: number[]; indices: number[]; zmin: number; zmax: number } | null {
+  const g = buildGrid(pts);
+  if (!g) return null;
+  const { grid, nx, ny, minX, minY, cell } = g;
+  let zmin = Infinity, zmax = -Infinity;
+  for (let i = 0; i < grid.length; i++) { const z = grid[i]; if (!isNaN(z)) { if (z < zmin) zmin = z; if (z > zmax) zmax = z; } }
+  if (!isFinite(zmin)) return null;
+  const sizeX = (nx - 1) * cell, sizeY = (ny - 1) * cell;
+  const scale = Math.max(sizeX, sizeY) || 1;
+  const zrange = (zmax - zmin) || 1;
+  const positions: number[] = [], colors: number[] = [], indices: number[] = [];
+  const idx = new Int32Array(nx * ny).fill(-1);
+  let count = 0;
+  for (let gy = 0; gy < ny; gy++) {
+    for (let gx = 0; gx < nx; gx++) {
+      const z = grid[gy * nx + gx];
+      if (isNaN(z)) continue;
+      idx[gy * nx + gx] = count++;
+      const X = ((minX + gx * cell) - minX - sizeX / 2) / scale;
+      const Z = ((minY + gy * cell) - minY - sizeY / 2) / scale;
+      const Y = ((z - zmin) / zrange - 0.5) * (zrange / scale) * vExag;
+      positions.push(X, Y, Z);
+      const c = elevRgb((z - zmin) / zrange); colors.push(c[0], c[1], c[2]);
+    }
+  }
+  for (let gy = 0; gy < ny - 1; gy++) {
+    for (let gx = 0; gx < nx - 1; gx++) {
+      const a = idx[gy * nx + gx], b = idx[gy * nx + gx + 1], c = idx[(gy + 1) * nx + gx], d = idx[(gy + 1) * nx + gx + 1];
+      if (a >= 0 && b >= 0 && c >= 0) indices.push(a, c, b);
+      if (b >= 0 && c >= 0 && d >= 0) indices.push(b, c, d);
+    }
+  }
+  return { positions, colors, indices, zmin, zmax };
+}
+
+/** Secciones TRANSVERSALES a lo largo del eje A→B: cada `spacing` m se toma una
+ *  sección perpendicular de ±`halfWidth` m, muestreada de la superficie. */
+export function crossSections(g: Grid, ax: number, ay: number, bx: number, by: number, spacing: number, halfWidth: number, sampleStep = 1, maxSections = 12): { station: number; samples: { offset: number; z: number | null }[] }[] {
+  const total = Math.hypot(bx - ax, by - ay);
+  if (!(total > 0) || spacing <= 0) return [];
+  const ux = (bx - ax) / total, uy = (by - ay) / total; // dirección del eje
+  const px = -uy, py = ux;                               // perpendicular
+  let n = Math.floor(total / spacing);
+  let sp = spacing;
+  if (n > maxSections) { sp = total / maxSections; n = maxSections; }
+  const out: { station: number; samples: { offset: number; z: number | null }[] }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const s = i * sp;
+    const sx = ax + ux * s, sy = ay + uy * s;
+    const samples: { offset: number; z: number | null }[] = [];
+    for (let o = -halfWidth; o <= halfWidth + 1e-9; o += sampleStep) {
+      const z = sampleZ(g, sx + px * o, sy + py * o);
+      samples.push({ offset: o, z: isNaN(z) ? null : z });
+    }
+    out.push({ station: s, samples });
+  }
+  return out;
+}
+
+/** Triángulos del TIN como triples de índices (base para caras LandXML/DXF). */
+export function triangles(pts: XYZ[]): number[][] {
+  if (pts.length < 3) return [];
+  const coords = new Float64Array(pts.length * 2);
+  for (let i = 0; i < pts.length; i++) { coords[i * 2] = pts[i].x; coords[i * 2 + 1] = pts[i].y; }
+  const DCtor: any = (Delaunator as any)?.default ?? Delaunator;
+  const tri = new DCtor(coords).triangles as Uint32Array;
+  const out: number[][] = [];
+  for (let t = 0; t < tri.length; t += 3) out.push([tri[t], tri[t + 1], tri[t + 2]]);
+  return out;
+}
+
+/** Segmentos de las curvas de nivel EN COORDENADAS UTM (para exportar a DXF/CAD). */
+export function contourSegmentsUTM(pts: XYZ[], interval: number): { level: number; segs: [number, number][][] }[] {
+  const g = buildGrid(pts);
+  if (!g || interval <= 0) return [];
+  let zmin = Infinity, zmax = -Infinity;
+  for (const p of pts) { if (p.z < zmin) zmin = p.z; if (p.z > zmax) zmax = p.z; }
+  const out: { level: number; segs: [number, number][][] }[] = [];
+  const start = Math.ceil(zmin / interval) * interval;
+  let n = 0;
+  for (let lv = start; lv <= zmax && n < 300; lv += interval, n++) {
+    const segs = marchingSquares(g, lv);
+    if (segs.length) out.push({ level: Number(lv.toFixed(3)), segs });
+  }
+  return out;
+}
+
+/** Color por pendiente (%) — verde (llano) → rojo (fuerte), criterio de factibilidad. */
+function slopeColor(pct: number): string {
+  if (pct < 5) return 'rgba(22,163,74,0.55)';    // 0-5%  llano
+  if (pct < 15) return 'rgba(132,204,22,0.55)';  // 5-15% suave
+  if (pct < 30) return 'rgba(217,119,6,0.6)';    // 15-30% moderada
+  if (pct < 50) return 'rgba(234,88,12,0.65)';   // 30-50% fuerte
+  return 'rgba(220,38,38,0.7)';                  // >50% muy fuerte
+}
+
+/** Mapa de calor de PENDIENTES: gradiente por celda del MDT → GeoJSON (lat/lon) con
+ *  color por % de inclinación. Sirve para riesgo/factibilidad de construcción. */
+export function slopeHeatmap(pts: XYZ[], zone = 19, north = true): { geojson: any; cells: number } {
+  const g = buildGrid(pts);
+  if (!g) return { geojson: { type: 'FeatureCollection', features: [] }, cells: 0 };
+  const { grid, nx, ny, minX, minY, cell } = g;
+  const MAX = 4000; const feats: { gx: number; gy: number; pct: number }[] = [];
+  for (let gy = 1; gy < ny - 1; gy++) {
+    for (let gx = 1; gx < nx - 1; gx++) {
+      const i = gy * nx + gx;
+      const zc = grid[i], zl = grid[i - 1], zr = grid[i + 1], zd = grid[i - nx], zu = grid[i + nx];
+      if (isNaN(zc) || isNaN(zl) || isNaN(zr) || isNaN(zd) || isNaN(zu)) continue;
+      const dzdx = (zr - zl) / (2 * cell), dzdy = (zu - zd) / (2 * cell);
+      feats.push({ gx, gy, pct: Math.hypot(dzdx, dzdy) * 100 });
+    }
+  }
+  const step = Math.max(1, Math.ceil(feats.length / MAX));
+  const features = feats.filter((_, i) => i % step === 0).map((f) => {
+    const x0 = minX + f.gx * cell, y0 = minY + f.gy * cell, x1 = x0 + cell, y1 = y0 + cell;
+    const ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]].map(([x, y]) => { const ll = utmToLatLng(x, y, zone, north); return [ll.lng, ll.lat]; });
+    return { type: 'Feature', properties: { pct: Number(f.pct.toFixed(1)), label: `${f.pct.toFixed(0)}%`, style: { color: '#00000000', weight: 0, fillColor: slopeColor(f.pct), fillOpacity: 1 } }, geometry: { type: 'Polygon', coordinates: [ring] } };
+  });
+  return { geojson: { type: 'FeatureCollection', features }, cells: features.length };
 }
 
 export type ContourResult = { geojson: any; grid: Grid | null; zmin: number; zmax: number; levels: number };

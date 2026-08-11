@@ -4,12 +4,12 @@ import { supabase } from '../supabase';
 import { pdfDocument, exportPdf, urlToDataUri, nowStamp } from '../pdf';
 import {
   HaulOrder, HaulClient, HaulLocation, HaulTruck, HaulTrailer, HaulDriver,
-  HaulCheck, HaulPhoto, HaulExpense, HaulIncident,
+  HaulCheck, HaulPhoto, HaulExpense, HaulIncident, Machinery,
 } from '../../types/database';
 
 export type HaulNameRefs = {
   clients: HaulClient[]; locations: HaulLocation[]; trucks: HaulTruck[];
-  trailers: HaulTrailer[]; drivers: HaulDriver[];
+  trailers: HaulTrailer[]; drivers: HaulDriver[]; machinery: Machinery[];
 };
 
 const EXTRA_CSS = `
@@ -30,8 +30,9 @@ function maps(refs: HaulNameRefs) {
   return {
     client: new Map(refs.clients.map((c) => [c.id, c.name])),
     loc: new Map(refs.locations.map((l) => [l.id, l.name])),
-    truck: new Map(refs.trucks.map((t) => [t.id, t])),
-    trailer: new Map(refs.trailers.map((t) => [t.id, t])),
+    // Chuto y batea = máquinas del catálogo, no haul_trucks / haul_trailers.
+    truck: new Map(refs.machinery.map((mm) => [mm.id, mm])),
+    trailer: new Map(refs.machinery.map((mm) => [mm.id, mm])),
     driver: new Map(refs.drivers.map((d) => [d.id, d])),
   };
 }
@@ -70,8 +71,8 @@ export async function exportGuiaTraslado(order: HaulOrder, refs: HaulNameRefs): 
     </div>
     <div class="sec">Unidad y chofer</div>
     <div class="kv">
-      <b>Chuto:</b> ${truck?.plate ?? '—'} ${truck?.brand ? `(${truck.brand} ${truck.model ?? ''})` : ''} &nbsp;·&nbsp;
-      <b>Remolque:</b> ${trailer?.plate ?? '—'} ${trailer ? `(${trailer.kind}${trailer.max_load_ton != null ? `, ${trailer.max_load_ton} t` : ''})` : ''}<br/>
+      <b>Chuto:</b> ${(truck as any)?.code ?? '—'}${(truck as any)?.plate ? ` · ${(truck as any).plate}` : ((truck as any)?.serial ? ` · ${(truck as any).serial}` : '')} ${(truck as any)?.tipo ? `(${(truck as any).tipo})` : ''} &nbsp;·&nbsp;
+      <b>Batea/remolque:</b> ${(trailer as any)?.code ?? '—'}${(trailer as any)?.plate ? ` · ${(trailer as any).plate}` : ((trailer as any)?.serial ? ` · ${(trailer as any).serial}` : '')} ${(trailer as any)?.tipo ? `(${(trailer as any).tipo})` : ''}<br/>
       <b>Chofer:</b> ${driver?.full_name ?? '—'} &nbsp;·&nbsp; <b>Licencia:</b> ${driver?.license_number ?? '—'}
     </div>
     <div class="sec">Maquinaria transportada — Carga total: ${totalTon.toFixed(1)} t</div>

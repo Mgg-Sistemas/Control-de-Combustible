@@ -15,13 +15,18 @@ export type GeoMapPoint = {
   color?: string; isGcp?: boolean; excluded?: boolean;
 };
 
-function buildHtml(points: GeoMapPoint[], overlay?: any): string {
+function buildHtml(points: GeoMapPoint[], overlay?: any, tileUrl?: string | null, tileTms?: boolean): string {
   const data = JSON.stringify(points);
   const ov = JSON.stringify(overlay ?? null);
+  const tUrl = JSON.stringify(tileUrl || null);
+  const tTms = JSON.stringify(!!tileTms);
   return `<!doctype html><html><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <style>html,body,#map{height:100%;margin:0}</style></head>
 <body><div id="map"></div><script>
   var pts = ${data};
@@ -33,9 +38,16 @@ function buildHtml(points: GeoMapPoint[], overlay?: any): string {
   ]);
   var calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '© OpenStreetMap' });
   sat.addTo(map);
-  L.control.layers({ 'Satélite': sat, 'Calles': calles }, null, { collapsed: true }).addTo(map);
+  var bases = { 'Satélite': sat, 'Calles': calles };
+  var over = {};
+  var tUrl = ${tUrl}, tTms = ${tTms};
+  if (tUrl) { try { var orto = L.tileLayer(tUrl, { maxZoom: 24, maxNativeZoom: 22, tms: tTms, opacity: 1, attribution: 'Ortofoto' }); orto.addTo(map); over['🛰️ Ortofoto'] = orto; } catch(e){} }
+  L.control.layers(bases, over, { collapsed: true }).addTo(map);
 
   var group = [];
+  // Nubes densas → clusterizar (rendimiento). Pocos puntos → directo al mapa.
+  var useCluster = (typeof L.markerClusterGroup === 'function') && pts.length > 300;
+  var cluster = useCluster ? L.markerClusterGroup({ chunkedLoading:true, maxClusterRadius:45 }) : null;
   pts.forEach(function(p){
     if (p.lat == null || p.lng == null) return;
     var color = p.color || '#2563EB';
@@ -52,18 +64,20 @@ function buildHtml(points: GeoMapPoint[], overlay?: any): string {
     var gcp = (p.isGcp?'<br><b>Punto de control (GCP)</b>':'');
     var exc = (p.excluded?'<br><i>Excluido</i>':'');
     m.bindPopup('<b>'+(p.code||'punto')+'</b>'+z+cap+gcp+exc);
-    m.addTo(map); group.push([p.lat, p.lng]);
+    if (cluster) cluster.addLayer(m); else m.addTo(map);
+    group.push([p.lat, p.lng]);
   });
+  if (cluster) map.addLayer(cluster);
   if (overlay) { try { L.geoJSON(overlay, { style: function(f){ return (f.properties&&f.properties.style)||{ color:'#B45309', weight:1 }; },
       onEachFeature: function(f,l){ if(f.properties&&f.properties.label){ l.bindTooltip(String(f.properties.label),{permanent:false}); } } }).addTo(map); } catch(e){} }
   if (group.length) { try { map.fitBounds(group, { padding:[30,30], maxZoom:19 }); } catch(e){} }
 </script></body></html>`;
 }
 
-export function GeodestaMap({ points, overlay, height }: { points: GeoMapPoint[]; overlay?: any; height?: number }) {
+export function GeodestaMap({ points, overlay, height, tileUrl, tileTms }: { points: GeoMapPoint[]; overlay?: any; height?: number; tileUrl?: string | null; tileTms?: boolean }) {
   const { colors } = useTheme();
   const iframeRef = useRef<any>(null);
-  const html = useMemo(() => buildHtml(points, overlay), [points, overlay]);
+  const html = useMemo(() => buildHtml(points, overlay, tileUrl, tileTms), [points, overlay, tileUrl, tileTms]);
 
   if (Platform.OS === 'web') {
     return React.createElement('iframe' as any, {

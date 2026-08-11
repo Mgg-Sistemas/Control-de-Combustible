@@ -77,7 +77,7 @@ const HORAS_KEY = '__horas_mant__';
 
 type Round = {
   machinery_id: string; round_date: string; day_hours: number | null; night_hours: number | null;
-  jornada_shift: string | null; jornada_start_at: string | null; recorded_by: string | null;
+  jornada_shift: string | null; jornada_start_at: string | null; jornada_marked_at: string | null; recorded_by: string | null;
   horometro_inicial: number | null; horometro_final: number | null; machine?: { code?: string } | null;
 };
 type Maint = { machinery_id: string; material: string | null; notes: string | null; created_at: string; machine?: { code?: string } | null };
@@ -301,13 +301,21 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
     // Cubre los 14 días de la gráfica y, si el día elegido es más antiguo, también ese
     // (para que los KPIs del día no queden en 0 al navegar a una fecha vieja).
     const minDate = selDay < fromDate ? selDay : fromDate;
+    // Fin del día de negocio elegido (7am del día siguiente — el turno noche cruza la
+    // medianoche). Para FECHAS PASADAS una avería/parada que "se mantuvo" ese día pero
+    // se resolvió DESPUÉS (resolved_at > este borde) debe seguir contando como
+    // averiada/parada; si no, la máquina caía a "pendiente por iniciar" y bajaba el %.
+    // Para HOY este borde es futuro, así que `resolved_at.gt` no matchea nada y queda
+    // en solo-pendientes (no resucita averías ya resueltas hoy).
+    const nextBiz = new Date(selDay + 'T12:00:00-04:00'); nextBiz.setUTCDate(nextBiz.getUTCDate() + 1);
+    const nightEndBound = `${nextBiz.toISOString().slice(0, 10)}T07:00:00-04:00`;
     const [roundsRows, maintRows, asg, machRows, allHoursMap] = await Promise.all([
-      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
+      selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, jornada_shift, jornada_start_at, jornada_marked_at, recorded_by, horometro_inicial, horometro_final, machine:machinery_id(code)', (q) => q.gte('round_date', minDate)),
       // selectAllRows (no .from directo): con el uso normal de la flota, las
       // averías/paradas "pendiente" se acumulan indefinidamente (se arrastran hasta
       // resolverse) y pueden superar las ~1000 filas que corta PostgREST por
       // consulta — igual que ya se cuidó arriba con machine_rounds/machinery.
-      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, machine:machinery_id(code)', (q) => q.eq('status', 'pendiente')),
+      selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at, machine:machinery_id(code)', (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)),
       listInspectorAssignments(),
       // Ficha del catálogo (placa, serial, ubicación, empresa, encargado, horómetro…) por máquina.
       selectAllRows('machinery', 'id, code, plate, serial, identifier, encargado, location, referencia, sector, zona, tipo, clasificacion, machinery_type, last_horometro, operational, active, en_espera, company_id, company:company_id(name)'),
@@ -488,7 +496,17 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       // mucho más rápido y con un solo punto de éxito/error para toda la tanda.
       const nowIso = new Date().toISOString();
       if (action === 'start') {
-        const rows = items.map((it) => ({ machinery_id: it.id, round_date: roundDateFor(it.id, it.shift), round_no: 1, jornada_start_at: nowIso, jornada_shift: it.shift, status: 'operativa' }));
+        // La jornada cuenta desde el inicio NOMINAL del turno (7am día / 7pm noche),
+        // igual que el teléfono (regla del cliente: "la jornada empieza a las 7am").
+        // La hora REAL en que se activó se guarda aparte en `jornada_marked_at`, para
+        // mostrar "INICIO 07:00 · 👷 marcó 8:56" sin inflar/recortar las horas (que
+        // siempre se miden desde el nominal). Antes se ponía el inicio = hora del clic
+        // (nowIso), así que estas máquinas contaban desde tarde y no mostraban el marcado.
+        const rows = items.map((it) => {
+          const rd = roundDateFor(it.id, it.shift);
+          const declaredIso = `${rd}T${it.shift === 'night' ? '19:00:00' : '07:00:00'}-04:00`;
+          return { machinery_id: it.id, round_date: rd, round_no: 1, jornada_start_at: declaredIso, jornada_shift: it.shift, jornada_marked_at: nowIso, status: 'operativa' };
+        });
         const { error } = await supabase.from('machine_rounds').upsert(rows, { onConflict: 'machinery_id,round_date,round_no' });
         if (error) {
           Alert.alert('No se pudo iniciar', error.message);
@@ -902,10 +920,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // arranque real. Sin esto, ver el turno DÍA de una máquina cuya noche ya está
   // en curso mostraba "FIN EN CURSO" con el badge "CERRADA" (contradictorio) —
   // porque tomaba prestado el `jornada_start_at` de la noche.
-  type ShiftInfo = { hours: number; horaIni: string; horaFin: string; openNow: boolean };
+  type ShiftInfo = { hours: number; horaIni: string; horaFin: string; markedAt: string; openNow: boolean };
   const shiftDetail = useMemo(() => {
     const map = new Map<string, { day: ShiftInfo; night: ShiftInfo }>();
-    const blank = (): ShiftInfo => ({ hours: 0, horaIni: '—', horaFin: '—', openNow: false });
+    const blank = (): ShiftInfo => ({ hours: 0, horaIni: '—', horaFin: '—', markedAt: '', openNow: false });
     // "En curso" (con contador vivo) solo tiene sentido si `selDay` es el día de
     // negocio ACTUAL — mismo gate que `bulkIsToday`/`liveHorasOf`/`openNow` de
     // abajo. En un día pasado con una jornada que quedó sin cerrar (debris), se
@@ -923,6 +941,14 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
         cur[openSh].openNow = liveDay;
         cur[openSh].horaIni = horaCaracas(new Date((r as any).jornada_start_at).getTime());
         cur[openSh].horaFin = liveDay ? 'En curso' : '—';
+        // Hora REAL en que el inspector marcó la jornada (si difiere ≥2 min del inicio
+        // declarado): "INICIO 07:00 · marcó 8:15". Vacío si coincide o no se registró.
+        const mk = (r as any).jornada_marked_at as string | null;
+        if (mk) {
+          const mkMs = new Date(mk).getTime();
+          const iniMs = new Date((r as any).jornada_start_at).getTime();
+          cur[openSh].markedAt = Math.abs(mkMs - iniMs) >= 120000 ? horaCaracas(mkMs) : '';
+        }
       }
       map.set(r.machinery_id, cur);
     });
@@ -1076,7 +1102,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const worked = bothShifts
         ? Math.round((Math.min(12, sd!.day.hours + (sd!.day.openNow ? (dayElapsedH ?? 0) : 0)) + Math.min(12, sd!.night.hours + (sd!.night.openNow ? (nightElapsedH ?? 0) : 0))) * 100) / 100
         : Math.round(Math.min(12, bankedShiftH + (elapsedH ?? 0)) * 100) / 100;
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
+      const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, rd, fuel, worked, estado: estadoOf(id), inspector, horaIni, horaFin, markedAt, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null, dayElapsedH, nightElapsedH };
     });
   }, [listModal, machineInfo, roundDetail, fuelDay, segDay, selDay, codeById, estadoOf, inspectorByMachine, shiftDetail, rounds, nowTick]);
   const listShown = useMemo(() => {
@@ -1124,7 +1151,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
       const dn = inspByShift.get(id) ?? {};
       const sd = shiftDetail.get(id) ?? null;
       const bothShifts = !!sd && (sd.day.hours > 0 || sd.day.openNow) && (sd.night.hours > 0 || sd.night.openNow);
-      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
+      const markedAt = sd ? (sd.day.markedAt || sd.night.markedAt) : '';
+      return { id, code: info?.code ?? codeById.get(id) ?? '—', info, worked, estado: estadoOf(id), dayInsp: dn.day ?? null, nightInsp: dn.night ?? null, horaIni, horaFin, markedAt, openNow, elapsedH, bothShifts, dayInfo: sd?.day ?? null, nightInfo: sd?.night ?? null };
     });
     return rows.filter((r) => {
       // SOLO máquinas OPERATIVAS: fuera las INACTIVAS del catálogo (NO OPERATIVA
@@ -1672,17 +1700,23 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           <Text style={{ color: colors.muted }}>☀️ </Text><Text style={{ color: r.dayInsp ? colors.text : colors.muted, fontWeight: r.dayInsp ? '700' : '400' }}>{r.dayInsp || 'sin inspector'}</Text>
                           <Text style={{ color: colors.muted }}>    🌙 </Text><Text style={{ color: r.nightInsp ? colors.text : colors.muted, fontWeight: r.nightInsp ? '700' : '400' }}>{r.nightInsp || 'sin inspector'}</Text>
                         </Text>
-                        {r.bothShifts ? (
+                        {/* Una máquina AVERIADA/PARADA NO muestra la línea verde de jornada
+                            (INICIO→FIN·TOTAL) aunque tenga jornada_start_at (auto-inicio) o
+                            tramos: mostraba "trabajó" a la vez que el badge AVERIADA (queja
+                            del cliente). El badge + motivo ya comunican el estado. */}
+                        {(r.estado === 'averiada' || r.estado === 'parada') ? null : r.bothShifts ? (
                           // Trabajó/trabaja AMBOS turnos hoy: se muestran por separado —
                           // cada uno con su propia hora real (nunca se pisan entre sí).
                           <>
                             <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>☀️ Día · Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaIni}</Text>
+                              {r.dayInfo?.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.dayInfo.markedAt}</Text></>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.dayInfo?.hours ?? 0) * 100) / 100} h</Text>
                             </Text>
                             <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaIni}</Text>
+                              {r.nightInfo?.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.nightInfo.markedAt}</Text></>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round((r.nightInfo?.hours ?? 0) * 100) / 100} h</Text>
                             </Text>
@@ -1696,6 +1730,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                         ) : (
                           <Text style={{ fontSize: 11, fontVariant: ['tabular-nums'] as any }}>
                             <Text style={{ color: colors.muted }}>🕐 Inicio </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                            {r.markedAt ? (<><Text style={{ color: colors.muted }}>  · 👷 marcó </Text><Text style={{ color: colors.warning, fontWeight: '800' }}>{r.markedAt}</Text></>) : null}
                             <Text style={{ color: colors.muted }}>  →  Fin </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
                             <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text><Text style={{ color: colors.success, fontWeight: '800' }}>{Math.round(r.worked * 100) / 100} h</Text>
                             {r.elapsedH != null ? (<>
@@ -1916,8 +1951,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                             ⛽ {litros}{lph != null ? ` · ${lph} L/h` : ''}  ·  🏁 {r.worked} h  ·  {turnoLbl}
                           </Text>
                           {/* Hora de inicio → fin y TOTAL en VERDE (de los tramos trabajados).
-                              Si estuvo PARADA (amarillo) o AVERIADA (rojo), se muestra debajo. */}
-                          {r.bothShifts ? (
+                              Si estuvo PARADA (amarillo) o AVERIADA (rojo), se muestra debajo.
+                              AVERIADA/PARADA NO muestran la línea verde de jornada aunque tengan
+                              jornada_start_at (auto-inicio) o tramos — evita "trabajó + averiada". */}
+                          {(r.estado === 'averiada' || r.estado === 'parada') ? null : r.bothShifts ? (
                             // Trabajó/trabaja AMBOS turnos hoy: DÍA y NOCHE por separado, cada
                             // uno con su hora real (nunca se pisan — antes esta fila podía
                             // mostrar "CERRADA" con "FIN EN CURSO" al mezclar los dos turnos).
@@ -1925,6 +1962,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>☀️ Día · Inicio </Text>
                                 <Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaIni}</Text>
+                                {r.dayInfo?.markedAt ? (<>
+                                  <Text style={{ color: colors.muted }}>  · 👷 marcó </Text>
+                                  <Text style={{ color: colors.warning, fontWeight: '800' }}>{r.dayInfo.markedAt}</Text>
+                                </>) : null}
                                 <Text style={{ color: colors.muted }}>  →  Fin </Text>
                                 <Text style={{ color: colors.success, fontWeight: '800' }}>{r.dayInfo?.horaFin}</Text>
                                 <Text style={{ color: colors.muted }}>  ·  </Text>
@@ -1937,6 +1978,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                               <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                                 <Text style={{ color: colors.muted }}>🌙 Noche · Inicio </Text>
                                 <Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaIni}</Text>
+                                {r.nightInfo?.markedAt ? (<>
+                                  <Text style={{ color: colors.muted }}>  · 👷 marcó </Text>
+                                  <Text style={{ color: colors.warning, fontWeight: '800' }}>{r.nightInfo.markedAt}</Text>
+                                </>) : null}
                                 <Text style={{ color: colors.muted }}>  →  Fin </Text>
                                 <Text style={{ color: colors.success, fontWeight: '800' }}>{r.nightInfo?.horaFin}</Text>
                                 <Text style={{ color: colors.muted }}>  ·  </Text>
@@ -1955,6 +2000,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                             <Text style={{ fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] as any }}>
                               <Text style={{ color: colors.muted }}>🕐 Inicio </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaIni}</Text>
+                              {r.markedAt ? (<>
+                                <Text style={{ color: colors.muted }}>  · 👷 marcó </Text>
+                                <Text style={{ color: colors.warning, fontWeight: '800' }}>{r.markedAt}</Text>
+                              </>) : null}
                               <Text style={{ color: colors.muted }}>  →  Fin </Text>
                               <Text style={{ color: colors.success, fontWeight: '800' }}>{r.horaFin}</Text>
                               <Text style={{ color: colors.muted }}>  ·  ⏱️ Total </Text>
@@ -2002,7 +2051,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                           {detailRow('Marca - Modelo', info?.tipo || '—')}
                           {detailRow('Clasificación', info?.clasificacion || info?.machinery_type || '—')}
                           {detailRow('Turno', turnoLbl)}
-                          {detailRow('Hora de inicio', r.horaIni)}
+                          {detailRow('Hora de inicio (declarada)', r.horaIni)}
+                          {r.markedAt ? detailRow('👷 Marcada por el inspector', r.markedAt) : null}
                           {detailRow('Hora final', r.horaFin)}
                           {detailRow('Horas del día (día / noche)', r.rd ? `${r.rd.dayH} h / ${r.rd.nightH} h` : '—')}
                           {detailRow('Horas totales trabajadas', `${r.worked} h`)}
