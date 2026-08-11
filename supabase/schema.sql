@@ -2125,7 +2125,9 @@ create table if not exists public.haul_orders (
   required_arrival_at  timestamptz,
   departed_at          timestamptz,
   arrived_at           timestamptz,
-  truck_id             uuid references public.haul_trucks(id)   on delete set null,
+  -- CHUTO = máquina del CATÁLOGO (machinery, clasificación TRANSPORTE DE ESCOMBROS),
+  -- no la tabla haul_trucks (fuente única de verdad; ver haul_orders_truck_from_catalog).
+  truck_id             uuid references public.machinery(id)     on delete set null,
   trailer_id           uuid references public.haul_trailers(id) on delete set null,
   driver_id            uuid references public.haul_drivers(id)  on delete set null,
   route_km_est         numeric(10,2),

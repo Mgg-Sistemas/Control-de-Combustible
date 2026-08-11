@@ -44,7 +44,8 @@ export default function HaulOrderDetail({
   const name = useMemo(() => {
     const clients = new Map(refs.clients.map((c) => [c.id, c.name]));
     const locs = new Map(refs.locations.map((l) => [l.id, l.name]));
-    const trucks = new Map(refs.trucks.map((t) => [t.id, t.plate]));
+    // Chuto = máquina del catálogo (TRANSPORTE DE ESCOMBROS): código · placa/serial · marca.
+    const trucks = new Map(refs.machinery.map((m) => [m.id, [m.code, m.plate || m.serial, m.tipo].filter(Boolean).join(' · ')]));
     const trailers = new Map(refs.trailers.map((t) => [t.id, t.plate]));
     const drivers = new Map(refs.drivers.map((d) => [d.id, d.full_name]));
     return { clients, locs, trucks, trailers, drivers };
