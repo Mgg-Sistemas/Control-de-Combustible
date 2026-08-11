@@ -239,8 +239,10 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const onScanDetected = (text: string) => {
     setScanOpen(false);
     const id = parseMachineId(text);
+    // `machList` solo trae máquinas ACTIVAS: si el id es válido pero no aparece
+    // acá, puede ser un QR de una máquina dada de baja (no necesariamente inválido).
     const m = id ? machList.find((x) => x.id === id) : null;
-    if (!m) { setScanNotice('❌ El QR no corresponde a una máquina registrada.'); return; }
+    if (!m) { setScanNotice(id ? '❌ Esta máquina no está disponible (no existe o está dada de baja).' : '❌ El QR escaneado no es de una máquina.'); return; }
     setScanNotice(null);
     const plan = plannedByMachine.get(m.id)?.[shift] ?? null;
     if (plan?.employee_id && navigation?.navigate) {
