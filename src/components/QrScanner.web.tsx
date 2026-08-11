@@ -23,35 +23,75 @@ export default function QrScanner({ onDetected, onClose }: { onDetected: (text: 
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
 
+    // BarcodeDetector (nativo del navegador, disponible en Chrome/Edge/Android):
+    // decodifica en el motor del navegador (más rápido y bastante más tolerante
+    // a foco/luz/reflejo que jsQR por software). Si no existe (típicamente
+    // Safari/iOS) se cae automáticamente a jsQR — mismo comportamiento de antes.
+    const BD: any = (window as any).BarcodeDetector;
+    const detector = BD ? new BD({ formats: ['qr_code'] }) : null;
+    let detecting = false;
+
+    const tickJsQR = (v: HTMLVideoElement, c: HTMLCanvasElement) => {
+      const w = v.videoWidth;
+      const h = v.videoHeight;
+      if (!w || !h) return;
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0, w, h);
+      const img = ctx.getImageData(0, 0, w, h);
+      const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+      if (code && code.data && !doneRef.current) {
+        doneRef.current = true;
+        cleanup();
+        onDetected(code.data);
+      }
+    };
+
     const tick = () => {
       const v = videoRef.current;
       const c = canvasRef.current;
       if (v && c && v.readyState === v.HAVE_ENOUGH_DATA) {
-        const w = v.videoWidth;
-        const h = v.videoHeight;
-        if (w && h) {
-          c.width = w; c.height = h;
-          const ctx = c.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(v, 0, 0, w, h);
-            const img = ctx.getImageData(0, 0, w, h);
-            const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
-            if (code && code.data && !doneRef.current) {
-              doneRef.current = true;
-              cleanup();
-              onDetected(code.data);
-              return;
-            }
+        if (detector && !detecting) {
+          detecting = true;
+          // try/catch por si detect() llega a lanzar SÍNCRONO en vez de rechazar la
+          // promesa (no debería, per spec, pero si pasara cortaría el ciclo entero
+          // de requestAnimationFrame silenciosamente — la cámara se "congelaría").
+          try {
+            detector.detect(v)
+              .then((codes: { rawValue: string }[]) => {
+                detecting = false;
+                // El detector nativo es async: si se cerró/desmontó mientras esta
+                // detección seguía en vuelo, no dispares onDetected (escaneo fantasma
+                // tras cerrar el modal).
+                if (cancelled || doneRef.current) return;
+                if (codes && codes[0]?.rawValue) {
+                  doneRef.current = true;
+                  cleanup();
+                  onDetected(codes[0].rawValue);
+                }
+              })
+              .catch(() => { detecting = false; }); // frame ilegible: reintenta en el próximo tick
+          } catch {
+            detecting = false; // frame ilegible: reintenta en el próximo tick
           }
+        } else if (!detector) {
+          tickJsQR(v, c);
         }
       }
-      rafRef.current = requestAnimationFrame(tick);
+      if (!doneRef.current) rafRef.current = requestAnimationFrame(tick);
     };
 
     (async () => {
       try {
         const md: any = (navigator as any).mediaDevices;
-        if (!md?.getUserMedia) { setError('Este navegador no permite usar la cámara.'); return; }
+        if (!md?.getUserMedia) {
+          const inseguro = location.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(location.hostname);
+          setError(inseguro
+            ? 'La cámara requiere conexión segura (https). Este sitio se abrió por http — avisa al administrador.'
+            : 'Este navegador no permite usar la cámara.');
+          return;
+        }
         const stream = await md.getUserMedia({ video: { facingMode: 'environment' } });
         if (cancelled) { stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()); return; }
         streamRef.current = stream;

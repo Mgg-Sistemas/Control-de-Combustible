@@ -618,6 +618,28 @@ drop trigger if exists trg_ml_recorded_by on public.machinery_locations;
 create trigger trg_ml_recorded_by before insert on public.machinery_locations
   for each row execute function public.ml_set_recorded_by();
 
+-- Guarda la ubicación (lat/lng) de una máquina y, opcionalmente, su
+-- edificio/referencia, en una sola llamada. SECURITY DEFINER a propósito:
+-- bypassa RLS de 'machinery' (machinery_write exige is_staff(), pero esto lo
+-- usan también operadores anónimos por QR y roles fuera de is_staff() como
+-- Coordinador de Operadores) — no valida rol adentro porque solo toca
+-- ubicación/referencia, nunca precio ni identidad de la máquina.
+-- p_referencia null (default) = no toca la referencia existente.
+create or replace function public.update_machine_location(p_id uuid, p_lat numeric, p_lng numeric, p_referencia text default null)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  update public.machinery
+    set latitude = p_lat, longitude = p_lng, location_at = now(),
+        referencia = case when p_referencia is not null then p_referencia else referencia end
+    where id = p_id;
+  insert into public.machinery_locations(machinery_id, latitude, longitude) values (p_id, p_lat, p_lng);
+end
+$$;
+
 alter table public.companies           enable row level security;
 alter table public.machinery_locations enable row level security;
 drop policy if exists companies_select on public.companies;
