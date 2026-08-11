@@ -15,7 +15,8 @@ import { norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
 import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
-import { contours, slopeHeatmap, XYZ } from '../lib/tin';
+import { contours, slopeHeatmap, terrainMesh, XYZ } from '../lib/tin';
+import { Terrain3D, Mesh3D } from '../components/Terrain3D';
 import { volumeBetween, volumeToLevel, VolumeResult, fmtM3 } from '../lib/volumes';
 import { buildGrid, profile, crossSections } from '../lib/tin';
 import { ProfileChart, ProfilePt } from '../components/ProfileChart';
@@ -308,6 +309,15 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   };
 
   const [slopeOn, setSlopeOn] = useState(false);
+  const [mesh3d, setMesh3d] = useState<Mesh3D | null>(null);
+  const ver3D = () => {
+    const pts = xyz();
+    if (pts.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota (Z).'); return; }
+    const m = terrainMesh(pts, 2);
+    if (!m || !m.indices.length) { toast.error('No se pudo construir la malla 3D.'); return; }
+    setMesh3d({ positions: m.positions, colors: m.colors, indices: m.indices });
+    setTab('superficie');
+  };
   const verPendientes = () => {
     const pts = xyz();
     if (pts.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota (Z).'); return; }
@@ -614,9 +624,14 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
                 </TouchableOpacity>
               ) : null}
             </View>
-            <TouchableOpacity onPress={verPendientes} style={{ marginTop: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
-              <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>🌡️ Mapa de calor de pendientes</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
+              <TouchableOpacity onPress={verPendientes} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>🌡️ Pendientes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={ver3D} style={{ flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '800', fontSize: 12.5 }}>🧊 Ver en 3D</Text>
+              </TouchableOpacity>
+            </View>
             {surfInfo ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>{surfInfo}</Text> : null}
             {slopeOn ? (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
@@ -629,6 +644,16 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
               </View>
             ) : null}
           </Card>
+          {mesh3d ? (
+            <>
+              <View style={{ height: spacing.sm }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>🧊 Terreno 3D (arrastra para rotar)</Text>
+                <TouchableOpacity onPress={() => setMesh3d(null)}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Ocultar</Text></TouchableOpacity>
+              </View>
+              <Terrain3D mesh={mesh3d} height={420} />
+            </>
+          ) : null}
           <View style={{ height: spacing.sm }} />
           <GeodestaMap points={mapPoints} overlay={overlay} height={400} tileUrl={project?.basemap_url} tileTms={project?.basemap_kind === "tms"} />
           {surfaces.length ? (
