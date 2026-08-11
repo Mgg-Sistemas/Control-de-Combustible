@@ -106,3 +106,79 @@ grant execute on function public.update_machine_location(uuid,numeric,numeric,te
 --    one_fuel_per_machine_per_day, + índice idx_stock_movements_source.
 --    (El cuerpo completo de las 3 funciones se aplicó vía migración; ver ese archivo.)
 create index if not exists idx_stock_movements_source on public.stock_movements(source_table, source_id);
+
+-- ── security#4: el bloqueo por 3 intentos fallidos era PERMANENTE (solo admin
+--    desbloqueaba) y register_failed_login era invocable pre-login con CUALQUIER
+--    cédula/usuario → se podía bloquear la cuenta de otro a propósito (DoS dirigido),
+--    y peor: locked_at se re-escribía a now() en cada intento con attempts>=3, así que
+--    un atacante que siguiera llamando mantenía el bloqueo indefinido.
+--    FIX (decisión del cliente 11-ago-2026): AUTO-DESBLOQUEO a los 15 min.
+--      · locked_at se fija UNA sola vez (al cruzar a bloqueado), no se refresca.
+--      · register es NO-OP si ya está bloqueado dentro del enfriamiento (no extiende).
+--      · enfriamiento vencido → ciclo nuevo (attempts=1), no sigue sumando.
+--      · login_status_* limpia el bloqueo vencido (auto-desbloqueo perezoso) al iniciar login.
+--      · el admin sigue desbloqueando al instante (reset_failed_login / panel Usuarios).
+--    Las 4 funciones (cédula + usuario) conservan su firma → el cliente NO cambia.
+create or replace function public.register_failed_login(p_cedula text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where btrim(cedula) = btrim(p_cedula) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then
+    v_att := 0; v_lock := false; v_at := null;
+  end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.register_failed_login_username(p_username text)
+returns table(attempts integer, locked boolean)
+language plpgsql security definer set search_path to 'public' as $function$
+declare r public.profiles%rowtype; v_att int; v_lock boolean; v_at timestamptz;
+begin
+  select * into r from public.profiles where lower(btrim(username)) = lower(btrim(p_username)) limit 1 for update;
+  if not found then return query select 0, false; return; end if;
+  v_att := coalesce(r.failed_attempts, 0); v_lock := coalesce(r.locked, false); v_at := r.locked_at;
+  if v_lock and v_at is not null and v_at <= now() - interval '15 minutes' then
+    v_att := 0; v_lock := false; v_at := null;
+  end if;
+  if v_lock then return query select v_att, true; return; end if;
+  v_att := v_att + 1;
+  if v_att >= 3 then v_lock := true; v_at := now(); end if;
+  update public.profiles set failed_attempts = v_att, locked = v_lock, locked_at = v_at where id = r.id;
+  return query select v_att, v_lock;
+end $function$;
+
+create or replace function public.login_status_for_cedula(p_cedula text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where btrim(p.cedula) = btrim(p_cedula) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query
+    select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where pr.cedula = btrim(p_cedula) and coalesce(au.is_anonymous, false) = false
+    limit 1;
+end $function$;
+
+create or replace function public.login_status_for_username(p_username text)
+returns table(email text, locked boolean)
+language plpgsql security definer set search_path to 'public', 'auth' as $function$
+begin
+  update public.profiles p set failed_attempts = 0, locked = false, locked_at = null
+   where lower(btrim(p.username)) = lower(btrim(p_username)) and p.locked = true
+     and p.locked_at is not null and p.locked_at <= now() - interval '15 minutes';
+  return query
+    select au.email::text, coalesce(pr.locked, false)
+    from auth.users au join public.profiles pr on pr.id = au.id
+    where lower(btrim(pr.username)) = lower(btrim(p_username)) and coalesce(au.is_anonymous, false) = false
+    limit 1;
+end $function$;
