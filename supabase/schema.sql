@@ -2597,6 +2597,9 @@ create trigger trg_max_ops_per_shift
 before insert or update on public.operator_assignments
 for each row execute function public.enforce_max_operators_per_shift();
 
+-- jornada_marked_at: hora REAL en que el inspector marcó la jornada (≠ inicio declarado).
+alter table public.machine_rounds add column if not exists jornada_marked_at timestamptz;
+
 -- sync#3: upsert ATÓMICO de la jornada (round_no=1) — escribe solo las columnas
 -- presentes en el patch jsonb (clave presente, aun null, gana; ausente conserva
 -- lo de la BD) y deriva `status`. Elimina el lost-update de upsertMachineRound /
@@ -2616,14 +2619,15 @@ begin
   insert into public.machine_rounds as mr (
     machinery_id, round_date, round_no, day_hours, night_hours, hours_stopped, overtime_hours,
     day_operator, day_operator_ci, night_operator, night_operator_ci,
-    horometro_inicial, horometro_final, horometro_photo, jornada_start_at, jornada_shift, recorded_by, status
+    horometro_inicial, horometro_final, horometro_photo, jornada_start_at, jornada_shift,
+    jornada_marked_at, recorded_by, status
   ) values (
     p_machinery_id, p_round_date, 1, ins_day, ins_night,
     coalesce((j->>'hours_stopped')::numeric, 0), coalesce((j->>'overtime_hours')::numeric, 0),
     j->>'day_operator', j->>'day_operator_ci', j->>'night_operator', j->>'night_operator_ci',
     (j->>'horometro_inicial')::numeric, (j->>'horometro_final')::numeric, j->>'horometro_photo',
-    (j->>'jornada_start_at')::timestamptz, j->>'jornada_shift', p_recorded_by,
-    case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
+    (j->>'jornada_start_at')::timestamptz, j->>'jornada_shift', (j->>'jornada_marked_at')::timestamptz,
+    p_recorded_by, case when ins_day + ins_night > 0 then 'operativa' else 'parada' end
   )
   on conflict (machinery_id, round_date, round_no) do update set
     day_hours      = case when j ? 'day_hours'      then coalesce((j->>'day_hours')::numeric,0)      else mr.day_hours end,
@@ -2639,6 +2643,7 @@ begin
     horometro_photo   = case when j ? 'horometro_photo'   then j->>'horometro_photo'   else mr.horometro_photo end,
     jornada_start_at  = case when j ? 'jornada_start_at'  then (j->>'jornada_start_at')::timestamptz else mr.jornada_start_at end,
     jornada_shift     = case when j ? 'jornada_shift'     then j->>'jornada_shift'     else mr.jornada_shift end,
+    jornada_marked_at = case when j ? 'jornada_marked_at' then (j->>'jornada_marked_at')::timestamptz else mr.jornada_marked_at end,
     status = case when (
         (case when j ? 'day_hours'   then coalesce((j->>'day_hours')::numeric,0)   else mr.day_hours end)
       + (case when j ? 'night_hours' then coalesce((j->>'night_hours')::numeric,0) else mr.night_hours end)
