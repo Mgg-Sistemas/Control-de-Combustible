@@ -104,6 +104,58 @@ export function marchingSquares(g: Grid, level: number): [number, number][][] {
   return segs;
 }
 
+/** Muestrea la cota (Z) interpolada en (x,y) sobre una rejilla (bilineal). NaN fuera. */
+export function sampleZ(g: Grid, x: number, y: number): number {
+  const { grid, nx, ny, minX, minY, cell } = g;
+  const fx = (x - minX) / cell, fy = (y - minY) / cell;
+  const gx = Math.floor(fx), gy = Math.floor(fy);
+  if (gx < 0 || gy < 0 || gx >= nx - 1 || gy >= ny - 1) return NaN;
+  const q11 = grid[gy * nx + gx], q21 = grid[gy * nx + gx + 1], q12 = grid[(gy + 1) * nx + gx], q22 = grid[(gy + 1) * nx + gx + 1];
+  if (isNaN(q11) || isNaN(q21) || isNaN(q12) || isNaN(q22)) return NaN;
+  const tx = fx - gx, ty = fy - gy;
+  return q11 * (1 - tx) * (1 - ty) + q21 * tx * (1 - ty) + q12 * (1 - tx) * ty + q22 * tx * ty;
+}
+
+/** Perfil longitudinal entre A y B (UTM): muestrea la superficie en `n` estaciones. */
+export function profile(g: Grid, ax: number, ay: number, bx: number, by: number, n = 80): { dist: number; z: number | null }[] {
+  const out: { dist: number; z: number | null }[] = [];
+  const total = Math.hypot(bx - ax, by - ay);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const z = sampleZ(g, ax + (bx - ax) * t, ay + (by - ay) * t);
+    out.push({ dist: total * t, z: isNaN(z) ? null : z });
+  }
+  return out;
+}
+
+/** Triángulos del TIN como triples de índices (base para caras LandXML/DXF). */
+export function triangles(pts: XYZ[]): number[][] {
+  if (pts.length < 3) return [];
+  const coords = new Float64Array(pts.length * 2);
+  for (let i = 0; i < pts.length; i++) { coords[i * 2] = pts[i].x; coords[i * 2 + 1] = pts[i].y; }
+  const DCtor: any = (Delaunator as any)?.default ?? Delaunator;
+  const tri = new DCtor(coords).triangles as Uint32Array;
+  const out: number[][] = [];
+  for (let t = 0; t < tri.length; t += 3) out.push([tri[t], tri[t + 1], tri[t + 2]]);
+  return out;
+}
+
+/** Segmentos de las curvas de nivel EN COORDENADAS UTM (para exportar a DXF/CAD). */
+export function contourSegmentsUTM(pts: XYZ[], interval: number): { level: number; segs: [number, number][][] }[] {
+  const g = buildGrid(pts);
+  if (!g || interval <= 0) return [];
+  let zmin = Infinity, zmax = -Infinity;
+  for (const p of pts) { if (p.z < zmin) zmin = p.z; if (p.z > zmax) zmax = p.z; }
+  const out: { level: number; segs: [number, number][][] }[] = [];
+  const start = Math.ceil(zmin / interval) * interval;
+  let n = 0;
+  for (let lv = start; lv <= zmax && n < 300; lv += interval, n++) {
+    const segs = marchingSquares(g, lv);
+    if (segs.length) out.push({ level: Number(lv.toFixed(3)), segs });
+  }
+  return out;
+}
+
 export type ContourResult = { geojson: any; grid: Grid | null; zmin: number; zmax: number; levels: number };
 
 /** Genera las curvas de nivel a `interval` metros como GeoJSON (lat/lon) para el mapa. */
