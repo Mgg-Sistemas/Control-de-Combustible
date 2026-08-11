@@ -74,23 +74,26 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
   const { date, shift } = opts;
   const fecha = dmy(date);
 
-  // 1) Rondas (jornadas) del día — para clasificar iniciada/cerrada/avería/parada
-  //    por turno con `buildDaySets` (mismo cálculo que InspectionsSummary.tsx).
-  const { data: rs } = await supabase
-    .from('machine_rounds')
-    .select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift')
-    .eq('round_date', date);
-  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
-  // AYER (el día en que inició), no el de `date` — sin este fallback, generar este
-  // reporte bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
-  // y la máquina salía "⏳ sin iniciar" en vez de "🟢 iniciada". Mismo criterio que
-  // ya usa `computeInspectorData` en inspectorReport.ts.
-  const { data: rsAyer } = await supabase
-    .from('machine_rounds')
-    .select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift')
-    .eq('round_date', isoYesterday(date))
-    .eq('jornada_shift', 'night')
-    .not('jornada_start_at', 'is', null);
+  // Lecturas del día en PARALELO (todas dependen solo de `date`) — una sola espera de
+  // red en vez de 4 encadenadas. Ventana de avería/parada hasta las 07:00 del día
+  // SIGUIENTE (el turno noche cruza medianoche) — igual criterio que buildDaySets.
+  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
+  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift';
+  const [{ data: rs }, { data: rsAyer }, mr, { rows: assignsAll }] = await Promise.all([
+    // 1) Rondas (jornadas) del día — para clasificar iniciada/cerrada/avería/parada por
+    //    turno con `buildDaySets` (mismo cálculo que InspectionsSummary.tsx).
+    supabase.from('machine_rounds').select(roundsSelect).eq('round_date', date),
+    // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de AYER
+    // (el día en que inició). Sin este fallback, generar el reporte bien temprano (antes
+    // del auto-cierre de las 7am) dejaba la máquina "⏳ sin iniciar" en vez de "🟢 iniciada".
+    supabase.from('machine_rounds').select(roundsSelect).eq('round_date', isoYesterday(date)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
+    // 2) Averías/paradas PENDIENTES vigentes (arrastradas) + RESUELTAS ese día. Para HOY el
+    //    borde es futuro → solo pendientes. Igual que InspectionsSummary. selectAllRows
+    //    (pagina): con >1000 pendientes la consulta cruda se truncaba, perdiendo las más viejas.
+    selectAllRows('maintenance_requests', 'machinery_id, material, notes, created_at, resolved_at', (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`).lte('created_at', nightEndBound)),
+    // 3) Asignaciones (CHECK) inspector ↔ máquina — la columna vertebral (AMBOS turnos).
+    listInspectorAssignments(),
+  ]);
   // `buildDaySets` filtra por `round_date === selDay`: se remapean las filas de
   // "anoche" a `date` (representan la jornada de noche de ESTE día de negocio,
   // solo que su fila de calendario quedó fechada ayer) — solo para máquinas que
@@ -108,21 +111,6 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     roundsForDaySets.push({ machinery_id: r.machinery_id, round_date: date, day_hours: r.day_hours, night_hours: r.night_hours, jornada_shift: r.jornada_shift, jornada_start_at: r.jornada_start_at });
   });
 
-  // 2) Averías/paradas PENDIENTES vigentes hasta ese día (se arrastran de un día a
-  //    otro, igual que en el teléfono, hasta que el inspector las reactive).
-  // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
-  // noche va de 19:00 a 07:00+1, así que una avería/parada marcada a la 1am cae
-  // dentro del turno noche de HOY — igual criterio que `buildDaySets`/`dayEndMs`.
-  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
-  // Paginado (selectAllRows): con >1000 solicitudes pendientes la consulta cruda se
-  // truncaba, perdiendo justo las averías/paradas más antiguas y arrastradas.
-  const mr = await selectAllRows(
-    'maintenance_requests',
-    'machinery_id, material, notes, created_at, resolved_at',
-    // Pendiente O resuelta DESPUÉS del fin del día consultado (se mantuvo averiada/parada
-    // ese día). Para HOY el borde es futuro → solo pendientes. Igual que InspectionsSummary.
-    (q) => q.or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`).lte('created_at', nightEndBound)
-  );
   // selectAllRows pagina por id (no por fecha) — se reordena acá por created_at DESC,
   // que es lo que asume `averiaByMachine` de abajo (la primera fila por máquina = la más reciente).
   (mr as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -138,12 +126,9 @@ export async function generateSummaryReport(opts: { date: string; shift?: 'day' 
     averiaByMachine.set(m.machinery_id, { motivo: notes || (m.material ? String(m.material) : 'Avería') });
   });
 
-  // 3) Asignaciones (CHECK) inspector ↔ máquina: la columna vertebral — TODAS las
-  //    máquinas de cada inspector, para saber cuáles le faltaron por iniciar.
-  //    `assignsAll` (AMBOS turnos) se le pasa completo a `buildDaySets` (la regla
-  //    "SIEMPRE ACTIVO" no filtra por turno, igual que en la pantalla); `assigns`
-  //    (filtrado si se pidió un turno) es lo que efectivamente se imprime.
-  const { rows: assignsAll } = await listInspectorAssignments();
+  // `assignsAll` (AMBOS turnos, traído arriba) se le pasa completo a `buildDaySets` (la
+  // regla "SIEMPRE ACTIVO" no filtra por turno, igual que en la pantalla); `assigns`
+  // (filtrado si se pidió un turno) es lo que efectivamente se imprime.
   const assigns = shift ? assignsAll.filter((a) => a.shift === shift) : assignsAll;
 
   // 4) Modelo/tipo de máquina + flags de catálogo (active/operational/en_espera,
