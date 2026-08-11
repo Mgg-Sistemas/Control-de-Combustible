@@ -326,6 +326,10 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
         </View>
       ) : null}
 
+      <TouchableOpacity onPress={() => navigation?.navigate?.('GeodestaInspecciones', { projectId, projectName: project?.name, referencia: project?.referencia })} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}>
+        <Text style={{ color: colors.primary, fontWeight: '800', fontSize: 13 }}>🧭 Inspecciones de terreno de este levantamiento ›</Text>
+      </TouchableOpacity>
+
       {/* Pestañas Lista / Mapa / Superficie */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
         {(['lista', 'mapa', 'superficie', 'volumen'] as Tab[]).map((t) => (
