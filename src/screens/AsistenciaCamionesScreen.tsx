@@ -39,7 +39,7 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
 ];
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 
-type Truck = { id: string; code: string; plate: string | null; serial: string | null; companyName: string; latitude: number | null; longitude: number | null };
+type Truck = { id: string; code: string; plate: string | null; serial: string | null; companyName: string; latitude: number | null; longitude: number | null; enEspera: boolean };
 type Round = { id: string; startAt: string | null; shift: 'day' | 'night' | null; worked: number; iniHoro: number | null };
 type Override = { status: 'presente' | 'ausente' };
 type Estado = { present: boolean; auto: boolean; hora: string | null; shift: 'day' | 'night' | null };
@@ -105,13 +105,14 @@ export default function AsistenciaCamionesScreen() {
     // 1) Todos los camiones (volteos/volquetas): se filtran por código en el cliente.
     const { data: machs } = await supabase
       .from('machinery')
-      .select('id, code, plate, serial, latitude, longitude, company:company_id(name)')
+      .select('id, code, plate, serial, latitude, longitude, en_espera, company:company_id(name)')
       .order('code');
     const list = ((machs ?? []) as any[])
       .filter((m) => isVolteoVolqueta(m.code || ''))
       .map((m) => ({
         id: m.id as string, code: m.code ?? '—', plate: m.plate ?? null, serial: m.serial ?? null,
         companyName: m.company?.name ?? 'Sin empresa', latitude: m.latitude ?? null, longitude: m.longitude ?? null,
+        enEspera: !!m.en_espera,
       })) as Truck[];
     list.sort((a, b) => cmpText(a.code, b.code));
     setTrucks(list);
@@ -182,6 +183,9 @@ export default function AsistenciaCamionesScreen() {
   // ── Elegir/escanear camión para una acción ────────────────────────────────
   const abrirAccion = (fr: PickFor, t: Truck) => {
     setPickFor(null); setPickQuery('');
+    // "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): nada de
+    // gasoil, avería ni jornada hasta que se decida Operativa o Parada.
+    if (t.enEspera) { setNotice(`⏳ "${t.code}" está EN ESPERA DE INSTRUCCIONES. No se le puede iniciar jornada, surtir gasoil ni registrar avería todavía.`); return; }
     if (fr === 'gasoil') { setGasoilId(t.id); return; }
     if (fr === 'averia') { setAvTruck(t); setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null); return; }
     if (fr === 'jornada') { abrirJornada(t); return; }
@@ -263,6 +267,7 @@ export default function AsistenciaCamionesScreen() {
   };
   const registrarAveria = async () => {
     if (!avTruck || !avMaterial) return;
+    if (!avNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
     setBusy(true);
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: avTruck.id, material: avMaterial, quantity: numOrNull(avQty),
@@ -478,12 +483,12 @@ export default function AsistenciaCamionesScreen() {
               </View>
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
               <TextInput value={avQty} onChangeText={setAvQty} keyboardType="numeric" placeholder="Ej: 2" placeholderTextColor={colors.muted} style={input} />
-              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (obligatoria)</Text>
               <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline style={[input, { minHeight: 60 }]} />
               <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.successSoftBorder : colors.border, backgroundColor: avPhoto ? colors.successSoftBg : colors.surface, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: avPhoto ? colors.successSoftText : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto adjunta' : '📷 Foto de referencia (opcional)'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
+              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial || !avNote.trim()} style={{ marginTop: spacing.md, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (busy || !avMaterial || !avNote.trim()) ? 0.6 : 1 }}>
                 <Text style={{ color: colors.accentContrast, fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setAvTruck(null)} style={{ padding: spacing.sm, alignItems: 'center' }}>

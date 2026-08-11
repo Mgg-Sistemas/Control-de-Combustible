@@ -111,9 +111,12 @@ export default function CheckMaquinaModal({ visible, onClose, isAdmin }: { visib
     || norm((m as any).tipo || '').includes(q);
 
   // Listado del CHECK: máquinas ACTIVAS y OPERATIVAS (mismo criterio que el teléfono).
+  // Tampoco EN ESPERA DE INSTRUCCIONES (pedido del cliente 11-ago-2026, congeladas):
+  // antes esta lista SÍ las dejaba pasar aunque `necesitaInspector`/`visibleResumen`
+  // (abajo) ya las excluían — la asignación real de inspector no estaba protegida.
   const checkList = useMemo(() => {
     const q = norm(checkQuery.trim());
-    return machines.filter((m) => m.active !== false && m.operational !== false && matchQuery(m, q));
+    return machines.filter((m) => m.active !== false && m.operational !== false && !m.en_espera && matchQuery(m, q));
   }, [machines, checkQuery]);
 
   const necesitaInspector = (m: Mach) => m.active !== false && (m as any).operational !== false && !m.en_espera;

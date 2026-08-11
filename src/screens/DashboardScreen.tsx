@@ -180,16 +180,19 @@ export default function DashboardScreen({ navigation }: any) {
     //  · ESPERANDO INSTRUCCIONES: en_espera=true (cargadas pero sin decidir Operativa/Parada).
     //  · AVERIADAS: operativas con avería PENDIENTE marcada por el inspector (sync).
     //  · OPERATIVAS: el resto (operativas sin avería).
-    let op = 0, ave = 0, ret = 0, esp = 0, activas = 0;
+    let op = 0, ave = 0, ret = 0, esp = 0;
     (machs ?? []).forEach((m: any) => {
       if (m.operational === false) { ret++; return; }
-      activas++;
       if (m.en_espera) { esp++; return; } // esperando instrucciones (excluyente, antes de avería/operativa)
       if (averiaSet.has(m.id)) ave++;
       else op++;
     });
     setStates({ op, ave, ret, esp });
-    setActiveAssets(activas + (vehCount ?? 0));
+    // "Maquinaria/Vehículos activos": operativas + averiadas (excluye retiradas Y
+    // en_espera), consistente con el widget de 4 cubos de arriba — antes sumaba TODAS
+    // las `operational` (incluyendo en_espera), así que no cuadraba con "🟢 Operativas"
+    // + "🔴 Averiadas" del mismo panel.
+    setActiveAssets(op + ave + (vehCount ?? 0));
   }, []);
 
   // Carga las HORAS TRABAJADAS (jornadas) por empresa para el rango del modo elegido.
@@ -230,7 +233,10 @@ export default function DashboardScreen({ navigation }: any) {
     // otro dispositivo no aparecía en el gráfico hasta cambiar de pestaña día/mes/año.
     const bump = () => { clearTimeout(timer); timer = setTimeout(() => { loadCounts(); loadChart(chartModeRef.current); }, 300); };
     const ch = supabase.channel(`rt-dashboard-counts-${rtId.current}`);
-    ['machine_rounds', 'machinery', 'vehicles'].forEach((t) =>
+    // maintenance_requests/machine_inspectors: sin estas, marcar una avería/parada o
+    // reasignar el inspector "SIEMPRE ACTIVO" de una máquina no refrescaba este widget
+    // en vivo (solo lo hacía al recargar la pantalla).
+    ['machine_rounds', 'machinery', 'vehicles', 'maintenance_requests', 'machine_inspectors'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     ch.subscribe();

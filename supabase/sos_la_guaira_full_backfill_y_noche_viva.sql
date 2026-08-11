@@ -229,6 +229,9 @@ begin
     join public.machine_inspectors mi on mi.machinery_id = mr.machinery_id and mi.shift = 'night' and mi.inspector_id = ph_id
     where mr.jornada_shift = 'night' and mr.jornada_start_at is not null
       and lower(coalesce(mch.code,'')) !~ 'volqueta|toronto'
+      -- Defensa adicional (11-ago-2026): "esperando instrucciones" = congelada, ver
+      -- el mismo comentario en auto_close_jornadas.sql.
+      and coalesce(mch.en_espera, false) = false
   loop
     end_ts := ((r.round_date + 1) + time '01:00') at time zone 'America/Caracas';
     if now() >= end_ts then

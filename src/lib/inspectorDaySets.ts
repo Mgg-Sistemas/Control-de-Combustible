@@ -67,19 +67,24 @@ export type MachineFlags = { id: string; active: boolean | null; operational: bo
 /**
  * Máquinas fuera del catálogo asignable, en dos niveles (igual que
  * `machInactiveSet`/`machHardInactiveSet` en InspectionsSummary.tsx):
- *  - "duras" (machHardInactiveSet): active=false u operational=false (botón
- *    "⛔ Inactiva" del Catálogo). NUNCA se muestran, ni con jornada abierta
- *    (regla confirmada por el cliente 08/08/2026).
- *  - "blandas" (machInactiveSet): active=false o en_espera=true. Se ocultan
- *    salvo que tengan una jornada abierta HOY (anyOpenSet) — mismo criterio
- *    que el teléfono (visibleParaInspector).
+ *  - "duras" (machHardInactiveSet): active=false, operational=false (botón
+ *    "⛔ Inactiva" del Catálogo) o en_espera=true. NUNCA se muestran, ni con
+ *    jornada abierta (regla confirmada por el cliente 08/08/2026, y extendida
+ *    a en_espera el 11-ago-2026: "esperando instrucciones" debe quedar
+ *    congelada por completo — sin excepción por jornada abierta. Desde esa
+ *    fecha, al marcar en_espera=true cualquier jornada corriendo se cierra de
+ *    inmediato — `freezeOpenJornadaNow` en machineRounds.ts — así que esta
+ *    excepción ya no hace falta ni para dejar que el inspector la cierre).
+ *  - "blandas" (machInactiveSet): active=false. Se oculta salvo que tenga una
+ *    jornada abierta HOY (anyOpenSet) — mismo criterio que el teléfono
+ *    (visibleParaInspector).
  */
 export function computeMachineVisibilitySets(machList: MachineFlags[]): { machInactiveSet: Set<string>; machHardInactiveSet: Set<string> } {
   const machInactiveSet = new Set<string>();
   const machHardInactiveSet = new Set<string>();
   machList.forEach((m) => {
-    if (m.active === false || m.en_espera === true) machInactiveSet.add(m.id);
-    if (m.active === false || m.operational === false) machHardInactiveSet.add(m.id);
+    if (m.active === false) machInactiveSet.add(m.id);
+    if (m.active === false || m.operational === false || m.en_espera === true) machHardInactiveSet.add(m.id);
   });
   return { machInactiveSet, machHardInactiveSet };
 }
@@ -146,7 +151,16 @@ export function buildDaySets(params: {
   const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
   const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
   const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
-  const openStartMs = new Map<string, number>(); // hora de inicio de la jornada ABIERTA de ESTE turno
+  // Hora de inicio de la jornada ABIERTA de ESTE turno (shiftArg) — estrictamente
+  // por-turno, A PROPÓSITO: `buildDaySets` es POR-TURNO AISLADO (día independiente de
+  // noche) para no mezclar la eficiencia por inspector/turno de Inspecciones. Una
+  // avería de DÍA con la jornada de NOCHE reabierta después NO reactiva acá (caso
+  // LUMINARIA/PAYLOADER, 11-ago-2026) — esa reactivación CRUZADA vive en el parche
+  // propio de `DashboardScreen.loadCounts` y en `EquiposScreen.liveStatusOf`
+  // (Math.max(openStartDay, openStartNight)), NO en este archivo compartido. Ver el
+  // "MAPA DE CLASIFICADORES" al inicio de este archivo y
+  // `scripts/test-clasificacion.mjs` (caso 7), que fija este comportamiento.
+  const openStartMs = new Map<string, number>();
   // ARRANCÓ la jornada de ESTE turno (jornada_shift persiste tras el auto-cierre, aunque
   // se nule jornada_start_at y las horas queden en 0). Regla del cliente: "las de 0 horas
   // son las paradas" — una máquina que INICIÓ y FINALIZÓ la jornada pero cerró con 0h

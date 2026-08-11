@@ -126,9 +126,12 @@ export default function PatioScreen({ navigation }: any) {
     setScanMode(null);
     if (!id) { setNotice('❌ QR no reconocido. Escanea el QR de una máquina.'); return; }
     setBusy(true);
-    const { data } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude').eq('id', id).single();
+    const { data } = await supabase.from('machinery').select('id, code, plate, serial, latitude, longitude, en_espera').eq('id', id).single();
     setBusy(false);
     if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
+    // "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): nada de
+    // gasoil, avería ni jornada hasta que se decida Operativa o Parada en el Catálogo.
+    if ((data as any).en_espera) { setNotice(`⏳ "${(data as any).code}" está EN ESPERA DE INSTRUCCIONES. No se le puede iniciar jornada, surtir gasoil ni registrar avería todavía.`); return; }
     if (mode === 'gasoil') { setGasoilId((data as Mach).id); return; }
     if (mode === 'jornada') { await handleJornadaScan(data as any); return; }
     setMachine(data as Mach);
@@ -236,6 +239,7 @@ export default function PatioScreen({ navigation }: any) {
   // Registra una avería de la máquina escaneada.
   const registrarAveria = async () => {
     if (!machine || !avMaterial) return;
+    if (!avNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
     setBusy(true);
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: machine.id,
@@ -449,13 +453,13 @@ export default function PatioScreen({ navigation }: any) {
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
               <TextInput value={avQty} onChangeText={setAvQty} keyboardType="numeric" placeholder="Ej: 2" placeholderTextColor={colors.muted}
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (obligatoria)</Text>
               <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 60 }} />
               <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
+              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial || !avNote.trim()} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (busy || !avMaterial || !avNote.trim()) ? 0.6 : 1 }}>
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => { setMachine(null); setAvStarted(false); }} style={{ padding: spacing.sm, alignItems: 'center' }}>

@@ -306,8 +306,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
 
   const registrarMantenimiento = async () => {
     if (!machine || !material) return;
-    // "Otro" exige describir la falla (no hay material predeterminado que la explique).
-    if (material === 'otro' && !maintNote.trim()) { setNotice('❌ Describe la falla para registrar "Otro".'); return; }
+    if (!maintNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
     setSavingMaint(true);
     setNotice(null);
     const { error } = await supabase.from('maintenance_requests').insert({
@@ -832,8 +831,8 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
                 <>
                   <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad de {MATERIALS.find((x) => x.key === material)?.label.toLowerCase()} a cambiar</Text>
                   <TextInput value={qty} onChangeText={(t) => setQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (opcional)</Text>
-                  <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Nota (obligatoria)</Text>
+                  <TextInput value={maintNote} onChangeText={setMaintNote} placeholder="Detalle de la falla…" placeholderTextColor={colors.muted} style={input} />
                 </>
               )}
               <TouchableOpacity onPress={subirFotoMantenimiento} disabled={maintPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: maintPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
@@ -846,7 +845,7 @@ export default function MachineQuickScreen(props: { machineId?: string; qrSerial
             <TouchableOpacity onPress={() => { setMaterial(null); setView('home'); }} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
               <Text style={{ color: colors.text, fontWeight: '700' }}>Volver</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={registrarMantenimiento} disabled={!material || savingMaint} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: material ? '#2563EB' : colors.border }}>
+            <TouchableOpacity onPress={registrarMantenimiento} disabled={!material || savingMaint || !maintNote.trim()} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: (material && maintNote.trim()) ? '#2563EB' : colors.border }}>
               <Text style={{ color: '#fff', fontWeight: '800' }}>{savingMaint ? 'Guardando…' : 'Registrar solicitud'}</Text>
             </TouchableOpacity>
           </View>

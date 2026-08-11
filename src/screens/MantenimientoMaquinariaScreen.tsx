@@ -367,7 +367,7 @@ export default function MantenimientoMaquinariaScreen() {
   };
   const registrarAveria = async () => {
     if (!avMachine || !avMaterial) return;
-    if (avMaterial === 'otro' && !avNote.trim()) { setNotice('❌ Describe la falla para registrar "Otro".'); return; }
+    if (!avNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
     setAvBusy(true);
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: avMachine.id,
@@ -437,19 +437,40 @@ export default function MantenimientoMaquinariaScreen() {
   };
   const enviarReparacion = async () => {
     if (!repFor) return;
+    if (!rNote.trim()) return toast.error('Indica el motivo de la avería — es obligatorio.');
     setBusy('rep');
+    const target = repFor;
+    const nota = rNote.trim();
     const payload = {
-      machinery_id: repFor.id, tipo: rTipo, out_at: rOut,
+      machinery_id: target.id, tipo: rTipo, out_at: rOut,
       estimated_days: rDays.trim() ? Number(rDays.replace(',', '.')) : null,
-      estimated_note: rNote.trim() || null, work_done: rWork.trim() || null,
+      estimated_note: nota, work_done: rWork.trim() || null,
       status: 'en_reparacion', created_by: uid,
     };
     const [{ error: e1 }, { error: e2 }] = await Promise.all([
       supabase.from('machinery_repairs').insert(payload),
-      supabase.from('machinery').update({ operational: false }).eq('id', repFor.id),
+      supabase.from('machinery').update({ operational: false }).eq('id', target.id),
     ]);
+    // Además del expediente de reparación, deja el marcador "MÁQUINA PARADA" (igual
+    // que el inspector desde el teléfono): sin esto, la máquina queda "No operativa
+    // en todo el sistema" (ver aviso del modal) pero NO se refleja en Inspecciones,
+    // que solo lee maintenance_requests. Si YA había un marcador pendiente (p. ej. el
+    // inspector ya la había marcado parada y ESTA reparación viene de esa avería), se
+    // ACTUALIZA su motivo en vez de insertar otro — un segundo marcador duplicaría las
+    // horas paradas contadas en porEmpresaReport.
+    const { data: updRows, error: eUpd } = await supabase.from('maintenance_requests')
+      .update({ notes: nota })
+      .eq('machinery_id', target.id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente')
+      .select('id');
+    const e3 = eUpd || (!updRows?.length
+      ? (await supabase.from('maintenance_requests').insert({
+          machinery_id: target.id, material: 'MÁQUINA PARADA', notes: nota, status: 'pendiente', requested_by: uid || null,
+        })).error
+      : null);
     setBusy(null);
-    if (e1 || e2) return toast.error((e1?.message || e2?.message) as string);
+    // No aborta el cierre/recarga en error parcial: machinery_repairs/machinery ya
+    // pudieron haberse guardado — reintentar con el modal abierto duplicaría el expediente.
+    if (e1 || e2 || e3) toast.error((e1?.message || e2?.message || e3?.message) as string);
     setRepFor(null);
     await load();
     setTab('reparacion');
@@ -461,12 +482,20 @@ export default function MantenimientoMaquinariaScreen() {
     if (!retFor) return;
     if (!retWork.trim()) return toast.error('Indica qué se le cambió / reparó a la máquina.');
     setBusy('ret');
-    const [{ error: e1 }, { error: e2 }] = await Promise.all([
+    const nowIso = new Date().toISOString();
+    // Cierra también, en maintenance_requests, el marcador "MÁQUINA PARADA" que
+    // enviarReparacion/marcarAveriada dejan en Inspecciones Y cualquier avería real
+    // pendiente de esta máquina (mismo criterio de "cierre doble" que resolverParadaVieja
+    // y volverOperativa) — si no, la avería que originó el envío a reparación se quedaría
+    // pendiente para siempre en Mantenimiento aunque la máquina ya volvió operativa.
+    const [{ error: e1 }, { error: e2 }, { error: e3 }, { error: e4 }] = await Promise.all([
       supabase.from('machinery_repairs').update({ status: 'operativa', back_at: retBack, work_done: retWork.trim(), closed_by: uid }).eq('id', retFor.id),
       supabase.from('machinery').update({ operational: true, en_espera: false }).eq('id', retFor.machinery_id),
+      supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', retFor.machinery_id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
+      supabase.from('maintenance_requests').update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso }).eq('machinery_id', retFor.machinery_id).neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente'),
     ]);
     setBusy(null);
-    if (e1 || e2) return toast.error((e1?.message || e2?.message) as string);
+    if (e1 || e2 || e3 || e4) return toast.error((e1?.message || e2?.message || e3?.message || e4?.message) as string);
     setRetFor(null);
     await load();
   };
@@ -528,17 +557,21 @@ export default function MantenimientoMaquinariaScreen() {
       <ConfigBanner />
       <SectionTitle>Mantenimiento de Maquinaria</SectionTitle>
 
-      {/* Pestañas */}
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
+      {/* Pestañas — scroll horizontal (no flex:1): con 5 pestañas, encogerlas a la fuerza
+          hace que el texto se salga del botón en pantallas angostas (el bug clásico de
+          flexbox: un TouchableOpacity con flex:1 no se encoge por debajo del ancho de su
+          propio texto salvo que además tenga minWidth:0). Aquí cada pestaña conserva su
+          ancho natural y legible, y la fila entera se desliza si no cabe. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }} contentContainerStyle={{ flexDirection: 'row', gap: spacing.xs }}>
         {([['averias', `⏳ Averías (${pendientes})`], ['reparacion', `🔧 Reparación (${enRepCount})`], ['historial', '✓ Historial'], ['horometros', '⏱️ Horómetros'], ['reporte', '📊 Reporte']] as const).map(([k, label]) => {
           const on = tab === k;
           return (
-            <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
-              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+            <TouchableOpacity key={k} onPress={() => setTab(k)} style={{ paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+              <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }} numberOfLines={1}>{label}</Text>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {notice ? (
         <TouchableOpacity onPress={() => setNotice(null)} style={{ marginBottom: spacing.sm }}>
@@ -590,11 +623,11 @@ export default function MantenimientoMaquinariaScreen() {
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
-        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>📷 Escanear · reportar avería</Text>
+        <TouchableOpacity onPress={() => setScanOpen(true)} style={{ flex: 1, minWidth: 0, backgroundColor: colors.brand, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: colors.brandContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>📷 Escanear · reportar avería</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
-          <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>🔧 Enviar a reparación</Text>
+        <TouchableOpacity onPress={() => { setPickerQ(''); setPickerOpen(true); }} style={{ flex: 1, minWidth: 0, backgroundColor: colors.accent, borderRadius: radius.md, padding: spacing.md, alignItems: 'center' }}>
+          <Text style={{ color: colors.accentContrast, fontWeight: '800', fontSize: 13, textAlign: 'center' }}>🔧 Enviar a reparación</Text>
         </TouchableOpacity>
       </View>
 
@@ -692,7 +725,7 @@ export default function MantenimientoMaquinariaScreen() {
               <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🏢 {r.company}</Text>
               <Text style={{ color: colors.warning, fontSize: 13, fontWeight: '700', marginTop: spacing.xs }}>🔧 Salió a reparación: {fmtDMY(r.out_at)}{r.estimated_days != null ? ` · estimado ${r.estimated_days} día(s)` : ''}</Text>
               {r.createdByName ? <Text style={{ color: colors.muted, fontSize: 11.5 }}>👮 Enviada por {r.createdByName}</Text> : null}
-              {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>⏱️ {r.estimated_note}</Text> : null}
+              {r.estimated_note ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔧 Motivo: {r.estimated_note}</Text> : null}
               {r.work_done ? <Text style={{ color: colors.muted, fontSize: 12 }}>🔩 {r.work_done}</Text> : null}
               <TouchableOpacity onPress={() => openReturn(r)} style={{ marginTop: spacing.sm, backgroundColor: colors.success, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>✓ Registrar retorno operativo</Text>
@@ -929,8 +962,8 @@ export default function MantenimientoMaquinariaScreen() {
                 {([['equipo', '🚜 Equipo'], ['empresa', '🏢 Empresa'], ['tipo', '🏷️ Tipo']] as const).map(([k, label]) => {
                   const on = repGroupBy === k;
                   return (
-                    <TouchableOpacity key={k} onPress={() => setRepGroupBy(k)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
-                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }}>{label}</Text>
+                    <TouchableOpacity key={k} onPress={() => setRepGroupBy(k)} style={{ flex: 1, minWidth: 0, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: on ? colors.brand : colors.border, backgroundColor: on ? colors.brand : colors.surface }}>
+                      <Text style={{ color: on ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12 }} numberOfLines={1}>{label}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -1033,8 +1066,8 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12 }}>Tipo</Text>
                 <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs }}>
                   {(['correctivo', 'preventivo'] as const).map((t) => (
-                    <TouchableOpacity key={t} onPress={() => setRTipo(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: rTipo === t ? colors.brand : colors.border, backgroundColor: rTipo === t ? colors.brand : colors.surface }}>
-                      <Text style={{ color: rTipo === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{t === 'correctivo' ? '🔧 Correctivo' : '🩺 Preventivo'}</Text>
+                    <TouchableOpacity key={t} onPress={() => setRTipo(t)} style={{ flex: 1, minWidth: 0, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: rTipo === t ? colors.brand : colors.border, backgroundColor: rTipo === t ? colors.brand : colors.surface }}>
+                      <Text style={{ color: rTipo === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }} numberOfLines={1}>{t === 'correctivo' ? '🔧 Correctivo' : '🩺 Preventivo'}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -1042,9 +1075,11 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Fecha de salida a reparación</Text>
                 <DateField value={rOut} onChange={setROut} />
 
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Por cuánto tiempo? (días estimados)</Text>
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>Motivo de la avería (obligatorio)</Text>
+                <TextInput value={rNote} onChangeText={setRNote} placeholder="Ej. falla hidráulica, sin arranque, espera de repuesto…" placeholderTextColor={colors.muted} style={input} />
+
+                <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Por cuánto tiempo? (días estimados, opcional)</Text>
                 <TextInput value={rDays} onChangeText={(t) => setRDays(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Ej. 5" placeholderTextColor={colors.muted} style={input} />
-                <TextInput value={rNote} onChangeText={setRNote} placeholder="Detalle del tiempo (opcional, ej. 'espera de repuesto')" placeholderTextColor={colors.muted} style={{ ...input, marginTop: spacing.xs }} />
 
                 <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm }}>¿Qué se le va a cambiar? (opcional, se puede llenar al volver)</Text>
                 <TextInput value={rWork} onChangeText={setRWork} placeholder="Ej. cambio de bomba hidráulica…" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 60 }} />
@@ -1052,11 +1087,11 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.sm }}>⚠️ Al enviar, la máquina queda marcada como “No operativa” en todo el sistema.</Text>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
-                  <TouchableOpacity onPress={() => setRepFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <TouchableOpacity onPress={() => setRepFor(null)} style={{ flex: 1, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: busy === 'rep' ? 0.7 : 1 }}>
-                    <Text style={{ color: colors.accentContrast, fontWeight: '800' }}>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
+                  <TouchableOpacity onPress={enviarReparacion} disabled={busy === 'rep' || !rNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (busy === 'rep' || !rNote.trim()) ? 0.7 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'rep' ? 'Guardando…' : '🔧 Enviar a reparación'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -1138,11 +1173,11 @@ export default function MantenimientoMaquinariaScreen() {
                 <Text style={{ color: colors.success, fontSize: 11, marginTop: spacing.sm }}>✓ Al registrar, la máquina vuelve a “Operativa” en todo el sistema.</Text>
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
-                  <TouchableOpacity onPress={() => setRetFor(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <TouchableOpacity onPress={() => setRetFor(null)} style={{ flex: 1, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={registrarRetorno} disabled={busy === 'ret'} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy === 'ret' ? 0.7 : 1 }}>
-                    <Text style={{ color: colors.brandContrast, fontWeight: '800' }}>{busy === 'ret' ? 'Guardando…' : '✓ Marcar operativa'}</Text>
+                  <TouchableOpacity onPress={registrarRetorno} disabled={busy === 'ret'} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.success, opacity: busy === 'ret' ? 0.7 : 1 }}>
+                    <Text style={{ color: colors.brandContrast, fontWeight: '800', textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit>{busy === 'ret' ? 'Guardando…' : '✓ Marcar operativa'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.lg }} />
@@ -1190,7 +1225,7 @@ export default function MantenimientoMaquinariaScreen() {
                   <>
                     <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
                     <TextInput value={avQty} onChangeText={(t) => setAvQty(onlyDecimal(t))} keyboardType="numeric" inputMode="decimal" placeholder="Ej: 2" placeholderTextColor={colors.muted} style={input} />
-                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
+                    <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (obligatoria)</Text>
                     <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline style={{ ...input, minHeight: 60 }} />
                   </>
                 ) : null}
@@ -1202,11 +1237,11 @@ export default function MantenimientoMaquinariaScreen() {
                 ) : null}
 
                 <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
-                  <TouchableOpacity onPress={() => setAvMachine(null)} style={{ flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
+                  <TouchableOpacity onPress={() => setAvMachine(null)} style={{ flex: 1, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.surfaceAlt }}>
                     <Text style={{ color: colors.text, fontWeight: '700' }}>Cancelar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial} style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (avBusy || !avMaterial) ? 0.5 : 1 }}>
-                    <Text style={{ color: colors.accentContrast, fontWeight: '900' }}>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
+                  <TouchableOpacity onPress={registrarAveria} disabled={avBusy || !avMaterial || !avNote.trim()} style={{ flex: 2, minWidth: 0, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.accent, opacity: (avBusy || !avMaterial || !avNote.trim()) ? 0.5 : 1 }}>
+                    <Text style={{ color: colors.accentContrast, fontWeight: '900' }} numberOfLines={1} adjustsFontSizeToFit>{avBusy ? 'Guardando…' : 'Registrar avería'}</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={{ height: spacing.md }} />

@@ -21,9 +21,14 @@ import QrImage from '../components/QrImage';
 import { GuardButton } from '../components/GuardButton';
 import { fetchActiveGuards } from '../lib/guards';
 import { latestInspectorByMachine, InspectorInfo } from '../lib/supervisorVisits';
-import { listInspectorAssignments, inspectorSiempreActivo } from '../lib/machineInspectors';
 import { caracasParts } from '../lib/jornada';
+import { freezeOpenJornadaNow } from '../lib/machineRounds';
+import {
+  fetchAveriaCat, fetchJornadaCat, fetchInspByShift, bucketMachineStatus,
+  JornadaEntry, AveriaEntry, InspByShiftEntry,
+} from '../lib/machineLiveStatus';
 import { paradaShiftOf } from '../lib/inspectorDaySets';
+import { inspectorSiempreActivo } from '../lib/machineInspectors';
 import { generalCompanies } from '../lib/companies';
 import { edificioCanonico, edificioLabel } from '../lib/edificios';
 import MachineQuickScreen from './MachineQuickScreen';
@@ -246,18 +251,10 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Inspector ASIGNADO (CHECK MÁQUINA) por TURNO, día y noche por separado — para el
   // reporte de conteo de equipos (a diferencia de `inspectors`, que es solo el último
   // check-in sin distinguir turno). Se recarga junto con el catálogo.
-  const [inspByShift, setInspByShift] = useState<Record<string, { day: string | null; night: string | null }>>({});
-  const loadInspByShift = () => {
-    listInspectorAssignments().then(({ rows }) => {
-      const m: Record<string, { day: string | null; night: string | null }> = {};
-      rows.forEach((r) => {
-        const e = m[r.machinery_id] ?? { day: null, night: null };
-        if (r.shift === 'night') e.night = r.inspector_name; else e.day = r.inspector_name;
-        m[r.machinery_id] = e;
-      });
-      setInspByShift(m);
-    }).catch(() => {});
-  };
+  // (fetch centralizado en src/lib/machineLiveStatus.ts para que el Dashboard use EXACTAMENTE
+  // los mismos datos — ver AGENTS.md, "un solo lugar por regla de negocio".)
+  const [inspByShift, setInspByShift] = useState<Record<string, InspByShiftEntry>>({});
+  const loadInspByShift = () => { fetchInspByShift().then(setInspByShift).catch(() => {}); };
   useEffect(() => { loadInspByShift(); }, [machinery.data]);
 
   // Avería/parada reportada por un inspector (Mantenimiento de Maquinaria) — el Catálogo
@@ -267,30 +264,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   // NO se toca `operational`) y se refresca en vivo.
   // `createdMs` = instante en que se marcó la avería/parada (para la regla de reactivación:
   // si la jornada abierta arrancó DESPUÉS de la marca, la máquina volvió a trabajar).
-  const [averiaCat, setAveriaCat] = useState<Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }>>({});
-  const loadAveriaCat = () => {
-    Promise.all([
-      supabase.from('maintenance_requests').select('machinery_id, material, notes, created_at').neq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
-      supabase.from('maintenance_requests').select('machinery_id, notes, created_at').eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente').order('created_at', { ascending: false }),
-    ]).then(([averias, paradas]) => {
-      const m: Record<string, { tipo: 'averia' | 'parada'; motivo: string | null; createdMs: number }> = {};
-      const ms = (iso: any) => (iso ? new Date(iso).getTime() : 0);
-      // Con varias filas pendientes por máquina (2-8 vistos en producción), se queda con
-      // la MÁS RECIENTE de cada tipo: viene ordenado desc, así que la primera fila de
-      // cada máquina ya es la última — antes, sin `.order()`, un `.forEach` sin proteger
-      // machinery_id ya visto podía terminar quedándose con cualquier fila (orden no
-      // garantizado de Supabase), no necesariamente la más reciente.
-      (paradas.data ?? []).forEach((r: any) => { if (m[r.machinery_id]) return; m[r.machinery_id] = { tipo: 'parada', motivo: r.notes, createdMs: ms(r.created_at) }; });
-      // Avería real tiene prioridad sobre el marcador genérico "MÁQUINA PARADA" (mismo orden que en SupervisorScreen).
-      const averiaSeen = new Set<string>();
-      (averias.data ?? []).forEach((r: any) => {
-        if (averiaSeen.has(r.machinery_id)) return;
-        averiaSeen.add(r.machinery_id);
-        m[r.machinery_id] = { tipo: 'averia', motivo: r.notes || r.material, createdMs: ms(r.created_at) };
-      });
-      setAveriaCat(m);
-    }).catch(() => {});
-  };
+  // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
+  const [averiaCat, setAveriaCat] = useState<Record<string, AveriaEntry>>({});
+  const loadAveriaCat = () => { fetchAveriaCat().then(setAveriaCat).catch(() => {}); };
   useEffect(() => { loadAveriaCat(); }, [machinery.data]);
 
   // Última inactividad RESUELTA (parada/avería ya cerrada con "Volver a Operativa" o
@@ -326,45 +302,9 @@ export default function EquiposScreen({ navigation, route }: any) {
   // Se lee la ronda de HOY (día de negocio Caracas) y la de ANOCHE si es una jornada de
   // NOCHE aún abierta (round_date = ayer). Por máquina: dayH/nightH ya trabajadas y el
   // instante de inicio (ms) de la jornada abierta, separado por turno.
-  const [jornadaCat, setJornadaCat] = useState<Record<string, { dayH: number; nightH: number; openStartDay: number | null; openStartNight: number | null }>>({});
-  const loadJornadaCat = () => {
-    const now = new Date();
-    const today = caracasParts(now).iso;
-    const yesterday = caracasParts(new Date(now.getTime() - 86400000)).iso;
-    Promise.all([
-      supabase.from('machine_rounds').select('machinery_id, day_hours, night_hours, jornada_start_at, jornada_shift').eq('round_date', today),
-      supabase.from('machine_rounds').select('machinery_id, night_hours, jornada_start_at, jornada_shift').eq('round_date', yesterday).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
-    ]).then(([todayRes, nightRes]) => {
-      const m: Record<string, { dayH: number; nightH: number; openStartDay: number | null; openStartNight: number | null }> = {};
-      const ensure = (id: string) => (m[id] ??= { dayH: 0, nightH: 0, openStartDay: null, openStartNight: null });
-      // Turno del inicio: el declarado; si falta, se infiere por la hora Caracas (07–18:59 = día).
-      const inferShift = (iso: string, shift: 'day' | 'night' | null): 'day' | 'night' => {
-        if (shift) return shift;
-        const h = caracasParts(new Date(iso)).hour;
-        return h >= 7 && h < 19 ? 'day' : 'night';
-      };
-      (todayRes.data ?? []).forEach((r: any) => {
-        const e = ensure(r.machinery_id);
-        e.dayH = Math.max(e.dayH, Number(r.day_hours) || 0);
-        e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
-        if (r.jornada_start_at) {
-          const t = new Date(r.jornada_start_at).getTime();
-          if (inferShift(r.jornada_start_at, r.jornada_shift) === 'day') e.openStartDay = e.openStartDay == null ? t : Math.min(e.openStartDay, t);
-          else e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
-        }
-      });
-      // Jornada de NOCHE de anoche aún abierta → cuenta como noche de hoy.
-      (nightRes.data ?? []).forEach((r: any) => {
-        const e = ensure(r.machinery_id);
-        e.nightH = Math.max(e.nightH, Number(r.night_hours) || 0);
-        if (r.jornada_start_at) {
-          const t = new Date(r.jornada_start_at).getTime();
-          e.openStartNight = e.openStartNight == null ? t : Math.min(e.openStartNight, t);
-        }
-      });
-      setJornadaCat(m);
-    }).catch(() => {});
-  };
+  // (fetch centralizado en src/lib/machineLiveStatus.ts — ver comentario de `inspByShift`.)
+  const [jornadaCat, setJornadaCat] = useState<Record<string, JornadaEntry>>({});
+  const loadJornadaCat = () => { fetchJornadaCat().then(setJornadaCat).catch(() => {}); };
   useEffect(() => { loadJornadaCat(); }, [machinery.data]);
 
   // "Tick" en vivo: cada 60s re-renderiza para que las horas en curso crezcan solas.
@@ -465,23 +405,17 @@ export default function EquiposScreen({ navigation, route }: any) {
 
   // Estatus EN VIVO de una máquina, con horas, combinando jornada (machine_rounds) y
   // avería/parada (maintenance_requests). Todo derivado; NO toca `operational`.
-  //  - elapsedDia/Noche: horas transcurridas de la jornada abierta de cada turno (cap 12).
-  //  - workedDia/Noche: horas ya trabajadas + en curso de cada turno (cap 12).
-  //  - total: acumulado del día = día + noche (regla del cliente: de noche muestra el acumulado del día).
-  //  - enCurso: lo que corre ahora mismo; trabajadas = total − enCurso (banqueado).
-  //  - reactivación: si la jornada abierta arrancó en el mismo instante o DESPUÉS de la
-  //    marca de avería/parada, esa marca ya NO cuenta (la máquina volvió a trabajar).
   // Declarada ACÁ (antes de las tarjetas KPI de abajo) para que TODO lo que necesite
   // saber si una máquina está averiada (las tarjetas OPERATIVAS/AVERIADAS, la ficha de
   // cada máquina y el reporte de Conteo) use esta MISMA función — antes cada uno tenía
   // su propia versión simplificada (solo miraba si había una avería pendiente, sin la
   // regla de reactivación), así que podían mostrar estados distintos para una misma
   // máquina (p. ej. "Averiada" en un lado y "Trabajando"/"Operativa" en otro).
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   // Máquinas RETIRADAS (operational=false): fuera de servicio → su estatus EN VIVO es
   // "ninguno" aunque tengan una jornada abierta vieja (evita mostrar "🟢 Trabajando" en
   // una máquina retirada). La fila ya indica "🔴 RETIRADA / INACTIVADA EL…".
   const retiredIds = new Set(machinery.data.filter((m) => m.operational === false).map((m) => m.id));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   const liveStatusOf = (id: string) => {
     if (retiredIds.has(id)) return { estado: 'ninguno' as const, total: 0, enCurso: 0, trabajadas: 0, motivo: null as string | null };
     const j = jornadaCat[id];
@@ -535,10 +469,7 @@ export default function EquiposScreen({ navigation, route }: any) {
   //    `en_espera` (antes solo "en espera por recepción"): ya está probado y excluido
   //    en todo el flujo de inspectores (SupervisorScreen/SupervisionScreen/Reportes) —
   //    no requiere tocar esa lógica, solo hacerlo visible aquí como su propio estado.
-  const averiadaMachines = machinery.data.filter((m) => m.operational !== false && !m.en_espera && liveStatusOf(m.id).estado === 'averiada');
-  const activeMachines = machinery.data.filter((m) => m.operational && !m.en_espera && liveStatusOf(m.id).estado !== 'averiada');
-  const retiradaMachines = machinery.data.filter((m) => !m.operational);
-  const esperaMachines = machinery.data.filter((m) => m.operational && m.en_espera);
+  const { averiadaMachines, activeMachines, retiradaMachines, esperaMachines } = bucketMachineStatus(machinery.data, liveStatusOf);
 
   // Selector de tipo (se muestra al pulsar "+ Agregar" o "Lote") y detalle activas/inactivas.
   const [kindChooser, setKindChooser] = useState<null | 'add' | 'batch'>(null);
@@ -690,8 +621,14 @@ export default function EquiposScreen({ navigation, route }: any) {
   // 3er estado: "En espera por recepción" (independiente de Operativa / No operativa).
   const toggleEspera = (m: Machinery) =>
     run(m.id + '-esp', async () => {
-      const { error } = await supabase.from('machinery').update({ en_espera: !m.en_espera }).eq('id', m.id);
-      return { ok: !error, error: error?.message };
+      const next = !m.en_espera;
+      const { error } = await supabase.from('machinery').update({ en_espera: next }).eq('id', m.id);
+      if (error) return { ok: false, error: error.message };
+      // "En espera" = congelada por completo (pedido del cliente 11-ago-2026): si tenía
+      // una jornada corriendo, se banca lo trabajado hasta AHORA y se cierra — no debe
+      // seguir sumando horas ni depender de que alguien la cierre después.
+      if (next) await freezeOpenJornadaNow(m.id);
+      return { ok: true };
     });
 
   // ── Traza de combustible (surtido) por máquina ───────────────────────────────

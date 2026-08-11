@@ -717,8 +717,13 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     // admin; la avería/parada de campo NO toca operational (vive en maintenance_requests),
     // así que una máquina averiada pero OPERATIVA sí se sigue viendo con su estado.
     if (m.active === false || (m as any).operational === false) return false;
-    // EN ESPERA (recepción/traslado): oculta salvo que tenga una jornada abierta.
-    return m.en_espera !== true || roundsById[m.id]?.open === true;
+    // EN ESPERA (recepción/traslado): oculta SIEMPRE, sin excepción (pedido del cliente
+    // 11-ago-2026: "esperando instrucciones" = congelada por completo). Antes tenía una
+    // excepción si ya tenía una jornada abierta (para que el inspector pudiera cerrarla),
+    // pero desde que `en_espera=true` cierra de inmediato cualquier jornada corriendo
+    // (`freezeOpenJornadaNow`, ver ControlMaquinariaScreen/EquiposScreen), esa excepción
+    // ya no puede pasar en la práctica — se retira para que no queden casos colados.
+    return m.en_espera !== true;
   };
   const mine = useMemo(() => machines.filter((m) => mineIds.has(m.id) && visibleParaInspector(m)), [machines, mineIds, roundsById]);
   const matchQuery = (m: Mach, q: string) => !q
@@ -738,7 +743,9 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // ya ni siquiera está en el catálogo activo.
   const checkList = useMemo(() => {
     const q = norm(checkQuery.trim());
-    return machines.filter((m) => m.active !== false && m.operational !== false && matchQuery(m, q));
+    // Tampoco las EN ESPERA DE INSTRUCCIONES (pedido del cliente 11-ago-2026): están
+    // congeladas, no tiene sentido asignarles inspector todavía.
+    return machines.filter((m) => m.active !== false && m.operational !== false && !m.en_espera && matchQuery(m, q));
   }, [machines, checkQuery]);
   // Solo las máquinas realmente EN SERVICIO necesitan inspector — mismo criterio que
   // usa el cron assign_missing_to_placeholder() (supabase/maquinas_faltantes.sql) para
@@ -990,6 +997,20 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
     const t = sh === null ? Math.max(0, ...mm.values()) : (mm.get(sh) ?? 0);
     return t > 0 && start >= t;
   };
+  // Igual que `reactivada`, pero comparando contra la jornada abierta de CUALQUIER
+  // turno (no solo `sh`) — para `segmentoConTurno` (vista del COORDINADOR por
+  // turno), no para `segmentoDe` (la regla por-turno de `segmentoDe`, confirmada
+  // 06-ago-2026 para el inspector viendo SU propio turno, se deja intacta arriba).
+  // BUG (11-ago-2026): el coordinador viendo la pestaña "🌙 Noche" seguía mostrando
+  // 🔴/🟡 en máquinas cuya avería/parada era de la madrugada pero que YA reabrieron
+  // jornada de DÍA — mismo síntoma que ya se corrigió en inspectorDaySets.ts
+  // (Coordinador de Operadores/Inspecciones) y en Catálogo/Inicio; acá faltaba.
+  const reactivadaCrossTurno = (maxMap: Map<string, Map<Shift, number>>, id: string, sh: Shift): boolean => {
+    const start = openStartOf(id, null); if (!start) return false;
+    const mm = maxMap.get(id); if (!mm) return false;
+    const t = mm.get(sh) ?? 0;
+    return t > 0 && start >= t;
+  };
   // Segmento de estatus de una máquina. REGLA POR-TURNO (confirmada 06-ago-2026): la
   // avería/parada pertenece al turno de la HORA en que se marcó; el OTRO turno la ve como
   // pendiente. Cada inspector ve SUS estados de SU turno, día independiente de noche.
@@ -1029,8 +1050,8 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // turno actual): día independiente de noche, misma prioridad.
   const segmentoConTurno = (id: string, sh: 'day' | 'night'): 'averia' | 'parada' | 'iniciada' | 'cerrada' | 'pendiente' => {
     if (siempreActivoSet.has(id)) return openEn(id, sh) ? 'iniciada' : hoursEn(id, sh) ? 'cerrada' : 'iniciada';
-    const avOff = reactivada(estadoIndex.avMax, id, sh);
-    const paOff = reactivada(estadoIndex.paMax, id, sh);
+    const avOff = reactivadaCrossTurno(estadoIndex.avMax, id, sh);
+    const paOff = reactivadaCrossTurno(estadoIndex.paMax, id, sh);
     if (!avOff && hasIn(estadoIndex.avHoy, id, sh)) return 'averia';
     if (!paOff && hasIn(estadoIndex.paHoy, id, sh)) return 'parada';
     if (openEn(id, sh)) return 'iniciada';
@@ -1348,6 +1369,17 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
       setNotice(`🔒 "${m.code}" está asignada a ${otroInspectorNombre(m)}. No puedes escanearla ni marcarla (solo su inspector o un administrador).`);
       return;
     }
+    // Bloqueo: "Esperando instrucciones" = congelada por completo (pedido del cliente
+    // 11-ago-2026). Antes esto llegaba sin filtrar por venir de un ID directo (QR físico,
+    // fila tocada desde CoordinadorInspectoresView) en vez de pasar por `visibleParaInspector`,
+    // así que se podía iniciar jornada / marcar avería-parada / registrar operador en una
+    // máquina que todavía no tiene decisión de Operativa o Parada. Solo se desbloquea desde
+    // "✅ Máquina lista" (CoordinadorQrPanel) o el catálogo — nunca desde acá.
+    if (m.en_espera) {
+      setScanOpen(false);
+      setNotice(`⏳ "${m.code}" está EN ESPERA DE INSTRUCCIONES. No se puede iniciar jornada, marcar avería/parada ni registrar operador hasta que se decida si queda Operativa o Parada.`);
+      return;
+    }
     setCi(m);
     setCiStatus('trabajando');
     setCiNote('');
@@ -1442,6 +1474,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
 
   const registrarAveria = async () => {
     if (!ci || !avMaterial) return;
+    if (!avNote.trim()) { setNotice('⚠️ Describe la falla — la nota es obligatoria.'); return; }
     setAvSaving(true);
     const payload = {
       machinery_id: ci.id,
@@ -1783,7 +1816,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   const marcarParadaAveria = async () => {
     if (!ci || ciSaving) return;
     if (!paMaterial) { setNotice('⚠️ Elige el material que necesita la máquina.'); return; }
-    if (paMaterial === 'otro' && !ciMotivo.trim()) { setNotice('⚠️ Describe la falla para registrar "Otro".'); return; }
+    if (!ciMotivo.trim()) { setNotice('⚠️ Describe el motivo de la falla — es obligatorio.'); return; }
     setCiSaving(true); setNotice(null);
     // Sin señal: encola la visita "parada" + el bancado de horas (si había jornada
     // abierta) + las 2 solicitudes de Mantenimiento, tal cual — se reproducen en el
@@ -1847,6 +1880,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
   // en vez de bloquear al inspector.
   const marcarParadaNoTrabajo = async () => {
     if (!ci || ciSaving) return;
+    if (!ntMotivo.trim()) { setNotice('⚠️ Escribe el motivo por el que no trabajó — es obligatorio.'); return; }
     setCiSaving(true); setNotice(null);
     const encolar = async () => {
       const edifRef = ((ci as any)?.referencia ?? '').trim();
@@ -2386,18 +2420,28 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
         <Card><Text style={{ color: notice.startsWith('❌') ? colors.danger : colors.success, fontWeight: '700' }}>{notice}</Text></Card>
       ) : null}
 
-      {/* CONMUTADOR del coordinador: "🚜 Máquinas" (su ronda de siempre) vs
-          "👥 Inspectores" (operar por cada inspector). Solo lo ve el coordinador/admin. */}
+      {/* CONMUTADOR del coordinador: "🚜 Máquinas" (su ronda de siempre, con
+          buscador de MÁQUINAS) vs "👥 Inspectores" (buscador de PERSONAS,
+          operar por cada inspector). Solo lo ve el coordinador/admin.
+          Antes no quedaba claro que cada pestaña tiene su PROPIO buscador
+          (uno indexa datos de la máquina, el otro nombre del inspector) —
+          queja real: "no hay buscador... si necesito buscar las personas"
+          cuando en realidad estaba en la otra pestaña (11-ago-2026). */}
       {puedeCoordinar ? (
-        <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-          {([['maquinas', '🚜 Máquinas'], ['inspectores', '👥 Inspectores']] as const).map(([k, label]) => {
-            const on = coordTab === k;
-            return (
-              <TouchableOpacity key={k} onPress={() => setCoordTab(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
-                <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        <View style={{ marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+            {([['maquinas', '🚜 Buscar máquina'], ['inspectores', '👥 Buscar inspector']] as const).map(([k, label]) => {
+              const on = coordTab === k;
+              return (
+                <TouchableOpacity key={k} onPress={() => setCoordTab(k)} style={{ flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.md, borderWidth: 1.5, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primary : colors.surface }}>
+                  <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: colors.muted, fontSize: 10.5, marginTop: 4, textAlign: 'center' }}>
+            {coordTab === 'maquinas' ? 'Busca por nombre, serial o placa de la máquina.' : 'Busca por nombre del inspector.'}
+          </Text>
         </View>
       ) : null}
 
@@ -2406,7 +2450,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
           <InspectorSearchBar
             value={showAll ? query : mineQuery}
             onChange={showAll ? setQuery : onMineQueryChange}
-            placeholder="🔎 Buscar: nombre, serial, placa, empresa…"
+            placeholder="🔎 Buscar máquina: nombre, serial, placa, empresa…"
             segments={puedeCoordinar ? [{ key: 'mine', label: '👤 Solo las mías' }, { key: 'all', label: '🚜 Todas las máquinas' }] : undefined}
             segmentValue={showAll ? 'all' : 'mine'}
             onSegmentChange={(k) => setShowAll(k === 'all')}
@@ -3274,7 +3318,7 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                           );
                         })}
                       </View>
-                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Texto de la falla{paMaterial === 'otro' ? ' (obligatorio)' : ' (opcional)'}</Text>
+                      <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12, marginBottom: 4 }}>Texto de la falla (obligatorio)</Text>
                       <TextInput value={ciMotivo} onChangeText={setCiMotivo} placeholder="Ej: falla hidráulica, sin arranque, cauchos…" placeholderTextColor={colors.muted} style={input} />
                       {paMaterial && paMaterial !== 'otro' ? (
                         <>
@@ -3288,21 +3332,21 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                         </TouchableOpacity>
                       ) : null}
                       <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 4 }}>Crea la solicitud en Mantenimiento con el material y sigue marcándose PARADA en Inspecciones (Control saldrá “MÁQUINA PARADA”).</Text>
-                      <TouchableOpacity onPress={marcarParadaAveria} disabled={ciSaving || !paMaterial} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !paMaterial) ? 0.6 : 1 }}>
+                      <TouchableOpacity onPress={marcarParadaAveria} disabled={ciSaving || !paMaterial || !ciMotivo.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !paMaterial || !ciMotivo.trim()) ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA + avería'}</Text>
                       </TouchableOpacity>
                     </>
                   ) : (
                     <>
                       <Text style={{ color: '#7A4A0B', fontWeight: '800', fontSize: 12 }}>🟡 NO TRABAJÓ</Text>
-                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: 4 }}>El texto "NO TRABAJÓ" queda fijo. Si quieres, escribe el motivo (aparece al lado).</Text>
+                      <Text style={{ color: '#7A4A0B', fontSize: 11, marginTop: 2, marginBottom: 4 }}>El texto "NO TRABAJÓ" queda fijo. Escribe el motivo (obligatorio, aparece al lado).</Text>
                       <TextInput value={ntMotivo} onChangeText={setNtMotivo} placeholder="Motivo (ej: sin combustible, sin operador, lluvia, sin frente…)" placeholderTextColor={colors.muted} style={{ ...input, marginBottom: spacing.sm }} />
                       <Text style={{ color: '#7A4A0B', fontSize: 11, marginBottom: spacing.sm }}>Intentamos ubicarte solos para dejar constancia de dónde estaba. Solo se refleja en Inspecciones — no crea nada en Mantenimiento.</Text>
                       <TouchableOpacity onPress={() => capturarUbicacionNoTrabajo(false)} disabled={ntBusy} style={{ borderWidth: 1, borderColor: ntCoords ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', marginBottom: spacing.sm }}>
                         <Text style={{ color: ntCoords ? colors.success : '#7A4A0B', fontWeight: '700', fontSize: 12 }}>{ntBusy ? 'Ubicándote…' : ntCoords ? `✓ Ubicación capturada (${ntCoords.lat.toFixed(5)}, ${ntCoords.lng.toFixed(5)})` : '📍 Sin ubicación aún · toca para reintentar'}</Text>
                       </TouchableOpacity>
                       {ntCoords ? <Text style={{ color: '#7A4A0B', fontSize: 12, marginBottom: 4 }}>🏢 Edificio: <Text style={{ fontWeight: '700' }}>{edificioTextOf(ntCoords.lat, ntCoords.lng, (ci as any)?.referencia ?? '')}</Text></Text> : null}
-                      <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: ciSaving ? 0.6 : 1 }}>
+                      <TouchableOpacity onPress={marcarParadaNoTrabajo} disabled={ciSaving || !ntMotivo.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#D9A200', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (ciSaving || !ntMotivo.trim()) ? 0.6 : 1 }}>
                         <Text style={{ color: '#fff', fontWeight: '800' }}>{ciSaving ? 'Guardando…' : '🟡 Confirmar PARADA (no trabajó)'}</Text>
                       </TouchableOpacity>
                     </>
@@ -3392,12 +3436,12 @@ export default function SupervisorScreen({ initialMachineId, onConsumed, onSiste
                       <View style={{ marginTop: spacing.sm }}>
                         <Text style={{ color: colors.muted, fontSize: 12 }}>Cantidad a cambiar</Text>
                         <TextInput value={avQty} onChangeText={(t) => setAvQty(t.replace(/[^0-9.,]/g, ''))} keyboardType="numeric" inputMode="decimal" placeholder="0" placeholderTextColor={colors.muted} style={input} />
-                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Nota (opcional)</Text>
-                        <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle…" placeholderTextColor={colors.muted} style={input} />
+                        <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.xs }}>Nota (obligatoria)</Text>
+                        <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla…" placeholderTextColor={colors.muted} style={input} />
                         <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                           <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700', fontSize: 13 }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={registrarAveria} disabled={avSaving} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: avSaving ? 0.6 : 1 }}>
+                        <TouchableOpacity onPress={registrarAveria} disabled={avSaving || !avNote.trim()} style={{ marginTop: spacing.sm, backgroundColor: '#2563EB', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (avSaving || !avNote.trim()) ? 0.6 : 1 }}>
                           <Text style={{ color: '#fff', fontWeight: '800' }}>{avSaving ? 'Guardando…' : '🛠️ Registrar avería'}</Text>
                         </TouchableOpacity>
                       </View>

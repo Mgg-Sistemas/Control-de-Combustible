@@ -12,6 +12,7 @@ export type MapPin = {
   lng: number;
   active: string;        // "tiempo activa" ya formateado
   operational: boolean;
+  enEspera?: boolean;    // "esperando instrucciones" — congelada, no cuenta como Operativa
   company: string;       // empresa (para colorear el pin y la leyenda)
   tipo?: string | null;          // modelo
   clasificacion?: string | null; // clasificación
@@ -125,7 +126,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
       + '<br/>🗺️ Zona: <b>'+zoneTxt+'</b>'
       + '<br/>📍 UTM '+esc(p.utm || (p.lat+', '+p.lng))
       + '<br/>Activa: '+esc(p.active)
-      + '<br/>Estado: '+(p.operational?'Operativa':'No operativa');
+      + '<br/>Estado: '+(p.enEspera?'⏳ Esperando instrucciones':(p.operational?'Operativa':'No operativa'));
     // El botón "Eliminar ubicación" (reubicar) solo para administradores.
     if (CAN_EDIT) {
       var btn = document.createElement('button');
@@ -176,7 +177,7 @@ function buildHtml(pins: MapPin[], streets = false, canEdit = true): string {
     if(!near.length){ var c=arr[0]; return h + '<br/><span style="color:#777;font-size:12px">Ninguna a menos de 20 km. La más cercana: <b>'+esc(c.p.name)+'</b> a '+fmtD(c.d)+'.</span>'; }
     h += '<div style="margin-top:4px;max-height:170px;overflow:auto">';
     near.forEach(function(x){
-      var dot = x.p.operational===false ? '#DC2626' : '#16A34A';
+      var dot = x.p.enEspera ? '#2563EB' : (x.p.operational===false ? '#DC2626' : '#16A34A');
       h += '<div style="padding:3px 0;border-top:1px solid #eee;font-size:12px">'
         + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+dot+';margin-right:5px"></span>'
         + '<b>'+esc(x.p.name)+'</b> · <span style="color:#2563EB;font-weight:700">'+fmtD(x.d)+'</span>'
@@ -439,8 +440,8 @@ export function VenezuelaMap({ pins, onDelete, selectedCompany, zones, height, s
           <Card key={p.id}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={{ fontWeight: '700', color: colors.text }}>📍 {p.name}</Text>
-              <Text style={{ color: p.operational ? colors.success : colors.danger, fontWeight: '700' }}>
-                {p.operational ? 'Operativa' : 'No operativa'}
+              <Text style={{ color: p.enEspera ? colors.brand : p.operational ? colors.success : colors.danger, fontWeight: '700' }}>
+                {p.enEspera ? '⏳ Esperando instrucciones' : p.operational ? 'Operativa' : 'No operativa'}
               </Text>
             </View>
             <Text style={{ color: colors.primary, fontSize: 12 }}>🏢 {p.company}</Text>
