@@ -1450,6 +1450,7 @@ export interface GeodestaProject {
   gps_tolerance_m: number;     // rechazo de tomas GPS peores a esto (m)
   basemap_url: string | null;  // capa base personalizada (ortofoto): URL de tiles
   basemap_kind: string | null; // 'xyz' | 'tms'
+  geoid_n: number;             // separación de geoide N (m): H ortométrica = h − N
   description: string | null;
   status: string;              // activo | cerrado | archivado
   created_by: string | null;
