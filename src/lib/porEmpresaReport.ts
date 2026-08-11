@@ -86,38 +86,44 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const machById = new Map<string, any>();
   ((machs ?? []) as any[]).forEach((m) => machById.set(m.id, m));
 
-  // 2) Rondas del día (horas trabajadas y paradas).
-  const rounds = await selectAllRows(
-    'machine_rounds',
-    'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift',
-    (q) => q.eq('round_date', date).in('machinery_id', ids),
-  );
-  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
-  // AYER (el día en que inició), no el de `date` — sin este fallback, generar este
-  // reporte bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
-  // y esa máquina no sumaba sus horas EN VIVO (ver bloque "EN VIVO" más abajo).
-  // Mismo criterio que ya usa `computeInspectorData` en inspectorReport.ts.
-  const roundsNocheAyer = await selectAllRows(
-    'machine_rounds',
-    'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift',
-    (q) => q.eq('round_date', isoYesterday(date)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null).in('machinery_id', ids),
-  );
+  // Lecturas del día en PARALELO (todas dependen solo de `ids`/`date`) — una sola
+  // espera de red en vez de 5 encadenadas al generar el reporte.
+  const roundsSelect = 'machinery_id, day_hours, night_hours, hours_stopped, overtime_hours, jornada_start_at, jornada_shift';
+  // La ventana de avería/parada llega hasta las 07:00 del día SIGUIENTE (no medianoche):
+  // el turno noche va de 19:00 a 07:00+1, así que una avería/parada marcada (o reactivada)
+  // a la 1am cae dentro del turno noche de HOY — igual criterio que inspectorReport.ts.
+  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
+  const [rounds, roundsNocheAyer, segs, { rows: assigns }, { data: mr }] = await Promise.all([
+    // 2) Rondas del día (horas trabajadas y paradas).
+    selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', date).in('machinery_id', ids)),
+    // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de AYER
+    // (el día en que inició), no el de `date`. Sin este fallback, generar el reporte bien
+    // temprano (antes del auto-cierre de las 7am) dejaba a esa máquina sin sumar sus horas
+    // EN VIVO. Mismo criterio que `computeInspectorData` en inspectorReport.ts.
+    selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', isoYesterday(date)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null).in('machinery_id', ids)),
+    // 2b) Tramos trabajados del día (machine_work_segments) — CADA fila (no solo el
+    //     agregado) para reconstruir la línea de tiempo y las horas paradas (span − trabajado).
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, hours', (q) => q.eq('round_date', date).in('machinery_id', ids)),
+    // 3) Inspector asignado (CHECK) por turno.
+    listInspectorAssignments(),
+    // 4) Avería/parada PENDIENTE vigente (arrastrada) + las RESUELTAS este día (para la
+    //    hora de reactivación en la línea de tiempo). Para HOY el borde es futuro → solo pendientes.
+    supabase.from('maintenance_requests')
+      .select('machinery_id, material, notes, created_at, status, resolved_at')
+      .in('machinery_id', ids)
+      .lte('created_at', nightEndBound)
+      .or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)
+      .order('created_at', { ascending: false }),
+  ]);
   const roundBy = new Map<string, any>();
   ((rounds ?? []) as any[]).forEach((r) => roundBy.set(r.machinery_id, r));
   // Solo rellena con la ronda de "anoche" las máquinas que NO tengan ya una fila de
   // `date` (si la tienen, esa es la vigente).
   ((roundsNocheAyer ?? []) as any[]).forEach((r) => { if (!roundBy.has(r.machinery_id)) roundBy.set(r.machinery_id, r); });
 
-  // 2b) Tramos trabajados del día (machine_work_segments) — se guarda CADA fila (no
-  //     solo el agregado) para poder reconstruir la línea de tiempo completa: HORA de
-  //     inicio/fin de cada tramo, y las HORAS PARADAS = span total − trabajado (ej.:
-  //     trabajó 7-11am y 3-7pm → span 12h, trabajado 8h → 4h paradas). Cero cambios al
-  //     pago (no toca day_hours ni hours_stopped).
-  const segs = await selectAllRows(
-    'machine_work_segments',
-    'machinery_id, started_at, ended_at, hours',
-    (q) => q.eq('round_date', date).in('machinery_id', ids),
-  );
+  // Agrega los tramos del día (`segs`, traídos arriba): por máquina el total, el primer
+  // inicio y el último fin, y la lista de tramos para la línea de tiempo. HORAS PARADAS =
+  // span total − trabajado. Cero cambios al pago (no toca day_hours ni hours_stopped).
   const segBy = new Map<string, { sum: number; minStart: number; maxEnd: number }>();
   const segsByMachine = new Map<string, { start: number; end: number }[]>();
   ((segs ?? []) as any[]).forEach((s) => {
@@ -136,8 +142,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     }
   });
 
-  // 3) Inspector asignado (CHECK) por turno.
-  const { rows: assigns } = await listInspectorAssignments();
+  // 3) Inspector asignado (CHECK) por turno (`assigns`, traído arriba).
   const dayInsp = new Map<string, string>();
   const nightInsp = new Map<string, string>();
   assigns.forEach((a) => { (a.shift === 'night' ? nightInsp : dayInsp).set(a.machinery_id, a.inspector_name || ''); });
@@ -146,33 +151,14 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const siempreActivoIds = new Set<string>();
   assigns.forEach((a) => { if (inspectorSiempreActivo(a.inspector_name)) siempreActivoIds.add(a.machinery_id); });
 
-  // 4) Avería/parada PENDIENTE vigente hasta ese día (se arrastra hasta resolver).
-  //    CORREGIDO: antes, apenas veía el registro paralelo "MÁQUINA PARADA" (que se
-  //    crea SIEMPRE junto al de avería real, ver SupervisorScreen.marcarParadaAveria),
-  //    pisaba el motivo real que escribió el inspector con el texto genérico
-  //    "NO TRABAJÓ · PARADA" — el reporte nunca mostraba POR QUÉ se paró. Ahora: si
-  //    hay un registro de avería real (material distinto) se usa SU motivo/material;
-  //    solo se usa el texto de "no trabajó" cuando de verdad no hubo avería, y en ese
-  //    caso se limpia la nota (quita las coordenadas GPS, deja edificio/referencia).
-  // Trae PENDIENTES vigentes (arrastradas) + las que se RESOLVIERON justo este día
-  // (para poder mostrar la hora de reactivación en la línea de tiempo). Una parada
-  // resuelta otro día distinto no entra acá (no corresponde a la jornada de este día).
-  // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
-  // noche va de 19:00 a 07:00+1, así que una avería/parada marcada (o reactivada) a
-  // la 1am cae dentro del turno noche de HOY — igual criterio que inspectorReport.ts
-  // (`nightEndBound`); cortar en medianoche la dejaba fuera de la consulta y la
-  // máquina podía desaparecer del reporte (ver el `return` de abajo si no tuvo otra
-  // actividad ese día).
-  const nightEndBound = `${addDaysISO(date, 1)}T07:00:00-04:00`;
-  const { data: mr } = await supabase
-    .from('maintenance_requests')
-    .select('machinery_id, material, notes, created_at, status, resolved_at')
-    .in('machinery_id', ids)
-    .lte('created_at', nightEndBound)
-    // Pendiente O resuelta DESPUÉS del fin del día (se mantuvo averiada/parada ese día
-    // aunque se cerrara un día posterior). Para HOY el borde es futuro → solo pendientes.
-    .or(`status.eq.pendiente,resolved_at.gt.${nightEndBound}`)
-    .order('created_at', { ascending: false });
+  // 4) Motivo de avería/parada — procesa `mr` (traído arriba). CORREGIDO: antes el
+  //    registro paralelo "MÁQUINA PARADA" (que se crea SIEMPRE junto al de avería real,
+  //    ver SupervisorScreen.marcarParadaAveria) pisaba el motivo real del inspector con
+  //    el genérico "NO TRABAJÓ · PARADA" — el reporte nunca mostraba POR QUÉ se paró.
+  //    Ahora: si hay avería real (material distinto) se usa SU motivo/material; solo se
+  //    usa "no trabajó" cuando de verdad no hubo avería, limpiando la nota (quita GPS,
+  //    deja edificio/referencia). `mr` trae PENDIENTES vigentes (arrastradas) + las
+  //    RESUELTAS este día (para la hora de reactivación en la línea de tiempo).
   // Deja SOLO el motivo (texto fijo "NO TRABAJÓ" + motivo del inspector), sin Ubicación
   // ni Edificio — normalización ÚNICA compartida con Inspecciones/teléfono (src/lib/paradaMotivo).
   const limpiarNoTrabajo = (notes: string): string => motivoParada(notes) || 'No trabajó';

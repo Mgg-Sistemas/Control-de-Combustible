@@ -123,77 +123,60 @@ export async function computeInspectorData(date: string, companies?: string[] | 
   // traslado/recepción aparecía aquí como "asignada" mientras la pantalla en vivo y el
   // PDF resumen ya la ocultaban — conteos de "máquinas asignadas" distintos entre los
   // dos documentos para el mismo inspector/día.
-  const { data: machFlagsAll } = await supabase.from('machinery').select('id, active, operational, en_espera');
-  const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
-
-  // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
-  const { data: profs } = await supabase.from('profiles').select('id, full_name, role');
-  const nameById: Record<string, string> = {};
-  const adminIds = new Set<string>();
-  ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; if (p.role === 'admin') adminIds.add(p.id); });
-
-  // 2) Jornadas de inspección del día (machine_rounds con recorded_by = inspector).
+  // Ventanas de fecha (puras) usadas por varias consultas — se calculan ANTES para
+  // lanzar TODAS las lecturas en PARALELO (una sola espera de red en vez de 8
+  // encadenadas; mismos datos, solo más rápido al generar el reporte).
   const nextDate = addDaysISO(date, 1);
-  const rounds = await selectAllRows(
-    'machine_rounds',
-    'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))',
-    (q) => q.eq('round_date', date)
-  );
-  // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de
-  // AYER (el día en que inició), no el de hoy — sin este fallback, generar el reporte
-  // de "hoy" bien temprano (antes del auto-cierre de las 7am) no encontraba la ronda
-  // y la máquina salía "⏳ por iniciar" en vez de "● en curso". Mismo criterio que ya
-  // usa SupervisorScreen.tsx para el círculo 🟢 del teléfono.
-  const roundsNocheAyer = await selectAllRows(
-    'machine_rounds',
-    'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))',
-    (q) => q.eq('round_date', addDaysISO(date, -1)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null),
-  );
-
-  // 3) Asignaciones (CHECK): columna vertebral — TODAS las máquinas de cada
-  //    inspector, por turno. Y paradas VIGENTES (pendientes hasta ese día) para el
-  //    estado (igual criterio que la app: por máquina, sin filtrar por fecha de marca).
-  //    Se trae también `status`/`resolved_at` (además de las pendientes, las que se
-  //    RESOLVIERON justo este día) para poder armar la línea de tiempo con la hora de
-  //    reactivación — igual patrón que porEmpresaReport.ts.
-  const { rows: assignments } = await listInspectorAssignments();
   // La ventana llega hasta las 07:00 del día SIGUIENTE (no medianoche): el turno
   // noche va de 19:00 a 07:00+1, así que una avería/parada marcada a la 1am, o
   // resuelta esa misma madrugada, cae dentro del turno noche de HOY pero antes se
   // quedaba fuera del rango y el reporte no la mostraba en absoluto.
   const nightEndBound = `${nextDate}T07:00:00-04:00`;
   // Pendiente O resuelta DESPUÉS del fin del día del reporte (se mantuvo averiada/parada
-  // ese día aunque se resolviera un día posterior). Antes solo recuperaba las resueltas
-  // EL MISMO día → una avería que seguía vigente ese día pero se cerró después desaparecía
-  // y la máquina caía a pendiente. Para HOY el borde es futuro → solo pendientes.
+  // ese día aunque se resolviera un día posterior). Para HOY el borde es futuro → solo pendientes.
   const resolvedHoyFilter = `status.eq.pendiente,resolved_at.gt.${nightEndBound}`;
-  // Paginado (selectAllRows): con >1000 solicitudes la consulta cruda se truncaba,
-  // perdiendo justo las averías/paradas más antiguas y arrastradas. selectAllRows pagina
-  // por id (no por fecha), así que se reordena por created_at DESC después de traer todo
+  // Mismo `select` para la ronda de HOY y la de ANOCHE (jornada de noche que cruza medianoche).
+  const roundsSelect = 'machinery_id, day_hours, night_hours, jornada_shift, recorded_by, jornada_start_at, machine:machinery_id(code, serial, plate, sector, parroquia, referencia, latitude, longitude, company:company_id(name))';
+  const [
+    { data: machFlagsAll },
+    { data: profs },
+    rounds,
+    roundsNocheAyer,
+    { rows: assignments },
+    maint,
+    maintAver,
+    segs,
+  ] = await Promise.all([
+    supabase.from('machinery').select('id, active, operational, en_espera'),
+    // 1) Perfiles: nombre por id y set de admins (a excluir, como en Supervisión).
+    supabase.from('profiles').select('id, full_name, role'),
+    // 2) Jornadas de inspección del día (machine_rounds con recorded_by = inspector).
+    selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', date)),
+    // Jornada de NOCHE que arrancó ANOCHE y sigue abierta: su `round_date` es el de AYER
+    // (el día en que inició). Sin este fallback, generar el reporte de "hoy" bien temprano
+    // (antes del auto-cierre de las 7am) dejaba la máquina en "⏳ por iniciar" en vez de
+    // "● en curso". Mismo criterio que SupervisorScreen para el círculo 🟢 del teléfono.
+    selectAllRows('machine_rounds', roundsSelect, (q) => q.eq('round_date', addDaysISO(date, -1)).eq('jornada_shift', 'night').not('jornada_start_at', 'is', null)),
+    // 3) Asignaciones (CHECK): columna vertebral — TODAS las máquinas de cada inspector,
+    //    por turno (misma fuente que el selector de la pantalla).
+    listInspectorAssignments(),
+    // Paradas VIGENTES (pendientes hasta ese día) + las RESUELTAS ese día (para la hora de
+    // reactivación en la línea de tiempo). Igual patrón que porEmpresaReport.ts.
+    selectAllRows('maintenance_requests', 'machinery_id, notes, created_at, status, resolved_at', (q) => q.eq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)),
+    // Averías REALES pendientes (material != MÁQUINA PARADA): la máquina queda AVERIADA.
+    selectAllRows('maintenance_requests', 'machinery_id, notes, material, created_at, status, resolved_at', (q) => q.neq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)),
+    // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea de
+    //     tiempo: a qué hora empezó/terminó cada tramo, sin mezclar día con noche.
+    selectAllRows('machine_work_segments', 'machinery_id, started_at, ended_at, shift', (q) => q.eq('round_date', date)),
+  ]);
+  const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets(((machFlagsAll ?? []) as any[]).map((m) => ({ id: m.id, active: m.active, operational: m.operational, en_espera: m.en_espera })));
+  const nameById: Record<string, string> = {};
+  const adminIds = new Set<string>();
+  ((profs ?? []) as any[]).forEach((p) => { if (p.full_name) nameById[p.id] = p.full_name; if (p.role === 'admin') adminIds.add(p.id); });
+  // selectAllRows pagina por id (no por fecha), así que se reordena por created_at DESC
   // — el código de abajo asume que la primera fila por máquina/turno es la más reciente.
-  const maint = await selectAllRows(
-    'maintenance_requests',
-    'machinery_id, notes, created_at, status, resolved_at',
-    (q) => q.eq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)
-  );
   (maint as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  // Averías REALES pendientes (material != MÁQUINA PARADA): la máquina queda AVERIADA.
-  // Igual que teléfono/admin: la de HOY gana sobre trabajando; la ARRASTRADA pierde si
-  // la máquina inició jornada. Se separan por fecha de marca respecto al día del reporte.
-  const maintAver = await selectAllRows(
-    'maintenance_requests',
-    'machinery_id, notes, material, created_at, status, resolved_at',
-    (q) => q.neq('material', 'MÁQUINA PARADA').lte('created_at', nightEndBound).or(resolvedHoyFilter)
-  );
   (maintAver as any[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  // 3b) Tramos trabajados del día (machine_work_segments, CON turno) — para la línea
-  //     de tiempo: a qué hora empezó/terminó cada tramo, filtrado por turno para no
-  //     mezclar el trabajo de día con el de noche en la misma fila.
-  const segs = await selectAllRows(
-    'machine_work_segments',
-    'machinery_id, started_at, ended_at, shift',
-    (q) => q.eq('round_date', date),
-  );
   const segsByMachine = new Map<string, { start: number; end: number; shift: Turno }[]>();
   ((segs ?? []) as any[]).forEach((s) => {
     const st = s.started_at ? new Date(s.started_at).getTime() : NaN;
