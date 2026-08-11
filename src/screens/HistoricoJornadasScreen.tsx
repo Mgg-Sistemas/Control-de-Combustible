@@ -162,6 +162,17 @@ export default function HistoricoJornadasScreen() {
       const avNoche = estadoKey.has(`${r.machinery_id}|${r.round_date}|night`);
       if (dayH > 0 && !avDia) list.push({ ...base, id: `${r.id}:d`, inspector: dayInsp.get(r.machinery_id) || '', shift: 'day', dayH, nightH: 0, total: r2(dayH) });
       if (nightH > 0 && !avNoche) list.push({ ...base, id: `${r.id}:n`, inspector: nightInsp.get(r.machinery_id) || '', shift: 'night', dayH: 0, nightH, total: r2(nightH) });
+      // ARRANCÓ la jornada del turno pero cerró con 0h (sin avería/parada marcada) → PARADA
+      // (regla del cliente: 0 horas = parada). Mismo criterio que buildDaySets (jornada_shift
+      // persiste tras el auto-cierre). SIEMPRE ACTIVO (SOS) nunca queda parada.
+      const dInsp = dayInsp.get(r.machinery_id) || '';
+      const nInsp = nightInsp.get(r.machinery_id) || '';
+      if (dayH <= 0 && !avDia && r.jornada_shift === 'day' && !inspectorSiempreActivo(dInsp)) {
+        list.push({ ...base, id: `${r.id}:pd`, inspector: dInsp, shift: 'day', dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null, estado: 'parada', motivo: null });
+      }
+      if (nightH <= 0 && !avNoche && r.jornada_shift === 'night' && !inspectorSiempreActivo(nInsp)) {
+        list.push({ ...base, id: `${r.id}:pn`, inspector: nInsp, shift: 'night', dayH: 0, nightH: 0, total: 0, horoIni: null, horoFin: null, estado: 'parada', motivo: null });
+      }
     });
 
     setRows(list);
