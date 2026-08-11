@@ -12,7 +12,7 @@ import { workedFromShifts } from './ControlMaquinariaScreen';
 import { spacing, radius } from '../theme';
 import { useTheme } from '../theme/ThemeContext';
 import { caracasParts } from '../lib/jornada';
-import { buildDaySets, computeMachineVisibilitySets } from '../lib/inspectorDaySets';
+import { buildDaySets, computeMachineVisibilitySets, paradaShiftOf } from '../lib/inspectorDaySets';
 import { listInspectorAssignments } from '../lib/machineInspectors';
 
 const money = (n: number) => `$${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -117,13 +117,17 @@ export default function DashboardScreen({ navigation }: any) {
     // ticket pendiente sin aplicar reactivación (máquina que volvió a trabajar tras
     // la avería, aunque el ticket siga sin cerrar), arrastre resuelto (ya trabajó y
     // cerró jornada hoy) ni la excepción "SIEMPRE ACTIVO" — se veía desincronizada
-    // del resto de la app (queja del cliente 10-ago-2026). Se calcula para AMBOS
-    // turnos de hoy (día ∪ noche) porque el Dashboard no distingue turno.
+    // del resto de la app (queja del cliente 10-ago-2026).
+    // POR TURNO (11-ago-2026): la avería/parada es INDEPENDIENTE del turno — marcarla de
+    // DÍA no debe afectar la NOCHE (ni viceversa). El Dashboard es una foto EN VIVO de la
+    // flota, así que cuenta solo el turno VIGENTE (por la hora actual), igual que el
+    // Catálogo (liveStatusOf). Antes unía día∪noche y una avería de día seguía contando
+    // toda la noche — desincronizado del Catálogo y contra la regla del cliente.
     const { machInactiveSet, machHardInactiveSet } = computeMachineVisibilitySets((machs ?? []) as any);
     const assignments = ((asg ?? []) as any[]).map((a) => ({ machinery_id: a.machinery_id, inspector_name: a.inspector_name ?? '—', shift: a.shift }));
-    const dsDay = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'day', machInactiveSet, machHardInactiveSet });
-    const dsNight = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: 'night', machInactiveSet, machHardInactiveSet });
-    const averiaSet = new Set<string>([...dsDay.averSet, ...dsNight.averSet]);
+    const nowShift = paradaShiftOf(new Date().toISOString());
+    const ds = buildDaySets({ rounds: (todayRounds ?? []) as any, maint: (averias ?? []) as any, assignments, selDay: today, shiftArg: nowShift, machInactiveSet, machHardInactiveSet });
+    const averiaSet = new Set<string>(ds.averSet);
     // Reactivación CRUZADA de turno (mismo criterio que `liveStatusOf` del
     // Catálogo, EquiposScreen.tsx): si la máquina tiene una jornada ABIERTA hoy
     // en CUALQUIER turno que arrancó DESPUÉS de su avería más reciente, ya
