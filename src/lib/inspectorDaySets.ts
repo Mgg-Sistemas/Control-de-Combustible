@@ -147,9 +147,16 @@ export function buildDaySets(params: {
   const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
   const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
   const openStartMs = new Map<string, number>(); // hora de inicio de la jornada ABIERTA de ESTE turno
+  // ARRANCÓ la jornada de ESTE turno (jornada_shift persiste tras el auto-cierre, aunque
+  // se nule jornada_start_at y las horas queden en 0). Regla del cliente: "las de 0 horas
+  // son las paradas" — una máquina que INICIÓ y FINALIZÓ la jornada pero cerró con 0h
+  // NO es "pendiente por iniciar" (arrancó), es PARADA. Solo las que nunca arrancaron
+  // (sin ronda de este turno) quedan pendientes.
+  const declaredSet = new Set<string>();
   rounds.forEach((r) => {
     if (r.round_date !== selDay) return;
     if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
+    if (r.jornada_shift === shiftArg) declaredSet.add(r.machinery_id);
     if (r.jornada_start_at) {
       anyOpenSet.add(r.machinery_id);
       if (openShiftOf(r) === shiftArg) {
@@ -259,6 +266,9 @@ export function buildDaySets(params: {
       else closedSet.add(id);
       return;
     }
+    // ARRANCÓ la jornada de este turno pero cerró con 0h (sin avería/parada marcada):
+    // es PARADA, no "pendiente por iniciar" (regla del cliente: 0 horas = parada).
+    if (declaredSet.has(id)) { paradaSet.add(id); return; }
     pendSet.add(id);
   });
 
