@@ -751,9 +751,13 @@ alter table public.machinery add column if not exists encargado text;
 -- ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del Conteo de equipos.
 alter table public.machinery add column if not exists zona text;
 
--- MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — agrupa reportes por modelo.
--- (La columna se llama `tipo` por historia; hoy representa el MODELO.)
-alter table public.machinery add column if not exists tipo text;
+-- MARCA-MODELO combinado (histórico: CAT 320, Komatsu PC200...) — agrupa reportes.
+-- (La columna se llama `tipo` por historia.) Desde 2026-08-11 el catálogo separa marca y
+-- modelo en columnas propias; `tipo` SE MANTIENE SINCRONIZADA = marca+modelo al guardar
+-- (ver machinery_marca_modelo) para no romper los reportes/tarjetas que ya la leen.
+alter table public.machinery add column if not exists tipo   text;
+alter table public.machinery add column if not exists marca  text; -- MARCA (CAT, Komatsu, Kodiak...)
+alter table public.machinery add column if not exists modelo text; -- MODELO (320, PC200, D6...)
 
 -- CLASIFICACIÓN de la máquina (Manejo de cargas, Remoción y excavación...) — agrupa reportes por clasificación.
 alter table public.machinery add column if not exists clasificacion text;

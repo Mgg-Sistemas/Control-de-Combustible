@@ -178,7 +178,9 @@ export interface Machinery {
   grupo: string | null;
   encargado: string | null;
   zona: string | null; // ZONA / a disposición de (Gobernación, FANB, CVM, Zona Este…) — filtro del conteo
-  tipo: string | null; // MODELO de la máquina (marca/modelo: CAT 320, Komatsu PC200...) — para agrupar
+  tipo: string | null; // MARCA-MODELO combinado (histórico; se mantiene = marca+modelo al guardar) — para agrupar
+  marca: string | null; // MARCA (CAT, Komatsu, Kodiak...) — campo separado del catálogo
+  modelo: string | null; // MODELO (320, PC200, D6...) — campo separado del catálogo
   clasificacion: string | null; // CLASIFICACIÓN de la máquina (Excavadora, Volteo, Retro...) — para agrupar
   referencia: string | null; // UBICACIÓN / referencia (edificio) de la máquina — se muestra en los reportes
   parroquia: string | null; // PARROQUIA (texto editable) — ubicación administrativa
