@@ -1987,7 +1987,11 @@ export default function EquiposScreen({ navigation, route }: any) {
                               🏗️ {edificioLabel((m as any).referencia)}
                             </Text>
                           ) : null}
-                          {inspectors[m.id] ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
+                          {/* Retirada: sin inspector — aunque ya no haya fila en machine_inspectors,
+                              `latestInspectorByMachine()` cae al último check-in histórico en
+                              supervisor_visits (dato real, no se borra) y lo seguía mostrando acá
+                              como si la máquina tuviera inspector vigente. */}
+                          {inspectors[m.id] && m.operational ? <Text style={{ color: colors.brandText, fontSize: 12, fontWeight: '700' }}>🪖 Inspector: {inspectors[m.id].name}</Text> : null}
                           {m.plate ? <Text style={{ color: colors.muted, fontSize: 12 }}>Placa: {m.plate}</Text> : null}
                           {m.serial ? <Text style={{ color: colors.muted, fontSize: 12 }}>Serial: {m.serial}</Text> : null}
                         </View>
