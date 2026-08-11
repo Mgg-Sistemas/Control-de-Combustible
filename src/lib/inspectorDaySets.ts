@@ -15,6 +15,32 @@ import { inspectorSiempreActivo } from './machineInspectors';
  * REGLA: cualquier cambio a estas reglas de negocio se hace ACÁ. Quien las use
  * (pantalla o PDF) solo pasa sus propios datos crudos — nunca reimplementa la
  * clasificación en paralelo.
+ *
+ * ── MAPA DE CLASIFICADORES (auditoría sync#2, 11-ago-2026) ──────────────────
+ * Hay CUATRO clasificadores de avería/parada/iniciada/pendiente en la app. NO son
+ * una sola función porque calculan cosas legítimamente distintas; SÍ comparten las
+ * mismas REGLAS de negocio (exención "SIEMPRE ACTIVO", reactivación de jornada,
+ * hoy-vs-arrastrada, prioridad avería>parada). Antes de "unificarlos" a ciegas, leer:
+ *
+ *  1. `buildDaySets` (ESTE archivo) — POR-TURNO AISLADO (día indep. de noche, a
+ *     propósito: la eficiencia por inspector/turno de Inspecciones no puede mezclar
+ *     turnos). Fuente de verdad del panel de Inspecciones (InspectionsSummary) y del
+ *     PDF por inspector (inspectorSummaryReport). Salida: sets por estado.
+ *  2. `DashboardScreen.loadCounts` — usa ESTE `buildDaySets` (día ∪ noche) y ENCIMA
+ *     aplica una reactivación CRUZADA de turno (una avería de día con jornada de
+ *     noche reabierta después ya no cuenta) — caso LUMINARIA/PAYLOADER, 11-ago-2026.
+ *     Esa corrección vive allá porque el Dashboard NO distingue turno; acá sería un
+ *     error (rompería la eficiencia por-turno).
+ *  3. `EquiposScreen.liveStatusOf` — estatus EN VIVO/instantáneo (horas transcurridas
+ *     con `nowTick`), reactivación CRUZADA. Otra forma de salida (trabajando/
+ *     trabajo_hoy/ninguno). No usa sets por turno.
+ *  4. `SupervisorScreen.segmentoDe`/`segmentoConTurno` — teléfono del inspector,
+ *     POR-TURNO (día indep. de noche), con índice O(1) propio por rendimiento.
+ *
+ * El comportamiento de (1) está BLOQUEADO por `scripts/test-clasificacion.mjs`
+ * (`npm run test:clasificacion`): 30 casos que incluyen reactivación, arrastre,
+ * SIEMPRE ACTIVO, prioridad y el cruce de turno. Cualquier refactor que toque las
+ * reglas debe mantener ese test en verde antes de subirse.
  */
 
 /** Turno de una PARADA/AVERÍA por la hora (Caracas, UTC-4 fijo, sin horario de
