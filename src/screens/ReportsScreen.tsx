@@ -1249,20 +1249,31 @@ export default function ReportsScreen({ route }: any) {
     // (active/operational = false) y los que están en espera (stand by).
     const isActivo = (m: any) => m.en_espera !== true && m.active !== false && m.operational !== false;
     const list = all.filter(isActivo);
-    // Horas trabajadas por máquina (todas las jornadas registradas). Dedupe por máquina+día.
-    const rnds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
-    const byMD = new Map<string, any>();
-    (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
-    const hoursByMachine = new Map<string, number>();
-    byMD.forEach((r) => {
-      const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
-      if (w > 0) hoursByMachine.set(r.machinery_id, (hoursByMachine.get(r.machinery_id) ?? 0) + w);
-    });
+    // "Tiene horas" por máquina, agregado en el SERVIDOR (RPC machine_worked_flags) para
+    // NO descargar toda machine_rounds solo para un booleano. Si el RPC no existe (SQL sin
+    // correr), cae al escaneo completo con la MISMA fórmula (workedFromShifts). Verificado:
+    // el conjunto del RPC coincide EXACTAMENTE con el del escaneo (dedupe por máquina+día).
+    const workedSet = new Set<string>();
+    try {
+      const { data: wf, error } = await supabase.rpc('machine_worked_flags');
+      if (error) throw error;
+      ((wf as any[]) ?? []).forEach((r) => workedSet.add(r.machinery_id));
+    } catch {
+      const rnds = await selectAllRows('machine_rounds', 'machinery_id, round_date, day_hours, night_hours, hours_stopped, overtime_hours');
+      const byMD = new Map<string, any>();
+      (rnds ?? []).forEach((r: any) => byMD.set(`${r.machinery_id}|${r.round_date}`, r));
+      const hoursByMachine = new Map<string, number>();
+      byMD.forEach((r) => {
+        const w = workedFromShifts(Number(r.day_hours ?? 0), Number(r.night_hours ?? 0), Number(r.hours_stopped ?? 0), Number(r.overtime_hours ?? 0));
+        if (w > 0) hoursByMachine.set(r.machinery_id, (hoursByMachine.get(r.machinery_id) ?? 0) + w);
+      });
+      hoursByMachine.forEach((v, k) => { if (v > 0) workedSet.add(k); });
+    }
     const clasMap = new Map<string, ConteoRow>();
     const tipoMap = new Map<string, ConteoRow>();
     const companyOf = (m: any) => (m.company?.name && String(m.company.name).trim()) || 'Sin empresa';
     list.forEach((m) => {
-      const tieneHoras = (hoursByMachine.get(m.id) ?? 0) > 0;
+      const tieneHoras = workedSet.has(m.id);
       const ck = (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación';
       const tk = equipCategory(m.code);
       const cc = clasMap.get(ck) ?? { name: ck, count: 0, conHoras: 0, sinHoras: 0 }; cc.count += 1; if (tieneHoras) cc.conHoras += 1; else cc.sinHoras += 1; clasMap.set(ck, cc);
@@ -1272,11 +1283,11 @@ export default function ReportsScreen({ route }: any) {
     const alfa = (a: ConteoRow, b: ConteoRow) => cmpText(a.name, b.name);
     const byClas = [...clasMap.values()].sort(alfa);
     const byTipo = [...tipoMap.values()].sort(alfa);
-    const conHoras = list.filter((m) => (hoursByMachine.get(m.id) ?? 0) > 0).length;
+    const conHoras = list.filter((m) => workedSet.has(m.id)).length;
     const sinHoras = list.length - conHoras;
     // Listado de máquinas SIN horas (para mostrarlo tal cual, sin agrupar).
     const sinList: ConteoMachine[] = list
-      .filter((m) => (hoursByMachine.get(m.id) ?? 0) <= 0)
+      .filter((m) => !workedSet.has(m.id))
       .map((m) => ({ code: m.code ?? '—', serial: m.serial ?? null, clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación', company: companyOf(m) }))
       .sort((a, b) => cmpText(a.company, b.company) || cmpText(a.code, b.code));
     // Estado (referencia sobre el catálogo COMPLETO): stand by (en espera) tiene
@@ -1308,7 +1319,7 @@ export default function ReportsScreen({ route }: any) {
       tipo: equipCategory(m.code), clas: (m.clasificacion && String(m.clasificacion).trim()) || 'Sin clasificación',
       zona: zonaR(m),
       dispo: (m.zona && String(m.zona).trim()) || 'Propias',
-      tieneHoras: (hoursByMachine.get(m.id) ?? 0) > 0,
+      tieneHoras: workedSet.has(m.id),
     }));
     // Puntos del mapa (solo las ubicadas), coloreados por empresa como el mapa general.
     const mapPins: MapPin[] = list
