@@ -1103,10 +1103,14 @@ export default function EquiposScreen({ navigation, route }: any) {
     const h = (n: number) => n.toFixed(2);
     if (s.estado === 'averiada' || s.estado === 'parada') {
       const isAveria = s.estado === 'averiada';
+      // Averiada/Parada NO muestra horas "Trabajó/En curso/Total": era contradictorio
+      // ("sale que trabajó pero dice averiado"). El auto-inicio por cron (7am) o tramos
+      // viejos podían dejar horas > 0 aunque la máquina esté averiada/parada. El estado
+      // (🔴 Averiada / 🟡 Parada) + el motivo ya comunican todo; se omiten las horas.
       return (
         <View style={{ alignSelf: 'flex-start', marginTop: 4, backgroundColor: isAveria ? '#FEE2E2' : '#FEF3C7', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
           <Text style={{ color: isAveria ? '#B91C1C' : '#B45309', fontWeight: '700', fontSize: 11 }} numberOfLines={2}>
-            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''} · Trabajó {h(s.trabajadas)}h · En curso 0h · Total {h(s.total)}h
+            {isAveria ? '🔴 Averiada' : '🟡 Parada'}{s.motivo ? ` · ${s.motivo}` : ''}
           </Text>
         </View>
       );
