@@ -128,6 +128,30 @@ export function profile(g: Grid, ax: number, ay: number, bx: number, by: number,
   return out;
 }
 
+/** Secciones TRANSVERSALES a lo largo del eje A→B: cada `spacing` m se toma una
+ *  sección perpendicular de ±`halfWidth` m, muestreada de la superficie. */
+export function crossSections(g: Grid, ax: number, ay: number, bx: number, by: number, spacing: number, halfWidth: number, sampleStep = 1, maxSections = 12): { station: number; samples: { offset: number; z: number | null }[] }[] {
+  const total = Math.hypot(bx - ax, by - ay);
+  if (!(total > 0) || spacing <= 0) return [];
+  const ux = (bx - ax) / total, uy = (by - ay) / total; // dirección del eje
+  const px = -uy, py = ux;                               // perpendicular
+  let n = Math.floor(total / spacing);
+  let sp = spacing;
+  if (n > maxSections) { sp = total / maxSections; n = maxSections; }
+  const out: { station: number; samples: { offset: number; z: number | null }[] }[] = [];
+  for (let i = 0; i <= n; i++) {
+    const s = i * sp;
+    const sx = ax + ux * s, sy = ay + uy * s;
+    const samples: { offset: number; z: number | null }[] = [];
+    for (let o = -halfWidth; o <= halfWidth + 1e-9; o += sampleStep) {
+      const z = sampleZ(g, sx + px * o, sy + py * o);
+      samples.push({ offset: o, z: isNaN(z) ? null : z });
+    }
+    out.push({ station: s, samples });
+  }
+  return out;
+}
+
 /** Triángulos del TIN como triples de índices (base para caras LandXML/DXF). */
 export function triangles(pts: XYZ[]): number[][] {
   if (pts.length < 3) return [];
