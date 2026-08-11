@@ -24,6 +24,16 @@ import { isoYesterday } from './caracasDay';
 
 const esc = (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const dmy = (iso: string) => { const [y, m, d] = (iso || '').split('-'); return y && m && d ? `${d}/${m}/${y}` : iso; };
+// Fecha larga en español para el banner grande: "lunes 10 de agosto de 2026"
+// (el PDF la muestra en MAYÚSCULAS por el text-transform del membrete).
+const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DIAS_SEMANA = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const fechaLarga = (iso: string): string => {
+  const [y, m, d] = (iso || '').split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(y, m - 1, d); // hora local (mediodía implícito) → sin corrimiento de zona
+  return `${DIAS_SEMANA[dt.getDay()]} ${d} de ${MESES_LARGOS[m - 1]} de ${y}`;
+};
 /** Día ISO (AAAA-MM-DD) + n días (n puede ser negativo). */
 const addDaysISO = (iso: string, n: number): string => {
   const [y, m, d] = iso.split('-').map(Number);
@@ -458,6 +468,10 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
 
   const totMach = empresas.reduce((s, [, f]) => s + f.length, 0);
 
+  // Banner con la FECHA DEL REPORTE EN GRANDE (pedido del cliente), justo bajo el
+  // membrete. Tamaño similar al título; la fecha completa en texto es más legible.
+  const fechaBanner = `<div class="fecha-dia">📅 ${esc(fechaLarga(date))}</div>`;
+
   // Tarjetas de TOTALES arriba: TOTAL HORAS DÍA · TOTAL HORAS NOCHE · TOTAL DE JORNADA.
   const kpis = `
     <div class="kpis">
@@ -494,6 +508,9 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
     .kpi .k{font-size:9px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:0.4px}
     .kpi .v{font-size:20px;font-weight:800;color:#1E3A5F;margin-top:2px}
     .kpi.ok{background:#ECFDF3;border-color:#ABEFC6} .kpi.ok .v{color:#067647}
+    /* FECHA DEL REPORTE EN GRANDE (banner bajo el membrete). */
+    .fecha-dia{font-size:23px;font-weight:800;color:#1E3A5F;letter-spacing:.6px;text-align:center;
+      margin:2px 0 12px;padding:9px 14px;border:2px solid #1E3A5F;border-radius:10px;background:#F1F5F9}
   `;
 
   // `encargados` trae TODAS las variantes de escritura seleccionadas (p. ej. "Alberto"
@@ -510,7 +527,7 @@ export async function generateEmpresaDiaReport(opts: { date: string; companyIds:
   const html = pdfDocument({
     title: 'REPORTE DEL DÍA POR EMPRESA',
     subtitle,
-    body: empresas.length ? (kpis + secciones) : '<p>Sin actividad para las empresas elegidas en este día.</p>',
+    body: empresas.length ? (fechaBanner + kpis + secciones) : (fechaBanner + '<p>Sin actividad para las empresas elegidas en este día.</p>'),
     extraCss,
   });
   return await exportPdf(html, `Reporte del dia por empresa ${fecha}`);
