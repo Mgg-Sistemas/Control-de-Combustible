@@ -445,35 +445,22 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   const upsertRound = async (m: Machinery, dISO: string, patch: Record<string, any>) => {
     const key = rkey(m.id, dISO);
     markEdited(key); // protege la edición mientras se escribe (evita que un refetch la pise)
-    const ex = rounds[key];
-    const payload: any = {
-      machinery_id: m.id,
-      round_date: dISO,
-      round_no: 1,
-      day_hours: Number(ex?.day_hours ?? 0),
-      night_hours: Number(ex?.night_hours ?? 0),
-      hours_stopped: Number(ex?.hours_stopped ?? 0),
-      overtime_hours: Number(ex?.overtime_hours ?? 0),
-      day_operator: ex?.day_operator ?? null,
-      day_operator_ci: ex?.day_operator_ci ?? null,
-      night_operator: ex?.night_operator ?? null,
-      night_operator_ci: ex?.night_operator_ci ?? null,
-      ...patch,
-    };
-    payload.status = Number(payload.day_hours) + Number(payload.night_hours) > 0 ? 'operativa' : 'parada';
-    const { data, error } = await supabase
-      .from('machine_rounds')
-      .upsert(payload, { onConflict: 'machinery_id,round_date,round_no' })
-      .select()
-      .single();
+    // ATÓMICO (auditoría sync#3): antes leía la fila (o el estado LOCAL rounds[key]),
+    // la fusionaba y re-escribía TODO → si dos editaban campos distintos del mismo
+    // round a la vez, el segundo pisaba al primero (lost-update de horas → pagos).
+    // El RPC escribe solo las columnas del patch y deriva `status` en el servidor.
+    const { data, error } = await supabase.rpc('upsert_machine_round', {
+      p_machinery_id: m.id, p_round_date: dISO, p_patch: patch, p_recorded_by: null,
+    });
     // OJO: Alert.alert NO se muestra en web; usamos el banner (setNotice) para que un
     // error de guardado SÍ se vea (si no, parecería que "no toma" las horas sin avisar).
     if (error) { recentEdits.current.delete(key); setNotice(`❌ No se pudo guardar: ${error.message}`); return; }
+    const row = (Array.isArray(data) ? data[0] : data) as MachineRound;
     markEdited(key); // refresca la ventana tras confirmar el guardado
-    setRounds((p) => ({ ...p, [key]: data as MachineRound }));
+    setRounds((p) => ({ ...p, [key]: row }));
     // Si la ronda editada YA estaba cerrada, sincroniza el histórico en el acto
     // (para que el reporte cerrado refleje el cambio sin tener que reabrir el cierre).
-    if ((data as any)?.closed) syncClosedRound(m, dISO, data as MachineRound);
+    if ((row as any)?.closed) syncClosedRound(m, dISO, row);
   };
 
   // Sincroniza la copia congelada del cierre (control_closures.detail.machines) cuando

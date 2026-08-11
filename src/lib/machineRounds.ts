@@ -25,6 +25,14 @@ export type RoundPatch = Partial<{
  * Inserta/actualiza la jornada (round_no=1) de una máquina en una fecha,
  * conservando lo ya registrado y aplicando `patch`. El estado ('operativa' /
  * 'parada') se deriva de las horas de turno. Devuelve la fila o un error.
+ *
+ * ATÓMICO (auditoría sync#3): delega en el RPC `upsert_machine_round`, que hace
+ * un INSERT ... ON CONFLICT DO UPDATE escribiendo SOLO las columnas presentes en
+ * `patch` (clave presente, aun con valor null, gana; ausente conserva lo de la
+ * BD) en un único statement. Antes esta función leía la fila completa, la
+ * fusionaba en memoria y re-escribía TODO: si dos actualizaban campos distintos
+ * del mismo round a la vez, el segundo pisaba el cambio del primero (lost-update
+ * de horas → pagos). El RPC elimina esa ventana: nunca reenvía valores stale.
  */
 export async function upsertMachineRound(
   machineryId: string,
@@ -32,44 +40,15 @@ export async function upsertMachineRound(
   patch: RoundPatch,
   recordedBy?: string | null
 ): Promise<{ data?: MachineRound; error?: string }> {
-  // Trae el registro previo (si existe) para no pisar los otros campos.
-  const { data: ex } = await supabase
-    .from('machine_rounds')
-    .select('*')
-    .eq('machinery_id', machineryId)
-    .eq('round_date', dateISO)
-    .eq('round_no', 1)
-    .maybeSingle();
-
-  const payload: any = {
-    machinery_id: machineryId,
-    round_date: dateISO,
-    round_no: 1,
-    day_hours: Number(ex?.day_hours ?? 0),
-    night_hours: Number(ex?.night_hours ?? 0),
-    hours_stopped: Number(ex?.hours_stopped ?? 0),
-    overtime_hours: Number(ex?.overtime_hours ?? 0),
-    day_operator: ex?.day_operator ?? null,
-    day_operator_ci: ex?.day_operator_ci ?? null,
-    night_operator: ex?.night_operator ?? null,
-    night_operator_ci: ex?.night_operator_ci ?? null,
-    horometro_inicial: ex?.horometro_inicial ?? null,
-    horometro_final: ex?.horometro_final ?? null,
-    horometro_photo: ex?.horometro_photo ?? null,
-    jornada_start_at: ex?.jornada_start_at ?? null,
-    jornada_shift: ex?.jornada_shift ?? null,
-    ...patch,
-  };
-  if (recordedBy && !ex) payload.recorded_by = recordedBy;
-  payload.status = Number(payload.day_hours) + Number(payload.night_hours) > 0 ? 'operativa' : 'parada';
-
-  const { data, error } = await supabase
-    .from('machine_rounds')
-    .upsert(payload, { onConflict: 'machinery_id,round_date,round_no' })
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('upsert_machine_round', {
+    p_machinery_id: machineryId,
+    p_round_date: dateISO,
+    p_patch: patch,
+    p_recorded_by: recordedBy ?? null,
+  });
   if (error) return { error: error.message };
-  return { data: data as MachineRound };
+  const row = (Array.isArray(data) ? data[0] : data) as MachineRound;
+  return { data: row };
 }
 
 /**
