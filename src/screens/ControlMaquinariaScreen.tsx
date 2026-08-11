@@ -22,6 +22,7 @@ import { loadFuelByMachine, lphOf, litersLabel, FuelAgg } from '../lib/fuelPerMa
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius } from '../theme';
 import { caracasParts } from '../lib/jornada';
+import { freezeOpenJornadaNow } from '../lib/machineRounds';
 
 export const ROUND_TIMES = ['07:00', '11:00', '15:00', '19:00'];
 export const ROUND_LABELS = ['1ª RONDA', '2ª RONDA', '3ª RONDA', '4ª RONDA'];
@@ -427,7 +428,11 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     // `control_closures` (histórico de cierres, que esta misma pantalla lee/escribe)
     // faltaban: un check-in, un despacho de combustible o un cierre creado/borrado por
     // otro admin no refrescaban esta pantalla en vivo, solo al recargar o volver a enfocarla.
-    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests', 'supervisor_visits', 'dispatches', 'control_closures'].forEach((t) =>
+    // `machine_inspectors` faltaba también (11-ago-2026): esta pantalla lee
+    // `listInspectorAssignments()` (línea ~345), pero una reasignación de
+    // inspector hecha desde el teléfono (CHECK MÁQUINA) no la refrescaba en
+    // vivo, solo al recargar o volver a enfocarla.
+    ['machine_rounds', 'machinery', 'machine_guards', 'fletes', 'maintenance_requests', 'supervisor_visits', 'dispatches', 'control_closures', 'machine_inspectors'].forEach((t) =>
       ch.on('postgres_changes' as any, { event: '*', schema: 'public', table: t }, bump)
     );
     // Resync al (re)conectar el canal (señal intermitente): recupera cambios perdidos.
@@ -1166,7 +1171,13 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
     const { error } = await supabase.from('machinery').update({ en_espera: true }).eq('id', m.id);
     if (error) return toast.error(error.message);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, en_espera: true } as Machinery) : x)));
-    setNotice(`🕓 ${m.code} puesta en espera (por recepción).`);
+    // "En espera" = congelada por completo (pedido del cliente 11-ago-2026): si tenía
+    // una jornada corriendo, se banca lo trabajado hasta AHORA y se cierra — no debe
+    // seguir sumando horas ni depender de que alguien la cierre después.
+    const fr = await freezeOpenJornadaNow(m.id);
+    setNotice(fr.closed
+      ? `🕓 ${m.code} puesta en espera. Su jornada abierta se cerró con ${fr.hours}h ya trabajadas.`
+      : `🕓 ${m.code} puesta en espera (por recepción).`);
   };
 
   // ── Flete / viaje: registrar cuántos viajes hizo el equipo y a qué precio, con su fecha.
@@ -1243,9 +1254,10 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
   };
   const marcarAveriada = async () => {
     if (!averiaMachine) return;
+    if (!averiaNota.trim()) { setNotice('❌ Escribe el motivo de la avería — es obligatorio.'); return; }
     setAveriaBusy(true);
     const m = averiaMachine;
-    const nota = averiaNota.trim() || null;
+    const nota = averiaNota.trim();
     // 1) Estado del sistema: No operativa (averiada). Esto es lo esencial.
     const { error: eOp } = await supabase.from('machinery').update({ operational: false }).eq('id', m.id);
     if (eOp) { setAveriaBusy(false); setNotice(`❌ No se pudo marcar averiada: ${eOp.message}`); return; }
@@ -1254,12 +1266,27 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
       machinery_id: m.id, tipo: 'correctivo', out_at: todayISO(),
       estimated_note: nota, status: 'en_reparacion', created_by: session?.user?.id ?? null,
     });
+    // 3) Marcador "MÁQUINA PARADA" (igual que el inspector desde el teléfono): sin
+    // esto la máquina queda No operativa pero invisible en Inspecciones, que solo
+    // lee maintenance_requests — el motivo escrito aquí no se veía ahí. Si YA había un
+    // marcador pendiente (el inspector ya la había marcado parada), se ACTUALIZA su
+    // motivo en vez de insertar otro — evita duplicar y contar dos veces las horas
+    // paradas en los reportes por empresa.
+    const { data: updRows, error: eUpd } = await supabase.from('maintenance_requests')
+      .update({ notes: nota })
+      .eq('machinery_id', m.id).eq('material', 'MÁQUINA PARADA').eq('status', 'pendiente')
+      .select('id');
+    const eMr = eUpd || (!updRows?.length
+      ? (await supabase.from('maintenance_requests').insert({
+          machinery_id: m.id, material: 'MÁQUINA PARADA', notes: nota, status: 'pendiente', requested_by: session?.user?.id ?? null,
+        })).error
+      : null);
     setAveriaBusy(false);
     setMachines((prev) => prev.map((x) => (x.id === m.id ? ({ ...x, operational: false } as Machinery) : x)));
     closeAveria();
     setNotice(
       `⚠️ ${m.code} quedó marcada como AVERIADA (No operativa).` +
-      (eRep ? ' No se pudo registrar la traza de reparación, pero el equipo ya salió del control.' : ' Gestiona su reparación en Mantenimiento de Maquinaria.')
+      (eRep || eMr ? ' Algo no se pudo registrar completo, pero el equipo ya salió del control.' : ' Gestiona su reparación en Mantenimiento de Maquinaria.')
     );
   };
 
@@ -2220,7 +2247,7 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                     <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>🔖 {[averiaMachine.serial, averiaMachine.plate].filter(Boolean).join(' · ')}</Text>
                   ) : null}
                   <Text style={{ color: colors.muted, fontSize: 12 }}>🏢 {averiaCompanyLabel}</Text>
-                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Motivo de la avería (opcional)</Text>
+                  <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.sm, marginBottom: 2 }}>Motivo de la avería (obligatorio)</Text>
                   <TextInput
                     value={averiaNota}
                     onChangeText={setAveriaNota}
@@ -2239,8 +2266,8 @@ export default function ControlMaquinariaScreen({ navigation, route }: any) {
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={marcarAveriada}
-                  disabled={!averiaMachine || averiaBusy}
-                  style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning, opacity: (!averiaMachine || averiaBusy) ? 0.5 : 1 }}
+                  disabled={!averiaMachine || averiaBusy || !averiaNota.trim()}
+                  style={{ flex: 2, padding: spacing.md, borderRadius: radius.md, alignItems: 'center', backgroundColor: colors.warning, opacity: (!averiaMachine || averiaBusy || !averiaNota.trim()) ? 0.5 : 1 }}
                 >
                   <Text style={{ color: '#fff', fontWeight: '800' }}>{averiaBusy ? 'Guardando…' : '⚠️ Marcar averiado'}</Text>
                 </TouchableOpacity>

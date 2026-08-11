@@ -381,7 +381,7 @@ export default function FuelDriverScreen() {
   const marcarAveria = async () => {
     if (!selected || savingAveria) return;
     if (!averiaMaterial) { setResult({ ok: false, msg: '❌ Elige el tipo de avería.' }); return; }
-    if (averiaMaterial === 'otro' && !averiaNote.trim()) { setResult({ ok: false, msg: '❌ Describe la falla para "Otro".' }); return; }
+    if (!averiaNote.trim()) { setResult({ ok: false, msg: '❌ Describe la falla — la nota es obligatoria.' }); return; }
     setSavingAveria(true);
     setResult(null);
     try {
@@ -633,11 +633,11 @@ export default function FuelDriverScreen() {
                       </View>
                       {averiaMaterial ? (
                         <>
-                          <Text style={{ color: colors.muted, fontSize: 12 }}>{averiaMaterial === 'otro' ? '¿Qué falla presenta? (describe la avería)' : 'Nota (opcional)'}</Text>
+                          <Text style={{ color: colors.muted, fontSize: 12 }}>{averiaMaterial === 'otro' ? '¿Qué falla presenta? (describe la avería)' : 'Nota (obligatoria)'}</Text>
                           <TextInput
                             value={averiaNote}
                             onChangeText={setAveriaNote}
-                            placeholder={averiaMaterial === 'otro' ? 'Ej. no arranca, fuga de aceite…' : 'Detalle…'}
+                            placeholder={averiaMaterial === 'otro' ? 'Ej. no arranca, fuga de aceite…' : 'Detalle de la falla…'}
                             placeholderTextColor={colors.muted}
                             multiline={averiaMaterial === 'otro'}
                             style={{ backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, minHeight: averiaMaterial === 'otro' ? 60 : undefined }}
@@ -657,7 +657,7 @@ export default function FuelDriverScreen() {
                               ))}
                             </View>
                           ) : null}
-                          <TouchableOpacity onPress={marcarAveria} disabled={savingAveria} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: savingAveria ? 0.6 : 1 }}>
+                          <TouchableOpacity onPress={marcarAveria} disabled={savingAveria || !averiaNote.trim()} style={{ backgroundColor: '#2563EB', borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center', opacity: (savingAveria || !averiaNote.trim()) ? 0.6 : 1 }}>
                             <Text style={{ color: '#fff', fontWeight: '800' }}>{savingAveria ? 'Guardando…' : '🔧 Reportar avería a Mantenimiento'}</Text>
                           </TouchableOpacity>
                         </>

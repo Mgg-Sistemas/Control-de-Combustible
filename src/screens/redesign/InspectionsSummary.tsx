@@ -464,8 +464,8 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
   // dejar rastro de quién lo hizo y cuánto había.
   const applyBulk = async (action: 'start' | 'pending' | 'close' | 'parada' | 'averia') => {
     if (bulkSel.size === 0 || bulkBusy || !bulkIsToday) return;
-    if (action === 'averia' && !bulkMotivo.trim()) {
-      Alert.alert('Falta el motivo', 'Escribe el motivo de la avería antes de marcarla (queda como registro en Mantenimiento).');
+    if ((action === 'averia' || action === 'parada') && !bulkMotivo.trim()) {
+      Alert.alert('Falta el motivo', `Escribe el motivo de la ${action === 'averia' ? 'avería' : 'parada'} antes de marcarla (queda como registro en Mantenimiento).`);
       return;
     }
     setBulkBusy(true);
@@ -494,22 +494,45 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
           Alert.alert('No se pudo iniciar', error.message);
           return;
         }
-        // "🟢 Activar ahora" también debe SACAR a la máquina de Parada/Avería —
-        // si no, queda con jornada iniciada pero sigue saliendo 🔴/🟡 en toda la
-        // app (avería/parada pendiente le gana a "iniciada", ver `estadoDe` en
-        // SupervisorScreen.tsx) y el botón parece no hacer nada. Mismo patrón
-        // que `volverOperativa()` del teléfono: resuelve TODAS las solicitudes
-        // pendientes de Mantenimiento de esas máquinas (parada + avería real).
-        const ids = items.map((it) => it.id);
-        const { error: mrErr } = await supabase
-          .from('maintenance_requests')
-          .update({ status: 'realizado', resolved_by: uid, resolved_at: nowIso })
-          .in('machinery_id', ids)
-          .eq('status', 'pendiente');
+        // "🟢 Activar ahora" YA NO resuelve solicitudes de Mantenimiento como
+        // efecto secundario (antes sí, "para que la máquina no se quedara
+        // pegada en 🔴/🟡" — ver BUG 11-ago-2026 abajo). No hace falta: en
+        // cuanto `jornada_start_at` queda seteado (arriba), la regla de
+        // reactivación que ya tienen `buildDaySets`/`segmentoDe` (jornada
+        // abierta DESPUÉS de la marca de avería/parada) hace que la máquina
+        // se vea "Activa" sola, sin tocar el ticket — el ticket real se queda
+        // pendiente en Mantenimiento de Maquinaria hasta que alguien lo
+        // resuelva a mano (o con "Volver a Operativa"), que es justo lo que
+        // se necesita si la reparación real todavía no pasó.
+        // BUG 11-ago-2026 (JUMBO 330, PAYLOADER, LUMINARIA, COMPRESOR CON
+        // MARTILLO, y el mismo patrón repetido por 7 supervisores en 9 días):
+        // el código anterior resolvía TODAS las solicitudes pendientes de
+        // TODAS las máquinas seleccionadas sin mirar nada, así que un
+        // "seleccionar todo" + "Activar ahora" barría de golpe averías/
+        // paradas reales que seguían sin repararse (caso real: 30 solicitudes
+        // de 4 máquinas cerradas en <1s, con reportes de avería idénticos
+        // repitiéndose durante días sin que ninguno se cerrara
+        // individualmente). Se probaron dos filtros antes de esta versión —
+        // por el `estado` 🔴/🟡 visual (fallaba con turno contrario,
+        // inspectores "siempre activo" y con un segundo click) y por un
+        // UPDATE condicionado a `maint` (una vez que `ids` excluye a las
+        // máquinas de `maint`, el propio `.eq('status','pendiente')` no
+        // encuentra nada que cerrar salvo un ticket creado en la milésima de
+        // segundo entre la carga de `maint` y este click, que sería
+        // precisamente el más real de todos) — ambos descartados. Solo queda
+        // el aviso de abajo para que el supervisor sepa cuáles seguían con un
+        // ticket pendiente y merecen revisarse antes de darlas por buenas.
+        const idsConTicketPendiente = new Set(maint.map((r) => r.machinery_id));
+        const idsSeleccion = new Set(items.map((it) => it.id));
+        const idsDetenidas = new Set([...idsSeleccion].filter((id) => idsConTicketPendiente.has(id)));
         await Promise.all(items.map((it) =>
           logAudit('JORNADA_INICIO', 'machinery', it.id, `${codeOf(it.id)} · inicio manual (panel supervisor) · ${it.shift === 'day' ? 'día' : 'noche'}`)
         ));
-        Alert.alert('Listo', `${items.length} máquina(s) marcadas como iniciadas.${mrErr ? ' ⚠️ No se pudieron cerrar todas las averías/paradas pendientes.' : ''}`);
+        const saltadas = idsDetenidas.size;
+        Alert.alert(
+          'Listo',
+          `${items.length} máquina(s) marcadas como iniciadas.${saltadas > 0 ? ` ⚠️ ${saltadas} seguían con un ticket pendiente en Mantenimiento (avería/parada) — revísalas y ciérralo con "Volver a Operativa" cuando estén realmente reparadas.` : ''}`
+        );
       } else if (action === 'pending') {
         // Corrección del cliente: esto NO es "Parada" (eso es exclusivo de
         // avería/algo físico que le pasa a la máquina, con su propio botón y
@@ -628,7 +651,7 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
             notes: `Horas conservadas antes de marcar ${action === 'averia' ? 'avería' : 'parada'} desde el panel de Inspecciones (admin).`,
           })));
         }
-        const motivo = bulkMotivo.trim() || (action === 'averia' ? 'Avería marcada desde el panel de Inspecciones (admin).' : 'NO TRABAJÓ LA MÁQUINA (marcado desde el panel de Inspecciones, admin).');
+        const motivo = bulkMotivo.trim();
         const maintRows = plan.flatMap((p) => action === 'averia'
           ? [
               { machinery_id: p.id, material: 'otro', notes: motivo, status: 'pendiente', requested_by: uid },
@@ -1562,12 +1585,11 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     </ScrollView>
                   )}
 
-                  {/* Motivo compartido — solo hace falta para Parada/Avería (obligatorio en
-                      Avería, opcional en Parada: sin texto usa "NO TRABAJÓ LA MÁQUINA"). */}
+                  {/* Motivo compartido — obligatorio tanto para Parada como para Avería en bloque. */}
                   <TextInput
                     value={bulkMotivo}
                     onChangeText={setBulkMotivo}
-                    placeholder="Motivo (para Parada / Avería en bloque)…"
+                    placeholder="Motivo (obligatorio para Parada / Avería en bloque)…"
                     placeholderTextColor={colors.muted}
                     style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 8, color: colors.text, fontSize: 12.5, marginTop: spacing.xs, marginBottom: spacing.sm }}
                   />
@@ -1583,10 +1605,10 @@ export default function InspectionsSummary({ date, onDateChange }: { date?: stri
                     <TouchableOpacity onPress={() => applyBulk('pending')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.muted, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `⏳ Pendiente (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk('parada')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.warning, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                    <TouchableOpacity onPress={() => applyBulk('parada')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.warning, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🟡 Parada (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => applyBulk('averia')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: bulkSel.size === 0 || bulkBusy || !bulkIsToday ? 0.5 : 1 }}>
+                    <TouchableOpacity onPress={() => applyBulk('averia')} disabled={bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()} activeOpacity={0.85} style={{ flex: 1, backgroundColor: colors.danger, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', opacity: (bulkSel.size === 0 || bulkBusy || !bulkIsToday || !bulkMotivo.trim()) ? 0.5 : 1 }}>
                       <Text style={{ color: '#fff', fontWeight: '900', fontSize: 12 }}>{bulkBusy ? 'Guardando…' : `🔴 Avería (${bulkSel.size})`}</Text>
                     </TouchableOpacity>
                   </View>

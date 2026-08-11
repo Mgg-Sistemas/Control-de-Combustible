@@ -495,11 +495,19 @@ function FabricacionPlantaStack() {
  *  (mismo patrón que `esRolCombustible`/`esRolInventario` — un rol cuyos módulos
  *  activos son exactamente este combo). Pedido del cliente (10-ago-2026): que
  *  arranque ahí mismo, como el inspector arranca en "Revisar". */
-const COORD_OPERADORES_MODULES = ['operadores', 'supervision', 'coordinacion_operadores'];
+// OJO: antes exigía que los módulos activos fueran EXACTAMENTE este combo
+// (subset check) — se rompió solo (12-ago-2026) en cuanto se activó "reportes"
+// además de estos 3 desde Usuarios: al dejar de ser un subconjunto exacto,
+// `esRolCoordinadorOperadores` pasaba a `false` y el usuario se caía de este
+// árbol entero (volvía a SupervisorTabs, sin el botón de Reportes ni nada de
+// esta pantalla — no era que "no salía el botón", era que ya no llegaba ni a
+// la pantalla). "coordinacion_operadores" es un módulo exclusivo de este rol
+// (nadie más lo tiene activado), así que basta con exigir que esté prendido —
+// no importa qué OTROS módulos (reportes, y los que se sumen después) también
+// lo estén.
 function esRolCoordinadorOperadores(appRole: AppRole | null): boolean {
   const mods = appRole?.modules ?? {};
-  const activos = Object.keys(mods).filter((k) => mods[k] && mods[k] !== 'none');
-  return activos.includes('coordinacion_operadores') && activos.every((k) => COORD_OPERADORES_MODULES.includes(k));
+  return !!mods['coordinacion_operadores'] && mods['coordinacion_operadores'] !== 'none';
 }
 
 /** Panel del Coordinador de Operadores: arranca directo en su vista por máquina
@@ -512,6 +520,10 @@ function CoordinadorOperadoresStack() {
     <Stack.Navigator screenOptions={screenHeader}>
       <Stack.Screen name="CoordOperadoresHome" component={CoordinadorOperadoresScreen} options={{ title: 'Coordinador de Operadores' }} />
       <Stack.Screen name="EmployeeCard" component={EmployeeCardScreen} options={{ title: 'Ficha del trabajador' }} />
+      {/* Reportes generales (combustible/horas/flota) — solo entra por el botón de
+          arriba, que ya está protegido con `canSee('reportes')`; el módulo debe
+          estar activado en el rol "Coordinador de Operadores" desde Usuarios. */}
+      <Stack.Screen name="Reports" component={ReportsScreen} options={{ title: 'Reportes' }} />
       <Stack.Screen name="Manual" component={ManualScreen} options={{ title: 'Manual / Ayuda' }} />
       <Stack.Screen name="Ajustes" component={AjustesScreen} options={{ title: 'Ajustes' }} />
     </Stack.Navigator>
@@ -843,6 +855,15 @@ function pickTree(ctx: {
   // en escritura para sus reportes). Va ANTES del catch-all `esRolCombustible` de
   // abajo porque ese solo mira los módulos, no el panel_type.
   if (appRole && role !== 'admin' && appRole.panel_type === 'conductor') return { key: 'conductor', node: <ConductorTabs /> };
+  // COORDINADOR DE OPERADORES: directo a su vista por máquina (como el inspector
+  // arranca en "Revisar"), con escáner de QR propio. Va AQUÍ (antes de `role ===
+  // 'supervisor'`) y no más abajo junto a combustible/asistencia/inventario: a
+  // varios coordinadores (ej. Arturo Yague) se les puso este rol personalizado
+  // encima de un profiles.role base 'supervisor' (no 'conductor'), así que el
+  // chequeo `role === 'supervisor'` de abajo los interceptaba primero y los
+  // mandaba a SupervisorTabs — el rol quedaba asignado en Usuarios pero la
+  // pantalla nueva nunca se veía (bug real, 11-ago-2026).
+  if (appRole && role !== 'admin' && esRolCoordinadorOperadores(appRole)) return { key: 'coordOperadores', node: <CoordinadorOperadoresStack /> };
   if (role === 'coordinador_patio') return { key: 'patio', node: <PatioStack /> };
   // El admin (rol genérico) SIEMPRE arranca en la app completa en teléfono — el
   // cliente pidió explícitamente que el/los administrador(es) no inicien en la
@@ -875,9 +896,6 @@ function pickTree(ctx: {
   if (appRole && role !== 'admin' && esRolInventario(appRole)) return { key: 'inventario', node: <InventarioStack /> };
   // Rol por módulos cuyo único acceso es el KIOSCO DE PLANTA: directo al Kiosco.
   if (appRole && role !== 'admin' && esRolFabricacionPlanta(appRole)) return { key: 'fabricacionPlanta', node: <FabricacionPlantaStack /> };
-  // COORDINADOR DE OPERADORES: directo a su vista por máquina (como el inspector
-  // arranca en "Revisar"), con escáner de QR propio.
-  if (appRole && role !== 'admin' && esRolCoordinadorOperadores(appRole)) return { key: 'coordOperadores', node: <CoordinadorOperadoresStack /> };
   if (appRole && role !== 'admin') return { key: 'tabs', node: <Tabs /> };
   if (role === 'operador') return { key: 'operador', node: <OperatorScreen /> };
   if (role === 'cocina') return { key: 'cocina', node: <CocinaStack /> };

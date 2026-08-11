@@ -31,6 +31,11 @@ export type OperatorAssignmentRow = {
 export async function assignOperator(
   machineryId: string, employeeId: string | null, operatorName: string, cedula: string | null, shift: Shift, assignedBy: string | null,
 ): Promise<{ error?: string; missing?: boolean }> {
+  // "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): guard en el
+  // propio punto de escritura, para cubrir CUALQUIER pantalla que llame a esta función
+  // (no solo el escaneo de QR, que ya se filtra antes en CoordinadorOperadoresScreen).
+  const { data: mach } = await supabase.from('machinery').select('en_espera').eq('id', machineryId).maybeSingle();
+  if ((mach as any)?.en_espera) return { error: 'Esa máquina está EN ESPERA DE INSTRUCCIONES: no se le puede asignar operador todavía.' };
   const { error } = await supabase
     .from('machine_operators')
     .upsert(

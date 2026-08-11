@@ -445,7 +445,7 @@ create trigger trg_lock_invoice before update on public.fuel_intakes
 -- ============================================================================
 create or replace function public.approve_authorization(p_auth_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
-declare a public.authorizations%rowtype;
+declare a public.authorizations%rowtype; en_espera_mach boolean;
 begin
   if public.current_role() not in ('admin','supervisor') then
     raise exception 'Solo un administrador o supervisor puede autorizar';
@@ -454,6 +454,16 @@ begin
   if not found then raise exception 'Autorización no encontrada'; end if;
   if a.status <> 'pendiente' then raise exception 'La autorización ya fue resuelta'; end if;
   if a.tank_id is null then raise exception 'La solicitud no tiene tanque de origen'; end if;
+
+  -- "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): si la
+  -- maquinaria de esta solicitud quedó en_espera DESPUÉS de crearse (o se coló por
+  -- algún otro camino), no se aprueba el despacho.
+  if a.machinery_id is not null then
+    select en_espera into en_espera_mach from public.machinery where id = a.machinery_id;
+    if en_espera_mach then
+      raise exception 'Esa maquinaria está EN ESPERA DE INSTRUCCIONES: no se le puede aprobar combustible.';
+    end if;
+  end if;
 
   insert into public.dispatches (asset_kind, vehicle_id, machinery_id, liters, tank_id, authorization_id, created_by)
   values (a.asset_kind, a.vehicle_id, a.machinery_id, a.liters, a.tank_id, a.id, auth.uid());

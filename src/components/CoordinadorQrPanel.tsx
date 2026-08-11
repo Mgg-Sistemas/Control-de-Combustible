@@ -22,7 +22,7 @@ const AV_MATERIALS: { key: string; label: string; icon: string }[] = [
 const numOrNull = (s: string) => { const n = Number((s || '').replace(',', '.')); return isFinite(n) && s.trim() !== '' ? n : null; };
 
 type Action = 'gasoil' | 'averia' | 'lista';
-type Mach = { id: string; code: string; plate: string | null };
+type Mach = { id: string; code: string; plate: string | null; en_espera: boolean | null };
 
 /**
  * Panel reusable de COORDINADOR con escáner QR. Tres acciones rápidas: escanea el QR
@@ -61,9 +61,16 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
     const id = parseMachineId(text);
     if (!id) { setNotice('❌ QR no reconocido. Escanea el QR de una máquina.'); return; }
     setBusy(true);
-    const { data } = await supabase.from('machinery').select('id, code, plate').eq('id', id).maybeSingle();
+    const { data } = await supabase.from('machinery').select('id, code, plate, en_espera').eq('id', id).maybeSingle();
     setBusy(false);
     if (!data) { setNotice('❌ No se encontró esa máquina.'); return; }
+    // "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): ni surtir
+    // gasoil ni registrar avería hasta que se decida Operativa o Parada. La ÚNICA acción
+    // permitida es "✅ Máquina lista" (es justo la que la desbloquea).
+    if ((data as any).en_espera && act !== 'lista') {
+      setNotice(`⏳ "${(data as any).code}" está EN ESPERA DE INSTRUCCIONES. No se le puede surtir gasoil ni registrar avería hasta que se decida si queda Operativa o Parada.`);
+      return;
+    }
     setMachine(data as Mach);
     setAvMaterial(null); setAvQty(''); setAvNote(''); setAvPhoto(null);
     setAction(act);
@@ -80,6 +87,7 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
 
   const registrarAveria = async () => {
     if (!machine || !avMaterial) return;
+    if (!avNote.trim()) { setNotice('❌ Describe la falla — la nota es obligatoria.'); return; }
     setBusy(true);
     const { error } = await supabase.from('maintenance_requests').insert({
       machinery_id: machine.id, material: avMaterial, quantity: numOrNull(avQty),
@@ -190,13 +198,13 @@ export default function CoordinadorQrPanel({ title = 'Mi panel' }: { title?: str
               <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Cantidad (opcional)</Text>
               <TextInput value={avQty} onChangeText={setAvQty} keyboardType="numeric" placeholder="Ej: 2" placeholderTextColor={colors.muted}
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text }} />
-              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (opcional)</Text>
+              <Text style={{ color: colors.muted, fontSize: 13, marginTop: spacing.md, marginBottom: 4 }}>Nota (obligatoria)</Text>
               <TextInput value={avNote} onChangeText={setAvNote} placeholder="Detalle de la falla" placeholderTextColor={colors.muted} multiline
                 style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.sm, color: colors.text, minHeight: 60 }} />
               <TouchableOpacity onPress={subirFotoAveria} disabled={avPhotoUp} style={{ marginTop: spacing.sm, borderWidth: 1, borderColor: avPhoto ? colors.success : colors.border, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center' }}>
                 <Text style={{ color: avPhoto ? colors.success : colors.text, fontWeight: '700' }}>{avPhotoUp ? 'Subiendo…' : avPhoto ? '✓ Foto de referencia adjunta' : '📷 Foto de referencia (opcional)'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: busy || !avMaterial ? 0.6 : 1 }}>
+              <TouchableOpacity onPress={registrarAveria} disabled={busy || !avMaterial || !avNote.trim()} style={{ marginTop: spacing.md, backgroundColor: '#B45309', borderRadius: radius.md, padding: spacing.md, alignItems: 'center', opacity: (busy || !avMaterial || !avNote.trim()) ? 0.6 : 1 }}>
                 <Text style={{ color: '#fff', fontWeight: '900', fontSize: 16 }}>Registrar avería</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => { setMachine(null); setAction(null); }} style={{ padding: spacing.sm, alignItems: 'center' }}>

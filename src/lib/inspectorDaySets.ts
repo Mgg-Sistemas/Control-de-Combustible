@@ -41,19 +41,24 @@ export type MachineFlags = { id: string; active: boolean | null; operational: bo
 /**
  * Máquinas fuera del catálogo asignable, en dos niveles (igual que
  * `machInactiveSet`/`machHardInactiveSet` en InspectionsSummary.tsx):
- *  - "duras" (machHardInactiveSet): active=false u operational=false (botón
- *    "⛔ Inactiva" del Catálogo). NUNCA se muestran, ni con jornada abierta
- *    (regla confirmada por el cliente 08/08/2026).
- *  - "blandas" (machInactiveSet): active=false o en_espera=true. Se ocultan
- *    salvo que tengan una jornada abierta HOY (anyOpenSet) — mismo criterio
- *    que el teléfono (visibleParaInspector).
+ *  - "duras" (machHardInactiveSet): active=false, operational=false (botón
+ *    "⛔ Inactiva" del Catálogo) o en_espera=true. NUNCA se muestran, ni con
+ *    jornada abierta (regla confirmada por el cliente 08/08/2026, y extendida
+ *    a en_espera el 11-ago-2026: "esperando instrucciones" debe quedar
+ *    congelada por completo — sin excepción por jornada abierta. Desde esa
+ *    fecha, al marcar en_espera=true cualquier jornada corriendo se cierra de
+ *    inmediato — `freezeOpenJornadaNow` en machineRounds.ts — así que esta
+ *    excepción ya no hace falta ni para dejar que el inspector la cierre).
+ *  - "blandas" (machInactiveSet): active=false. Se oculta salvo que tenga una
+ *    jornada abierta HOY (anyOpenSet) — mismo criterio que el teléfono
+ *    (visibleParaInspector).
  */
 export function computeMachineVisibilitySets(machList: MachineFlags[]): { machInactiveSet: Set<string>; machHardInactiveSet: Set<string> } {
   const machInactiveSet = new Set<string>();
   const machHardInactiveSet = new Set<string>();
   machList.forEach((m) => {
-    if (m.active === false || m.en_espera === true) machInactiveSet.add(m.id);
-    if (m.active === false || m.operational === false) machHardInactiveSet.add(m.id);
+    if (m.active === false) machInactiveSet.add(m.id);
+    if (m.active === false || m.operational === false || m.en_espera === true) machHardInactiveSet.add(m.id);
   });
   return { machInactiveSet, machHardInactiveSet };
 }
@@ -120,17 +125,26 @@ export function buildDaySets(params: {
   const workedSet = new Set<string>();  // trabajó/abrió (jornada de ESTE turno)
   const openSet = new Set<string>();    // jornada de ESTE turno aún abierta
   const anyOpenSet = new Set<string>(); // CUALQUIER jornada abierta (sigue trabajando)
-  const openStartMs = new Map<string, number>(); // hora de inicio de la jornada ABIERTA de ESTE turno
+  // Hora de inicio de la jornada ABIERTA HOY, en CUALQUIER turno (no solo shiftArg).
+  // BUG (11-ago-2026): antes solo se guardaba si `openShiftOf(r) === shiftArg`, así que
+  // una avería/parada marcada de NOCHE con la jornada de HOY reabierta de DÍA (o
+  // viceversa) nunca reactivaba — `reactivadaTras` recibía un mapa vacío para esa
+  // máquina y la seguía contando averiada/parada, aunque ya hubiera vuelto a trabajar
+  // en el otro turno (mismo síntoma que el commit 5f9a2ada corrigió puntualmente y
+  // en paralelo dentro de DashboardScreen.tsx — acá se generaliza para que lo hereden
+  // TODOS los consumidores: Coordinador de Operadores, Inspecciones, el PDF). Mismo
+  // criterio que `liveStatusOf` en EquiposScreen.tsx (Math.max(openStartDay,
+  // openStartNight)). `openSet` sigue siendo estrictamente por-turno (lo usa
+  // activeNowSet/closedSet más abajo, que sí deben distinguir turno).
+  const openStartMs = new Map<string, number>();
   rounds.forEach((r) => {
     if (r.round_date !== selDay) return;
     if (workedInShift(r, shiftArg)) workedSet.add(r.machinery_id);
     if (r.jornada_start_at) {
       anyOpenSet.add(r.machinery_id);
-      if (openShiftOf(r) === shiftArg) {
-        openSet.add(r.machinery_id);
-        const ms = new Date(r.jornada_start_at as string).getTime();
-        if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
-      }
+      const ms = new Date(r.jornada_start_at as string).getTime();
+      if (!isNaN(ms)) openStartMs.set(r.machinery_id, Math.max(openStartMs.get(r.machinery_id) ?? 0, ms));
+      if (openShiftOf(r) === shiftArg) openSet.add(r.machinery_id);
     }
   });
 

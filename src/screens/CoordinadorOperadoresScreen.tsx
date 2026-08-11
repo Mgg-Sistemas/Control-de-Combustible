@@ -66,14 +66,15 @@ function fmtHora(ts: string): string {
  */
 export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const { colors } = useTheme();
-  const { session } = useAuth();
+  const { session, canSee } = useAuth();
   const uid = session?.user?.id ?? '';
   const today = caracasBusinessToday();
 
   const [shift, setShift] = useState<Shift>(caracasNowShift);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<'maquinas' | 'sinasignar' | 'novedades'>('maquinas');
+  const [tab, setTab] = useState<'maquinas' | 'sinasignar' | 'novedades' | 'operadores'>('maquinas');
+  const [opTabQuery, setOpTabQuery] = useState('');
 
   const [machList, setMachList] = useState<MachRow[]>([]);
   // `DaySetRound` + operador día/noche: `buildDaySets` solo necesita los campos de
@@ -201,6 +202,63 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
   const mismatchRows = useMemo(() => universeRows.filter((r) => r.mismatch), [universeRows]);
   const ausenciaRows = useMemo(() => universeRows.filter((r) => r.planned && r.attendance === 'no'), [universeRows]);
 
+  // Buscador de las pestañas "Máquinas"/"Sin asignar": por nombre/placa/serial de
+  // la máquina o por el nombre del operador (planeado o el que está en sitio).
+  const [machQuery, setMachQuery] = useState('');
+  const matchesMachQuery = useCallback((r: Row) => {
+    const q = norm(machQuery.trim());
+    if (!q) return true;
+    return norm(r.code).includes(q) || norm(r.plate || '').includes(q) || norm(r.serial || '').includes(q)
+      || norm(r.companyName).includes(q) || norm(r.planned?.operator_name || '').includes(q) || norm(r.liveName || '').includes(q);
+  }, [machQuery]);
+  const universeRowsShown = useMemo(() => universeRows.filter(matchesMachQuery), [universeRows, matchesMachQuery]);
+  const sinAsignarRowsShown = useMemo(() => sinAsignarRows.filter(matchesMachQuery), [sinAsignarRows, matchesMachQuery]);
+
+  // ── Vista por PERSONA (pestaña "Operadores"): el resto de la pantalla está
+  // organizada por máquina; esta es la única que arranca del roster de
+  // `employees` (TODOS los operadores activos, tengan o no máquina hoy) y
+  // cruza para cada uno su máquina PLANEADA de este turno, quién está de
+  // verdad en sitio y su asistencia — reusa exactamente los datos que ya
+  // carga esta pantalla (`operators`, `planned`, `liveByMachine`,
+  // `attendanceOf`), sin pedir nada nuevo al servidor.
+  type OperatorRow = {
+    operator: Operator; machineCode: string | null; companyName: string | null;
+    liveName: string | null; mismatch: boolean;
+    attendance: 'ok' | 'no' | 'out' | null; attendanceTs: string | null;
+  };
+  const plannedByEmp = useMemo(() => {
+    const map = new Map<string, OperatorAssignmentRow>();
+    planned.forEach((p) => { if (p.shift === shift && p.employee_id) map.set(p.employee_id, p); });
+    return map;
+  }, [planned, shift]);
+  const operatorRows: OperatorRow[] = useMemo(() => {
+    const rows = operators.map((o) => {
+      const plan = plannedByEmp.get(o.id) ?? null;
+      const mach = plan ? machList.find((m) => m.id === plan.machinery_id) : null;
+      const live = plan ? liveByMachine.get(plan.machinery_id) ?? null : null;
+      const mismatch = !!(plan && live?.name && norm(plan.operator_name) !== norm(live.name));
+      const att = attendanceOf(o.id);
+      return {
+        operator: o, machineCode: mach?.code ?? null, companyName: mach?.companyName ?? null,
+        liveName: live?.name ?? null, mismatch, attendance: att.status, attendanceTs: att.ts,
+      };
+    });
+    rows.sort((a, b) => {
+      const aSin = !a.machineCode, bSin = !b.machineCode;
+      if (aSin !== bSin) return aSin ? 1 : -1; // los que SÍ tienen máquina primero
+      return cmpText(a.operator.name, b.operator.name);
+    });
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [operators, plannedByEmp, machList, liveByMachine, attendanceByEmp]);
+  const operatorRowsShown = useMemo(() => {
+    const q = norm(opTabQuery.trim());
+    if (!q) return operatorRows;
+    return operatorRows.filter((r) =>
+      norm(r.operator.name).includes(q) || norm(r.operator.cedula || '').includes(q) || norm(r.machineCode || '').includes(q) || norm(r.companyName || '').includes(q)
+    );
+  }, [operatorRows, opTabQuery]);
+
   // ── Asignar / reasignar operador ──────────────────────────────────────────
   const [assignFor, setAssignFor] = useState<{ id: string; code: string; companyName: string } | null>(null);
   const [assignShift, setAssignShift] = useState<Shift>('day');
@@ -299,6 +357,9 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     // acá, puede ser un QR de una máquina dada de baja (no necesariamente inválido).
     const m = id ? machList.find((x) => x.id === id) : null;
     if (!m) { setScanNotice(id ? '❌ Esta máquina no está disponible (no existe o está dada de baja).' : '❌ El QR escaneado no es de una máquina.'); return; }
+    // "Esperando instrucciones" = congelada (pedido del cliente 11-ago-2026): no se le
+    // planea/asigna operador hasta que se decida Operativa o Parada.
+    if (m.en_espera) { setScanNotice(`⏳ ${m.code} está EN ESPERA DE INSTRUCCIONES. No se le puede asignar operador todavía.`); return; }
     setScanNotice(null);
     const plan = plannedByMachine.get(m.id)?.[shift] ?? null;
     if (plan?.employee_id && navigation?.navigate) {
@@ -399,6 +460,11 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
           <View style={{ flex: 1 }}>
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>{r.code}</Text>
             <Text style={{ color: colors.muted, fontSize: 11 }}>{r.companyName}{r.tipo ? ` · ${r.tipo}` : ''}</Text>
+            {(r.plate || r.serial) ? (
+              <Text style={{ color: colors.muted, fontSize: 10.5 }}>
+                {r.plate ? `🪪 ${r.plate}` : ''}{r.plate && r.serial ? '  ·  ' : ''}{r.serial ? `🔩 Serial ${r.serial}` : ''}
+              </Text>
+            ) : null}
           </View>
           {badge(r.state)}
         </View>
@@ -425,6 +491,15 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
     <Screen onRefresh={onRefresh} refreshing={refreshing}>
       <ConfigBanner />
       <SectionTitle>👷‍♂️ Coordinador de Operadores</SectionTitle>
+
+      {canSee('reportes') && navigation?.navigate ? (
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Reports')}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, marginBottom: spacing.sm }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '800', fontSize: 13 }}>📊 Reportes (combustible, horas, flota…)</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {plannedMissing ? (
         <Card><Text style={{ color: colors.danger, fontWeight: '700' }}>❌ Falta activar la tabla machine_operators en Supabase.</Text></Card>
@@ -464,31 +539,96 @@ export default function CoordinadorOperadoresScreen({ navigation }: any = {}) {
         </View>
       </View>
 
-      <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.md }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md }} contentContainerStyle={{ gap: spacing.xs }}>
         {([
           { key: 'maquinas', label: `🚜 Máquinas (${universeRows.length})` },
+          { key: 'operadores', label: `👷 Operadores (${operators.length})` },
           { key: 'sinasignar', label: `🧩 Sin asignar (${sinAsignarRows.length})` },
           { key: 'novedades', label: `📋 Novedades (${sinAsignarRows.length + mismatchRows.length + ausenciaRows.length})` },
         ] as { key: typeof tab; label: string }[]).map((t) => {
           const on = tab === t.key;
           return (
-            <TouchableOpacity key={t.key} onPress={() => setTab(t.key)} style={{ flex: 1, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', backgroundColor: on ? colors.primary : colors.surface, borderWidth: 1, borderColor: on ? colors.primary : colors.border }}>
-              <Text style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{t.label}</Text>
+            <TouchableOpacity key={t.key} onPress={() => setTab(t.key)} style={{ paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.md, alignItems: 'center', backgroundColor: on ? colors.primary : colors.surface, borderWidth: 1, borderColor: on ? colors.primary : colors.border }}>
+              <Text numberOfLines={1} style={{ color: on ? colors.primaryContrast : colors.text, fontWeight: '700', fontSize: 11 }}>{t.label}</Text>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
+
+      {(tab === 'maquinas' || tab === 'sinasignar') ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.sm }}>
+          <Text style={{ fontSize: 14 }}>🔎</Text>
+          <TextInput
+            value={machQuery}
+            onChangeText={setMachQuery}
+            placeholder="Buscar máquina: nombre, placa, serial… u operador"
+            placeholderTextColor={colors.muted}
+            style={{ flex: 1, color: colors.text, paddingVertical: spacing.sm, paddingHorizontal: spacing.xs, fontSize: 12.5 }}
+          />
+          {machQuery ? <TouchableOpacity onPress={() => setMachQuery('')}><Text style={{ color: colors.primary, fontWeight: '800', paddingHorizontal: spacing.xs }}>✕</Text></TouchableOpacity> : null}
+        </View>
+      ) : null}
 
       {tab === 'maquinas' ? (
-        universeRows.length === 0
-          ? <EmptyState title="Sin máquinas en este turno" subtitle="No hay máquinas asignadas, trabajando ni con novedades para el turno elegido." />
-          : universeRows.map(machineCard)
+        universeRowsShown.length === 0
+          ? <EmptyState
+              title={machQuery ? 'Sin resultados' : 'Sin máquinas en este turno'}
+              subtitle={machQuery ? 'No hay máquinas ni operadores que coincidan con la búsqueda.' : 'No hay máquinas asignadas, trabajando ni con novedades para el turno elegido.'}
+            />
+          : universeRowsShown.map(machineCard)
+      ) : null}
+
+      {tab === 'operadores' ? (
+        <>
+          <TextInput
+            value={opTabQuery}
+            onChangeText={setOpTabQuery}
+            placeholder="🔎 Buscar operador: nombre, cédula, máquina, empresa…"
+            placeholderTextColor={colors.muted}
+            style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 8, color: colors.text, fontSize: 12.5, marginBottom: spacing.sm }}
+          />
+          {operatorRowsShown.length === 0 ? (
+            <EmptyState title="Sin resultados" subtitle="No hay operadores que coincidan con la búsqueda." />
+          ) : (
+            operatorRowsShown.map((r) => (
+              <Card key={r.operator.id}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.text, fontWeight: '800', fontSize: 14 }}>👷 {r.operator.name}</Text>
+                    {r.operator.cedula ? <Text style={{ color: colors.muted, fontSize: 11 }}>CI {r.operator.cedula}</Text> : null}
+                  </View>
+                </View>
+                <View style={{ marginTop: spacing.xs, gap: 2 }}>
+                  {r.machineCode ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>Máquina <Text style={{ color: colors.text, fontWeight: '700' }}>🚜 {r.machineCode}</Text>{r.companyName ? ` · ${r.companyName}` : ''}</Text>
+                  ) : (
+                    <Text style={{ color: colors.warning, fontSize: 11.5, fontWeight: '700' }}>— Sin máquina asignada este turno</Text>
+                  )}
+                  {r.liveName ? (
+                    <Text style={{ color: colors.muted, fontSize: 11.5 }}>En sitio <Text style={{ color: r.mismatch ? colors.danger : colors.text, fontWeight: '700' }}>👷 {r.liveName}</Text></Text>
+                  ) : null}
+                  {r.mismatch ? (
+                    <View style={{ backgroundColor: colors.dangerSoftBg, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 4, marginTop: 3 }}>
+                      <Text style={{ color: colors.dangerSoftText, fontWeight: '700', fontSize: 10.5 }}>⚠️ El operador en sitio no es el planeado</Text>
+                    </View>
+                  ) : null}
+                  {r.attendance === 'ok' ? <Text style={{ color: colors.success, fontSize: 10.5 }}>🟢 Marcó entrada {r.attendanceTs ? fmtHora(r.attendanceTs) : ''}</Text> : null}
+                  {r.attendance === 'out' ? <Text style={{ color: colors.warning, fontSize: 10.5 }}>🟡 Marcó salida {r.attendanceTs ? fmtHora(r.attendanceTs) : ''}</Text> : null}
+                  {r.attendance === 'no' && r.machineCode ? <Text style={{ color: colors.danger, fontSize: 10.5 }}>🔴 Sin marcar entrada hoy</Text> : null}
+                </View>
+              </Card>
+            ))
+          )}
+        </>
       ) : null}
 
       {tab === 'sinasignar' ? (
-        sinAsignarRows.length === 0
-          ? <EmptyState title="Todo asignado" subtitle="Ninguna máquina relevante de este turno está sin operador planeado." />
-          : sinAsignarRows.map(machineCard)
+        sinAsignarRowsShown.length === 0
+          ? <EmptyState
+              title={machQuery ? 'Sin resultados' : 'Todo asignado'}
+              subtitle={machQuery ? 'No hay máquinas que coincidan con la búsqueda.' : 'Ninguna máquina relevante de este turno está sin operador planeado.'}
+            />
+          : sinAsignarRowsShown.map(machineCard)
       ) : null}
 
       {tab === 'novedades' ? (
