@@ -128,6 +128,55 @@ export function profile(g: Grid, ax: number, ay: number, bx: number, by: number,
   return out;
 }
 
+/** Color (0-1 por hex) por elevación normalizada t∈[0,1]: azul→verde→marrón→blanco. */
+function elevRgb(t: number): [number, number, number] {
+  const stops: [number, [number, number, number]][] = [
+    [0, [0.15, 0.35, 0.75]], [0.35, [0.13, 0.62, 0.29]], [0.7, [0.57, 0.40, 0.16]], [1, [0.96, 0.96, 0.96]],
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [a, ca] = stops[i], [b, cb] = stops[i + 1];
+    if (t <= b) { const u = (t - a) / (b - a || 1); return [ca[0] + (cb[0] - ca[0]) * u, ca[1] + (cb[1] - ca[1]) * u, ca[2] + (cb[2] - ca[2]) * u]; }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/** Malla 3D del terreno (para el visor WebGL): posiciones normalizadas (plano X/Z,
+ *  altura Y), colores por elevación e índices de triángulos. `vExag` exagera la altura. */
+export function terrainMesh(pts: XYZ[], vExag = 2): { positions: number[]; colors: number[]; indices: number[]; zmin: number; zmax: number } | null {
+  const g = buildGrid(pts);
+  if (!g) return null;
+  const { grid, nx, ny, minX, minY, cell } = g;
+  let zmin = Infinity, zmax = -Infinity;
+  for (let i = 0; i < grid.length; i++) { const z = grid[i]; if (!isNaN(z)) { if (z < zmin) zmin = z; if (z > zmax) zmax = z; } }
+  if (!isFinite(zmin)) return null;
+  const sizeX = (nx - 1) * cell, sizeY = (ny - 1) * cell;
+  const scale = Math.max(sizeX, sizeY) || 1;
+  const zrange = (zmax - zmin) || 1;
+  const positions: number[] = [], colors: number[] = [], indices: number[] = [];
+  const idx = new Int32Array(nx * ny).fill(-1);
+  let count = 0;
+  for (let gy = 0; gy < ny; gy++) {
+    for (let gx = 0; gx < nx; gx++) {
+      const z = grid[gy * nx + gx];
+      if (isNaN(z)) continue;
+      idx[gy * nx + gx] = count++;
+      const X = ((minX + gx * cell) - minX - sizeX / 2) / scale;
+      const Z = ((minY + gy * cell) - minY - sizeY / 2) / scale;
+      const Y = ((z - zmin) / zrange - 0.5) * (zrange / scale) * vExag;
+      positions.push(X, Y, Z);
+      const c = elevRgb((z - zmin) / zrange); colors.push(c[0], c[1], c[2]);
+    }
+  }
+  for (let gy = 0; gy < ny - 1; gy++) {
+    for (let gx = 0; gx < nx - 1; gx++) {
+      const a = idx[gy * nx + gx], b = idx[gy * nx + gx + 1], c = idx[(gy + 1) * nx + gx], d = idx[(gy + 1) * nx + gx + 1];
+      if (a >= 0 && b >= 0 && c >= 0) indices.push(a, c, b);
+      if (b >= 0 && c >= 0 && d >= 0) indices.push(b, c, d);
+    }
+  }
+  return { positions, colors, indices, zmin, zmax };
+}
+
 /** Secciones TRANSVERSALES a lo largo del eje A→B: cada `spacing` m se toma una
  *  sección perpendicular de ±`halfWidth` m, muestreada de la superficie. */
 export function crossSections(g: Grid, ax: number, ay: number, bx: number, by: number, spacing: number, halfWidth: number, sampleStep = 1, maxSections = 12): { station: number; samples: { offset: number; z: number | null }[] }[] {
