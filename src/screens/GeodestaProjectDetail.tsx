@@ -15,8 +15,10 @@ import { norm, cmpText } from '../lib/text';
 import { levelMeets } from '../lib/permissions';
 import { GeodestaProject, GeodestaPoint } from '../types/database';
 import { captureHighAccuracy, neFromLatLng, parsePointsCsv, pointsToCsv, layerColor } from '../lib/geodesta';
+import { contours, XYZ } from '../lib/tin';
 
-type Tab = 'lista' | 'mapa';
+type Tab = 'lista' | 'mapa' | 'superficie';
+type Surface = { id: string; name: string; kind: string; interval_m: number | null; data: any; created_at: string };
 
 export default function GeodestaProjectDetail({ route, navigation }: any) {
   const projectId: string = route?.params?.projectId;
@@ -57,6 +59,25 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
   const [isGcp, setIsGcp] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const importRef = useRef<any>(null);
+
+  // Fase 2 — superficie / curvas de nivel.
+  const [interval, setIntervalM] = useState('1');
+  const [overlay, setOverlay] = useState<any>(null);        // GeoJSON de curvas en el mapa
+  const [surfInfo, setSurfInfo] = useState<string | null>(null);
+  const [surfaces, setSurfaces] = useState<Surface[]>([]);
+  const [activeSurf, setActiveSurf] = useState<string | null>(null);
+
+  const loadSurfaces = async () => {
+    if (!projectId) return;
+    const { data } = await supabase.from('geodesta_surfaces').select('*').eq('project_id', projectId).order('created_at', { ascending: false });
+    setSurfaces((data as Surface[]) ?? []);
+  };
+  useEffect(() => { loadSurfaces(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [projectId]);
+  useRealtimeRefresh(['geodesta_surfaces'], () => loadSurfaces());
+
+  // Puntos válidos con N/E/Z para el MDT.
+  const xyz = (): XYZ[] => points.filter((p) => !p.excluded && p.norte_m != null && p.este_m != null && p.cota_z != null)
+    .map((p) => ({ x: p.este_m as number, y: p.norte_m as number, z: p.cota_z as number }));
 
   useEffect(() => {
     if (!projectId) return;
@@ -179,6 +200,58 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
     }
   };
 
+  // ── Fase 2: curvas de nivel ──────────────────────────────────────────────
+  const intervalNum = () => { const n = Number(String(interval).replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 1; };
+
+  const generar = () => {
+    const pts = xyz();
+    if (pts.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota (Z).'); return; }
+    const iv = intervalNum();
+    const res = contours(pts, iv, 19, true);
+    if (!res.levels) { setOverlay(null); setSurfInfo('No se generaron curvas (revisa las cotas y el intervalo).'); return; }
+    setOverlay(res.geojson);
+    setActiveSurf(null);
+    setSurfInfo(`✅ ${res.levels} curva(s) cada ${iv} m · cotas ${res.zmin.toFixed(2)}–${res.zmax.toFixed(2)} m (${pts.length} pts). Vista previa; guárdala como versión.`);
+    setTab('superficie');
+  };
+
+  const guardarVersion = async () => {
+    if (!project || busy) return;
+    const pts = xyz();
+    if (pts.length < 3) { toast.error('Se necesitan al menos 3 puntos con cota (Z).'); return; }
+    const iv = intervalNum();
+    let zmin = Infinity, zmax = -Infinity;
+    pts.forEach((p) => { if (p.z < zmin) zmin = p.z; if (p.z > zmax) zmax = p.z; });
+    setBusy(true);
+    const name = `Superficie ${new Date().toLocaleDateString('es-VE')} · cada ${iv} m`;
+    const { error } = await supabase.from('geodesta_surfaces').insert({
+      project_id: project.id, name, kind: 'natural', interval_m: iv,
+      data: { interval: iv, zmin, zmax, n: pts.length, points: pts },
+    });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success('Versión de superficie guardada.');
+    loadSurfaces();
+  };
+
+  const verVersion = (s: Surface) => {
+    const pts: XYZ[] = s.data?.points ?? [];
+    const iv = s.interval_m || s.data?.interval || 1;
+    if (pts.length < 3) { toast.error('Esta versión no tiene puntos suficientes.'); return; }
+    const res = contours(pts, iv, 19, true);
+    setOverlay(res.geojson);
+    setActiveSurf(s.id);
+    setSurfInfo(`👁️ ${s.name} · ${res.levels} curva(s)`);
+    setTab('superficie');
+  };
+
+  const borrarVersion = async (s: Surface) => {
+    const { error } = await supabase.from('geodesta_surfaces').delete().eq('id', s.id);
+    if (error) { toast.error(error.message); return; }
+    if (activeSurf === s.id) { setActiveSurf(null); setOverlay(null); }
+    toast.success('Versión eliminada.'); loadSurfaces();
+  };
+
   const validos = points.filter((p) => !p.excluded);
   const conZ = validos.filter((p) => p.cota_z != null);
   const gcps = points.filter((p) => p.is_gcp).length;
@@ -195,18 +268,76 @@ export default function GeodestaProjectDetail({ route, navigation }: any) {
         </View>
       ) : null}
 
-      {/* Pestañas Lista / Mapa */}
+      {/* Pestañas Lista / Mapa / Superficie */}
       <View style={{ flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.sm }}>
-        {(['lista', 'mapa'] as Tab[]).map((t) => (
+        {(['lista', 'mapa', 'superficie'] as Tab[]).map((t) => (
           <TouchableOpacity key={t} onPress={() => setTab(t)} style={{ flex: 1, paddingVertical: spacing.sm, borderRadius: radius.md, alignItems: 'center', backgroundColor: tab === t ? colors.brand : colors.surface, borderWidth: 1, borderColor: tab === t ? colors.brand : colors.border }}>
-            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 13 }}>{t === 'lista' ? '📋 Puntos' : '🗺️ Mapa'}</Text>
+            <Text style={{ color: tab === t ? colors.brandContrast : colors.text, fontWeight: '800', fontSize: 12.5 }}>{t === 'lista' ? '📋 Puntos' : t === 'mapa' ? '🗺️ Mapa' : '⛰️ Superficie'}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {tab === 'mapa' ? (
+      {tab === 'superficie' ? (
         <>
-          <GeodestaMap points={mapPoints} height={420} />
+          <Card>
+            <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 4 }}>⛰️ Curvas de nivel (MDT/TIN)</Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginBottom: spacing.sm }}>Genera el modelo del terreno a partir de los puntos con cota (Z) y sus curvas de nivel al intervalo elegido.</Text>
+            <Text style={lbl(colors)}>Intervalo entre curvas (m)</Text>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, flexWrap: 'wrap' }}>
+              {['0.5', '1', '2', '5'].map((v) => (
+                <TouchableOpacity key={v} onPress={() => setIntervalM(v)} style={{ paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: interval === v ? colors.brand : colors.border, backgroundColor: interval === v ? colors.brand : colors.surface }}>
+                  <Text style={{ color: interval === v ? colors.brandContrast : colors.text, fontWeight: '700', fontSize: 13 }}>{v} m</Text>
+                </TouchableOpacity>
+              ))}
+              <TextInput value={interval} onChangeText={setIntervalM} keyboardType="decimal-pad" style={{ ...input, width: 80 }} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm }}>
+              <TouchableOpacity onPress={generar} style={{ flex: 1, backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center' }}>
+                <Text style={{ color: colors.primaryContrast, fontWeight: '800', fontSize: 13 }}>⛰️ Generar curvas</Text>
+              </TouchableOpacity>
+              {canWrite ? (
+                <TouchableOpacity onPress={guardarVersion} disabled={busy} style={{ flex: 1, borderWidth: 1, borderColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, alignItems: 'center', opacity: busy ? 0.6 : 1 }}>
+                  <Text style={{ color: colors.brand, fontWeight: '800', fontSize: 13 }}>💾 Guardar versión</Text>
+                </TouchableOpacity>
+              ) : null}
+              {overlay ? (
+                <TouchableOpacity onPress={() => { setOverlay(null); setActiveSurf(null); setSurfInfo(null); }} style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center' }}>
+                  <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {surfInfo ? <Text style={{ color: colors.muted, fontSize: 12, marginTop: 6 }}>{surfInfo}</Text> : null}
+          </Card>
+          <View style={{ height: spacing.sm }} />
+          <GeodestaMap points={mapPoints} overlay={overlay} height={400} />
+          {surfaces.length ? (
+            <>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: spacing.md, marginBottom: 4 }}>Versiones guardadas ({surfaces.length})</Text>
+              {surfaces.map((s) => (
+                <Card key={s.id}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13 }}>{activeSurf === s.id ? '👁️ ' : ''}{s.name}</Text>
+                      <Text style={{ color: colors.muted, fontSize: 11 }}>{s.data?.n ?? '—'} pts · cotas {s.data?.zmin?.toFixed?.(2) ?? '—'}–{s.data?.zmax?.toFixed?.(2) ?? '—'} m</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => verVersion(s)} style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: 5 }}>
+                      <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Ver</Text>
+                    </TouchableOpacity>
+                    {canDelete ? (
+                      <TouchableOpacity onPress={() => borrarVersion(s)} style={{ paddingHorizontal: spacing.xs, paddingVertical: 5 }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>🗑</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </Card>
+              ))}
+            </>
+          ) : null}
+          <View style={{ height: spacing.lg }} />
+        </>
+      ) : tab === 'mapa' ? (
+        <>
+          <GeodestaMap points={mapPoints} overlay={overlay} height={420} />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.sm }}>
             {layerOrder.map((l) => (
               <View key={l} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
