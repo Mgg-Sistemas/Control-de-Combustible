@@ -430,7 +430,7 @@ export default function EquiposScreen({ navigation, route }: any) {
     : tapaFilter === 'doble' ? (!!m.con_tapa && !!m.tapa_doble)
     : (!!m.con_tapa && !m.tapa_doble); // 'sencilla'
   const machineryList = machinery.data.filter(
-    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, companyName(m.company_id), tapaLabelOf(m)])
+    (m) => m.operational !== false && matchCompany(m) && matchType(m) && matchTapa(m) && matchQ([m.code, m.description, m.plate, m.serial, m.identifier, m.grupo, m.encargado, m.tipo, m.clasificacion, (m as any).machinery_type, (m as any).parroquia, (m as any).sector, (m as any).referencia, edificioLabel((m as any).referencia), companyName(m.company_id), tapaLabelOf(m)])
   );
   // Opciones del filtro por la dimensión activa (Modelo/Clasificación), con conteo.
   const typeOptions = useMemo(() => {
